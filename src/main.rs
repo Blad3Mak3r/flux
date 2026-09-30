@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use tracing::{Level, debug, info};
 
@@ -57,13 +57,14 @@ fn main() -> Result<()> {
 
     let worker_status = Arc::clone(&status);
     let worker_shutdown = Arc::clone(&shutdown);
-    thread::spawn(move || {
-        if let Err(error) = run_runtime(
+    let worker = thread::spawn(move || {
+        let result = run_runtime(
             cli,
             channels,
             Arc::clone(&worker_status),
             Arc::clone(&worker_shutdown),
-        ) {
+        );
+        if let Err(error) = &result {
             worker_status
                 .lock()
                 .expect("runtime status mutex poisoned")
@@ -71,9 +72,16 @@ fn main() -> Result<()> {
             tracing::error!(%error, "Flux runtime stopped");
             worker_shutdown.store(true, Ordering::Relaxed);
         }
+        result
     });
 
-    tray::run(status, shutdown)
+    let tray_result = tray::run(status, Arc::clone(&shutdown));
+    shutdown.store(true, Ordering::Relaxed);
+    let runtime_result = worker
+        .join()
+        .map_err(|_| anyhow!("Flux runtime thread panicked"))?;
+    tray_result?;
+    runtime_result
 }
 
 fn run_runtime(cli: Cli, channels: usize, status: SharedStatus, shutdown: Shutdown) -> Result<()> {
