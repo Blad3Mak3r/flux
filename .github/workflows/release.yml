@@ -44,6 +44,26 @@ jobs:
         with:
           toolchain: 1.98.1
 
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build frontend
+        run: |
+          npm ci --prefix ui
+          npm run build --prefix ui
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+
       - name: Calculate version
         id: version
         env:
@@ -174,6 +194,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.98.1
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
         run: cargo build --release --locked
