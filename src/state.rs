@@ -101,14 +101,14 @@ impl RuntimeStatus {
             .map(|frame| frame.slots().to_vec())
             .unwrap_or_else(|| vec![0; crate::dmx::DMX_CHANNELS]);
         RuntimeSnapshot {
-            artnet_state: self.artnet_state.to_owned(),
+            artnet_state: self.artnet.clone(),
             listen: self.listen.clone(),
             universe: self.universe,
             packets_per_second,
             last_packet_ms: self.last_packet.map(|packet| packet.elapsed().as_millis()),
             source: self.source.clone(),
             sequence: self.sequence,
-            output_state: self.output_state.clone(),
+            output_state: self.dmx.clone(),
             device: self.device.clone(),
             refresh_hz: self.fps,
             channels: self.channels,
