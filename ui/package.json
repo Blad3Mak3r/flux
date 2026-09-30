@@ -1,0 +1,1 @@
+{"name":"flux-ui","private":true,"version":"0.1.0","type":"module","scripts":{"build":"tsc && vite build"},"dependencies":{"@tauri-apps/api":"^2.10.0"},"devDependencies":{"typescript":"^5.9.3","vite":"^7.1.7"}}
