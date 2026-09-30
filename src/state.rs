@@ -8,6 +8,8 @@ use crate::LatestFrame;
 
 #[derive(Debug)]
 pub struct RuntimeStatus {
+    pub artnet: String,
+    pub dmx: String,
     listen: String,
     universe: u16,
     channels: usize,
@@ -41,6 +43,8 @@ pub struct RuntimeSnapshot {
 impl RuntimeStatus {
     pub fn new(cli: &Cli, channels: usize) -> Self {
         Self {
+            artnet: "waiting for ArtDmx".to_owned(),
+            dmx: "waiting for Art-Net".to_owned(),
             listen: cli.listen.to_string(),
             universe: cli.universe,
             channels,
@@ -58,14 +62,17 @@ impl RuntimeStatus {
 
     pub fn set_artnet_listening(&mut self) {
         self.artnet_state = "Listening";
+        self.artnet = "listening".to_owned();
     }
 
     pub fn set_artnet_offline(&mut self) {
         self.artnet_state = "Offline — keeping last frame";
+        self.artnet = "offline — keeping last frame".to_owned();
     }
 
     pub fn record_artnet_packet(&mut self, source: SocketAddr, sequence: u8) {
         self.artnet_state = "Receiving";
+        self.artnet = format!("receiving from {source}");
         self.source = Some(source.ip().to_string());
         self.sequence = (sequence != 0).then_some(sequence);
         self.last_packet = Some(Instant::now());
@@ -74,6 +81,7 @@ impl RuntimeStatus {
 
     pub fn set_output(&mut self, state: impl Into<String>, device: Option<String>) {
         self.output_state = state.into();
+        self.dmx = self.output_state.clone();
         if device.is_some() {
             self.device = device;
         }
