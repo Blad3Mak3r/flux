@@ -96,7 +96,10 @@ mod tests {
     fn rejects_an_incorrect_opcode() {
         let mut input = packet(0, &[0, 0]);
         input[8..10].copy_from_slice(&0x2000_u16.to_le_bytes());
-        assert_eq!(parse_art_dmx(&input), Err(ParseError::UnsupportedOpcode(0x2000))\n        );
+        assert_eq!(
+            parse_art_dmx(&input),
+            Err(ParseError::UnsupportedOpcode(0x2000))
+        );
     }
 
     #[test]
@@ -118,7 +121,12 @@ mod tests {
 
     #[test]
     fn decodes_the_port_address_as_little_endian() {
-        assert_eq!(parse_art_dmx(&packet(0x1234, &[1, 2])).unwrap().port_address, 0x1234);
+        assert_eq!(
+            parse_art_dmx(&packet(0x1234, &[1, 2]))
+                .unwrap()
+                .port_address,
+            0x1234
+        );
     }
 
     #[test]

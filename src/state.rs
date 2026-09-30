@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use serde::Serialize;
 
-use crate::cli::Cli;
 use crate::LatestFrame;
+use crate::cli::Cli;
 
 #[derive(Debug)]
 pub struct RuntimeStatus {

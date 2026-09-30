@@ -158,6 +158,18 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.tag }}
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build frontend
+        run: |
+          npm ci --prefix ui
+          npm run build --prefix ui
+
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:

@@ -47,17 +47,32 @@ fn main() -> Result<()> {
     let worker_status = Arc::clone(&status);
     let worker_shutdown = Arc::clone(&shutdown);
     thread::spawn(move || {
-        if let Err(error) = run_runtime(worker_cli, channels, worker_latest, Arc::clone(&worker_status), Arc::clone(&worker_shutdown)) {
+        if let Err(error) = run_runtime(
+            worker_cli,
+            channels,
+            worker_latest,
+            Arc::clone(&worker_status),
+            Arc::clone(&worker_shutdown),
+        ) {
             tracing::error!(%error, "Flux runtime stopped");
             worker_shutdown.store(true, Ordering::Relaxed);
         }
     });
 
-    ui::run(ui::UiState { latest, status, shutdown })
-
+    ui::run(ui::UiState {
+        latest,
+        status,
+        shutdown,
+    })
 }
 
-fn run_runtime(cli: Cli, channels: usize, latest: LatestFrame, status: SharedStatus, shutdown: Shutdown) -> Result<()> {
+fn run_runtime(
+    cli: Cli,
+    channels: usize,
+    latest: LatestFrame,
+    status: SharedStatus,
+    shutdown: Shutdown,
+) -> Result<()> {
     let output = if cli.dry_run {
         info!("Dry-run enabled; no FTDI device will be opened");
         status.lock().expect("runtime status mutex poisoned").dmx =

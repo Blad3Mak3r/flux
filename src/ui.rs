@@ -34,7 +34,11 @@ fn quit_flux(app: tauri::AppHandle, state: tauri::State<'_, UiState>) {
 pub fn run(state: UiState) -> Result<()> {
     tauri::Builder::default()
         .manage(state)
-        .invoke_handler(tauri::generate_handler![runtime_snapshot, reconnect_device, quit_flux])
+        .invoke_handler(tauri::generate_handler![
+            runtime_snapshot,
+            reconnect_device,
+            quit_flux
+        ])
         .setup(|app| {
             let window = WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
                 .title("Flux")
@@ -61,7 +65,11 @@ fn install_tray(app: &tauri::App, window: &WebviewWindow) -> tauri::Result<()> {
     let menu = Menu::with_items(app, &[&open, &reconnect, &quit])?;
     let panel = window.clone();
     TrayIconBuilder::new()
-        .icon(app.default_window_icon().expect("Flux icon missing").clone())
+        .icon(
+            app.default_window_icon()
+                .expect("Flux icon missing")
+                .clone(),
+        )
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
@@ -72,7 +80,13 @@ fn install_tray(app: &tauri::App, window: &WebviewWindow) -> tauri::Result<()> {
         })
         .on_tray_icon_event(move |tray, event| {
             tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
-            if matches!(event, tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. }) {
+            if matches!(
+                event,
+                tauri::tray::TrayIconEvent::Click {
+                    button: tauri::tray::MouseButton::Left,
+                    ..
+                }
+            ) {
                 let _ = panel.show();
                 let _ = panel.set_focus();
             }
