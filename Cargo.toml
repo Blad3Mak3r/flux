@@ -3,7 +3,7 @@ name = "flux"
 version = "0.1.0"
 edition = "2024"
 description = "A lightweight real-time bridge for routing lighting data between protocols and interfaces."
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/Blad3Mak3r/flux"
 
 [dependencies]
