@@ -1,9 +1,13 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod artnet;
 mod cli;
 mod dmx;
 mod enttec;
 mod state;
 mod ui;
+#[cfg(windows)]
+mod windows_console;
 
 use std::io::ErrorKind;
 use std::net::UdpSocket;
@@ -25,6 +29,9 @@ pub type SharedStatus = Arc<Mutex<RuntimeStatus>>;
 pub type Shutdown = Arc<AtomicBool>;
 
 fn main() -> Result<()> {
+    #[cfg(windows)]
+    windows_console::attach_parent();
+
     let cli = Cli::parse();
     init_logging(cli.verbose);
 
