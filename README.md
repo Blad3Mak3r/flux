@@ -121,6 +121,12 @@ cargo build --release
 
 Flux statically links the vendor D2XX library through `libftd2xx`, so the release binary does not depend on a separately installed D2XX DLL/shared object. On Linux, ensure the current user has permission to access the device (usually with a suitable udev rule).
 
+## Releasing
+
+The **Release** GitHub Actions workflow follows the Odin release pattern: run it manually from `main`, choose the semantic version increment, and it commits the version bump, creates the annotated `vX.Y.Z` tag, generates GitHub release notes, and publishes the Windows archive plus its SHA-256 checksum.
+
+For the first release, choose **initial**. It publishes the current Cargo version (`v0.1.0`); subsequent releases use **patch**, **minor**, or **major**.
+
 ## Timing and hardware limits
 
 The ENTTEC Open is not a buffered DMX interface. Flux configures it for 250000 baud, 8 data bits, no parity and 2 stop bits, then generates a safe DMX BREAK and Mark After Break before every frame. It uses a short spin wait only for those sub-millisecond timing windows, and an absolute refresh schedule for the rest of the frame interval to avoid drift.
