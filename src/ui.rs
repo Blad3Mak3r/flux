@@ -33,6 +33,7 @@ fn quit_flux(app: tauri::AppHandle, state: tauri::State<'_, UiState>) {
 
 pub fn run(state: UiState) -> Result<()> {
     tauri::Builder::default()
+        .plugin(tauri_plugin_positioner::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             runtime_snapshot,

@@ -111,6 +111,10 @@ On desktop Windows and Linux, Flux starts with a small system tray icon. Its men
 
 Use `--no-tray` for a headless session, such as a terminal-only Linux machine. Linux desktop environments need a StatusNotifier/KSNI-compatible tray host for the icon to be visible.
 
+### Windows terminal behavior
+
+Windows release builds open the desktop panel without creating a terminal window. The same `flux.exe` keeps its terminal output when started from PowerShell with `--no-ui`, `--list-devices`, or other CLI options. Launching it from Explorer does not allocate a console.
+
 ## Building
 
 Flux uses Rust stable and Edition 2024:
