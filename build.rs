@@ -44,7 +44,9 @@ fn resource_compiler() -> PathBuf {
         .expect("Unable to locate the Windows SDK. Set RC to the path of rc.exe.");
     let bin = sdk.join("bin");
     let direct = bin.join("x64").join("rc.exe");
-    if direct.is_file() { return direct; }
+    if direct.is_file() {
+        return direct;
+    }
     fs::read_dir(&bin)
         .expect("Unable to inspect the Windows SDK bin directory")
         .flatten()
