@@ -80,7 +80,7 @@ impl Tray {
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&quit)?;
 
-        let icon = Icon::from_rgba(icon_pixels(), 32, 32).context("Unable to create tray icon")?;
+        let icon = Icon::from_rgba(include_bytes!("../assets/flux-32.rgba").to_vec(), 32, 32)\n            .context("Unable to create tray icon")?;
         let icon = TrayIconBuilder::new()
             .with_tooltip("Flux lighting bridge")
             .with_menu(Box::new(menu))
@@ -109,20 +109,3 @@ fn clicked_quit(quit: &MenuItem) -> bool {
         .any(|event| event.id == *quit.id())
 }
 
-fn icon_pixels() -> Vec<u8> {
-    let mut pixels = vec![0; 32 * 32 * 4];
-    for y in 0..32 {
-        for x in 0..32 {
-            let index = (y * 32 + x) * 4;
-            let inside = (x as i32 - 16).pow(2) + (y as i32 - 16).pow(2) <= 14_i32.pow(2);
-            if inside {
-                pixels[index..index + 4].copy_from_slice(&[32, 118, 255, 255]);
-            }
-        }
-    }
-    for (x, y) in [(18, 5), (11, 17), (16, 17), (13, 27), (22, 13), (17, 13)] {
-        let index = (y * 32 + x) * 4;
-        pixels[index..index + 4].copy_from_slice(&[255, 255, 255, 255]);
-    }
-    pixels
-}
