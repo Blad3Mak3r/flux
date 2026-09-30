@@ -7,5 +7,5 @@
   "app": {
     "windows": [{ "label": "main", "title": "Flux", "width": 400, "height": 580, "visible": false, "decorations": false, "resizable": false, "maximizable": false, "minimizable": false, "skipTaskbar": true, "alwaysOnTop": true }]
   },
-  "bundle": { "active": true, "targets": "all", "icon": ["assets/flux.ico"] }
+  "bundle": { "active": true, "targets": "all", "icon": ["assets/flux.png", "assets/flux.ico"] }
 }
