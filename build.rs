@@ -1,6 +1,14 @@
-#[cfg(windows)]
 fn main() {
+    tauri_build::build();
+
+    #[cfg(windows)]
+    compile_windows_icon();
+}
+
+#[cfg(windows)]
+fn compile_windows_icon() {
     use std::env;
+    use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
 
@@ -22,7 +30,7 @@ fn main() {
 }
 
 #[cfg(windows)]
-fn resource_compiler() -> std::path::PathBuf {
+fn resource_compiler() -> PathBuf {
     use std::env;
     use std::fs;
     use std::path::PathBuf;
@@ -30,30 +38,17 @@ fn resource_compiler() -> std::path::PathBuf {
     if let Some(path) = env::var_os("RC") {
         return PathBuf::from(path);
     }
-
     let sdk = env::var_os("WindowsSdkDir")
         .map(PathBuf::from)
-        .or_else(|| {
-            env::var_os("ProgramFiles(x86)")
-                .map(PathBuf::from)
-                .map(|path| path.join("Windows Kits").join("10"))
-        })
+        .or_else(|| env::var_os("ProgramFiles(x86)").map(PathBuf::from).map(|path| path.join("Windows Kits").join("10")))
         .expect("Unable to locate the Windows SDK. Set RC to the path of rc.exe.");
-
     let bin = sdk.join("bin");
     let direct = bin.join("x64").join("rc.exe");
-    if direct.is_file() {
-        return direct;
-    }
-
-    let versioned = fs::read_dir(&bin)
+    if direct.is_file() { return direct; }
+    fs::read_dir(&bin)
         .expect("Unable to inspect the Windows SDK bin directory")
         .flatten()
         .map(|entry| entry.path().join("x64").join("rc.exe"))
-        .find(|path| path.is_file());
-
-    versioned.expect("Unable to locate rc.exe. Install the Windows SDK or set RC to its path.")
+        .find(|path| path.is_file())
+        .expect("Unable to locate rc.exe. Install the Windows SDK or set RC to its path.")
 }
-
-#[cfg(not(windows))]
-fn main() {}
