@@ -101,7 +101,7 @@ pub fn run_reconnecting(
                 let message = error.to_string().replace('\n', " ");
                 status.lock().expect("runtime status mutex poisoned").dmx =
                     format!("unavailable: {message}; retrying");
-                if last_error.as_deref() != Some(&message) {
+                if last_error.as_ref() != Some(&message) {
                     tracing::warn!(%error, "DMX output unavailable; retrying");
                     last_error = Some(message);
                 }
