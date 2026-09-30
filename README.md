@@ -96,6 +96,7 @@ flux --channels 256 --fps 30
 flux --list-devices
 flux --device FTXXXXXXXX
 flux --dry-run -v
+flux --no-tray
 ```
 
 Use `flux --help` for the complete option reference and `flux --version` for the installed version.
@@ -103,6 +104,12 @@ Use `flux --help` for the complete option reference and `flux --version` for the
 `--list-devices` lists the serial numbers reported by D2XX. If more than one FTDI device is connected, Flux refuses to guess; select the required device with `--device <SERIAL>`.
 
 `--dry-run` receives and validates Art-Net, filters the configured universe and updates the in-memory frame, but does not open an FTDI device or transmit physical DMX. Add `-v` to see frame-update diagnostics without logging every received packet.
+
+## System tray
+
+On desktop Windows and Linux, Flux starts with a small system tray icon. Its menu shows the current Art-Net and DMX output state and provides a clean **Quit Flux** action. Quitting keeps the last-frame policy intact until Flux itself exits, then stops the Art-Net receiver and DMX loop cleanly.
+
+Use `--no-tray` for a headless session, such as a terminal-only Linux machine. Linux desktop environments need a StatusNotifier/KSNI-compatible tray host for the icon to be visible.
 
 ## Building
 

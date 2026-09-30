@@ -33,6 +33,10 @@ pub struct Cli {
     #[arg(long)]
     pub dry_run: bool,
 
+    /// Run without the system tray, for a headless session.
+    #[arg(long)]
+    pub no_tray: bool,
+
     /// Show diagnostic logging. Repeat for trace-level output.
     #[arg(short, long, action = ArgAction::Count)]
     pub verbose: u8,

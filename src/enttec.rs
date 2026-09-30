@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -69,6 +70,8 @@ pub fn run(
     channels: usize,
     fps: u16,
     latest: crate::LatestFrame,
+    status: crate::SharedStatus,
+    shutdown: crate::Shutdown,
 ) -> Result<()> {
     let mut ftdi = Ftdi::with_serial_number(&device.serial_number)
         .map_err(|error| anyhow::anyhow!(error))
@@ -81,12 +84,14 @@ pub fn run(
 
     configure(&mut ftdi)?;
     tracing::info!(device = %device.serial_number, "ENTTEC Open DMX USB ready");
+    status.lock().expect("runtime status mutex poisoned").dmx =
+        format!("{} ready — waiting for Art-Net", device.serial_number);
 
     let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
     let mut next_frame = Instant::now();
     let mut output_started = false;
 
-    loop {
+    while !shutdown.load(Ordering::Relaxed) {
         let frame = latest.lock().expect("latest frame mutex poisoned").clone();
         let Some(frame) = frame else {
             thread::sleep(Duration::from_millis(5));
@@ -96,6 +101,8 @@ pub fn run(
 
         if !output_started {
             tracing::info!("DMX output started");
+            status.lock().expect("runtime status mutex poisoned").dmx =
+                format!("output active at {fps} Hz");
             output_started = true;
         }
 
@@ -106,6 +113,8 @@ pub fn run(
             next_frame += interval;
         }
     }
+
+    Ok(())
 }
 
 fn configure(ftdi: &mut Ftdi) -> Result<()> {
