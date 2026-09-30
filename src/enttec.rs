@@ -22,16 +22,8 @@ pub fn print_devices() -> Result<()> {
         return Ok(());
     }
 
-    for device in devices {
-        println!(
-            "{}  {}  {:?} (VID:PID {:04X}:{:04X}){}",
-            device.serial_number,
-            device.description,
-            device.device_type,
-            device.vendor_id,
-            device.product_id,
-            if device.port_open { " [in use]" } else { "" },
-        );
+    for (index, device) in devices.iter().enumerate() {
+        println!("{}", format_device(index, device));
     }
     Ok(())
 }
@@ -57,12 +49,25 @@ pub fn select_device(serial: Option<&str>) -> Result<DeviceInfo> {
 
     let choices = devices
         .iter()
-        .map(|device| format!("  {}  {}", device.serial_number, device.description))
+        .enumerate()
+        .map(|(index, device)| format!("  {}", format_device(index, device)))
         .collect::<Vec<_>>()
         .join("\n");
     bail!(
         "More than one FTDI device was found. Select the ENTTEC Open DMX USB with --device <SERIAL>:\n{choices}"
     );
+}
+
+fn format_device(index: usize, device: &DeviceInfo) -> String {
+    format!(
+        "{index}: {}  {}  {:?} (VID:PID {:04X}:{:04X}){}",
+        device.serial_number,
+        device.description,
+        device.device_type,
+        device.vendor_id,
+        device.product_id,
+        if device.port_open { " [in use]" } else { "" },
+    )
 }
 
 pub fn run(
