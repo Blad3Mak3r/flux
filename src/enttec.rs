@@ -10,6 +10,7 @@ use crate::dmx::DmxFrame;
 const DMX_BAUD_RATE: u32 = 250_000;
 const BREAK_DURATION: Duration = Duration::from_micros(176);
 const MAB_DURATION: Duration = Duration::from_micros(16);
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn devices() -> Result<Vec<DeviceInfo>> {
     list_devices().context("Unable to enumerate FTDI devices. Is the FTDI D2XX driver installed?")
@@ -68,6 +69,56 @@ fn format_device(index: usize, device: &DeviceInfo) -> String {
         device.product_id,
         if device.port_open { " [in use]" } else { "" },
     )
+}
+
+pub fn run_reconnecting(
+    serial: Option<String>,
+    channels: usize,
+    fps: u16,
+    latest: crate::LatestFrame,
+    status: crate::SharedStatus,
+    shutdown: crate::Shutdown,
+) -> Result<()> {
+    let mut last_error = None;
+
+    while !shutdown.load(Ordering::Relaxed) {
+        let result = select_device(serial.as_deref()).and_then(|device| {
+            status.lock().expect("runtime status mutex poisoned").dmx =
+                format!("{} connecting", device.serial_number);
+            run(
+                device,
+                channels,
+                fps,
+                std::sync::Arc::clone(&latest),
+                std::sync::Arc::clone(&status),
+                std::sync::Arc::clone(&shutdown),
+            )
+        });
+
+        match result {
+            Ok(()) => break,
+            Err(error) => {
+                let message = error.to_string().replace('\n', " ");
+                status.lock().expect("runtime status mutex poisoned").dmx =
+                    format!("unavailable: {message}; retrying");
+                if last_error.as_deref() != Some(&message) {
+                    tracing::warn!(%error, "DMX output unavailable; retrying");
+                    last_error = Some(message);
+                }
+                wait_for_reconnect(&shutdown);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn wait_for_reconnect(shutdown: &std::sync::atomic::AtomicBool) {
+    const CHECK_INTERVAL: Duration = Duration::from_millis(100);
+    let deadline = Instant::now() + RECONNECT_INTERVAL;
+    while !shutdown.load(Ordering::Relaxed) && Instant::now() < deadline {
+        thread::sleep(CHECK_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
+    }
 }
 
 pub fn run(
