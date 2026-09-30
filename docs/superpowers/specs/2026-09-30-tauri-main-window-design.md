@@ -10,6 +10,8 @@ Prevent Flux from panicking at startup because the Tauri webview labeled `main` 
 
 The runtime window builder is removed. No window labels, UI behavior, Art-Net behavior, or DMX reconnect behavior changes.
 
+The positioner plugin is initialized before the tray icon is installed, so its tray-event handler has the state it requires.
+
 ## Error handling
 
 If the configured `main` window is absent, setup returns a clear Tauri error instead of silently continuing without a tray. The existing hardware warning for an unavailable FTDI device remains non-fatal and continues to retry.
