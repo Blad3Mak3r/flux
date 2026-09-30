@@ -1,7 +1,7 @@
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
-use tauri::{Manager, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Manager, WebviewWindow};
 
 use crate::{LatestFrame, SharedStatus, Shutdown};
 
@@ -40,14 +40,9 @@ pub fn run(state: UiState) -> Result<()> {
             quit_flux
         ])
         .setup(|app| {
-            let window = WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::default())
-                .title("Flux")
-                .visible(false)
-                .decorations(false)
-                .resizable(false)
-                .skip_taskbar(true)
-                .always_on_top(true)
-                .build()?;
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| std::io::Error::other("Tauri configured main window is missing"))?;
             install_tray(app, &window)?;
             Ok(())
         })
