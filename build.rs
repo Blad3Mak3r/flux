@@ -4,8 +4,10 @@ fn main() {
     use std::path::PathBuf;
     use std::process::Command;
 
-    let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("missing manifest dir"));
-    let resource = PathBuf::from(env::var_os("OUT_DIR").expect("missing output dir")).join("flux.res");
+    let manifest_dir =
+        PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("missing manifest dir"));
+    let resource =
+        PathBuf::from(env::var_os("OUT_DIR").expect("missing output dir")).join("flux.res");
     let status = Command::new("rc.exe")
         .current_dir(manifest_dir.join("assets"))
         .args(["/nologo", "/fo"])
