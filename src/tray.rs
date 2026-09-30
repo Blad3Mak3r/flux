@@ -80,12 +80,8 @@ impl Tray {
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&quit)?;
 
-        let icon = Icon::from_rgba(
-            include_bytes!("../assets/flux-32.rgba").to_vec(),
-            32,
-            32,
-        )
-        .context("Unable to create tray icon")?;
+        let icon = Icon::from_rgba(include_bytes!("../assets/flux-32.rgba").to_vec(), 32, 32)
+            .context("Unable to create tray icon")?;
         let icon = TrayIconBuilder::new()
             .with_tooltip("Flux lighting bridge")
             .with_menu(Box::new(menu))
@@ -113,4 +109,3 @@ fn clicked_quit(quit: &MenuItem) -> bool {
         .try_iter()
         .any(|event| event.id == *quit.id())
 }
-
