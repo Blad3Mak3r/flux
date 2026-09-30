@@ -33,9 +33,9 @@ pub struct Cli {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Run without the system tray, for a headless session.
-    #[arg(long)]
-    pub no_tray: bool,
+    /// Run without the tray or graphical panel, for a headless session.
+    #[arg(long, visible_alias = "no-tray")]
+    pub no_ui: bool,
 
     /// Show diagnostic logging. Repeat for trace-level output.
     #[arg(short, long, action = ArgAction::Count)]
