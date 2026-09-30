@@ -27,7 +27,7 @@ MagicQ or another Art-Net sender
 - Art-Net `ArtDmx` receiver, including loopback use.
 - One Art-Net Port-Address selected with `--universe`.
 - Last valid DMX frame buffering: transmission begins only after the first valid frame and then retains that look if Art-Net disappears.
-- ENTTEC Open DMX USB output through FTDI D2XX at a stable, host-driven refresh rate.
+- ENTTEC Open DMX USB output through FTDI D2XX at a stable, host-driven refresh rate, with automatic reconnection after a device or output error.
 - FTDI enumeration and safe selection by serial number.
 - `--dry-run` for verifying Art-Net without hardware.
 - Tests for ArtDmx parsing and DMX frame handling.
@@ -138,7 +138,7 @@ This does **not** turn an Open DMX USB into a professional interface with autono
 - It can be more sensitive to system load than an interface such as DMX USB Pro.
 - Only one application can open it at a time.
 
-Close QLC+, FreeStyler, MagicQ, or any other application that currently owns the device before starting Flux.
+Close QLC+, FreeStyler, MagicQ, or any other application that currently owns the device before starting Flux. If the device becomes unavailable, Flux keeps receiving Art-Net and retries the FTDI connection once per second; output resumes with the latest valid frame when the device becomes available again.
 
 Flux v0.1 is experimental software. Test the complete chain with your fixtures before using it in a show.
 
@@ -146,11 +146,11 @@ Flux v0.1 is experimental software. Test the complete chain with your fixtures b
 
 ### v0.1 — First Light
 
-ArtDmx receiver, loopback, universe selection, last-frame buffering, ENTTEC Open via D2XX, continuous DMX, device enumeration and selection, `--channels`, `--fps`, `--dry-run`, logging, tests, CI, MagicQ documentation, and a Windows release.
+ArtDmx receiver, loopback, universe selection, last-frame buffering, ENTTEC Open via D2XX, automatic ENTTEC reconnection, continuous DMX, device enumeration and selection, `--channels`, `--fps`, `--dry-run`, logging, tests, CI, MagicQ documentation, and a Windows release.
 
 ### v0.2 — Reliability
 
-USB-disconnect detection, automatic ENTTEC reconnection, RX/TX statistics, Art-Net timeout warnings, improved Ctrl+C shutdown, diagnostics, and stress testing.
+RX/TX statistics, Art-Net timeout warnings, improved Ctrl+C shutdown, richer diagnostics, and stress testing.
 
 ### v0.3 — Network
 
