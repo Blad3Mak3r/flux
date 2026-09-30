@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Flux",
+  "version": "0.1.0",
+  "identifier": "io.blade.flux",
+  "build": { "frontendDist": "ui/dist", "beforeBuildCommand": "npm --prefix ui run build" },
+  "app": {
+    "windows": [{ "label": "main", "title": "Flux", "width": 400, "height": 580, "visible": false, "decorations": false, "resizable": false, "maximizable": false, "minimizable": false, "skipTaskbar": true, "alwaysOnTop": true }]
+  },
+  "bundle": { "active": true, "targets": "all", "icon": ["assets/flux.ico"] }
+}
