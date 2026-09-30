@@ -1,0 +1,202 @@
+name: Release
+
+# Manually triggered: choose a semantic version increment. Flux calculates the
+# next version, commits and tags it on main, builds a Windows binary, and
+# publishes a downloadable GitHub Release.
+#
+# Requires Settings -> Actions -> General -> Workflow permissions set to
+# "Read and write permissions" so GITHUB_TOKEN can push the release commit/tag
+# and create the GitHub Release.
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: Version increment
+        required: true
+        type: choice
+        options:
+          - initial
+          - patch
+          - minor
+          - major
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+
+      - name: Calculate version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/^version = "(.*)"$/\1/')
+
+          if LATEST_TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' 2>/dev/null); then
+            if ! [[ "$LATEST_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "::error::Latest release tag '$LATEST_TAG' is not in vX.Y.Z format." >&2
+              exit 1
+            fi
+            if [ "${{ inputs.version_bump }}" = initial ]; then
+              echo "::error::The initial increment is only valid before the first GitHub Release." >&2
+              exit 1
+            fi
+
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            case "${{ inputs.version_bump }}" in
+              major) VERSION="$((MAJOR + 1)).0.0" ;;
+              minor) VERSION="$MAJOR.$((MINOR + 1)).0" ;;
+              patch) VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
+              *)
+                echo "::error::Unsupported version increment '${{ inputs.version_bump }}'." >&2
+                exit 1
+                ;;
+            esac
+          else
+            if [ "${{ inputs.version_bump }}" != initial ]; then
+              echo "::error::No GitHub Release exists yet. Choose the initial increment to publish v$CURRENT." >&2
+              exit 1
+            fi
+            LATEST_TAG=""
+            VERSION="$CURRENT"
+          fi
+
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "LATEST_TAG=$LATEST_TAG" >> "$GITHUB_ENV"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION (${{ inputs.version_bump }} increment)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check tag does not already exist
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists on origin." >&2
+            exit 1
+          fi
+
+      - name: Ensure version increases
+        if: ${{ inputs.version_bump != 'initial' }}
+        run: |
+          CURRENT=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/^version = "(.*)"$/\1/')
+          HIGHEST=$(printf '%s\n%s\n' "$CURRENT" "$VERSION" | sort -V | tail -n1)
+          if [ "$HIGHEST" != "$VERSION" ] || [ "$VERSION" = "$CURRENT" ]; then
+            echo "::error::$VERSION must be strictly greater than current version $CURRENT." >&2
+            exit 1
+          fi
+
+      - name: Bump Cargo.toml version
+        if: ${{ inputs.version_bump != 'initial' }}
+        run: |
+          sed -i "0,/^version = \".*\"$/s//version = \"$VERSION\"/" Cargo.toml
+          cargo check
+          grep -m1 '^version = ' Cargo.toml
+
+      - name: Verify Cargo.lock is in sync
+        run: grep -A2 '^name = "flux"' Cargo.lock | grep -m1 "version = \"$VERSION\""
+
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(--method POST "/repos/$GITHUB_REPOSITORY/releases/generate-notes" -f "tag_name=$TAG" -f "target_commitish=$GITHUB_SHA")
+          if [ -n "$LATEST_TAG" ]; then
+            args+=(-f "previous_tag_name=$LATEST_TAG")
+          fi
+          gh api "${args[@]}" --jq '.body' > release-notes.md
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock
+          git commit --allow-empty -m "Release $TAG"
+
+      - name: Tag release
+        run: git tag -a "$TAG" -m "Release $TAG"
+
+      - name: Push commit and tag
+        run: git push origin HEAD:main "$TAG"
+
+      - name: Upload release notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-${{ env.VERSION }}-release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  release:
+    name: Windows release
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Checkout released source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package Windows release
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $archive = "dist/flux-v$env:VERSION-windows-x86_64.zip"
+          Compress-Archive -Path target/release/flux.exe, README.md, LICENSE-MIT -DestinationPath $archive
+          (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $archive -Leaf) | Set-Content "$archive.sha256" -NoNewline
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-${{ needs.prepare.outputs.version }}-windows-x86_64
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: flux-${{ needs.prepare.outputs.version }}-release-notes
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.tag }}
+          body_path: release-notes.md
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.zip
+            dist/*.sha256
