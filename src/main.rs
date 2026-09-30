@@ -2,7 +2,8 @@ mod artnet;
 mod cli;
 mod dmx;
 mod enttec;
-mod tray;
+mod state;
+mod ui;
 
 use std::io::ErrorKind;
 use std::net::UdpSocket;
@@ -17,26 +18,11 @@ use tracing::{Level, debug, info};
 
 use crate::cli::Cli;
 use crate::dmx::{DmxFrame, validate_channel_count};
+use crate::state::RuntimeStatus;
 
-type LatestFrame = Arc<Mutex<Option<DmxFrame>>>;
-
-#[derive(Debug)]
-pub struct RuntimeStatus {
-    artnet: String,
-    dmx: String,
-}
-
-impl Default for RuntimeStatus {
-    fn default() -> Self {
-        Self {
-            artnet: "waiting for ArtDmx".to_owned(),
-            dmx: "waiting for Art-Net".to_owned(),
-        }
-    }
-}
-
-type SharedStatus = Arc<Mutex<RuntimeStatus>>;
-type Shutdown = Arc<AtomicBool>;
+pub type LatestFrame = Arc<Mutex<Option<DmxFrame>>>;
+pub type SharedStatus = Arc<Mutex<RuntimeStatus>>;
+pub type Shutdown = Arc<AtomicBool>;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -49,43 +35,29 @@ fn main() -> Result<()> {
     let channels = validate_channel_count(cli.channels).expect("clap validates channels");
     print_startup(&cli, channels);
 
-    let status = Arc::new(Mutex::new(RuntimeStatus::default()));
+    let status = Arc::new(Mutex::new(RuntimeStatus::new(&cli, channels)));
+    let latest = Arc::new(Mutex::new(None));
     let shutdown = Arc::new(AtomicBool::new(false));
-    if cli.no_tray {
-        return run_runtime(cli, channels, status, shutdown);
+    if cli.no_ui {
+        return run_runtime(cli, channels, latest, status, shutdown);
     }
 
+    let worker_cli = cli;
+    let worker_latest = Arc::clone(&latest);
     let worker_status = Arc::clone(&status);
     let worker_shutdown = Arc::clone(&shutdown);
-    let worker = thread::spawn(move || {
-        let result = run_runtime(
-            cli,
-            channels,
-            Arc::clone(&worker_status),
-            Arc::clone(&worker_shutdown),
-        );
-        if let Err(error) = &result {
-            worker_status
-                .lock()
-                .expect("runtime status mutex poisoned")
-                .dmx = format!("error: {error}");
+    thread::spawn(move || {
+        if let Err(error) = run_runtime(worker_cli, channels, worker_latest, Arc::clone(&worker_status), Arc::clone(&worker_shutdown)) {
             tracing::error!(%error, "Flux runtime stopped");
             worker_shutdown.store(true, Ordering::Relaxed);
         }
-        result
     });
 
-    let tray_result = tray::run(status, Arc::clone(&shutdown));
-    shutdown.store(true, Ordering::Relaxed);
-    let runtime_result = worker
-        .join()
-        .map_err(|_| anyhow!("Flux runtime thread panicked"))?;
-    tray_result?;
-    runtime_result
+    ui::run(ui::UiState { latest, status, shutdown })
+
 }
 
-fn run_runtime(cli: Cli, channels: usize, status: SharedStatus, shutdown: Shutdown) -> Result<()> {
-    let latest = Arc::new(Mutex::new(None));
+fn run_runtime(cli: Cli, channels: usize, latest: LatestFrame, status: SharedStatus, shutdown: Shutdown) -> Result<()> {
     let output = if cli.dry_run {
         info!("Dry-run enabled; no FTDI device will be opened");
         status.lock().expect("runtime status mutex poisoned").dmx =
