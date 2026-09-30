@@ -96,7 +96,7 @@ mod tests {
     fn rejects_an_incorrect_opcode() {
         let mut input = packet(0, &[0, 0]);
         input[8..10].copy_from_slice(&0x2000_u16.to_le_bytes());
-        assert_eq!(parse_art_dmx(&input), Err(ParseError::UnsupportedOpcode(0x2000));
+        assert_eq!(parse_art_dmx(&input), Err(ParseError::UnsupportedOpcode(0x2000))\n        );
     }
 
     #[test]
