@@ -173,7 +173,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
           $archive = "dist/flux-v$env:VERSION-windows-x86_64.zip"
-          Compress-Archive -Path target/release/flux.exe, README.md, LICENSE-MIT -DestinationPath $archive
+          Compress-Archive -Path target/release/flux.exe, README.md, LICENSE -DestinationPath $archive
           (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $archive -Leaf) | Set-Content "$archive.sha256" -NoNewline
 
       - name: Upload Windows artifact
