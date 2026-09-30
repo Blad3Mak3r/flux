@@ -86,44 +86,45 @@ fn main() -> Result<()> {
 
 fn run_runtime(cli: Cli, channels: usize, status: SharedStatus, shutdown: Shutdown) -> Result<()> {
     let latest = Arc::new(Mutex::new(None));
-    if cli.dry_run {
+    let output = if cli.dry_run {
         info!("Dry-run enabled; no FTDI device will be opened");
         status.lock().expect("runtime status mutex poisoned").dmx =
             "dry-run (no physical output)".to_owned();
+        None
     } else {
         status.lock().expect("runtime status mutex poisoned").dmx =
-            "selecting FTDI device".to_owned();
-        let device = enttec::select_device(cli.device.as_deref())?;
-        info!(
-            device = %device.serial_number,
-            description = %device.description,
-            "Selected FTDI device"
-        );
+            "looking for FTDI device".to_owned();
         let output_latest = Arc::clone(&latest);
         let output_status = Arc::clone(&status);
         let output_shutdown = Arc::clone(&shutdown);
-        thread::spawn(move || {
-            if let Err(error) = enttec::run(
-                device,
+        let serial = cli.device.clone();
+        Some(thread::spawn(move || {
+            enttec::run_reconnecting(
+                serial,
                 channels,
                 cli.fps,
                 output_latest,
                 output_status,
                 output_shutdown,
-            ) {
-                tracing::error!(%error, "DMX output stopped");
-            }
-        });
-    }
+            )
+        }))
+    };
 
-    receive_artnet(
+    let receiver_result = receive_artnet(
         cli.listen,
         cli.universe,
         latest,
         cli.dry_run,
         status,
-        shutdown,
-    )
+        Arc::clone(&shutdown),
+    );
+    shutdown.store(true, Ordering::Relaxed);
+    if let Some(output) = output {
+        output
+            .join()
+            .map_err(|_| anyhow!("DMX output thread panicked"))??;
+    }
+    receiver_result
 }
 
 fn init_logging(verbose: u8) {
