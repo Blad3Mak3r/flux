@@ -101,7 +101,7 @@ flux --no-tray
 
 Use `flux --help` for the complete option reference and `flux --version` for the installed version.
 
-`--list-devices` lists the serial numbers reported by D2XX. If more than one FTDI device is connected, Flux refuses to guess; select the required device with `--device <SERIAL>`.
+`--list-devices` lists each D2XX device with its index, serial number, description, chip type, VID:PID and whether it is already in use. If more than one FTDI device is connected, Flux refuses to guess; select the required device with `--device <SERIAL>`.
 
 `--dry-run` receives and validates Art-Net, filters the configured universe and updates the in-memory frame, but does not open an FTDI device or transmit physical DMX. Add `-v` to see frame-update diagnostics without logging every received packet.
 
