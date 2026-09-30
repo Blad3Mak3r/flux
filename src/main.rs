@@ -1,0 +1,208 @@
+mod artnet;
+mod cli;
+mod dmx;
+mod enttec;
+mod state;
+mod ui;
+
+use std::io::ErrorKind;
+use std::net::UdpSocket;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context, Result, anyhow};
+use clap::Parser;
+use tracing::{Level, debug, info};
+
+use crate::cli::Cli;
+use crate::dmx::{DmxFrame, validate_channel_count};
+use crate::state::RuntimeStatus;
+
+pub type LatestFrame = Arc<Mutex<Option<DmxFrame>>>;
+pub type SharedStatus = Arc<Mutex<RuntimeStatus>>;
+pub type Shutdown = Arc<AtomicBool>;
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    init_logging(cli.verbose);
+
+    if cli.list_devices {
+        return enttec::print_devices();
+    }
+
+    let channels = validate_channel_count(cli.channels).expect("clap validates channels");
+    print_startup(&cli, channels);
+
+    let status = Arc::new(Mutex::new(RuntimeStatus::new(&cli, channels)));
+    let latest = Arc::new(Mutex::new(None));
+    let shutdown = Arc::new(AtomicBool::new(false));
+    if cli.no_ui {
+        return run_runtime(cli, channels, latest, status, shutdown);
+    }
+
+    let worker_cli = cli;
+    let worker_latest = Arc::clone(&latest);
+    let worker_status = Arc::clone(&status);
+    let worker_shutdown = Arc::clone(&shutdown);
+    thread::spawn(move || {
+        if let Err(error) = run_runtime(
+            worker_cli,
+            channels,
+            worker_latest,
+            Arc::clone(&worker_status),
+            Arc::clone(&worker_shutdown),
+        ) {
+            tracing::error!(%error, "Flux runtime stopped");
+            worker_shutdown.store(true, Ordering::Relaxed);
+        }
+    });
+
+    ui::run(ui::UiState {
+        latest,
+        status,
+        shutdown,
+    })
+}
+
+fn run_runtime(
+    cli: Cli,
+    channels: usize,
+    latest: LatestFrame,
+    status: SharedStatus,
+    shutdown: Shutdown,
+) -> Result<()> {
+    let output = if cli.dry_run {
+        info!("Dry-run enabled; no FTDI device will be opened");
+        status.lock().expect("runtime status mutex poisoned").dmx =
+            "dry-run (no physical output)".to_owned();
+        None
+    } else {
+        status.lock().expect("runtime status mutex poisoned").dmx =
+            "looking for FTDI device".to_owned();
+        let output_latest = Arc::clone(&latest);
+        let output_status = Arc::clone(&status);
+        let output_shutdown = Arc::clone(&shutdown);
+        let serial = cli.device.clone();
+        Some(thread::spawn(move || {
+            enttec::run_reconnecting(
+                serial,
+                channels,
+                cli.fps,
+                output_latest,
+                output_status,
+                output_shutdown,
+            )
+        }))
+    };
+
+    let receiver_result = receive_artnet(
+        cli.listen,
+        cli.universe,
+        latest,
+        cli.dry_run,
+        status,
+        Arc::clone(&shutdown),
+    );
+    shutdown.store(true, Ordering::Relaxed);
+    if let Some(output) = output {
+        output
+            .join()
+            .map_err(|_| anyhow!("DMX output thread panicked"))??;
+    }
+    receiver_result
+}
+
+fn init_logging(verbose: u8) {
+    let level = match verbose {
+        0 => Level::INFO,
+        1 => Level::DEBUG,
+        _ => Level::TRACE,
+    };
+    tracing_subscriber::fmt()
+        .with_max_level(level)
+        .without_time()
+        .with_target(false)
+        .init();
+}
+
+fn print_startup(cli: &Cli, channels: usize) {
+    println!("Flux {}", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("Art-Net");
+    println!("  listen       {}", cli.listen);
+    println!("  universe     {}", cli.universe);
+    println!();
+    println!("DMX");
+    println!("  channels     {channels}");
+    println!("  refresh      {} Hz", cli.fps);
+    println!("  device       {}", cli.device.as_deref().unwrap_or("auto"));
+    println!();
+    println!("Waiting for Art-Net...");
+}
+
+fn receive_artnet(
+    listen: std::net::SocketAddr,
+    universe: u16,
+    latest: LatestFrame,
+    dry_run: bool,
+    status: SharedStatus,
+    shutdown: Shutdown,
+) -> Result<()> {
+    let socket = UdpSocket::bind(listen)
+        .with_context(|| format!("Unable to listen for Art-Net on {listen}"))?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .context("Unable to configure Art-Net receive timeout")?;
+    let mut buffer = [0_u8; 600];
+    let mut online = false;
+    let mut last_packet_at: Option<Instant> = None;
+
+    while !shutdown.load(Ordering::Relaxed) {
+        let (size, source) = match socket.recv_from(&mut buffer) {
+            Ok(packet) => packet,
+            Err(error) if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                if online
+                    && last_packet_at.is_some_and(|last| last.elapsed() > Duration::from_secs(1))
+                {
+                    online = false;
+                    status.lock().expect("runtime status mutex poisoned").artnet =
+                        "offline — keeping last frame".to_owned();
+                }
+                continue;
+            }
+            Err(error) => return Err(error).context("Art-Net receive failed"),
+        };
+        match artnet::parse_art_dmx(&buffer[..size]) {
+            Ok(packet) if packet.port_address == universe => {
+                let frame = DmxFrame::from_channels(packet.data);
+                let changed = {
+                    let mut guard = latest.lock().expect("latest frame mutex poisoned");
+                    let changed = guard.as_ref() != Some(&frame);
+                    *guard = Some(frame);
+                    changed
+                };
+
+                if !online {
+                    online = true;
+                    info!(universe, source = %source, "Art-Net universe online");
+                }
+                last_packet_at = Some(Instant::now());
+                status.lock().expect("runtime status mutex poisoned").artnet =
+                    format!("universe {universe} online from {source}");
+                if dry_run && changed {
+                    debug!(universe, channels = packet.data.len(), source = %source, "ArtDmx frame updated");
+                }
+            }
+            Ok(packet) => debug!(
+                received_universe = packet.port_address,
+                requested_universe = universe,
+                "Ignoring ArtDmx for another universe"
+            ),
+            Err(error) => debug!(?error, source = %source, "Ignoring invalid Art-Net packet"),
+        }
+    }
+
+    Ok(())
+}
