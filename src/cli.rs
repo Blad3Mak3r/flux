@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use clap::{ArgAction, Parser};
 
-#[derive(Debug, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(version, about = "A lightweight real-time lighting data bridge")]
 pub struct Cli {
     /// Art-Net UDP address to listen on.
