@@ -4,9 +4,9 @@ mod artnet;
 mod cli;
 mod dmx;
 mod enttec;
-mod state;
-mod settings;
 mod runtime_control;
+mod settings;
+mod state;
 mod ui;
 #[cfg(windows)]
 mod windows_console;
@@ -69,13 +69,15 @@ fn main() -> Result<()> {
     let worker_status = Arc::clone(&status);
     let worker_shutdown = Arc::clone(&shutdown);
     let worker_runtime = Arc::clone(&runtime);
-    thread::spawn(move || run_supervisor(
-        worker_cli,
-        worker_latest,
-        worker_status,
-        worker_shutdown,
-        worker_runtime,
-    ));
+    thread::spawn(move || {
+        run_supervisor(
+            worker_cli,
+            worker_latest,
+            worker_status,
+            worker_shutdown,
+            worker_runtime,
+        )
+    });
 
     ui::run(ui::UiState {
         latest,
@@ -225,7 +227,6 @@ fn receive_artnet(
 
     Ok(())
 }
-
 
 fn run_supervisor(
     base_cli: Cli,
