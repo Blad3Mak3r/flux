@@ -10,15 +10,24 @@ pub struct RuntimeControl {
 
 impl RuntimeControl {
     pub fn new(settings: SavedSettings) -> Self {
-        Self { settings: Mutex::new(settings), generation: AtomicU64::new(0) }
+        Self {
+            settings: Mutex::new(settings),
+            generation: AtomicU64::new(0),
+        }
     }
 
     pub fn snapshot(&self) -> SavedSettings {
-        self.settings.lock().expect("runtime settings mutex poisoned").clone()
+        self.settings
+            .lock()
+            .expect("runtime settings mutex poisoned")
+            .clone()
     }
 
     pub fn replace(&self, settings: SavedSettings) {
-        *self.settings.lock().expect("runtime settings mutex poisoned") = settings;
+        *self
+            .settings
+            .lock()
+            .expect("runtime settings mutex poisoned") = settings;
         self.generation.fetch_add(1, Ordering::Release);
     }
 
