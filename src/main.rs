@@ -243,7 +243,7 @@ fn run_supervisor(
         let mut cli = base_cli.clone();
         cli.listen = settings.listen;
         cli.universe = settings.universe;
-        cli.device = settings.device;
+        cli.device = settings.device.clone();
         cli.channels = settings.channels;
         cli.fps = settings.fps;
 
