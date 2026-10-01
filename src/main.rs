@@ -6,6 +6,7 @@ mod dmx;
 mod enttec;
 mod state;
 mod settings;
+mod runtime_control;
 mod ui;
 #[cfg(windows)]
 mod windows_console;
@@ -62,6 +63,7 @@ fn main() -> Result<()> {
     }
 
     let saved_settings = settings::SavedSettings::from(&cli);
+    let runtime = Arc::new(runtime_control::RuntimeControl::new(saved_settings.clone()));
     let worker_cli = cli;
     let worker_latest = Arc::clone(&latest);
     let worker_status = Arc::clone(&status);
@@ -84,6 +86,7 @@ fn main() -> Result<()> {
         status,
         shutdown,
         settings: Mutex::new(saved_settings),
+        runtime,
     })
 }
 
