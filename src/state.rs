@@ -60,6 +60,14 @@ impl RuntimeStatus {
         }
     }
 
+    pub fn apply_settings(&mut self, settings: &crate::settings::SavedSettings) {
+        self.listen = settings.listen.to_string();
+        self.universe = settings.universe;
+        self.channels = usize::from(settings.channels);
+        self.fps = settings.fps;
+        self.device = settings.device.clone();
+    }
+
     pub fn set_artnet_listening(&mut self) {
         self.artnet_state = "Listening";
         self.artnet = "listening".to_owned();
