@@ -71,7 +71,6 @@ fn main() -> Result<()> {
     let worker_runtime = Arc::clone(&runtime);
     thread::spawn(move || run_supervisor(
         worker_cli,
-        channels,
         worker_latest,
         worker_status,
         worker_shutdown,
@@ -89,7 +88,6 @@ fn main() -> Result<()> {
 
 fn run_runtime(
     cli: Cli,
-    channels: usize,
     latest: LatestFrame,
     status: SharedStatus,
     shutdown: Shutdown,
@@ -252,7 +250,13 @@ fn run_supervisor(
         let session_status = Arc::clone(&status);
         let session_stop = Arc::clone(&session_shutdown);
         let worker = thread::spawn(move || {
-            run_runtime(cli, channels, session_latest, session_status, session_stop)
+            run_runtime(
+                cli,
+                usize::from(settings.channels),
+                session_latest,
+                session_status,
+                session_stop,
+            )
         });
 
         while !shutdown.load(Ordering::Relaxed) && runtime.generation() == generation {
