@@ -41,15 +41,15 @@ fn main() -> Result<()> {
         return enttec::print_devices();
     }
 
-    if std::env::args_os().len() == 1 {
-        if let Some(saved) = settings::load(&settings::default_directory())? {
-            cli.listen = saved.listen;
-            cli.universe = saved.universe;
-            cli.device = saved.device;
-            cli.channels = saved.channels;
-            cli.fps = saved.fps;
-            info!("Loaded last Flux configuration");
-        }
+    if std::env::args_os().len() == 1
+        && let Some(saved) = settings::load(&settings::default_directory())?
+    {
+        cli.listen = saved.listen;
+        cli.universe = saved.universe;
+        cli.device = saved.device;
+        cli.channels = saved.channels;
+        cli.fps = saved.fps;
+        info!("Loaded last Flux configuration");
     }
 
     let channels = validate_channel_count(cli.channels).expect("clap validates channels");
