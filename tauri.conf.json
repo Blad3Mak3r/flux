@@ -10,25 +10,30 @@
     "devUrl": "http://localhost:5173"
   },
   "app": {
-    "windows": [{
-      "label": "main",
-      "title": "Flux",
-      "width": 1120,
-      "height": 760,
-      "minWidth": 900,
-      "minHeight": 620,
-      "visible": true,
-      "decorations": true,
-      "resizable": true,
-      "maximizable": true,
-      "minimizable": true,
-      "skipTaskbar": false,
-      "alwaysOnTop": false
-    }]
+    "windows": [
+      {
+        "label": "main",
+        "title": "Flux",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 900,
+        "minHeight": 620,
+        "visible": true,
+        "decorations": true,
+        "resizable": true,
+        "maximizable": true,
+        "minimizable": true,
+        "skipTaskbar": false,
+        "alwaysOnTop": false
+      }
+    ]
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["assets/flux.png", "assets/flux.ico"]
+    "icon": [
+      "assets/flux.png",
+      "assets/flux.ico"
+    ]
   }
 }
