@@ -34,7 +34,7 @@ pub struct Cli {
     pub dry_run: bool,
 
     /// Run without Tauri, as a headless console session.
-    #[arg(long, visible_alias = "no-ui", visible_alias = "no-tray")]
+    #[arg(long)]
     pub headless: bool,
 
     /// Show diagnostic logging. Repeat for trace-level output.
