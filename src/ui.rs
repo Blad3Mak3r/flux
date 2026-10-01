@@ -1,14 +1,17 @@
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 
 use anyhow::Result;
 use tauri::{Manager, WebviewWindow};
 
 use crate::{LatestFrame, SharedStatus, Shutdown};
+use crate::settings::{self, SavedSettings};
 
 pub struct UiState {
     pub latest: LatestFrame,
     pub status: SharedStatus,
     pub shutdown: Shutdown,
+    pub settings: Mutex<SavedSettings>,
 }
 
 #[tauri::command]
@@ -18,6 +21,18 @@ fn runtime_snapshot(state: tauri::State<'_, UiState>) -> crate::state::RuntimeSn
         .lock()
         .expect("runtime status mutex poisoned")
         .snapshot(&state.latest)
+}
+
+#[tauri::command]
+fn saved_settings(state: tauri::State<'_, UiState>) -> SavedSettings {
+    state.settings.lock().expect("settings mutex poisoned").clone()
+}
+
+#[tauri::command]
+fn save_settings(settings: SavedSettings, state: tauri::State<'_, UiState>) -> Result<(), String> {
+    settings::save(&settings::default_directory(), &settings).map_err(|error| error.to_string())?;
+    *state.settings.lock().expect("settings mutex poisoned") = settings;
+    Ok(())
 }
 
 #[tauri::command]
@@ -36,6 +51,8 @@ pub fn run(state: UiState) -> Result<()> {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             runtime_snapshot,
+            saved_settings,
+            save_settings,
             reconnect_device,
             quit_flux
         ])
