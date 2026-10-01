@@ -245,6 +245,10 @@ fn run_supervisor(
         cli.channels = settings.channels;
         cli.fps = settings.fps;
 
+        status
+            .lock()
+            .expect("runtime status mutex poisoned")
+            .apply_settings(&settings);
         let session_shutdown = Arc::new(AtomicBool::new(false));
         let session_latest = Arc::clone(&latest);
         let session_status = Arc::clone(&status);
