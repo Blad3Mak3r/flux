@@ -97,7 +97,7 @@ fn install_tray(app: &tauri::App, window: &WebviewWindow) -> tauri::Result<()> {
             "quit" => app.exit(0),
             _ => {}
         })
-        .on_tray_icon_event(move |tray, event| {
+        .on_tray_icon_event(move |_tray, event| {
             if matches!(
                 event,
                 tauri::tray::TrayIconEvent::Click {
