@@ -9,6 +9,20 @@ use crate::cli::Cli;
 
 const SETTINGS_FILE: &str = "settings.json";
 
+pub fn default_directory() -> PathBuf {
+    if let Some(path) = std::env::var_os("APPDATA") {
+        return PathBuf::from(path).join("Flux");
+    }
+    if let Some(path) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(path).join("flux");
+    }
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".config")
+        .join("flux")
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SavedSettings {
     pub listen: SocketAddr,
