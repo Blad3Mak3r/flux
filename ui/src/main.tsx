@@ -49,6 +49,13 @@ function statusName(value: string) {
   return value.toLowerCase().includes("receiving") ? "ACTIVE" : "WAITING";
 }
 
+function stateClass(value: string) {
+  const state = value.toLowerCase();
+  if (state.includes("receiving") || state.includes("connected") || state.includes("active")) return "is-live";
+  if (state.includes("error") || state.includes("unavailable")) return "is-error";
+  return "is-pending";
+}
+
 const ChannelRow = memo(function ChannelRow({ index, value }: { index: number; value: number }) {
   return (
     <div className="channel">
@@ -64,7 +71,7 @@ function ChannelMonitor({ dmx, universe, onClose }: { dmx: number[]; universe: n
     <section className="card channels">
       <div className="section-heading">
         <h2>UNIVERSE {universe} · DMX CHANNELS</h2>
-        <button className="icon-button" title="Hide channels" onClick={onClose}>×</button>
+        <button className="icon-button" title="Hide channels" aria-label="Hide DMX channels" onClick={onClose}>×</button>
       </div>
       <div id="channel-list">
         {Array.from({ length: 512 }, (_, index) => <ChannelRow key={index} index={index} value={dmx[index] ?? 0} />)}
@@ -171,29 +178,33 @@ function App() {
   const current = snapshot;
   const dmx = current?.dmx ?? EMPTY_DMX;
   const visibleStatus = current ? statusName(current.artnet_state) : "WAITING";
+  const isActive = visibleStatus === "ACTIVE";
 
   return (
     <>
       <header className="topbar">
-        <div className="brand"><span className="brand-mark">F</span><span>FLUX</span></div>
-        <div className="status"><i className="dot" />{visibleStatus}</div>
+        <div className="brand">
+          <span className="brand-mark">F</span>
+          <div><strong>FLUX</strong><span>LIGHTING ROUTER</span></div>
+        </div>
+        <div className={`status ${isActive ? "is-live" : "is-pending"}`}><i className="dot" />{visibleStatus}</div>
       </header>
       <main className="grid">
         <section className="card hero">
-          <div>
+          <div className="hero-copy">
             <p className="eyebrow">LIGHTING DATA BRIDGE</p>
             <h1>Lighting data, in motion.</h1>
             <p>Art-Net is routed continuously to the selected DMX output.</p>
           </div>
           <div className="hero-metrics">
-            <div><strong className="metric">{current?.packets_per_second ?? 0}</strong><small>Art-Net pkt/s</small></div>
-            <div><strong className="metric">{current?.frames_per_second ?? 0}</strong><small>DMX frames/s</small></div>
+            <div><strong className="metric">{current?.packets_per_second ?? 0}</strong><small>ART-NET PKT/S</small></div>
+            <div><strong className="metric">{current?.frames_per_second ?? 0}</strong><small>DMX FRAMES/S</small></div>
           </div>
         </section>
-        <section className="card">
-          <h2>ART-NET</h2>
+        <section className="card status-card">
+          <div className="section-heading"><div><p className="section-kicker">01 · INPUT</p><h2>ART-NET</h2></div><span className={`state-pill ${stateClass(current?.artnet_state ?? "")}`}>{visibleStatus}</span></div>
           <dl>
-            <dt>Status</dt><dd>{current?.artnet_state ?? "Starting"}</dd>
+            <dt>Status</dt><dd className={stateClass(current?.artnet_state ?? "")}>{current?.artnet_state ?? "Starting"}</dd>
             <dt>Listen</dt><dd>{current?.listen ?? "—"}</dd>
             <dt>Universe</dt><dd>{current?.universe ?? "—"}</dd>
             <dt>Last packet</dt><dd>{age(current?.last_packet_ms ?? null)}</dd>
@@ -201,8 +212,8 @@ function App() {
             <dt>Sequence</dt><dd>{current?.sequence ?? "—"}</dd>
           </dl>
         </section>
-        <section className="card">
-          <div className="section-heading"><h2>CONFIGURATION</h2><button className="icon-button" title="Refresh FTDI devices" onClick={() => void refreshDevices()}>↻</button></div>
+        <section className="card configuration-card">
+          <div className="section-heading"><div><p className="section-kicker">02 · ROUTE</p><h2>CONFIGURATION</h2></div><button className="icon-button" title="Refresh FTDI devices" aria-label="Refresh FTDI devices" onClick={() => void refreshDevices()}>↻</button></div>
           <div className="settings">
             <label>Listen address<input value={draft?.listen ?? ""} spellCheck={false} disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, listen: event.target.value })} /></label>
             <label>Universe<input value={draft?.universe ?? ""} type="number" min="0" max="32767" disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, universe: Number(event.target.value) })} /></label>
@@ -219,10 +230,10 @@ function App() {
           <p className="hint">{deviceDetail}</p>
           <div className="actions"><button className="primary" disabled={!draft} onClick={() => void applySettings()}>Apply configuration</button><span className={`feedback${feedback?.isError ? " error" : ""}`} aria-live="polite">{feedback?.message}</span></div>
         </section>
-        <section className="card">
-          <h2>DMX OUTPUT</h2>
+        <section className="card status-card">
+          <div className="section-heading"><div><p className="section-kicker">03 · OUTPUT</p><h2>DMX OUTPUT</h2></div><span className={`state-pill ${stateClass(current?.output_state ?? "")}`}>{current?.frames_per_second ? "TRANSMITTING" : "STANDBY"}</span></div>
           <dl>
-            <dt>Status</dt><dd>{current?.output_state ?? "Waiting"}</dd>
+            <dt>Status</dt><dd className={stateClass(current?.output_state ?? "")}>{current?.output_state ?? "Waiting"}</dd>
             <dt>Device</dt><dd>{current?.device ?? settings?.device ?? "Auto-select"}</dd>
             <dt>Channels</dt><dd>{current?.channels ?? "—"}</dd>
             <dt>Refresh</dt><dd>{current ? `${current.refresh_hz} Hz` : "—"}</dd>
