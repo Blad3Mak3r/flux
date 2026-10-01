@@ -96,7 +96,7 @@ flux --channels 256 --fps 30
 flux --list-devices
 flux --device FTXXXXXXXX
 flux --dry-run -v
-flux --no-tray
+flux --headless
 ```
 
 Use `flux --help` for the complete option reference and `flux --version` for the installed version.
@@ -109,11 +109,11 @@ Use `flux --help` for the complete option reference and `flux --version` for the
 
 On desktop Windows and Linux, Flux starts with a small system tray icon. Its menu shows the current Art-Net and DMX output state and provides a clean **Quit Flux** action. Quitting keeps the last-frame policy intact until Flux itself exits, then stops the Art-Net receiver and DMX loop cleanly.
 
-Use `--no-tray` for a headless session, such as a terminal-only Linux machine. Linux desktop environments need a StatusNotifier/KSNI-compatible tray host for the icon to be visible.
+Use `--headless` for a headless session, such as a terminal-only Linux machine. Linux desktop environments need a StatusNotifier/KSNI-compatible tray host for the icon to be visible.
 
 ### Windows terminal behavior
 
-Windows release builds open the desktop panel without creating a terminal window. The same `flux.exe` keeps its terminal output when started from PowerShell with `--no-ui`, `--list-devices`, or other CLI options. Launching it from Explorer does not allocate a console.
+Windows release builds open the desktop panel without creating a terminal window. The same `flux.exe` keeps its terminal output when started from PowerShell with `--headless`, `--list-devices`, or other CLI options. Launching it from Explorer does not allocate a console.
 
 ## Building
 
