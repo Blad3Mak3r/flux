@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 
 use clap::{ArgAction, Parser};
 
-#[derive(Debug, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(version, about = "A lightweight real-time lighting data bridge")]
 pub struct Cli {
     /// Art-Net UDP address to listen on.
@@ -33,9 +33,9 @@ pub struct Cli {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Run without the tray or graphical panel, for a headless session.
-    #[arg(long, visible_alias = "no-tray")]
-    pub no_ui: bool,
+    /// Run without Tauri, as a headless console session.
+    #[arg(long)]
+    pub headless: bool,
 
     /// Show diagnostic logging. Repeat for trace-level output.
     #[arg(short, long, action = ArgAction::Count)]

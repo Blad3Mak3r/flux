@@ -35,3 +35,9 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
       - run: cargo build --release
+      - name: Build Linux Tauri package
+        if: runner.os == 'Linux'
+        run: ui/node_modules/.bin/tauri build --bundles deb
+      - name: Build Windows Tauri package
+        if: runner.os == 'Windows'
+        run: ui/node_modules/.bin/tauri.cmd build --bundles nsis

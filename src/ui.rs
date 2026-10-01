@@ -1,14 +1,19 @@
+use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
-use tauri::{Manager, WebviewWindow};
+use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
+use crate::runtime_control::SharedRuntimeControl;
+use crate::settings::{self, SavedSettings};
 use crate::{LatestFrame, SharedStatus, Shutdown};
 
 pub struct UiState {
     pub latest: LatestFrame,
     pub status: SharedStatus,
     pub shutdown: Shutdown,
+    pub settings: Mutex<SavedSettings>,
+    pub runtime: SharedRuntimeControl,
 }
 
 #[tauri::command]
@@ -21,8 +26,52 @@ fn runtime_snapshot(state: tauri::State<'_, UiState>) -> crate::state::RuntimeSn
 }
 
 #[tauri::command]
-fn reconnect_device() {
+fn saved_settings(state: tauri::State<'_, UiState>) -> SavedSettings {
+    state
+        .settings
+        .lock()
+        .expect("settings mutex poisoned")
+        .clone()
+}
+
+#[tauri::command]
+fn available_devices() -> Result<Vec<crate::enttec::DeviceSummary>, String> {
+    crate::enttec::device_summaries().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_settings(settings: SavedSettings, state: tauri::State<'_, UiState>) -> Result<(), String> {
+    settings.validate().map_err(|error| error.to_string())?;
+    settings::save(&settings::default_directory(), &settings).map_err(|error| error.to_string())?;
+    *state.settings.lock().expect("settings mutex poisoned") = settings.clone();
+    *state.latest.lock().expect("latest frame mutex poisoned") = None;
+    state.runtime.replace(settings);
+    tracing::info!("Flux configuration applied from the desktop UI");
+    Ok(())
+}
+
+#[tauri::command]
+fn reconnect_device(state: tauri::State<'_, UiState>) {
     tracing::info!("Device reconnect requested from Flux panel");
+    state.runtime.restart();
+}
+
+#[tauri::command]
+fn open_dmx_monitor(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("dmx-monitor") {
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(&app, "dmx-monitor", WebviewUrl::App("monitor.html".into()))
+        .title("Flux · DMX Monitor")
+        .inner_size(600.0, 700.0)
+        .min_inner_size(420.0, 360.0)
+        .resizable(true)
+        .build()
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -33,11 +82,14 @@ fn quit_flux(app: tauri::AppHandle, state: tauri::State<'_, UiState>) {
 
 pub fn run(state: UiState) -> Result<()> {
     tauri::Builder::default()
-        .plugin(tauri_plugin_positioner::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             runtime_snapshot,
+            saved_settings,
+            available_devices,
+            save_settings,
             reconnect_device,
+            open_dmx_monitor,
             quit_flux
         ])
         .setup(|app| {
@@ -46,6 +98,13 @@ pub fn run(state: UiState) -> Result<()> {
                 .ok_or_else(|| std::io::Error::other("Tauri configured main window is missing"))?;
             install_tray(app, &window)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+                tracing::info!("Flux window hidden to the system tray");
+            }
         })
         .run(tauri::generate_context!())
         .map_err(anyhow::Error::msg)
@@ -70,12 +129,11 @@ fn install_tray(app: &tauri::App, window: &WebviewWindow) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => show_panel(app),
-            "reconnect" => tracing::info!("Device reconnect requested from tray"),
-            "quit" => app.exit(0),
+            "reconnect" => restart_runtime(app),
+            "quit" => request_shutdown(app),
             _ => {}
         })
-        .on_tray_icon_event(move |tray, event| {
-            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+        .on_tray_icon_event(move |_tray, event| {
             if matches!(
                 event,
                 tauri::tray::TrayIconEvent::Click {
@@ -96,4 +154,16 @@ fn show_panel(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+fn restart_runtime(app: &tauri::AppHandle) {
+    tracing::info!("Device reconnect requested from the system tray");
+    app.state::<UiState>().runtime.restart();
+}
+
+fn request_shutdown(app: &tauri::AppHandle) {
+    app.state::<UiState>()
+        .shutdown
+        .store(true, Ordering::Relaxed);
+    app.exit(0);
 }

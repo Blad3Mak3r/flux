@@ -22,7 +22,7 @@ MagicQ or another Art-Net sender
           Fixtures
 ```
 
-## First Light (v0.1)
+## Desktop runtime (v0.2)
 
 - Art-Net `ArtDmx` receiver, including loopback use.
 - One Art-Net Port-Address selected with `--universe`.
@@ -32,6 +32,10 @@ MagicQ or another Art-Net sender
 - `--dry-run` for verifying Art-Net without hardware.
 - Tests for ArtDmx parsing and DMX frame handling.
 - Windows and Linux CI checks.
+- Desktop dashboard for Art-Net, DMX output and all 512 channels.
+- Live configuration of the listen address, universe, refresh rate, channel count and FTDI device.
+- Persisted configuration, loaded whenever no configuration option is supplied on the command line.
+- Standard desktop window with a system tray fallback; closing the window keeps Flux running.
 
 ## Quick start: MagicQ loopback to ENTTEC Open
 
@@ -96,7 +100,7 @@ flux --channels 256 --fps 30
 flux --list-devices
 flux --device FTXXXXXXXX
 flux --dry-run -v
-flux --no-tray
+flux --headless
 ```
 
 Use `flux --help` for the complete option reference and `flux --version` for the installed version.
@@ -105,15 +109,17 @@ Use `flux --help` for the complete option reference and `flux --version` for the
 
 `--dry-run` receives and validates Art-Net, filters the configured universe and updates the in-memory frame, but does not open an FTDI device or transmit physical DMX. Add `-v` to see frame-update diagnostics without logging every received packet.
 
-## System tray
+## Desktop UI and system tray
 
-On desktop Windows and Linux, Flux starts with a small system tray icon. Its menu shows the current Art-Net and DMX output state and provides a clean **Quit Flux** action. Quitting keeps the last-frame policy intact until Flux itself exits, then stops the Art-Net receiver and DMX loop cleanly.
+By default, Flux starts its desktop window and continues routing Art-Net to DMX independently from the UI. Use the dashboard to inspect Art-Net and DMX state, select a detected FTDI device, and apply configuration without restarting the application. The selected configuration is stored locally and becomes the next default.
 
-Use `--no-tray` for a headless session, such as a terminal-only Linux machine. Linux desktop environments need a StatusNotifier/KSNI-compatible tray host for the icon to be visible.
+Closing the window hides it and keeps Flux alive in the system tray. Reopen it with **Open Flux** from the tray menu. **Quit Flux** performs an orderly shutdown of the runtime.
+
+Use `--headless` for a headless session, such as a terminal-only Linux machine. Linux desktop environments need a StatusNotifier/KSNI-compatible tray host for the icon to be visible.
 
 ### Windows terminal behavior
 
-Windows release builds open the desktop panel without creating a terminal window. The same `flux.exe` keeps its terminal output when started from PowerShell with `--no-ui`, `--list-devices`, or other CLI options. Launching it from Explorer does not allocate a console.
+Windows release builds open the desktop panel without creating a terminal window. The same `flux.exe` keeps its terminal output when started from PowerShell with `--headless`, `--list-devices`, or other CLI options. Launching it from Explorer does not allocate a console.
 
 ## Building
 
@@ -127,9 +133,15 @@ Flux statically links the vendor D2XX library through `libftd2xx`, so the releas
 
 ## Releasing
 
-The **Release** GitHub Actions workflow follows the Odin release pattern: run it manually from `main`, choose the semantic version increment, and it commits the version bump, creates the annotated `vX.Y.Z` tag, generates GitHub release notes, and publishes the Windows archive plus its SHA-256 checksum.
+The **Release** GitHub Actions workflow follows the Odin release pattern: run it manually from `main`, choose the semantic version increment, and it commits the version bump, creates the annotated `vX.Y.Z` tag, generates GitHub release notes, and publishes native Tauri bundles with SHA-256 checksums. The workflow fails intentionally if it is dispatched from any other branch, so it cannot publish an unmerged build.
 
-For the first release, choose **initial**. It publishes the current Cargo version (`v0.1.0`); subsequent releases use **patch**, **minor**, or **major**.
+For the first release, choose **initial**. It publishes the current project version (`v0.2.0`); subsequent releases use **patch**, **minor**, or **major**. Windows releases include NSIS and MSI installers; Linux releases include AppImage and Debian packages.
+
+The repository's Actions configuration must allow workflows to read and write repository contents, otherwise GitHub will reject the version commit and tag.
+
+### Application updates
+
+Flux does not enable in-app auto-updates yet. Tauri's updater requires signed installer artifacts and a project-owned signing key; the private key must be stored only as a GitHub Actions secret. The release workflow now produces the native installer formats needed for that next step, but the updater will remain disabled until its signing key is configured.
 
 ## Timing and hardware limits
 
@@ -144,7 +156,7 @@ This does **not** turn an Open DMX USB into a professional interface with autono
 
 Close QLC+, FreeStyler, MagicQ, or any other application that currently owns the device before starting Flux. If the device becomes unavailable, Flux keeps receiving Art-Net and retries the FTDI connection once per second; output resumes with the latest valid frame when the device becomes available again.
 
-Flux v0.1 is experimental software. Test the complete chain with your fixtures before using it in a show.
+Flux v0.2 is experimental software. Test the complete chain with your fixtures before using it in a show.
 
 ## Roadmap
 
@@ -152,9 +164,9 @@ Flux v0.1 is experimental software. Test the complete chain with your fixtures b
 
 ArtDmx receiver, loopback, universe selection, last-frame buffering, ENTTEC Open via D2XX, automatic ENTTEC reconnection, continuous DMX, device enumeration and selection, `--channels`, `--fps`, `--dry-run`, logging, tests, CI, MagicQ documentation, and a Windows release.
 
-### v0.2 — Reliability
+### v0.2 — Desktop runtime
 
-RX/TX statistics, Art-Net timeout warnings, improved Ctrl+C shutdown, richer diagnostics, and stress testing.
+Desktop configuration, persisted settings, Art-Net and DMX runtime status, FTDI device selection, automatic reconnection, RX/TX statistics, improved Ctrl+C shutdown, native Windows/Linux bundles, and richer diagnostics.
 
 ### v0.3 — Network
 
