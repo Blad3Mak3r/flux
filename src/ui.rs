@@ -35,6 +35,11 @@ fn saved_settings(state: tauri::State<'_, UiState>) -> SavedSettings {
 }
 
 #[tauri::command]
+fn available_devices() -> Result<Vec<crate::enttec::DeviceSummary>, String> {
+    crate::enttec::device_summaries().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn save_settings(settings: SavedSettings, state: tauri::State<'_, UiState>) -> Result<(), String> {
     settings.validate().map_err(|error| error.to_string())?;
     settings::save(&settings::default_directory(), &settings).map_err(|error| error.to_string())?;
@@ -63,6 +68,7 @@ pub fn run(state: UiState) -> Result<()> {
         .invoke_handler(tauri::generate_handler![
             runtime_snapshot,
             saved_settings,
+            available_devices,
             save_settings,
             reconnect_device,
             quit_flux

@@ -18,17 +18,29 @@ button:hover { background: #303848; }
 .card { padding: 22px; border: 1px solid #252b37; border-radius: 15px; background: rgba(20, 24, 33, .88); box-shadow: 0 14px 35px rgba(0,0,0,.18); }
 .card h2 { margin: 0 0 18px; color: #aab4c6; font-size: 11px; letter-spacing: .12em; }
 .hero { grid-column: span 2; display: flex; justify-content: space-between; align-items: center; min-height: 132px; }
+.eyebrow { margin: 0 0 8px; color: #7798df; font-size: 10px; font-weight: 750; letter-spacing: .14em; }
 .hero h1 { margin: 0 0 8px; font-size: 27px; }
 .hero p { margin: 0; color: #9ca7b8; }
+.hero-metrics { display: flex; gap: 28px; text-align: right; }
+.hero-metrics > div { display: grid; gap: 4px; }
+.hero-metrics small { color: #9ca7b8; }
 .metric { font-size: 34px; font-weight: 760; }
 dl { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin: 0; }
 dt { color: #8f9bad; } dd { margin: 0; color: #eef2f8; font-weight: 600; text-align: right; }
 .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 label { display: grid; gap: 7px; color: #9ca7b8; font-size: 12px; }
+.wide { grid-column: span 2; }
 input, select { width: 100%; padding: 10px; border: 1px solid #313947; border-radius: 8px; color: #f5f7fb; background: #11151e; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.section-heading h2 { margin: 0; }
+.icon-button { display: grid; width: 30px; height: 30px; place-items: center; padding: 0; color: #aeb8c9; background: transparent; font-size: 18px; }
+.icon-button:hover { color: #fff; background: #2b3342; }
+.hint { min-height: 18px; margin: 13px 0 0; color: #8996aa; font-size: 12px; }
 .actions { display: flex; gap: 10px; margin-top: 20px; }
 .primary { color: #10131b; background: #eff3fb; font-weight: 700; }
 .primary:hover { background: white; }
+.feedback { align-self: center; color: #9ca7b8; font-size: 12px; }
+.feedback.error { color: #ff9e9e; }
 .channels { grid-column: span 2; max-height: 270px; overflow: auto; }
 .channel { display: grid; grid-template-columns: 38px 1fr 36px; gap: 12px; align-items: center; padding: 6px 0; color: #aeb8c9; }
 .channel i { height: 8px; overflow: hidden; border-radius: 20px; background: #252c39; }

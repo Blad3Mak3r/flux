@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use libftd2xx::{BitsPerWord, DeviceInfo, Ftdi, FtdiCommon, Parity, StopBits, list_devices};
+use serde::Serialize;
 
 use crate::dmx::DmxFrame;
 
@@ -12,8 +13,35 @@ const BREAK_DURATION: Duration = Duration::from_micros(176);
 const MAB_DURATION: Duration = Duration::from_micros(16);
 const RECONNECT_INTERVAL: Duration = Duration::from_secs(1);
 
+#[derive(Debug, Serialize)]
+pub struct DeviceSummary {
+    pub serial: String,
+    pub description: String,
+    pub device_type: String,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub port_open: bool,
+}
+
 pub fn devices() -> Result<Vec<DeviceInfo>> {
     list_devices().context("Unable to enumerate FTDI devices. Is the FTDI D2XX driver installed?")
+}
+
+pub fn device_summaries() -> Result<Vec<DeviceSummary>> {
+    devices().map(|devices| devices.iter().map(DeviceSummary::from).collect())
+}
+
+impl From<&DeviceInfo> for DeviceSummary {
+    fn from(device: &DeviceInfo) -> Self {
+        Self {
+            serial: device.serial_number.clone(),
+            description: device.description.clone(),
+            device_type: format!("{:?}", device.device_type),
+            vendor_id: device.vendor_id,
+            product_id: device.product_id,
+            port_open: device.port_open,
+        }
+    }
 }
 
 pub fn print_devices() -> Result<()> {
