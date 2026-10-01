@@ -59,7 +59,7 @@ fn main() -> Result<()> {
     let latest = Arc::new(Mutex::new(None));
     let shutdown = Arc::new(AtomicBool::new(false));
     if cli.headless {
-        return run_runtime(cli, channels, latest, status, shutdown);
+        return run_runtime(cli, latest, status, shutdown);
     }
 
     let saved_settings = settings::SavedSettings::from(&cli);
@@ -94,6 +94,7 @@ fn run_runtime(
     status: SharedStatus,
     shutdown: Shutdown,
 ) -> Result<()> {
+    let channels = validate_channel_count(cli.channels).expect("settings are validated before reload");
     let output = if cli.dry_run {
         info!("Dry-run enabled; no FTDI device will be opened");
         status.lock().expect("runtime status mutex poisoned").dmx =
@@ -230,7 +231,6 @@ fn receive_artnet(
 
 fn run_supervisor(
     base_cli: Cli,
-    channels: usize,
     latest: LatestFrame,
     status: SharedStatus,
     shutdown: Shutdown,
@@ -257,7 +257,6 @@ fn run_supervisor(
         let worker = thread::spawn(move || {
             run_runtime(
                 cli,
-                usize::from(settings.channels),
                 session_latest,
                 session_status,
                 session_stop,
