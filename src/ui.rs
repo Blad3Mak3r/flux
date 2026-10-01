@@ -5,6 +5,7 @@ use anyhow::Result;
 use tauri::{Manager, WebviewWindow};
 
 use crate::{LatestFrame, SharedStatus, Shutdown};
+use crate::runtime_control::SharedRuntimeControl;
 use crate::settings::{self, SavedSettings};
 
 pub struct UiState {
@@ -12,6 +13,7 @@ pub struct UiState {
     pub status: SharedStatus,
     pub shutdown: Shutdown,
     pub settings: Mutex<SavedSettings>,
+    pub runtime: SharedRuntimeControl,
 }
 
 #[tauri::command]
@@ -31,7 +33,8 @@ fn saved_settings(state: tauri::State<'_, UiState>) -> SavedSettings {
 #[tauri::command]
 fn save_settings(settings: SavedSettings, state: tauri::State<'_, UiState>) -> Result<(), String> {
     settings::save(&settings::default_directory(), &settings).map_err(|error| error.to_string())?;
-    *state.settings.lock().expect("settings mutex poisoned") = settings;
+    *state.settings.lock().expect("settings mutex poisoned") = settings.clone();
+    state.runtime.replace(settings);
     Ok(())
 }
 
