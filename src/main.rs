@@ -61,6 +61,7 @@ fn main() -> Result<()> {
         return run_runtime(cli, channels, latest, status, shutdown);
     }
 
+    let saved_settings = settings::SavedSettings::from(&cli);
     let worker_cli = cli;
     let worker_latest = Arc::clone(&latest);
     let worker_status = Arc::clone(&status);
@@ -82,6 +83,7 @@ fn main() -> Result<()> {
         latest,
         status,
         shutdown,
+        settings: Mutex::new(saved_settings),
     })
 }
 
