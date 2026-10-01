@@ -1,12 +1,12 @@
-use std::sync::atomic::Ordering;
 use std::sync::Mutex;
+use std::sync::atomic::Ordering;
 
 use anyhow::Result;
 use tauri::{Manager, WebviewWindow};
 
-use crate::{LatestFrame, SharedStatus, Shutdown};
 use crate::runtime_control::SharedRuntimeControl;
 use crate::settings::{self, SavedSettings};
+use crate::{LatestFrame, SharedStatus, Shutdown};
 
 pub struct UiState {
     pub latest: LatestFrame,
@@ -27,7 +27,11 @@ fn runtime_snapshot(state: tauri::State<'_, UiState>) -> crate::state::RuntimeSn
 
 #[tauri::command]
 fn saved_settings(state: tauri::State<'_, UiState>) -> SavedSettings {
-    state.settings.lock().expect("settings mutex poisoned").clone()
+    state
+        .settings
+        .lock()
+        .expect("settings mutex poisoned")
+        .clone()
 }
 
 #[tauri::command]
