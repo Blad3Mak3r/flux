@@ -5,7 +5,9 @@
   "identifier": "io.blade.flux",
   "build": {
     "frontendDist": "ui/dist",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev --prefix ui",
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "windows": [{
