@@ -23,6 +23,11 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
     steps:
+      - name: Require main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Run the Release workflow from the main branch."
+          exit 1
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0

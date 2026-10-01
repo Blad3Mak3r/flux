@@ -133,9 +133,11 @@ Flux statically links the vendor D2XX library through `libftd2xx`, so the releas
 
 ## Releasing
 
-The **Release** GitHub Actions workflow follows the Odin release pattern: run it manually from `main`, choose the semantic version increment, and it commits the version bump, creates the annotated `vX.Y.Z` tag, generates GitHub release notes, and publishes native Tauri bundles with SHA-256 checksums.
+The **Release** GitHub Actions workflow follows the Odin release pattern: run it manually from `main`, choose the semantic version increment, and it commits the version bump, creates the annotated `vX.Y.Z` tag, generates GitHub release notes, and publishes native Tauri bundles with SHA-256 checksums. The workflow fails intentionally if it is dispatched from any other branch, so it cannot publish an unmerged build.
 
 For the first release, choose **initial**. It publishes the current project version (`v0.2.0`); subsequent releases use **patch**, **minor**, or **major**. Windows releases include NSIS and MSI installers; Linux releases include AppImage and Debian packages.
+
+The repository's Actions configuration must allow workflows to read and write repository contents, otherwise GitHub will reject the version commit and tag.
 
 ### Application updates
 
