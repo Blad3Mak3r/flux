@@ -68,18 +68,15 @@ fn main() -> Result<()> {
     let worker_latest = Arc::clone(&latest);
     let worker_status = Arc::clone(&status);
     let worker_shutdown = Arc::clone(&shutdown);
-    thread::spawn(move || {
-        if let Err(error) = run_runtime(
-            worker_cli,
-            channels,
-            worker_latest,
-            Arc::clone(&worker_status),
-            Arc::clone(&worker_shutdown),
-        ) {
-            tracing::error!(%error, "Flux runtime stopped");
-            worker_shutdown.store(true, Ordering::Relaxed);
-        }
-    });
+    let worker_runtime = Arc::clone(&runtime);
+    thread::spawn(move || run_supervisor(
+        worker_cli,
+        channels,
+        worker_latest,
+        worker_status,
+        worker_shutdown,
+        worker_runtime,
+    ));
 
     ui::run(ui::UiState {
         latest,
@@ -229,4 +226,44 @@ fn receive_artnet(
     }
 
     Ok(())
+}
+
+
+fn run_supervisor(
+    base_cli: Cli,
+    channels: usize,
+    latest: LatestFrame,
+    status: SharedStatus,
+    shutdown: Shutdown,
+    runtime: runtime_control::SharedRuntimeControl,
+) {
+    let mut generation = runtime.generation();
+    while !shutdown.load(Ordering::Relaxed) {
+        let settings = runtime.snapshot();
+        let mut cli = base_cli.clone();
+        cli.listen = settings.listen;
+        cli.universe = settings.universe;
+        cli.device = settings.device;
+        cli.channels = settings.channels;
+        cli.fps = settings.fps;
+
+        let session_shutdown = Arc::new(AtomicBool::new(false));
+        let session_latest = Arc::clone(&latest);
+        let session_status = Arc::clone(&status);
+        let session_stop = Arc::clone(&session_shutdown);
+        let worker = thread::spawn(move || {
+            run_runtime(cli, channels, session_latest, session_status, session_stop)
+        });
+
+        while !shutdown.load(Ordering::Relaxed) && runtime.generation() == generation {
+            thread::sleep(Duration::from_millis(100));
+        }
+        session_shutdown.store(true, Ordering::Relaxed);
+        match worker.join() {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::error!(%error, "Flux runtime session stopped"),
+            Err(_) => tracing::error!("Flux runtime session panicked"),
+        }
+        generation = runtime.generation();
+    }
 }
