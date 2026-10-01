@@ -94,7 +94,8 @@ fn run_runtime(
     status: SharedStatus,
     shutdown: Shutdown,
 ) -> Result<()> {
-    let channels = validate_channel_count(cli.channels).expect("settings are validated before reload");
+    let channels =
+        validate_channel_count(cli.channels).expect("settings are validated before reload");
     let output = if cli.dry_run {
         info!("Dry-run enabled; no FTDI device will be opened");
         status.lock().expect("runtime status mutex poisoned").dmx =
@@ -254,14 +255,8 @@ fn run_supervisor(
         let session_latest = Arc::clone(&latest);
         let session_status = Arc::clone(&status);
         let session_stop = Arc::clone(&session_shutdown);
-        let worker = thread::spawn(move || {
-            run_runtime(
-                cli,
-                session_latest,
-                session_status,
-                session_stop,
-            )
-        });
+        let worker =
+            thread::spawn(move || run_runtime(cli, session_latest, session_status, session_stop));
 
         while !shutdown.load(Ordering::Relaxed) && runtime.generation() == generation {
             thread::sleep(Duration::from_millis(100));
