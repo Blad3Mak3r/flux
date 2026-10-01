@@ -58,6 +58,7 @@ fn main() -> Result<()> {
     let status = Arc::new(Mutex::new(RuntimeStatus::new(&cli, channels)));
     let latest = Arc::new(Mutex::new(None));
     let shutdown = Arc::new(AtomicBool::new(false));
+    install_shutdown_handler(Arc::clone(&shutdown))?;
     if cli.headless {
         return run_runtime(cli, latest, status, shutdown);
     }
@@ -91,6 +92,15 @@ fn main() -> Result<()> {
         tracing::error!("Flux runtime supervisor panicked during shutdown");
     }
     ui_result
+}
+
+fn install_shutdown_handler(shutdown: Shutdown) -> Result<()> {
+    ctrlc::set_handler(move || {
+        if !shutdown.swap(true, Ordering::Relaxed) {
+            tracing::info!("Shutdown requested by the operating system");
+        }
+    })
+    .context("Unable to install the shutdown signal handler")
 }
 
 fn run_runtime(

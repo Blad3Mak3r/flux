@@ -1,12 +1,5 @@
 name: Release
 
-# Manually triggered: choose a semantic version increment. Flux calculates the
-# next version, commits and tags it on main, builds a Windows binary, and
-# publishes a downloadable GitHub Release.
-#
-# Requires Settings -> Actions -> General -> Workflow permissions set to
-# "Read and write permissions" so GITHUB_TOKEN can push the release commit/tag
-# and create the GitHub Release.
 on:
   workflow_dispatch:
     inputs:
@@ -14,11 +7,7 @@ on:
         description: Version increment
         required: true
         type: choice
-        options:
-          - initial
-          - patch
-          - minor
-          - major
+        options: [initial, patch, minor, major]
 
 concurrency:
   group: release
@@ -34,36 +23,21 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.98.1
-
-      - name: Restore Rust build cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/package-lock.json
-
-      - name: Build frontend
-        run: |
-          npm ci --prefix ui
-          npm run build --prefix ui
-
-      - name: Install Tauri system dependencies
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+      - name: Install Linux build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
-
       - name: Calculate version
         id: version
         env:
@@ -71,167 +45,107 @@ jobs:
         run: |
           set -euo pipefail
           CURRENT=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/^version = "(.*)"$/\1/')
-
           if LATEST_TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' 2>/dev/null); then
-            if ! [[ "$LATEST_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-              echo "::error::Latest release tag '$LATEST_TAG' is not in vX.Y.Z format." >&2
-              exit 1
-            fi
-            if [ "${{ inputs.version_bump }}" = initial ]; then
-              echo "::error::The initial increment is only valid before the first GitHub Release." >&2
-              exit 1
-            fi
-
-            MAJOR="${BASH_REMATCH[1]}"
-            MINOR="${BASH_REMATCH[2]}"
-            PATCH="${BASH_REMATCH[3]}"
+            [ "${{ inputs.version_bump }}" != initial ] || { echo "::error::initial is only valid before the first release"; exit 1; }
+            IFS=. read -r MAJOR MINOR PATCH <<< "${LATEST_TAG#v}"
             case "${{ inputs.version_bump }}" in
               major) VERSION="$((MAJOR + 1)).0.0" ;;
               minor) VERSION="$MAJOR.$((MINOR + 1)).0" ;;
               patch) VERSION="$MAJOR.$MINOR.$((PATCH + 1))" ;;
-              *)
-                echo "::error::Unsupported version increment '${{ inputs.version_bump }}'." >&2
-                exit 1
-                ;;
             esac
           else
-            if [ "${{ inputs.version_bump }}" != initial ]; then
-              echo "::error::No GitHub Release exists yet. Choose the initial increment to publish v$CURRENT." >&2
-              exit 1
-            fi
-            LATEST_TAG=""
+            [ "${{ inputs.version_bump }}" = initial ] || { echo "::error::Choose initial for the first release"; exit 1; }
             VERSION="$CURRENT"
           fi
-
-          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "LATEST_TAG=$LATEST_TAG" >> "$GITHUB_ENV"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Releasing v$VERSION (${{ inputs.version_bump }} increment)" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Check tag does not already exist
-        run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "::error::Tag $TAG already exists on origin." >&2
-            exit 1
-          fi
-
-      - name: Ensure version increases
-        if: ${{ inputs.version_bump != 'initial' }}
-        run: |
-          CURRENT=$(grep -m1 '^version = ' Cargo.toml | sed -E 's/^version = "(.*)"$/\1/')
-          HIGHEST=$(printf '%s\n%s\n' "$CURRENT" "$VERSION" | sort -V | tail -n1)
-          if [ "$HIGHEST" != "$VERSION" ] || [ "$VERSION" = "$CURRENT" ]; then
-            echo "::error::$VERSION must be strictly greater than current version $CURRENT." >&2
-            exit 1
-          fi
-
-      - name: Bump Cargo.toml version
-        if: ${{ inputs.version_bump != 'initial' }}
-        run: |
-          sed -i "0,/^version = \".*\"$/s//version = \"$VERSION\"/" Cargo.toml
-          cargo check
-          grep -m1 '^version = ' Cargo.toml
-
-      - name: Verify Cargo.lock is in sync
-        run: grep -A2 '^name = "flux"' Cargo.lock | grep -m1 "version = \"$VERSION\""
-
-      - name: Generate release notes
+      - name: Update release version
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          args=(--method POST "/repos/$GITHUB_REPOSITORY/releases/generate-notes" -f "tag_name=$TAG" -f "target_commitish=$GITHUB_SHA")
-          if [ -n "$LATEST_TAG" ]; then
-            args+=(-f "previous_tag_name=$LATEST_TAG")
-          fi
-          gh api "${args[@]}" --jq '.body' > release-notes.md
-
-      - name: Commit version bump
+          sed -i "0,/^version = \".*\"$/s//version = \"$VERSION\"/" Cargo.toml
+          node -e 'const fs=require("fs"); for (const path of ["tauri.conf.json", "ui/package.json"]) { const json=JSON.parse(fs.readFileSync(path)); json.version=process.env.VERSION; fs.writeFileSync(path, JSON.stringify(json, null, 2)+"\n"); }'
+          npm install --prefix ui --package-lock-only --ignore-scripts
+          npm ci --prefix ui
+          npm run build --prefix ui
+          cargo check
+          test "$(node -p 'require("./tauri.conf.json").version')" = "$VERSION"
+          grep -A2 '^name = "flux"' Cargo.lock | grep -q "version = \"$VERSION\""
+      - name: Commit version and tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock
+          git add Cargo.toml Cargo.lock tauri.conf.json ui/package.json ui/package-lock.json
           git commit --allow-empty -m "Release $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin HEAD:main "$TAG"
 
-      - name: Tag release
-        run: git tag -a "$TAG" -m "Release $TAG"
-
-      - name: Push commit and tag
-        run: git push origin HEAD:main "$TAG"
-
-      - name: Upload release notes
-        uses: actions/upload-artifact@v4
-        with:
-          name: flux-${{ env.VERSION }}-release-notes
-          path: release-notes.md
-          if-no-files-found: error
-
-  release:
-    name: Windows release
+  bundle:
+    name: ${{ matrix.name }} bundle
     needs: prepare
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            runner: windows-latest
+            bundles: nsis,msi
+            artifacts: |
+              target/release/bundle/nsis/*.exe
+              target/release/bundle/msi/*.msi
+          - name: Linux
+            runner: ubuntu-latest
+            bundles: appimage,deb
+            artifacts: |
+              target/release/bundle/appimage/*.AppImage
+              target/release/bundle/deb/*.deb
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Checkout released source
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare.outputs.tag }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/package-lock.json
-
-      - name: Build frontend
-        run: |
-          npm ci --prefix ui
-          npm run build --prefix ui
-
-      - name: Set up Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.98.1
-
-      - name: Restore Rust build cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build release binary
-        run: cargo build --release --locked
-
-      - name: Package Windows release
-        shell: pwsh
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
+      - name: Install Linux bundle dependencies
+        if: runner.os == 'Linux'
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          $archive = "dist/flux-v$env:VERSION-windows-x86_64.zip"
-          Compress-Archive -Path target/release/flux.exe, README.md, LICENSE -DestinationPath $archive
-          (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower() + "  " + (Split-Path $archive -Leaf) | Set-Content "$archive.sha256" -NoNewline
-
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+          sudo apt-get update
+          sudo apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libfuse2
+      - run: npm ci --prefix ui
+      - name: Build native bundles
+        run: ui/node_modules/.bin/tauri build --bundles ${{ matrix.bundles }}
+      - uses: actions/upload-artifact@v4
         with:
-          name: flux-${{ needs.prepare.outputs.version }}-windows-x86_64
-          path: |
-            dist/*.zip
-            dist/*.sha256
+          name: flux-${{ needs.prepare.outputs.version }}-${{ matrix.name }}
+          path: ${{ matrix.artifacts }}
           if-no-files-found: error
 
-      - name: Download release notes
-        uses: actions/download-artifact@v4
+  publish:
+    needs: [prepare, bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          name: flux-${{ needs.prepare.outputs.version }}-release-notes
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        run: |
+          find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: ${{ needs.prepare.outputs.tag }}
-          body_path: release-notes.md
+          generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
-            dist/*.zip
-            dist/*.sha256
+            dist/**
