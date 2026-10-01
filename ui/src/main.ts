@@ -31,7 +31,7 @@ function render() {
     void invoke("save_settings", { settings: {
       listen: read("#listen"), universe: Number(read("#universe")), device: read("#device") || null,
       channels: Number(read("#channel-count")), fps: Number(read("#fps"))
-    }}).then(() => window.alert("Configuration saved. Runtime apply is being connected next."));
+    }}).then(() => window.alert("Configuration saved."));
   });
   document.querySelector("#channels")?.addEventListener("click", () => { showChannels = !showChannels; render(); });
 }
