@@ -2,7 +2,7 @@ use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
 use anyhow::Result;
-use tauri::{Manager, WebviewWindow};
+use tauri::{Manager, WebviewWindow, WindowEvent};
 
 use crate::runtime_control::SharedRuntimeControl;
 use crate::settings::{self, SavedSettings};
@@ -36,15 +36,19 @@ fn saved_settings(state: tauri::State<'_, UiState>) -> SavedSettings {
 
 #[tauri::command]
 fn save_settings(settings: SavedSettings, state: tauri::State<'_, UiState>) -> Result<(), String> {
+    settings.validate().map_err(|error| error.to_string())?;
     settings::save(&settings::default_directory(), &settings).map_err(|error| error.to_string())?;
     *state.settings.lock().expect("settings mutex poisoned") = settings.clone();
+    *state.latest.lock().expect("latest frame mutex poisoned") = None;
     state.runtime.replace(settings);
+    tracing::info!("Flux configuration applied from the desktop UI");
     Ok(())
 }
 
 #[tauri::command]
-fn reconnect_device() {
+fn reconnect_device(state: tauri::State<'_, UiState>) {
     tracing::info!("Device reconnect requested from Flux panel");
+    state.runtime.restart();
 }
 
 #[tauri::command]
@@ -70,6 +74,13 @@ pub fn run(state: UiState) -> Result<()> {
             install_tray(app, &window)?;
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+                tracing::info!("Flux window hidden to the system tray");
+            }
+        })
         .run(tauri::generate_context!())
         .map_err(anyhow::Error::msg)
 }
@@ -93,8 +104,8 @@ fn install_tray(app: &tauri::App, window: &WebviewWindow) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "open" => show_panel(app),
-            "reconnect" => tracing::info!("Device reconnect requested from tray"),
-            "quit" => app.exit(0),
+            "reconnect" => restart_runtime(app),
+            "quit" => request_shutdown(app),
             _ => {}
         })
         .on_tray_icon_event(move |_tray, event| {
@@ -118,4 +129,16 @@ fn show_panel(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
+
+fn restart_runtime(app: &tauri::AppHandle) {
+    tracing::info!("Device reconnect requested from the system tray");
+    app.state::<UiState>().runtime.restart();
+}
+
+fn request_shutdown(app: &tauri::AppHandle) {
+    app.state::<UiState>()
+        .shutdown
+        .store(true, Ordering::Relaxed);
+    app.exit(0);
 }

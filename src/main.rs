@@ -41,7 +41,7 @@ fn main() -> Result<()> {
         return enttec::print_devices();
     }
 
-    if std::env::args_os().len() == 1
+    if should_load_saved_settings()
         && let Some(saved) = settings::load(&settings::default_directory())?
     {
         cli.listen = saved.listen;
@@ -69,7 +69,7 @@ fn main() -> Result<()> {
     let worker_status = Arc::clone(&status);
     let worker_shutdown = Arc::clone(&shutdown);
     let worker_runtime = Arc::clone(&runtime);
-    thread::spawn(move || {
+    let supervisor = thread::spawn(move || {
         run_supervisor(
             worker_cli,
             worker_latest,
@@ -79,13 +79,18 @@ fn main() -> Result<()> {
         )
     });
 
-    ui::run(ui::UiState {
+    let ui_result = ui::run(ui::UiState {
         latest,
         status,
-        shutdown,
+        shutdown: Arc::clone(&shutdown),
         settings: Mutex::new(saved_settings),
         runtime,
-    })
+    });
+    shutdown.store(true, Ordering::Relaxed);
+    if supervisor.join().is_err() {
+        tracing::error!("Flux runtime supervisor panicked during shutdown");
+    }
+    ui_result
 }
 
 fn run_runtime(
@@ -98,12 +103,16 @@ fn run_runtime(
         validate_channel_count(cli.channels).expect("settings are validated before reload");
     let output = if cli.dry_run {
         info!("Dry-run enabled; no FTDI device will be opened");
-        status.lock().expect("runtime status mutex poisoned").dmx =
-            "dry-run (no physical output)".to_owned();
+        status
+            .lock()
+            .expect("runtime status mutex poisoned")
+            .set_output("Dry-run (no physical output)", None);
         None
     } else {
-        status.lock().expect("runtime status mutex poisoned").dmx =
-            "looking for FTDI device".to_owned();
+        status
+            .lock()
+            .expect("runtime status mutex poisoned")
+            .set_output("Looking for FTDI device", None);
         let output_latest = Arc::clone(&latest);
         let output_status = Arc::clone(&status);
         let output_shutdown = Arc::clone(&shutdown);
@@ -165,6 +174,15 @@ fn print_startup(cli: &Cli, channels: usize) {
     println!("Waiting for Art-Net...");
 }
 
+fn should_load_saved_settings() -> bool {
+    const CONFIG_OPTIONS: [&str; 5] = ["--listen", "--universe", "--device", "--channels", "--fps"];
+    !std::env::args().skip(1).any(|argument| {
+        CONFIG_OPTIONS
+            .iter()
+            .any(|option| argument == *option || argument.starts_with(&format!("{option}=")))
+    })
+}
+
 fn receive_artnet(
     listen: std::net::SocketAddr,
     universe: u16,
@@ -178,6 +196,10 @@ fn receive_artnet(
     socket
         .set_read_timeout(Some(Duration::from_millis(100)))
         .context("Unable to configure Art-Net receive timeout")?;
+    status
+        .lock()
+        .expect("runtime status mutex poisoned")
+        .set_artnet_listening();
     let mut buffer = [0_u8; 600];
     let mut online = false;
     let mut last_packet_at: Option<Instant> = None;
@@ -190,8 +212,10 @@ fn receive_artnet(
                     && last_packet_at.is_some_and(|last| last.elapsed() > Duration::from_secs(1))
                 {
                     online = false;
-                    status.lock().expect("runtime status mutex poisoned").artnet =
-                        "offline — keeping last frame".to_owned();
+                    status
+                        .lock()
+                        .expect("runtime status mutex poisoned")
+                        .set_artnet_offline();
                 }
                 continue;
             }
@@ -212,8 +236,10 @@ fn receive_artnet(
                     info!(universe, source = %source, "Art-Net universe online");
                 }
                 last_packet_at = Some(Instant::now());
-                status.lock().expect("runtime status mutex poisoned").artnet =
-                    format!("universe {universe} online from {source}");
+                status
+                    .lock()
+                    .expect("runtime status mutex poisoned")
+                    .record_artnet_packet(source, packet.sequence);
                 if dry_run && changed {
                     debug!(universe, channels = packet.data.len(), source = %source, "ArtDmx frame updated");
                 }
@@ -251,6 +277,7 @@ fn run_supervisor(
             .lock()
             .expect("runtime status mutex poisoned")
             .apply_settings(&settings);
+        *latest.lock().expect("latest frame mutex poisoned") = None;
         let session_shutdown = Arc::new(AtomicBool::new(false));
         let session_latest = Arc::clone(&latest);
         let session_status = Arc::clone(&status);
@@ -262,11 +289,34 @@ fn run_supervisor(
             thread::sleep(Duration::from_millis(100));
         }
         session_shutdown.store(true, Ordering::Relaxed);
-        match worker.join() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => tracing::error!(%error, "Flux runtime session stopped"),
-            Err(_) => tracing::error!("Flux runtime session panicked"),
-        }
+        let session_failed = match worker.join() {
+            Ok(Ok(())) => false,
+            Ok(Err(error)) => {
+                tracing::error!(%error, "Flux runtime session stopped");
+                true
+            }
+            Err(_) => {
+                tracing::error!("Flux runtime session panicked");
+                true
+            }
+        };
         generation = runtime.generation();
+        if session_failed && !shutdown.load(Ordering::Relaxed) {
+            wait_for_runtime_retry(&shutdown, &runtime, generation);
+        }
+    }
+}
+
+fn wait_for_runtime_retry(
+    shutdown: &AtomicBool,
+    runtime: &runtime_control::SharedRuntimeControl,
+    generation: u64,
+) {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while !shutdown.load(Ordering::Relaxed)
+        && runtime.generation() == generation
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(100));
     }
 }

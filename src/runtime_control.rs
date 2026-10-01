@@ -31,6 +31,10 @@ impl RuntimeControl {
         self.generation.fetch_add(1, Ordering::Release);
     }
 
+    pub fn restart(&self) {
+        self.generation.fetch_add(1, Ordering::Release);
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
     }

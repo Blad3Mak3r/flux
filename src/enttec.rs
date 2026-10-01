@@ -83,8 +83,10 @@ pub fn run_reconnecting(
 
     while !shutdown.load(Ordering::Relaxed) {
         let result = select_device(serial.as_deref()).and_then(|device| {
-            status.lock().expect("runtime status mutex poisoned").dmx =
-                format!("{} connecting", device.serial_number);
+            status
+                .lock()
+                .expect("runtime status mutex poisoned")
+                .set_output("Connecting", Some(device.serial_number.clone()));
             run(
                 device,
                 channels,
@@ -99,8 +101,10 @@ pub fn run_reconnecting(
             Ok(()) => break,
             Err(error) => {
                 let message = error.to_string().replace('\n', " ");
-                status.lock().expect("runtime status mutex poisoned").dmx =
-                    format!("unavailable: {message}; retrying");
+                status
+                    .lock()
+                    .expect("runtime status mutex poisoned")
+                    .set_output(format!("Waiting for device — retrying: {message}"), None);
                 if last_error.as_ref() != Some(&message) {
                     tracing::warn!(%error, "DMX output unavailable; retrying");
                     last_error = Some(message);
@@ -140,8 +144,13 @@ pub fn run(
 
     configure(&mut ftdi)?;
     tracing::info!(device = %device.serial_number, "ENTTEC Open DMX USB ready");
-    status.lock().expect("runtime status mutex poisoned").dmx =
-        format!("{} ready — waiting for Art-Net", device.serial_number);
+    status
+        .lock()
+        .expect("runtime status mutex poisoned")
+        .set_output(
+            "Connected — waiting for Art-Net",
+            Some(device.serial_number.clone()),
+        );
 
     let interval = Duration::from_secs_f64(1.0 / f64::from(fps));
     let mut next_frame = Instant::now();
@@ -157,12 +166,18 @@ pub fn run(
 
         if !output_started {
             tracing::info!("DMX output started");
-            status.lock().expect("runtime status mutex poisoned").dmx =
-                format!("output active at {fps} Hz");
+            status
+                .lock()
+                .expect("runtime status mutex poisoned")
+                .set_output(format!("Output active at {fps} Hz"), None);
             output_started = true;
         }
 
         send_frame(&mut ftdi, &frame, channels)?;
+        status
+            .lock()
+            .expect("runtime status mutex poisoned")
+            .record_dmx_frame();
         next_frame += interval;
         wait_until(next_frame);
         while next_frame <= Instant::now() {
