@@ -32,17 +32,17 @@ const ChannelRow = memo(function ChannelRow({ index, value }: { index: number; v
   return <div className="channel"><span>CH {String(index + 1).padStart(3, "0")}</span><i><b style={{ width: `${value / 2.55}%` }} /></i><em>{value}</em></div>;
 });
 
-function ChannelMonitor({ dmx, universe, onClose }: { dmx: number[]; universe: number; onClose: () => void }) {
+function ChannelMonitor({ dmx, universe, onClose }: { dmx: number[]; universe: number; onClose?: () => void }) {
   const [showAll, setShowAll] = useState(false);
   const active = useMemo(() => dmx.map((value, index) => ({ value, index })).filter(({ value }) => value > 0), [dmx]);
   const channels = showAll ? dmx.map((value, index) => ({ value, index })) : active;
   return <section className="card channels" aria-labelledby="channel-monitor-title">
-    <div className="section-heading"><div><p className="section-kicker">DMX MONITOR</p><h2 id="channel-monitor-title">Universe {universe}</h2></div><div className="inline-actions"><span className="count">{active.length} active</span><button aria-pressed={showAll} onClick={() => setShowAll((value) => !value)}>{showAll ? "Active only" : "All 512"}</button><button className="icon-button" title="Close channel monitor" aria-label="Close channel monitor" onClick={onClose}>×</button></div></div>
+    <div className="section-heading"><div><p className="section-kicker">DMX MONITOR</p><h2 id="channel-monitor-title">Universe {universe}</h2></div><div className="inline-actions"><span className="count">{active.length} active</span><button aria-pressed={showAll} onClick={() => setShowAll((value) => !value)}>{showAll ? "Active only" : "All 512"}</button>{onClose && <button className="icon-button" title="Close channel monitor" aria-label="Close channel monitor" onClick={onClose}>×</button>}</div></div>
     {channels.length > 0 ? <div id="channel-list">{channels.map(({ index, value }) => <ChannelRow key={index} index={index} value={value} />)}</div> : <p className="empty-state">No active DMX channels yet.</p>}
   </section>;
 }
 
-function RouteSummary({ snapshot, settings, channelsVisible, onShowChannels, onReconnect }: { snapshot: Snapshot | null; settings: Settings | null; channelsVisible: boolean; onShowChannels: () => void; onReconnect: () => void }) {
+function RouteSummary({ snapshot, settings, onOpenMonitor, onReconnect }: { snapshot: Snapshot | null; settings: Settings | null; onOpenMonitor: () => void; onReconnect: () => void }) {
   const condition = routeCondition(snapshot);
   const inputLive = snapshot?.last_packet_ms !== null && (snapshot?.last_packet_ms ?? Infinity) < 1000;
   const outputIssue = hasOutputIssue(snapshot?.output_state ?? "");
@@ -55,8 +55,36 @@ function RouteSummary({ snapshot, settings, channelsVisible, onShowChannels, onR
       <div className={`route-link ${condition.className}`} aria-hidden="true"><i /><span>→</span></div>
       <article className="endpoint"><div className="endpoint-heading"><span>OUTPUT</span><strong className={outputIssue ? "is-error" : outputLive ? "is-live" : "is-pending"}>{outputIssue ? "Issue" : outputLive ? "Transmitting" : "Standby"}</strong></div><dl><dt>Device</dt><dd>{snapshot?.device ?? settings?.device ?? "Auto-select"}</dd><dt>Frames</dt><dd>{snapshot?.frames_per_second ?? 0} fps</dd><dt>Refresh</dt><dd>{snapshot ? `${snapshot.refresh_hz} Hz` : "—"}</dd></dl></article>
     </div>
-    <div className="route-footer"><div className="route-metrics"><span><b>{snapshot?.packets_per_second ?? 0}</b> Art-Net pkt/s</span><span><b>{snapshot?.channels ?? "—"}</b> DMX channels</span></div><div className="inline-actions">{outputIssue && <button onClick={onReconnect}>Reconnect output</button>}<button className="primary" onClick={onShowChannels}>{channelsVisible ? "Hide DMX monitor" : "View DMX monitor"}</button></div></div>
+    <div className="route-footer"><div className="route-metrics"><span><b>{snapshot?.packets_per_second ?? 0}</b> Art-Net pkt/s</span><span><b>{snapshot?.channels ?? "—"}</b> DMX channels</span></div><div className="inline-actions">{outputIssue && <button onClick={onReconnect}>Reconnect output</button>}<button className="primary" onClick={onOpenMonitor}>Open DMX monitor</button></div></div>
   </section>;
+}
+
+function MonitorApp() {
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const snapshotInFlight = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    async function refreshSnapshot() {
+      if (snapshotInFlight.current) return;
+      snapshotInFlight.current = true;
+      try {
+        const next = await invoke<Snapshot>("runtime_snapshot");
+        if (active) setSnapshot(next);
+      } catch (error) {
+        if (active) setFeedback({ message: `Unable to read DMX state: ${String(error)}`, isError: true });
+      } finally { snapshotInFlight.current = false; }
+    }
+    void refreshSnapshot();
+    const interval = window.setInterval(() => void refreshSnapshot(), 500);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
+
+  return <main className="monitor-layout">
+    {feedback && <p className={`feedback${feedback.isError ? " error" : ""}`} aria-live="polite">{feedback.message}</p>}
+    <ChannelMonitor dmx={snapshot?.dmx ?? EMPTY_DMX} universe={snapshot?.universe ?? 0} />
+  </main>;
 }
 
 function App() {
@@ -64,7 +92,6 @@ function App() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
-  const [channelsVisible, setChannelsVisible] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const snapshotInFlight = useRef(false);
@@ -117,13 +144,17 @@ function App() {
     try { await invoke("reconnect_device"); setFeedback({ message: "Output reconnection requested." }); }
     catch (error) { setFeedback({ message: `Unable to request reconnection: ${String(error)}`, isError: true }); }
   }
+  async function openDmxMonitor() {
+    try { await invoke("open_dmx_monitor"); }
+    catch (error) { setFeedback({ message: `Unable to open DMX monitor: ${String(error)}`, isError: true }); }
+  }
 
   const condition = routeCondition(snapshot);
   return <>
     <header className="topbar"><div className="brand"><span className="brand-mark">F</span><strong>FLUX</strong></div><div className={`status ${condition.className}`}><i className="dot" />{condition.label}</div></header>
     <main className="layout">
       {feedback && <p className={`feedback${feedback.isError ? " error" : ""}`} aria-live="polite">{feedback.message}</p>}
-      <RouteSummary snapshot={snapshot} settings={settings} channelsVisible={channelsVisible} onShowChannels={() => setChannelsVisible((visible) => !visible)} onReconnect={() => void reconnectDevice()} />
+      <RouteSummary snapshot={snapshot} settings={settings} onOpenMonitor={() => void openDmxMonitor()} onReconnect={() => void reconnectDevice()} />
       <section className="configuration"><div className="configuration-toggle"><div><p className="section-kicker">ROUTE SETUP</p><h2>Configuration</h2></div><div className="inline-actions">{hasChanges && <span className="changes">Unsaved changes</span>}<button aria-expanded={settingsOpen} aria-controls="route-settings" onClick={() => setSettingsOpen((open) => !open)}>{settingsOpen ? "Close" : "Configure route"}</button></div></div>
       {settingsOpen && <div id="route-settings" className="settings-panel"><div className="settings">
         <label>Listen address<input value={draft?.listen ?? ""} spellCheck={false} disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, listen: event.target.value })} /></label>
@@ -133,9 +164,9 @@ function App() {
         <label className="wide">FTDI device<select value={draft?.device ?? ""} disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, device: event.target.value || null })}><option value="">Auto-select the only device</option>{draft?.device && !selectedDevice && <option value={draft.device}>{draft.device} — not detected</option>}{devices.map((device) => <option key={device.serial} value={device.serial}>{device.serial} — {device.description}{device.port_open ? " (in use)" : ""}</option>)}</select></label>
       </div><p className="hint">{deviceDetail}</p><div className="actions"><button onClick={() => void refreshDevices()}>Refresh devices</button><button disabled={!hasChanges} onClick={() => settings && setDraft(settings)}>Reset</button><button className="primary" disabled={!validDraft || !hasChanges} onClick={() => void applySettings()}>Apply changes</button></div></div>}
       </section>
-      {channelsVisible && <ChannelMonitor dmx={snapshot?.dmx ?? EMPTY_DMX} universe={snapshot?.universe ?? draft?.universe ?? 0} onClose={() => setChannelsVisible(false)} />}
     </main>
   </>;
 }
 
-createRoot(document.querySelector<HTMLDivElement>("#app")!).render(<StrictMode><App /></StrictMode>);
+const isDmxMonitor = window.location.pathname.endsWith("/monitor.html");
+createRoot(document.querySelector<HTMLDivElement>("#app")!).render(<StrictMode>{isDmxMonitor ? <MonitorApp /> : <App />}</StrictMode>);
