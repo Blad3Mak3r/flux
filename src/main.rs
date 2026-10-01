@@ -57,7 +57,7 @@ fn main() -> Result<()> {
     let status = Arc::new(Mutex::new(RuntimeStatus::new(&cli, channels)));
     let latest = Arc::new(Mutex::new(None));
     let shutdown = Arc::new(AtomicBool::new(false));
-    if cli.no_ui {
+    if cli.headless {
         return run_runtime(cli, channels, latest, status, shutdown);
     }
 
