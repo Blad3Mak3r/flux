@@ -1,6 +1,6 @@
 use std::fs;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -44,7 +44,7 @@ impl From<&Cli> for SavedSettings {
     }
 }
 
-pub fn load(path: &PathBuf) -> Result<Option<SavedSettings>> {
+pub fn load(path: &Path) -> Result<Option<SavedSettings>> {
     let file = path.join(SETTINGS_FILE);
     match fs::read_to_string(&file) {
         Ok(content) => serde_json::from_str(&content)
@@ -55,7 +55,7 @@ pub fn load(path: &PathBuf) -> Result<Option<SavedSettings>> {
     }
 }
 
-pub fn save(path: &PathBuf, settings: &SavedSettings) -> Result<()> {
+pub fn save(path: &Path, settings: &SavedSettings) -> Result<()> {
     fs::create_dir_all(path).with_context(|| format!("Unable to create {}", path.display()))?;
     let file = path.join(SETTINGS_FILE);
     let data = serde_json::to_string_pretty(settings).context("Unable to serialize settings")?;
