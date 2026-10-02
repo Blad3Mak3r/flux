@@ -1,7 +1,8 @@
-import { StrictMode, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Minus, Monitor, RotateCw, Settings as SettingsIcon, Square, X } from "lucide-react";
 import "./style.css";
 
 type Snapshot = {
@@ -42,9 +43,9 @@ function WindowControls({ onError }: { onError: (message: string) => void }) {
   }
 
   return <div className="window-controls" aria-label="Window controls">
-    <button className="window-control" title="Minimize" aria-label="Minimize" onClick={() => void run("minimize")}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg></button>
-    <button className="window-control" title="Maximize or restore" aria-label="Maximize or restore" onClick={() => void run("maximize")}><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" /></svg></button>
-    <button className="window-control close" title="Close to tray" aria-label="Close to tray" onClick={() => void run("close")}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg></button>
+    <button className="window-control" title="Minimize" aria-label="Minimize" onClick={() => void run("minimize")}><Minus aria-hidden="true" /></button>
+    <button className="window-control" title="Maximize or restore" aria-label="Maximize or restore" onClick={() => void run("maximize")}><Square aria-hidden="true" /></button>
+    <button className="window-control close" title="Close to tray" aria-label="Close to tray" onClick={() => void run("close")}><X aria-hidden="true" /></button>
   </div>;
 }
 
@@ -57,7 +58,7 @@ function ChannelMonitor({ dmx, universe, onClose }: { dmx: number[]; universe: n
   const active = useMemo(() => dmx.map((value, index) => ({ value, index })).filter(({ value }) => value > 0), [dmx]);
   const channels = showAll ? dmx.map((value, index) => ({ value, index })) : active;
   return <section className="card channels" aria-labelledby="channel-monitor-title">
-    <div className="section-heading"><div><p className="section-kicker">DMX MONITOR</p><h2 id="channel-monitor-title">Universe {universe}</h2></div><div className="inline-actions"><span className="count">{active.length} active</span><button aria-pressed={showAll} onClick={() => setShowAll((value) => !value)}>{showAll ? "Active only" : "All 512"}</button>{onClose && <button className="icon-button" title="Close channel monitor" aria-label="Close channel monitor" onClick={onClose}>×</button>}</div></div>
+    <div className="section-heading"><div><p className="section-kicker">DMX MONITOR</p><h2 id="channel-monitor-title">Universe {universe}</h2></div><div className="inline-actions"><span className="count">{active.length} active</span><button className="secondary-action" aria-pressed={showAll} onClick={() => setShowAll((value) => !value)}>{showAll ? "Active only" : "All 512"}</button>{onClose && <button className="icon-button" title="Close channel monitor" aria-label="Close channel monitor" onClick={onClose}><X aria-hidden="true" /></button>}</div></div>
     {channels.length > 0 ? <div id="channel-list">{channels.map(({ index, value }) => <ChannelRow key={index} index={index} value={value} />)}</div> : <p className="empty-state">No active DMX channels yet.</p>}
   </section>;
 }
@@ -77,7 +78,7 @@ function RouteSummary({ snapshot, settings, monitorOpening, onOpenMonitor, onRec
       </div>
       <div className="activity-strip" aria-label="Current route activity"><div><span>Input</span><strong>{snapshot?.packets_per_second ?? 0} pkt/s</strong></div><div><span>Output</span><strong>{snapshot?.frames_per_second ?? 0} fps</strong></div><div><span>Universe</span><strong>{snapshot?.universe ?? "—"}</strong></div><div><span>Channels</span><strong>{snapshot?.channels ?? "—"}</strong></div></div>
     </div>
-    <aside className="device-inspector" aria-label="Output device"><h2>Output device</h2><strong className={outputIssue ? "is-error" : outputLive ? "is-live" : "is-pending"}>{outputIssue ? "Needs attention" : outputLive ? "Connected" : "Standby"}</strong><dl><dt>Device</dt><dd>{snapshot?.device ?? settings?.device ?? "Auto-select"}</dd><dt>Universe</dt><dd>{snapshot?.universe ?? "—"}</dd><dt>DMX output</dt><dd>{snapshot?.channels ?? "—"} channels</dd><dt>Last frame</dt><dd>{age(snapshot?.last_packet_ms ?? null)}</dd></dl><div className="inspector-actions">{outputIssue && <button className="attention" onClick={onReconnect}>Reconnect output</button>}<button className="primary" disabled={monitorOpening} onClick={onOpenMonitor}>{monitorOpening ? "Opening monitor…" : "Open DMX monitor"}</button></div></aside>
+    <aside className="device-inspector" aria-label="Output device"><h2>Output device</h2><strong className={outputIssue ? "is-error" : outputLive ? "is-live" : "is-pending"}>{outputIssue ? "Needs attention" : outputLive ? "Connected" : "Standby"}</strong><dl><dt>Device</dt><dd>{snapshot?.device ?? settings?.device ?? "Auto-select"}</dd><dt>Universe</dt><dd>{snapshot?.universe ?? "—"}</dd><dt>DMX output</dt><dd>{snapshot?.channels ?? "—"} channels</dd><dt>Last frame</dt><dd>{age(snapshot?.last_packet_ms ?? null)}</dd></dl><div className="inspector-actions">{outputIssue && <button className="attention action-button" onClick={onReconnect}><RotateCw aria-hidden="true" />Reconnect output</button>}<button className="primary action-button" disabled={monitorOpening} onClick={onOpenMonitor}><Monitor aria-hidden="true" />{monitorOpening ? "Opening monitor…" : "Open DMX monitor"}</button></div></aside>
   </section>;
 }
 
@@ -109,15 +110,84 @@ function MonitorApp() {
   </main>;
 }
 
+function Workspace({ children }: { children: ReactNode }) {
+  const viewportRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ pointerId: number; startY: number; startScrollTop: number; maxScroll: number; maxThumbTravel: number } | null>(null);
+  const [scrollbar, setScrollbar] = useState({ visible: false, thumbHeight: 0, thumbTop: 0 });
+
+  const geometry = useCallback(() => {
+    const viewport = viewportRef.current;
+    const track = trackRef.current;
+    if (!viewport || !track) return null;
+    const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const trackHeight = track.clientHeight;
+    const thumbHeight = maxScroll === 0 ? trackHeight : Math.max(32, trackHeight * (viewport.clientHeight / viewport.scrollHeight));
+    return { viewport, track, maxScroll, thumbHeight, maxThumbTravel: Math.max(0, trackHeight - thumbHeight) };
+  }, []);
+  const syncScrollbar = useCallback(() => {
+    const next = geometry();
+    if (!next) return;
+    const thumbTop = next.maxScroll === 0 ? 0 : (next.viewport.scrollTop / next.maxScroll) * next.maxThumbTravel;
+    setScrollbar((current) => current.visible === (next.maxScroll > 0) && current.thumbHeight === next.thumbHeight && current.thumbTop === thumbTop ? current : { visible: next.maxScroll > 0, thumbHeight: next.thumbHeight, thumbTop });
+  }, [geometry]);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    const track = trackRef.current;
+    if (!viewport || !content || !track) return;
+    const observer = new ResizeObserver(syncScrollbar);
+    observer.observe(viewport);
+    observer.observe(content);
+    observer.observe(track);
+    syncScrollbar();
+    return () => observer.disconnect();
+  }, [syncScrollbar]);
+
+  const updateFromTrackPosition = useCallback((clientY: number) => {
+    const next = geometry();
+    if (!next || next.maxScroll === 0 || next.maxThumbTravel === 0) return;
+    const position = clientY - next.track.getBoundingClientRect().top - next.thumbHeight / 2;
+    next.viewport.scrollTop = Math.max(0, Math.min(next.maxScroll, (position / next.maxThumbTravel) * next.maxScroll));
+  }, [geometry]);
+  const startThumbDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const next = geometry();
+    if (!next || next.maxScroll === 0 || next.maxThumbTravel === 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = { pointerId: event.pointerId, startY: event.clientY, startScrollTop: next.viewport.scrollTop, maxScroll: next.maxScroll, maxThumbTravel: next.maxThumbTravel };
+  }, [geometry]);
+  const moveThumb = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    const viewport = viewportRef.current;
+    if (!drag || !viewport || drag.pointerId !== event.pointerId) return;
+    viewport.scrollTop = Math.max(0, Math.min(drag.maxScroll, drag.startScrollTop + ((event.clientY - drag.startY) / drag.maxThumbTravel) * drag.maxScroll));
+  }, []);
+  const endThumbDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }, []);
+
+  return <div className="workspace-shell"><main ref={viewportRef} className="workspace" tabIndex={0} aria-label="Flux workspace" onScroll={syncScrollbar}><div ref={contentRef}>{children}</div></main><div ref={trackRef} className={`workspace-scrollbar${scrollbar.visible ? "" : " is-hidden"}`} aria-hidden="true" onPointerDown={(event) => { if (event.target === event.currentTarget) updateFromTrackPosition(event.clientY); }}>{scrollbar.visible && <div className="workspace-scrollbar-thumb" style={{ height: scrollbar.thumbHeight, transform: `translateY(${scrollbar.thumbTop}px)` }} onPointerDown={startThumbDrag} onPointerMove={moveThumb} onPointerUp={endThumbDrag} onPointerCancel={endThumbDrag} />}</div></div>;
+}
+
 function App() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [draft, setDraft] = useState<Settings | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [monitorOpening, setMonitorOpening] = useState(false);
   const snapshotInFlight = useRef(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
+  const settingsDialogRef = useRef<HTMLDivElement>(null);
+  const applyingRef = useRef(false);
+  const closeSettingsRef = useRef<() => void>(() => {});
 
   const refreshDevices = useCallback(async () => {
     setFeedback({ message: "Refreshing FTDI devices…" });
@@ -157,11 +227,54 @@ function App() {
   const hasChanges = Boolean(draft && settings && (draft.listen !== settings.listen || draft.universe !== settings.universe || draft.device !== settings.device || draft.channels !== settings.channels || draft.fps !== settings.fps));
   const validDraft = Boolean(draft && draft.listen.trim() && Number.isInteger(draft.universe) && draft.universe >= 0 && draft.universe <= 32767 && Number.isInteger(draft.channels) && draft.channels >= 1 && draft.channels <= 512 && Number.isInteger(draft.fps) && draft.fps >= 1 && draft.fps <= 44);
 
+  const openSettings = useCallback(() => {
+    if (!settings || isApplying) return;
+    setDraft(settings);
+    setSettingsOpen(true);
+  }, [isApplying, settings]);
+  const closeSettings = useCallback(() => {
+    if (isApplying) return;
+    setDraft(settings);
+    setSettingsOpen(false);
+  }, [isApplying, settings]);
+  applyingRef.current = isApplying;
+  closeSettingsRef.current = closeSettings;
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const dialog = settingsDialogRef.current;
+    const focusableSelector = "button:not(:disabled), input:not(:disabled), select:not(:disabled)";
+    const focusFirst = () => dialog?.querySelector<HTMLElement>(focusableSelector)?.focus();
+    const focusTimer = window.setTimeout(focusFirst, 0);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (!applyingRef.current) closeSettingsRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+      if (focusable.length === 0) { event.preventDefault(); dialog.focus(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown);
+      settingsButtonRef.current?.focus();
+    };
+  }, [settingsOpen]);
+
   async function applySettings() {
     if (!draft || !validDraft || !hasChanges) return;
+    setIsApplying(true);
     setFeedback({ message: "Applying route configuration…" });
-    try { await invoke("save_settings", { settings: draft }); setSettings(draft); setFeedback({ message: "Route configuration applied." }); }
+    try { await invoke("save_settings", { settings: draft }); setSettings(draft); setDraft(draft); setSettingsOpen(false); setFeedback({ message: "Route configuration applied." }); }
     catch (error) { setFeedback({ message: `Configuration was not applied: ${String(error)}`, isError: true }); }
+    finally { setIsApplying(false); }
   }
   async function reconnectDevice() {
     try { await invoke("reconnect_device"); setFeedback({ message: "Output reconnection requested." }); }
@@ -174,26 +287,31 @@ function App() {
     catch (error) { setFeedback({ message: `Unable to open DMX monitor: ${String(error)}`, isError: true }); }
     finally { setMonitorOpening(false); }
   }
+  const handleTitlebarMouseDown = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (event.button !== 0 || target?.closest("button, input, select, textarea, a, [data-no-window-drag]")) return;
+    const currentWindow = getCurrentWindow();
+    const action = event.detail === 2 ? currentWindow.toggleMaximize() : currentWindow.startDragging();
+    void action.catch((error) => setFeedback({ message: `Window action failed: ${String(error)}`, isError: true }));
+  }, []);
 
   const condition = routeCondition(snapshot);
   return <>
     <div className="app-frame">
-      <header className="window-titlebar"><div className="brand"><strong>FLUX</strong></div><div className={`status ${condition.className}`}><i className="dot" />{condition.label}</div><div className="window-drag-region" data-tauri-drag-region /><WindowControls onError={(message) => setFeedback({ message, isError: true })} /></header>
-      <div className="app-shell"><nav className="nav-rail" aria-label="Flux navigation"><button className="nav-item active" aria-current="page" onClick={() => setSettingsOpen(false)}><svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.5" /><circle cx="13" cy="3" r="1.5" /><circle cx="13" cy="13" r="1.5" /><path d="m4.4 7.2 7.2-3.4M4.4 8.8l7.2 3.4" /></svg>Route</button><button className="nav-item" onClick={() => void openDmxMonitor()}><svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 12V8m3 4V4m3 8V6m3 6V2" /></svg>Monitor</button><button className="nav-item" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><svg className="nav-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.3" /><path d="M8 2.2v1.3m0 9v1.3m5.8-5.8h-1.3m-9 0H2.2m9.9-4.1-.9.9m-6.2 6.2-.9.9m8 0-.9-.9m-6.2-6.2-.9-.9" /></svg>Settings</button></nav>
-      <main className="workspace">
+      <header className="window-titlebar" onMouseDown={handleTitlebarMouseDown}><div className="brand"><strong>FLUX</strong></div><div className={`status ${condition.className}`}><i className="dot" />{condition.label}</div><div className="window-drag-region" /><div className="titlebar-actions"><button ref={settingsButtonRef} className="titlebar-action" title="Configure route" aria-label="Configure route" aria-haspopup="dialog" aria-expanded={settingsOpen} disabled={!settings} onClick={openSettings}><SettingsIcon aria-hidden="true" /></button><WindowControls onError={(message) => setFeedback({ message, isError: true })} /></div></header>
+      <div className="app-shell">
+      <Workspace>
         {feedback && <p className={`feedback${feedback.isError ? " error" : ""}`} aria-live="polite">{feedback.message}</p>}
         <RouteSummary snapshot={snapshot} settings={settings} monitorOpening={monitorOpening} onOpenMonitor={() => void openDmxMonitor()} onReconnect={() => void reconnectDevice()} />
-        <section className="configuration"><div className="configuration-toggle"><div><h2>Route settings</h2><p>Change the saved bridge configuration without restarting Flux.</p></div><div className="inline-actions">{hasChanges && <span className="changes">Unsaved changes</span>}<button aria-expanded={settingsOpen} aria-controls="route-settings" onClick={() => setSettingsOpen((open) => !open)}>{settingsOpen ? "Close settings" : "Configure route"}</button></div></div>
-        {settingsOpen && <div id="route-settings" className="settings-panel"><div className="settings">
-        <label>Listen address<input value={draft?.listen ?? ""} spellCheck={false} disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, listen: event.target.value })} /></label>
-        <label>Universe<input value={draft?.universe ?? ""} type="number" min="0" max="32767" disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, universe: Number(event.target.value) })} /></label>
-        <label>DMX channels<input value={draft?.channels ?? ""} type="number" min="1" max="512" disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, channels: Number(event.target.value) })} /></label>
-        <label>Refresh (Hz)<input value={draft?.fps ?? ""} type="number" min="1" max="44" disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, fps: Number(event.target.value) })} /></label>
-        <label className="wide">FTDI device<select value={draft?.device ?? ""} disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, device: event.target.value || null })}><option value="">Auto-select the only device</option>{draft?.device && !selectedDevice && <option value={draft.device}>{draft.device} — not detected</option>}{devices.map((device) => <option key={device.serial} value={device.serial}>{device.serial} — {device.description}{device.port_open ? " (in use)" : ""}</option>)}</select></label>
-        </div><p className="hint">{deviceDetail}</p><div className="actions"><button onClick={() => void refreshDevices()}>Refresh devices</button><button disabled={!hasChanges} onClick={() => settings && setDraft(settings)}>Reset</button><button className="primary" disabled={!validDraft || !hasChanges} onClick={() => void applySettings()}>Apply changes</button></div></div>}
-        </section>
-      </main></div>
+      </Workspace></div>
     </div>
+    {settingsOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) closeSettings(); }}><div ref={settingsDialogRef} className="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="route-settings-title" tabIndex={-1}><div className="dialog-heading"><div><p className="section-kicker">CONFIGURATION</p><h2 id="route-settings-title">Route settings</h2><p>Change the saved bridge configuration without restarting Flux.</p></div><button className="dialog-close icon-button" title="Close settings" aria-label="Close settings" disabled={isApplying} onClick={closeSettings}><X aria-hidden="true" /></button></div><div className="settings">
+      <label>Listen address<input value={draft?.listen ?? ""} spellCheck={false} disabled={!draft || isApplying} onChange={(event) => setDraft((value) => value && { ...value, listen: event.target.value })} /></label>
+      <label>Universe<input value={draft?.universe ?? ""} type="number" min="0" max="32767" disabled={!draft || isApplying} onChange={(event) => setDraft((value) => value && { ...value, universe: Number(event.target.value) })} /></label>
+      <label>DMX channels<input value={draft?.channels ?? ""} type="number" min="1" max="512" disabled={!draft || isApplying} onChange={(event) => setDraft((value) => value && { ...value, channels: Number(event.target.value) })} /></label>
+      <label>Refresh (Hz)<input value={draft?.fps ?? ""} type="number" min="1" max="44" disabled={!draft || isApplying} onChange={(event) => setDraft((value) => value && { ...value, fps: Number(event.target.value) })} /></label>
+      <label className="wide">FTDI device<select value={draft?.device ?? ""} disabled={!draft || isApplying} onChange={(event) => setDraft((value) => value && { ...value, device: event.target.value || null })}><option value="">Auto-select the only device</option>{draft?.device && !selectedDevice && <option value={draft.device}>{draft.device} — not detected</option>}{devices.map((device) => <option key={device.serial} value={device.serial}>{device.serial} — {device.description}{device.port_open ? " (in use)" : ""}</option>)}</select></label>
+      </div><p className="hint">{deviceDetail}</p>{feedback?.isError && <p className="dialog-feedback" role="alert">{feedback.message}</p>}<div className="actions"><button disabled={isApplying} onClick={() => void refreshDevices()}>Refresh devices</button><span className="dialog-actions-spacer" />{hasChanges && <span className="changes">Unsaved changes</span>}<button disabled={!hasChanges || isApplying} onClick={() => settings && setDraft(settings)}>Reset</button><button disabled={isApplying} onClick={closeSettings}>Cancel</button><button className="primary" disabled={!validDraft || !hasChanges || isApplying} onClick={() => void applySettings()}>{isApplying ? "Applying…" : "Apply changes"}</button></div></div></div>}
   </>;
 }
 
