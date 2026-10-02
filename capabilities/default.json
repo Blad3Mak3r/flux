@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "Default desktop permissions for Flux.",
+  "windows": ["main", "dmx-monitor"],
+  "permissions": ["core:default", "updater:default"]
+}

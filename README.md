@@ -141,7 +141,7 @@ The repository's Actions configuration must allow workflows to read and write re
 
 ### Application updates
 
-Flux does not enable in-app auto-updates yet. Tauri's updater requires signed installer artifacts and a project-owned signing key; the private key must be stored only as a GitHub Actions secret. The release workflow now produces the native installer formats needed for that next step, but the updater will remain disabled until its signing key is configured.
+Flux uses Tauri's signed updater with the static manifest published as `latest.json` on each GitHub Release. The Release workflow signs updater bundles with the `TAURI_SIGNING_PRIVATE_KEY` GitHub Actions secret, publishes the Windows NSIS and Linux AppImage updater bundles with their `.sig` files, and generates the manifest with their signatures. The matching public key is embedded in `tauri.conf.json`; never replace it after publishing a release unless existing installations are migrated through a key-rotation strategy.
 
 ## Timing and hardware limits
 
