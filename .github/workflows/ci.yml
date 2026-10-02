@@ -44,7 +44,11 @@ jobs:
       - run: cargo build --release
       - name: Build Linux Tauri package
         if: runner.os == 'Linux'
-        run: ui/node_modules/.bin/tauri build --bundles deb
+        run: >-
+          ui/node_modules/.bin/tauri build --bundles deb
+          --config tauri.ci.conf.json
       - name: Build Windows Tauri package
         if: runner.os == 'Windows'
-        run: ui/node_modules/.bin/tauri.cmd build --bundles nsis
+        run: >-
+          ui/node_modules/.bin/tauri.cmd build --bundles nsis
+          --config tauri.ci.conf.json

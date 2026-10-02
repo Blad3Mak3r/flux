@@ -31,9 +31,18 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "assets/flux.png",
       "assets/flux.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE1MTcwMTU1ODhFQTUzOEQKUldTTlUrcUlWUUVYRlk4QUhFL3N0NU11U2RYM3RTa1ZXOEdaR2N6aTNlcTA3UzRlbXFTWnI4ODgK",
+      "endpoints": [
+        "https://github.com/Blad3Mak3r/flux/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
