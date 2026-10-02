@@ -83,6 +83,7 @@ jobs:
           toolchain: 1.98.1
       - uses: Swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.runner }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux bundle dependencies
         if: runner.os == 'Linux'
