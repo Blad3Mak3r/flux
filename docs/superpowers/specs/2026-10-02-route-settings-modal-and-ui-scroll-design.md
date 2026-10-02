@@ -2,7 +2,7 @@
 
 ## Goal
 
-Simplify the Flux desktop surface by removing the left navigation rail, placing route configuration in the top-right title strip, and presenting the configuration form in an accessible React modal. Keep Flux's custom window controls functional. Replace operating-system window scrolling with controlled, styled scrolling inside the application UI.
+Simplify the Flux desktop surface by removing the left navigation rail, placing route configuration and update availability in the top-right title strip, and presenting configuration and update flows in accessible React modals. Keep Flux's custom window controls functional. Replace operating-system window scrolling with controlled, styled scrolling inside the application UI.
 
 ## Scope and constraints
 
@@ -11,15 +11,17 @@ Simplify the Flux desktop surface by removing the left navigation rail, placing 
 - Close keeps the established Rust close interception: Flux hides to the system tray and continues routing DMX. This work does not add a quit control or change Rust handlers.
 - The route configuration UI uses only React state and existing settings commands. No Tauri command or plugin is introduced for modal behavior.
 - The main window itself does not scroll. Any required scrolling occurs in explicitly owned UI regions.
+- Tauri's signed updater is configured before update checking is enabled. Its public key and update endpoint are app configuration; its corresponding private signing key is only a GitHub Actions secret and is never committed.
 
 ## Layout
 
 The title strip keeps the Flux identity and text-labelled bridge condition on the left, followed by a drag region. Its right-side action group is ordered as follows:
 
 1. A compact gear button labelled `Configure route`, with a visible tooltip and accessible name.
-2. Minimize.
-3. Maximize or restore.
-4. Close to tray.
+2. A conditional update button, labelled with the available version, when the startup check finds a newer signed release.
+3. Minimize.
+4. Maximize or restore.
+5. Close to tray.
 
 Window controls retain their fixed hit areas, hover treatment, keyboard focus indication, and error feedback. The gear button is outside the drag region, as are all other interactive controls.
 
@@ -33,6 +35,16 @@ Opening the modal seeds a fresh draft from the last saved settings. Closing it t
 
 The dialog uses `role="dialog"`, `aria-modal="true"`, and a labelled heading. Focus moves to the dialog on open, is contained while it is open, and returns to the gear button on close. The Escape handler and backdrop interaction must not close the dialog while an apply operation is in progress.
 
+## Application updates
+
+After the React application initializes, it performs one Tauri updater check in the background. A current or failed check does not add a title-strip control. When a newer signed release is available, Flux stores its version and renders the conditional update button beside the configuration gear. The update check does not block route initialization or the 500 ms runtime snapshot loop.
+
+Selecting the update button opens a React-controlled update dialog that identifies the available version and presents `Update now` and `Cancel`. Before update start, the dialog may be dismissed through Cancel, its close control, Escape, or backdrop click. Selecting `Update now` begins download and installation through Tauri's updater API. From this point the dialog cannot be dismissed by close, Escape, or backdrop. The Cancel button remains visible but disabled, rather than being removed, while installation is active.
+
+The dialog reports determinate progress when the updater exposes total content length; otherwise it communicates an active indeterminate download state. When the updater completes successfully, Flux requests the updater's normal relaunch operation. If checking, downloading, or installing fails, the dialog shows an actionable error and presents `Retry` and an enabled `Cancel`. Retry repeats the relevant updater flow; Cancel closes the dialog and leaves the current Flux session and its routing operation running.
+
+Release publication must create signed Tauri updater artifacts and a signed update manifest at the configured endpoint. The implementation must retain the repository's existing protection against embedding or logging signing secrets.
+
 ## Application-owned scrolling
 
 The document root, application frame, and outer shell are constrained to the viewport and use hidden overflow. The workspace becomes the primary vertical scroll container below the title strip. It receives a narrow, dark scrollbar with a clearly visible thumb, hover treatment, and nonzero contrast against its track. Standard CSS scrollbar declarations cover Chromium/WebKit and Firefox.
@@ -45,11 +57,13 @@ All state conditions continue to use words alongside colour. The gear, dialog cl
 
 ## Files and implementation boundaries
 
-- `ui/src/main.tsx`: remove the navigation rail; add the gear button, reusable settings dialog behavior, focus and dismissal handling, and discard-on-close draft reset.
-- `ui/src/style.css`: make the workspace and dialog the owned scroll containers; add scrollbar styling; style the title-strip configuration action and modal.
-- `tauri.conf.json`: retain the existing undecorated, resizable, minimizable, and maximizable settings; no configuration change is expected unless validation proves a setting differs.
+- `ui/src/main.tsx`: remove the navigation rail; add the gear button, reusable settings dialog behavior, focus and dismissal handling, discard-on-close draft reset, and the startup updater check/update dialog state machine.
+- `ui/src/style.css`: make the workspace and dialogs the owned scroll containers; add scrollbar styling; style title-strip actions, configuration modal, update modal, and progress/error states.
+- `tauri.conf.json`: retain existing window capabilities and add the signed updater endpoint and public key configuration.
+- `Cargo.toml`, Rust setup, and Tauri capability configuration: add and initialize the official updater plugin with only the permissions needed for checking, downloading, installing, and relaunching.
+- Release workflow: sign release artifacts and publish the updater manifest using a GitHub Actions signing secret.
 
-No Rust runtime, settings, tray, or command API modification is part of this work.
+No modification to Flux's DMX runtime, settings model, tray behavior, or command API is part of this work.
 
 ## Verification
 
@@ -60,3 +74,5 @@ No Rust runtime, settings, tray, or command API modification is part of this wor
 5. Verify Reset, validation, successful Apply-and-close, and failed-save behavior.
 6. At normal and minimum window size, verify workspace scrolling is UI-owned and visually styled, no Windows window scrollbar appears, and modal scrolling does not move the background.
 7. Verify minimize, maximize/restore, and close-to-tray; reopen from the tray and confirm routing remains active.
+8. With a signed test update manifest, verify no update control for a current build and an available-version control for a newer build.
+9. Verify the update dialog's cancellable pre-start state, progress state with visible disabled Cancel, success relaunch, and failure state with error, Retry, and enabled Cancel.
