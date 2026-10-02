@@ -42,7 +42,7 @@ function ChannelMonitor({ dmx, universe, onClose }: { dmx: number[]; universe: n
   </section>;
 }
 
-function RouteSummary({ snapshot, settings, onOpenMonitor, onReconnect }: { snapshot: Snapshot | null; settings: Settings | null; onOpenMonitor: () => void; onReconnect: () => void }) {
+function RouteSummary({ snapshot, settings, monitorOpening, onOpenMonitor, onReconnect }: { snapshot: Snapshot | null; settings: Settings | null; monitorOpening: boolean; onOpenMonitor: () => void; onReconnect: () => void }) {
   const condition = routeCondition(snapshot);
   const inputLive = snapshot?.last_packet_ms !== null && (snapshot?.last_packet_ms ?? Infinity) < 1000;
   const outputIssue = hasOutputIssue(snapshot?.output_state ?? "");
@@ -55,7 +55,7 @@ function RouteSummary({ snapshot, settings, onOpenMonitor, onReconnect }: { snap
       <div className={`route-link ${condition.className}`} aria-hidden="true"><i /><span>→</span></div>
       <article className="endpoint"><div className="endpoint-heading"><span>OUTPUT</span><strong className={outputIssue ? "is-error" : outputLive ? "is-live" : "is-pending"}>{outputIssue ? "Issue" : outputLive ? "Transmitting" : "Standby"}</strong></div><dl><dt>Device</dt><dd>{snapshot?.device ?? settings?.device ?? "Auto-select"}</dd><dt>Frames</dt><dd>{snapshot?.frames_per_second ?? 0} fps</dd><dt>Refresh</dt><dd>{snapshot ? `${snapshot.refresh_hz} Hz` : "—"}</dd></dl></article>
     </div>
-    <div className="route-footer"><div className="route-metrics"><span><b>{snapshot?.packets_per_second ?? 0}</b> Art-Net pkt/s</span><span><b>{snapshot?.channels ?? "—"}</b> DMX channels</span></div><div className="inline-actions">{outputIssue && <button onClick={onReconnect}>Reconnect output</button>}<button className="primary" onClick={onOpenMonitor}>Open DMX monitor</button></div></div>
+    <div className="route-footer"><div className="route-metrics"><span><b>{snapshot?.packets_per_second ?? 0}</b> Art-Net pkt/s</span><span><b>{snapshot?.channels ?? "—"}</b> DMX channels</span></div><div className="inline-actions">{outputIssue && <button onClick={onReconnect}>Reconnect output</button>}<button className="primary" disabled={monitorOpening} onClick={onOpenMonitor}>{monitorOpening ? "Opening DMX monitor…" : "Open DMX monitor"}</button></div></div>
   </section>;
 }
 
@@ -94,6 +94,7 @@ function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [monitorOpening, setMonitorOpening] = useState(false);
   const snapshotInFlight = useRef(false);
 
   const refreshDevices = useCallback(async () => {
@@ -145,8 +146,11 @@ function App() {
     catch (error) { setFeedback({ message: `Unable to request reconnection: ${String(error)}`, isError: true }); }
   }
   async function openDmxMonitor() {
+    if (monitorOpening) return;
+    setMonitorOpening(true);
     try { await invoke("open_dmx_monitor"); }
     catch (error) { setFeedback({ message: `Unable to open DMX monitor: ${String(error)}`, isError: true }); }
+    finally { setMonitorOpening(false); }
   }
 
   const condition = routeCondition(snapshot);
@@ -154,7 +158,7 @@ function App() {
     <header className="topbar"><div className="brand"><span className="brand-mark">F</span><strong>FLUX</strong></div><div className={`status ${condition.className}`}><i className="dot" />{condition.label}</div></header>
     <main className="layout">
       {feedback && <p className={`feedback${feedback.isError ? " error" : ""}`} aria-live="polite">{feedback.message}</p>}
-      <RouteSummary snapshot={snapshot} settings={settings} onOpenMonitor={() => void openDmxMonitor()} onReconnect={() => void reconnectDevice()} />
+      <RouteSummary snapshot={snapshot} settings={settings} monitorOpening={monitorOpening} onOpenMonitor={() => void openDmxMonitor()} onReconnect={() => void reconnectDevice()} />
       <section className="configuration"><div className="configuration-toggle"><div><p className="section-kicker">ROUTE SETUP</p><h2>Configuration</h2></div><div className="inline-actions">{hasChanges && <span className="changes">Unsaved changes</span>}<button aria-expanded={settingsOpen} aria-controls="route-settings" onClick={() => setSettingsOpen((open) => !open)}>{settingsOpen ? "Close" : "Configure route"}</button></div></div>
       {settingsOpen && <div id="route-settings" className="settings-panel"><div className="settings">
         <label>Listen address<input value={draft?.listen ?? ""} spellCheck={false} disabled={!draft} onChange={(event) => setDraft((value) => value && { ...value, listen: event.target.value })} /></label>

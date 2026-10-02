@@ -57,13 +57,14 @@ fn reconnect_device(state: tauri::State<'_, UiState>) {
 }
 
 #[tauri::command]
-fn open_dmx_monitor(app: tauri::AppHandle) -> Result<(), String> {
+async fn open_dmx_monitor(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("dmx-monitor") {
         window.show().map_err(|error| error.to_string())?;
         window.set_focus().map_err(|error| error.to_string())?;
         return Ok(());
     }
 
+    // On Windows, creating a webview from a synchronous Tauri command can deadlock WebView2.
     WebviewWindowBuilder::new(&app, "dmx-monitor", WebviewUrl::App("monitor.html".into()))
         .title("Flux · DMX Monitor")
         .inner_size(600.0, 700.0)
