@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
@@ -29,20 +29,6 @@ jobs:
           echo "::error::Run the Release workflow from the main branch."
           exit 1
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.98.1
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
       - name: Calculate version
         id: version
         env:
@@ -64,29 +50,6 @@ jobs:
           fi
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Update release version
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          sed -i "0,/^version = \".*\"$/s//version = \"$VERSION\"/" Cargo.toml
-          node -e 'const fs=require("fs"); for (const path of ["tauri.conf.json", "ui/package.json"]) { const json=JSON.parse(fs.readFileSync(path)); json.version=process.env.VERSION; fs.writeFileSync(path, JSON.stringify(json, null, 2)+"\n"); }'
-          npm install --prefix ui --package-lock-only --ignore-scripts
-          npm ci --prefix ui
-          npm run build --prefix ui
-          cargo check
-          test "$(node -p 'require("./tauri.conf.json").version')" = "$VERSION"
-          grep -A2 '^name = "flux"' Cargo.lock | grep -q "version = \"$VERSION\""
-      - name: Commit version and tag
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock tauri.conf.json ui/package.json ui/package-lock.json
-          git commit --allow-empty -m "Release $TAG"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin HEAD:main "$TAG"
 
   bundle:
     name: ${{ matrix.name }} bundle
@@ -102,7 +65,7 @@ jobs:
               target/release/bundle/nsis/*.exe
               target/release/bundle/msi/*.msi
           - name: Linux
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             bundles: appimage,deb
             artifacts: |
               target/release/bundle/appimage/*.AppImage
@@ -110,8 +73,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.prepare.outputs.tag }}
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -120,11 +81,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.runner }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux bundle dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libfuse2
+      - name: Set release version
+        run: node scripts/set-release-version.mjs "${{ needs.prepare.outputs.version }}"
       - run: npm ci --prefix ui
       - name: Build native bundles
         run: ui/node_modules/.bin/tauri build --bundles "${{ matrix.bundles }}"
@@ -136,8 +103,26 @@ jobs:
 
   publish:
     needs: [prepare, bundle]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Set release version
+        run: node scripts/set-release-version.mjs "${{ needs.prepare.outputs.version }}"
+      - name: Commit version and tag
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock tauri.conf.json ui/package.json ui/package-lock.json
+          git commit --allow-empty -m "Release $TAG"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin HEAD:main "$TAG"
       - uses: actions/download-artifact@v4
         with:
           path: dist
