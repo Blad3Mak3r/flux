@@ -1,6 +1,6 @@
 [package]
 name = "flux"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "A lightweight real-time bridge for routing lighting data between protocols and interfaces."
 license = "MIT"
