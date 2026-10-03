@@ -2,5 +2,12 @@
   "identifier": "default",
   "description": "Default desktop permissions for Flux.",
   "windows": ["main", "dmx-monitor"],
-  "permissions": ["core:default", "updater:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "updater:default"
+  ]
 }
