@@ -120,3 +120,37 @@ export const CloseIcon = () => (
     <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" />
   </Icon>
 );
+
+// Inspector tabs and the collapse toggle.
+export const SelectionIcon = () => (
+  <Icon>
+    <path d="M4 2.5 V12.5 L6.8 9.8 L9 13.5 L10.8 12.6 L8.6 8.9 H12.5 Z" />
+  </Icon>
+);
+
+export const ProjectIcon = () => (
+  <Icon>
+    <path d="M2.5 4.5 H13.5 M2.5 8 H13.5 M2.5 11.5 H13.5" />
+    <rect x="9" y="3" width="2" height="3" fill="currentColor" stroke="none" />
+    <rect x="4.5" y="6.5" width="2" height="3" fill="currentColor" stroke="none" />
+    <rect x="9" y="10" width="2" height="3" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+export const OutputIcon = () => (
+  <Icon>
+    <path d="M2.5 8 H5 L6.5 4 L9.5 12 L11 8 H13.5" />
+  </Icon>
+);
+
+export const ChevronLeftIcon = () => (
+  <Icon>
+    <path d="M10 3.5 L5.5 8 L10 12.5" />
+  </Icon>
+);
+
+export const ChevronRightIcon = () => (
+  <Icon>
+    <path d="M6 3.5 L10.5 8 L6 12.5" />
+  </Icon>
+);

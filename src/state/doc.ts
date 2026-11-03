@@ -2,7 +2,7 @@
 
 import type { Project } from "../project/types";
 
-/** What is known about an imported audio file. The demo show has lengths but no waveforms. */
+/** What is known about an imported audio file. */
 export interface AssetAudio {
   seconds: number;
   peaks?: number[];
@@ -17,14 +17,12 @@ export interface Doc {
   future: Project[];
   /** The project as last saved or opened; `null` for a new one. Dirty means "differs from this". */
   saved: Project | null;
-  /** The demo show uses synthetic audio the backend has never seen, so it cannot be saved. */
-  demo: boolean;
   /** Real length and waveform of the assets the backend has decoded, by asset id. */
   audio: Record<string, AssetAudio>;
 }
 
 export type DocAction =
-  | { type: "load"; project: Project; path: string | null; demo?: boolean; audio?: Record<string, AssetAudio> }
+  | { type: "load"; project: Project; path: string | null }
   | { type: "audio"; id: string; info: AssetAudio }
   | { type: "edit"; project: Project }
   | { type: "undo" }
@@ -34,7 +32,7 @@ export type DocAction =
 const HISTORY_LIMIT = 200;
 
 export function initialDoc(project: Project): Doc {
-  return { project, path: null, past: [], future: [], saved: null, demo: false, audio: {} };
+  return { project, path: null, past: [], future: [], saved: null, audio: {} };
 }
 
 export function isDirty(doc: Doc): boolean {
@@ -50,8 +48,7 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
         past: [],
         future: [],
         saved: action.path === null ? null : action.project,
-        demo: action.demo ?? false,
-        audio: action.audio ?? {},
+        audio: {},
       };
     case "audio":
       return { ...doc, audio: { ...doc.audio, [action.id]: action.info } };

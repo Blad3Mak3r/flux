@@ -101,6 +101,14 @@ components:
     backgroundColor: "{colors.screen}"
     textColor: "{colors.ink}"
     padding: "2px 10px 2px 8px"
+  inspector-rail:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink-dim}"
+    width: "40px"
+  swatch:
+    rounded: "0px"
+    height: "24px"
+    width: "24px"
   fader:
     backgroundColor: "{colors.screen}"
     textColor: "{colors.ink-dim}"
@@ -177,11 +185,11 @@ A restrained, near-monochrome faceplate with three signal hues used sparingly an
 
 ## Layout
 
-A full-height grid, `min-width: 960px` (minimum window 960x600), body never scrolls: rows are menubar (38px), faceplate, work area, statusbar (30px). The faceplate is three columns (readout, keys, lamps) with a 28px gap and 16px/20px padding. The work area is the screen (flexible) plus a 300px inspector. The screen holds a sticky ruler row and sticky 208px track headers; the graticule is a background aligned to the end of the header column, major and minor lines set by timeline scale.
+A full-height grid, `min-width: 960px` (minimum window 960x600), body never scrolls: rows are menubar (38px), faceplate, work area, statusbar (30px). The faceplate is three columns (readout, keys, lamps) with a 28px gap and 16px/20px padding. The work area is the screen (flexible) plus a 300px inspector that collapses to a 40px rail (see Inspector Toggle and Rail). The screen holds a sticky ruler row and sticky 208px track headers; the graticule is a background aligned to the end of the header column, major and minor lines set by timeline scale.
 
 Spacing is a small hand-set rhythm: 4, 6, 8, 10, 12, 14, 16, 24px. Controls are 28px (icon and menubar buttons), 32px (fields and buttons), 34px (tabs, screen bar), 70px (keys).
 
-Below 1180px: brand hidden, keys shrink to 70px minimum, lamp columns tighten, inspector narrows to 264px, faceplate gap 18px, and the dot-matrix cell steps down from 9 to 7 CSS pixels. Text truncates with ellipsis rather than wrapping; fixed columns use `ch` or `em` widths so Spanish strings fit.
+Below 1180px: brand hidden, keys shrink to 70px minimum, lamp columns tighten, inspector narrows to 264px (the rail stays 40px), faceplate gap 18px, and the dot-matrix cell steps down from 9 to 7 CSS pixels. Text truncates with ellipsis rather than wrapping; fixed columns use `ch` or `em` widths so Spanish strings fit.
 
 ## Elevation & Depth
 
@@ -211,6 +219,9 @@ The native title bar is off (`decorations: false`), so the menubar is the title 
 ### Tabs
 Inspector tabs: 34px, uppercase 11px bold. Selected = ink on recessed fill with a 2px phosphor underline.
 
+### Inspector Toggle and Rail
+A 34px square icon button on the inspector's left edge, at the start of the tab row, collapses the sidebar; Ctrl+B (⌘B on macOS) does the same and the tooltip says so. It carries `aria-expanded` and a translated label ("Collapse the inspector" / "Expand the inspector"), and the chevron points the way the edge will move. Collapsed, the inspector is a 40px rail with a 1px rule on its left: the toggle on top, then one 28px icon button per tab (selection cursor, project sliders, output waveform), each labelled with the tab name. Choosing one opens the sidebar on that tab. The screen takes the freed width, so the ruler, lanes and playhead reflow with no page scroll at the 960px minimum. The state is remembered between sessions (`localStorage`, failing soft to expanded).
+
 ### Output Lamps
 Rows of a 10px square lamp, uppercase name, status word and a truncating detail. Off = `lamp-off`; on = phosphor; fault = vermilion. The status word is always printed.
 
@@ -219,6 +230,9 @@ A recessed screen window holding a 5x7 dot-matrix face drawn as SVG squares; lit
 
 ### Ruler, Lanes, Clips and Cues (signature)
 The ruler is SVG ticks and labels over the graticule with a phosphor cursor and span. Lanes have a centre line and a major-grid bottom rule. An audio clip is a solid phosphor waveform in a dim-phosphor bordered box with a label plate. A cue is a 1px amber flag line with a chip: hatched for marker, dotted for MIDI. Selected = 2px ink outline. A muted track draws clips hollow and dashed, flags dashed and 70% opaque, with the name struck through and a MUTED tag. The playhead is a 2px ink line (vermilion when playing) with a triangle head.
+
+### Track Colour
+A track may carry its own colour so many tracks can be told apart. It is picked in the Selection inspector, for the track of the selected clip or cue: eight square 24px swatches (teal, cyan, blue, violet, magenta, rose, lime, steel) and a Default button that returns the track to phosphor (audio) or amber (events). The chosen swatch takes a 2px ink outline and a dark tick, and every swatch has a spoken name, so the choice never rides on colour alone. All eight sit at oklch lightness 0.8, which gives 9.6:1 or more against `screen`, and none is near vermilion. The colour is stored in `project.json` as `#rrggbb`, changes through the undo history, and is applied through `--trace` and `--trace-dim` on the track's header and lane: clip border, tint and waveform, the cue line, chip border and hatch or dots, and the kind icon in the header. Kind still reads from the fill (solid waveform, hatched or dotted chip), and a muted track is drawn hollow and dashed in the dim version of its colour.
 
 ### Fader and Level Meter
 Both sit in an audio track's header under the name row, which is why an audio lane is 96px tall. The fader is a recessed rail with a 1px notch at 0 dB and a square ink thumb (phosphor on hover), the value in measure type to its right; range -inf to +6 dB, 1 dB per arrow key, 0.1 with Shift, 6 per Page key, double-click returns to 0 dB. The meter is 24 square segments of 2.5 dB on the screen ground, off = `lamp-off`, lit = phosphor up to -12 dBFS, amber to -3, vermilion above. Flat fills only, no glow, no gradient. The peak-hold marker is one lone lit segment above the bar. A printed scale (-48, -24, -12, 0 with ticks between) sits below, and the accessible value says the level in words, so colour never carries the reading alone. The CLIP lamp is printed text that fills vermilion when the peak reached 0 dBFS and stays until pressed. The bar rises at once and falls at 24 dB/s, the marker holds 1.5 s then falls at 12 dB/s; with reduced motion the bar follows the signal and the marker jumps instead of sliding.

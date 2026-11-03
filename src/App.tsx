@@ -16,7 +16,6 @@ import type { MessageKey } from "./i18n";
 import { analyzeAudio } from "./audio/api";
 import type { Peaks } from "./components/ClipWave";
 import { errorMessage, importAudio, newProject, openProjectAt, pickProjectPath, saveProject } from "./project/api";
-import { demoShow } from "./state/demo";
 import type { AssetAudio } from "./state/doc";
 import { docReducer, initialDoc, isDirty } from "./state/doc";
 import {
@@ -35,6 +34,16 @@ import { positionStore, usePlayback } from "./transport/playback";
 import type { AudioAsset, Project } from "./project/types";
 
 const ZOOM_STEP = 1.25;
+
+const INSPECTOR_KEY = "flux.inspector.collapsed";
+
+const readCollapsed = (): boolean => {
+  try {
+    return localStorage.getItem(INSPECTOR_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
 
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
@@ -56,6 +65,7 @@ function Shell() {
 
   const [selection, setSelection] = useState<Selected | null>(null);
   const [tab, setTab] = useState<InspectorTab>("selection");
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const [zoom, setZoom] = useState(DEFAULT_PX_PER_FRAME);
   // A new document starts the timeline over: scrolled to the origin, at the default zoom.
   const [docKey, setDocKey] = useState(0);
@@ -165,9 +175,9 @@ function Shell() {
   // Replace the document, asking first when there is work to lose.
   const replaceDoc = (action: () => Promise<void> | void) => (dirty ? setPending(() => action) : void action());
 
-  const load = (next: Project, path: string | null, extra?: { demo?: boolean; audio?: Record<string, AssetAudio> }) => {
+  const load = (next: Project, path: string | null) => {
     generation.current += 1;
-    dispatch({ type: "load", project: next, path, ...extra });
+    dispatch({ type: "load", project: next, path });
     setSelection(null);
     setZoom(DEFAULT_PX_PER_FRAME);
     setDocKey((key) => key + 1);
@@ -204,18 +214,7 @@ function Shell() {
       }
     });
 
-  const doDemo = () =>
-    replaceDoc(() => {
-      const demo = demoShow("Demo show");
-      load(demo.project, null, { demo: true, audio: demo.audio });
-      say("status.demoLoaded");
-    });
-
   const save = async (asNew: boolean): Promise<boolean> => {
-    if (doc.demo) {
-      sayError(t("status.demoLoaded"));
-      return false;
-    }
     try {
       const path = await saveProject(project, asNew ? null : doc.path);
       if (path === null) return false;
@@ -263,14 +262,25 @@ function Shell() {
     setSelection(null);
   };
 
+  const setInspectorCollapsed = (next: boolean) => {
+    setCollapsed(next);
+    try {
+      localStorage.setItem(INSPECTOR_KEY, next ? "1" : "0");
+    } catch {
+      // Not remembered, still works.
+    }
+  };
+
+  const toggleInspector = () => setInspectorCollapsed(!collapsed);
+
   const select = (next: Selected | null) => {
     setSelection(next);
     if (next) setTab("selection");
   };
 
   // Keyboard first: the keys a show operator reaches for without looking.
-  const handlers = useRef({ doNew, doOpen, save, doImport, doMarker, doDelete, playback, currentFrame });
-  handlers.current = { doNew, doOpen, save, doImport, doMarker, doDelete, playback, currentFrame };
+  const handlers = useRef({ doNew, doOpen, save, doImport, doMarker, doDelete, playback, currentFrame, toggleInspector });
+  handlers.current = { doNew, doOpen, save, doImport, doMarker, doDelete, playback, currentFrame, toggleInspector };
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (pending || isTyping(event.target)) return;
@@ -287,6 +297,7 @@ function Shell() {
           : key === "s" ? (event.shiftKey ? "saveAs" : "save")
           : key === "o" ? "open"
           : key === "n" ? "new"
+          : key === "b" ? "toggleInspector"
           : key === "=" || key === "+" ? "zoomIn"
           : key === "-" ? "zoomOut"
           : null;
@@ -297,6 +308,7 @@ function Shell() {
         else if (action === "saveAs") void h.save(true);
         else if (action === "open") h.doOpen();
         else if (action === "new") h.doNew();
+        else if (action === "toggleInspector") h.toggleInspector();
         else setZoom((z) => clampZoom(action === "zoomIn" ? z * ZOOM_STEP : z / ZOOM_STEP));
         return;
       }
@@ -347,12 +359,11 @@ function Shell() {
         onSave={() => void save(false)}
         onSaveAs={() => void save(true)}
         onImport={() => void doImport()}
-        onDemo={doDemo}
         onUndo={() => dispatch({ type: "undo" })}
         onRedo={() => dispatch({ type: "redo" })}
       />
       <Faceplate project={project} playback={playback} devices={devices} />
-      <main className="work">
+      <main className="work" data-inspector-collapsed={collapsed}>
         <Timeline
           key={docKey}
           project={project}
@@ -371,7 +382,12 @@ function Shell() {
         />
         <Inspector
           tab={tab}
-          onTab={setTab}
+          onTab={(next) => {
+            setTab(next);
+            setInspectorCollapsed(false);
+          }}
+          collapsed={collapsed}
+          onToggle={toggleInspector}
           project={project}
           selection={selection}
           audio={doc.audio}
