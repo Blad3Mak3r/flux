@@ -1,5 +1,6 @@
 use std::io;
 
+use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,6 +21,13 @@ pub enum ProjectError {
     InvalidAssetPath(String),
     #[error("invalid project: {0}")]
     Invalid(String),
+}
+
+/// Tauri sends command errors to the frontend as serialized values: use the message.
+impl Serialize for ProjectError {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
 }
 
 pub type Result<T> = std::result::Result<T, ProjectError>;

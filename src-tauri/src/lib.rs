@@ -1,3 +1,4 @@
+mod commands;
 pub mod project;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -10,7 +11,15 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .plugin(tauri_plugin_dialog::init())
+        .manage(commands::SharedSession::default())
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            commands::project_new,
+            commands::project_open,
+            commands::project_import_audio,
+            commands::project_save,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
