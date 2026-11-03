@@ -1,5 +1,6 @@
 import { LOCALES, useI18n } from "../i18n";
 import type { Locale } from "../i18n";
+import { WindowControls, hasNativeWindow } from "./WindowControls";
 
 export function MenuBar({
   name,
@@ -33,9 +34,9 @@ export function MenuBar({
   // Shortcuts live in the tooltip: printed on every button they crowd a bar this narrow.
   const hint = (label: string, keys: string) => `${label} (${keys})`;
   return (
-    <nav className="menubar" aria-label={t("app.title")}>
-      <p className="brand">{t("app.title")}</p>
-      <p className="doc-name" title={name}>
+    <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
+      <p className="brand" data-tauri-drag-region>{t("app.title")}</p>
+      <p className="doc-name" title={name} data-tauri-drag-region>
         {name}
         {dirty && (
           <span className="dirty" title={t("project.unsaved")}>
@@ -70,6 +71,7 @@ export function MenuBar({
           </select>
         </label>
       </div>
+      {hasNativeWindow() && <WindowControls />}
     </nav>
   );
 }

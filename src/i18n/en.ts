@@ -14,6 +14,12 @@ export const en = {
   "menu.file": "Project",
   "menu.edit": "Edit",
 
+  "window.group": "Window controls",
+  "window.minimize": "Minimize",
+  "window.maximize": "Maximize",
+  "window.restore": "Restore",
+  "window.close": "Close",
+
   "project.untitled": "Untitled show",
   "project.unsaved": "Unsaved changes",
 

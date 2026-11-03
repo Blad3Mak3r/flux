@@ -194,6 +194,9 @@ Square, raised keys (84x70px, 4px bottom edge) with an icon above an uppercase 1
 ### Buttons
 32px, 2px radius, raised fill. **Primary** is solid phosphor with recessed-dark text. **Danger** is a transparent ground with an ink outline (outlined where neutral buttons are filled). Menubar and icon buttons are transparent until hover (raised fill, rule border); a pressed icon button takes the recessed fill and a dim-ink border. Disabled: 45% opacity, not-allowed cursor.
 
+### Window Controls
+The native title bar is off (`decorations: false`), so the menubar is the title bar: its text and empty space drag the window (`data-tauri-drag-region`, double-click toggles maximize) and three flat 46px-wide buttons end it, full menubar height and square: minimize, maximize or restore, close. They are transparent in ink-dim until hover (raised fill); close inverts to ink on recessed-dark, never vermilion, because vermilion means live or fault. They exist only inside the desktop app. Closing with unsaved changes asks first, through the same dialog as New and Open.
+
 ### Fields
 32px, screen-coloured ground, strong rule border, 2px radius. Numeric fields use the measure face. Invalid: vermilion border and a bold vermilion note. Checkboxes are 16px with phosphor accent.
 

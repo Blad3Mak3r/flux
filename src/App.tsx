@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Faceplate } from "./components/Faceplate";
 import { Inspector } from "./components/Inspector";
 import type { InspectorTab } from "./components/Inspector";
@@ -8,6 +9,7 @@ import type { Message } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import type { Selected } from "./components/TrackRow";
 import { UnsavedDialog } from "./components/UnsavedDialog";
+import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
 import { I18nProvider, useT } from "./i18n";
 import type { MessageKey } from "./i18n";
@@ -69,6 +71,28 @@ function Shell() {
   useEffect(() => {
     document.title = `${project.name}${dirty ? " ●" : ""} — ${t("app.title")}`;
   }, [project.name, dirty, t]);
+
+  // Closing the window (our button, Alt+F4, the OS) must not throw unsaved work away silently.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    if (!hasNativeWindow()) return;
+    const appWindow = getCurrentWindow();
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    appWindow
+      .onCloseRequested((event) => {
+        if (!dirtyRef.current) return;
+        event.preventDefault();
+        setPending(() => () => appWindow.destroy());
+      })
+      .then((off) => (cancelled ? off() : (stop = off)))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, []);
 
   const edit = useCallback((next: Project) => dispatch({ type: "edit", project: next }), []);
   const currentFrame = () => positionStore.get()?.frame ?? playback.parked;
