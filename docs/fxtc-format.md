@@ -50,3 +50,19 @@ identifier. Resolving the hint to a device, and the fallback when it is missing,
 `save` writes the archive to `<target>.tmp` and renames it over the target, so a failed save leaves the existing file
 as it was. Each asset is taken from either a file on disk (newly imported) or an existing `.fxtc`, from which the entry
 is copied without recompressing.
+
+## Tauri commands
+
+Defined in `src-tauri/src/commands.rs`, typed wrappers (with the file dialogs) in `src/project/api.ts`, TS types in
+`src/project/types.ts`. They run blocking I/O off the main thread and report errors as message strings.
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `project_new` | `name`, `frameRate` | A new `Project`; forgets the previous project's assets. |
+| `project_open` | `path` | The `Project` read from that `.fxtc`. |
+| `project_import_audio` | `path` | An `AudioAsset` (generated id, file `audio/<id>_<name>`) to add to the project. |
+| `project_save` | `project`, `path` | Writes the archive; afterwards all assets are read from `path`. |
+
+The frontend owns the edited `Project` and sends it back on save. The backend only remembers where each asset's bytes
+come from (the `.fxtc` it was opened or saved from, or an imported file not yet in any archive), so saving a project
+that references an asset the backend never saw fails with `MissingAsset`.
