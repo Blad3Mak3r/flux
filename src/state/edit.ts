@@ -24,8 +24,13 @@ export function emptyProject(name: string, frameRate: FrameRate): Project {
 
 const newId = () => crypto.randomUUID();
 
+/**
+ * Applies `change` to every track. A track it returns as it got it keeps its identity, and so does
+ * the project when none changed: what is drawn from a track skips the render when it is not hers.
+ */
 function mapTracks(project: Project, change: (track: Track) => Track): Project {
-  return { ...project, tracks: project.tracks.map(change) };
+  const tracks = project.tracks.map(change);
+  return tracks.every((track, index) => track === project.tracks[index]) ? project : { ...project, tracks };
 }
 
 export type Found =
@@ -47,7 +52,7 @@ export function findItem(project: Project, id: string): Found | null {
 
 export function updateClip(project: Project, id: string, patch: Partial<AudioClip>): Project {
   return mapTracks(project, (track) =>
-    track.kind.type === "audio"
+    track.kind.type === "audio" && track.kind.clips.some((c) => c.id === id)
       ? {
           ...track,
           kind: {
@@ -61,7 +66,7 @@ export function updateClip(project: Project, id: string, patch: Partial<AudioCli
 
 export function updateTrigger(project: Project, id: string, patch: Partial<Trigger>): Project {
   return mapTracks(project, (track) =>
-    track.kind.type === "events"
+    track.kind.type === "events" && track.kind.triggers.some((t) => t.id === id)
       ? {
           ...track,
           kind: {
@@ -84,11 +89,18 @@ export function moveItem(project: Project, id: string, position: number): Projec
 }
 
 export function removeItem(project: Project, id: string): Project {
-  return mapTracks(project, (track) =>
-    track.kind.type === "audio"
-      ? { ...track, kind: { type: "audio", clips: track.kind.clips.filter((c) => c.id !== id) } }
-      : { ...track, kind: { type: "events", triggers: track.kind.triggers.filter((t) => t.id !== id) } },
-  );
+  return mapTracks(project, (track) => {
+    if (track.kind.type === "audio") {
+      const { clips } = track.kind;
+      return clips.some((c) => c.id === id)
+        ? { ...track, kind: { type: "audio", clips: clips.filter((c) => c.id !== id) } }
+        : track;
+    }
+    const { triggers } = track.kind;
+    return triggers.some((t) => t.id === id)
+      ? { ...track, kind: { type: "events", triggers: triggers.filter((t) => t.id !== id) } }
+      : track;
+  });
 }
 
 export function toggleMute(project: Project, trackId: string): Project {

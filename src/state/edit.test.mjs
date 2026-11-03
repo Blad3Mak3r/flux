@@ -1,8 +1,8 @@
 // Run with `npm test`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { docReducer, initialDoc } from "./doc.ts";
-import { emptyProject, setTrackColor, setTrackGain } from "./edit.ts";
+import { docReducer, initialDoc, isDirty } from "./doc.ts";
+import { emptyProject, moveItem, removeItem, setTrackColor, setTrackGain, toggleMute, updateClip } from "./edit.ts";
 
 function project() {
   return {
@@ -71,4 +71,60 @@ test("a colour change is one undo step", () => {
   assert.equal(doc.project, before);
   doc = docReducer(doc, { type: "redo" });
   assert.equal(doc.project.tracks[1].color, "#c3b0fd");
+});
+
+function withItems() {
+  const base = project();
+  return {
+    ...base,
+    tracks: [
+      { ...base.tracks[0], kind: { type: "audio", clips: [{ id: "c1", asset: "a", start: 0, gainDb: 0 }] } },
+      { id: "t3", name: "Other", muted: false, kind: { type: "audio", clips: [{ id: "c2", asset: "b", start: 5, gainDb: 0 }] } },
+      { ...base.tracks[1], kind: { type: "events", triggers: [{ id: "k1", at: 3, label: "Go", action: { type: "marker" } }] } },
+    ],
+  };
+}
+
+test("moving a clip keeps every other track as it was", () => {
+  const before = withItems();
+  const after = moveItem(before, "c1", 40);
+  assert.equal(after.tracks[0].kind.clips[0].start, 40);
+  assert.equal(after.tracks[1], before.tracks[1]);
+  assert.equal(after.tracks[2], before.tracks[2]);
+});
+
+test("moving a cue keeps the audio tracks as they were", () => {
+  const before = withItems();
+  const after = moveItem(before, "k1", 9);
+  assert.equal(after.tracks[2].kind.triggers[0].at, 9);
+  assert.equal(after.tracks[0], before.tracks[0]);
+  assert.equal(after.tracks[1], before.tracks[1]);
+});
+
+test("removing an item rebuilds only the track that held it", () => {
+  const before = withItems();
+  const after = removeItem(before, "c2");
+  assert.deepEqual(after.tracks[1].kind.clips, []);
+  assert.equal(after.tracks[0], before.tracks[0]);
+  assert.equal(after.tracks[2], before.tracks[2]);
+});
+
+test("an edit that finds nothing to change returns the same project", () => {
+  const before = withItems();
+  assert.equal(removeItem(before, "missing"), before);
+  assert.equal(updateClip(before, "missing", { start: 1 }), before);
+  assert.equal(toggleMute(before, "missing"), before);
+});
+
+test("restore picks a document up with no history, and unsaved work is told from what it is compared to", () => {
+  const saved = project();
+  const edited = setTrackGain(saved, "t1", -6);
+  let doc = docReducer(initialDoc(project()), { type: "restore", project: edited, path: "/show.fxtc", saved });
+  assert.equal(doc.project, edited);
+  assert.equal(doc.path, "/show.fxtc");
+  assert.deepEqual([doc.past, doc.future, doc.audio], [[], [], {}]);
+  assert.equal(isDirty(doc), true);
+
+  doc = docReducer(initialDoc(project()), { type: "restore", project: saved, path: null, saved });
+  assert.equal(isDirty(doc), false);
 });

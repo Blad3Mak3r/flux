@@ -2,7 +2,8 @@ import { useT } from "../i18n";
 import type { Devices } from "../devices/useDevices";
 import type { OutputConfig, Project } from "../project/types";
 import { setOutput } from "../state/edit";
-import type { Playback } from "../transport/playback";
+import { startOutput, stopOutput } from "../transport/playback";
+import { useTransport } from "../transport/store";
 import { SelectField } from "./fields";
 import { RefreshIcon } from "./icons";
 
@@ -12,15 +13,15 @@ const DEFAULT_LTC_CHANNEL_CAP = 8;
 export function OutputPanel({
   project,
   devices,
-  playback,
   onEdit,
 }: {
   project: Project;
   devices: Devices;
-  playback: Playback;
   onEdit: (project: Project) => void;
 }) {
   const t = useT();
+  const info = useTransport((transport) => transport.info);
+  const clipWarnings = useTransport((transport) => transport.clipWarnings);
   const { output } = project;
   const deviceName = output.ltc?.deviceName ?? output.audio?.deviceName ?? "";
   const device = devices.audio.find((d) => d.name === deviceName);
@@ -139,21 +140,21 @@ export function OutputPanel({
           <RefreshIcon />
           {t("out.refresh")}
         </button>
-        {playback.info ? (
-          <button type="button" className="button" onClick={() => void playback.stopOutput()}>
+        {info ? (
+          <button type="button" className="button" onClick={() => void stopOutput()}>
             {t("out.stop")}
           </button>
         ) : (
-          <button type="button" className="button primary" onClick={() => void playback.startOutput()}>
+          <button type="button" className="button primary" onClick={() => void startOutput()}>
             {t("out.start")}
           </button>
         )}
       </div>
 
-      {playback.info && (
+      {info && (
         <div className="run-info" role="status">
-          <p>{t("out.runningOn", { device: playback.info.device, rate: playback.info.sampleRate })}</p>
-          {[...playback.info.warnings, ...playback.clipWarnings].map((warning) => (
+          <p>{t("out.runningOn", { device: info.device, rate: info.sampleRate })}</p>
+          {[...info.warnings, ...clipWarnings].map((warning) => (
             <p key={warning} className="warning">
               {warning}
             </p>

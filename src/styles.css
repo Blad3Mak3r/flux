@@ -1028,6 +1028,12 @@ input:disabled {
   width: 0;
   border-left: 1px dashed var(--ink-faint);
   pointer-events: none;
+  /* Its own layer: moving it never repaints the lanes and waveforms under it. */
+  will-change: transform;
+}
+
+.hover-line[hidden] {
+  display: none;
 }
 
 .span-shade {

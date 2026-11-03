@@ -1,27 +1,23 @@
 import { useEffect } from "react";
 import type { RefObject } from "react";
 import { useT } from "../i18n";
-import { useStore } from "../store";
 import { frameX } from "../timeline/scale";
-import { positionStore } from "../transport/playback";
+import { selectFrame, selectMode, useTransport } from "../transport/store";
 
 /** The line at the current position. It keeps itself in view by turning pages, also after a jump (Stop, seek). */
 export function Playhead({
-  parked,
   start,
   pxPerFrame,
   scroller,
 }: {
-  parked: number;
   start: number;
   pxPerFrame: number;
   scroller: RefObject<HTMLDivElement | null>;
 }) {
   const t = useT();
-  const position = useStore(positionStore);
-  const frame = position?.frame ?? parked;
+  const frame = useTransport(selectFrame);
+  const playing = useTransport(selectMode) === "playing";
   const x = frameX(frame - start, pxPerFrame);
-  const playing = position?.state === "playing";
 
   useEffect(() => {
     const box = scroller.current;

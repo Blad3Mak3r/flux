@@ -1,11 +1,69 @@
-import { useMemo, useRef } from "react";
+import { memo, useRef } from "react";
 import type { PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
 import { frameX, pickTicks, tickPositions } from "../timeline/scale";
-import { RULER_H, patchReadout, readoutStore } from "../timeline/layout";
-import { useStore } from "../store";
+import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
+
+/** The ticks and their labels: a lot of nodes, redrawn only when the zoom, the width or the rate change. */
+const RulerTicks = memo(function RulerTicks({
+  width,
+  pxPerFrame,
+  rate,
+  start,
+}: {
+  width: number;
+  pxPerFrame: number;
+  rate: FrameRate;
+  start: number;
+}) {
+  const ticks = pickTicks(pxPerFrame, rate);
+  const { major, minor } = tickPositions(pxPerFrame, rate, width);
+  let d = "";
+  for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
+  const labels = major.map((f) => {
+    const x = frameX(f, pxPerFrame) + 0.5;
+    d += `M${x} ${RULER_H - 16}V${RULER_H}`;
+    const full = formatFrames(start + f, rate);
+    return { x, text: ticks.wholeSeconds ? full.slice(0, 8) : full };
+  });
+  return (
+    <>
+      <path className="ruler-ticks" d={d} />
+      {labels.map(({ x, text }) => (
+        <text key={x} className="ruler-label" x={x + 5} y={RULER_H - 19}>
+          {text}
+        </text>
+      ))}
+    </>
+  );
+});
+
+/** The measured span, which moves with the pointer while the ticks stay where they are. */
+function RulerSpan({ pxPerFrame }: { pxPerFrame: number }) {
+  const spanA = useReadout((readout) => readout.spanA);
+  const spanB = useReadout((readout) => readout.spanB);
+  const spanStart = spanA !== null && spanB !== null ? Math.min(spanA, spanB) : null;
+  const spanEnd = spanA !== null && spanB !== null ? Math.max(spanA, spanB) : null;
+  return (
+    <>
+      {spanStart !== null && spanEnd !== null && spanEnd > spanStart && (
+        <rect
+          className="ruler-span"
+          x={frameX(spanStart, pxPerFrame)}
+          y={0}
+          width={frameX(spanEnd, pxPerFrame) - frameX(spanStart, pxPerFrame)}
+          height={RULER_H}
+        />
+      )}
+      {spanA !== null && <path className="ruler-cursor" d={`M${frameX(spanA, pxPerFrame) + 0.5} 0V${RULER_H}`} />}
+      {spanB !== null && spanB !== spanA && (
+        <path className="ruler-cursor" d={`M${frameX(spanB, pxPerFrame) + 0.5} 0V${RULER_H}`} />
+      )}
+    </>
+  );
+}
 
 /**
  * The time axis. Ticks are drawn as one path; labels carry the project timecode, so the start
@@ -27,21 +85,6 @@ export function Ruler({
 }) {
   const t = useT();
   const mode = useRef<"seek" | "measure" | null>(null);
-  const readout = useStore(readoutStore);
-
-  const { path, labels } = useMemo(() => {
-    const ticks = pickTicks(pxPerFrame, rate);
-    const { major, minor } = tickPositions(pxPerFrame, rate, width);
-    let d = "";
-    for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
-    const items = major.map((f) => {
-      const x = frameX(f, pxPerFrame) + 0.5;
-      d += `M${x} ${RULER_H - 16}V${RULER_H}`;
-      const full = formatFrames(start + f, rate);
-      return { x, text: ticks.wholeSeconds ? full.slice(0, 8) : full };
-    });
-    return { path: d, labels: items };
-  }, [width, pxPerFrame, rate, start]);
 
   const frameAt = (event: PointerEvent<SVGSVGElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
@@ -69,10 +112,6 @@ export function Ruler({
     else if (mode.current === "measure") patchReadout({ spanB: frame });
   };
 
-  const { spanA, spanB } = readout;
-  const spanStart = spanA !== null && spanB !== null ? Math.min(spanA, spanB) : null;
-  const spanEnd = spanA !== null && spanB !== null ? Math.max(spanA, spanB) : null;
-
   return (
     <svg
       className="ruler"
@@ -85,25 +124,8 @@ export function Ruler({
       onPointerUp={() => (mode.current = null)}
       onPointerCancel={() => (mode.current = null)}
     >
-      {spanStart !== null && spanEnd !== null && spanEnd > spanStart && (
-        <rect
-          className="ruler-span"
-          x={frameX(spanStart, pxPerFrame)}
-          y={0}
-          width={frameX(spanEnd, pxPerFrame) - frameX(spanStart, pxPerFrame)}
-          height={RULER_H}
-        />
-      )}
-      {spanA !== null && <path className="ruler-cursor" d={`M${frameX(spanA, pxPerFrame) + 0.5} 0V${RULER_H}`} />}
-      {spanB !== null && spanB !== spanA && (
-        <path className="ruler-cursor" d={`M${frameX(spanB, pxPerFrame) + 0.5} 0V${RULER_H}`} />
-      )}
-      <path className="ruler-ticks" d={path} />
-      {labels.map(({ x, text }) => (
-        <text key={x} className="ruler-label" x={x + 5} y={RULER_H - 19}>
-          {text}
-        </text>
-      ))}
+      <RulerSpan pxPerFrame={pxPerFrame} />
+      <RulerTicks width={width} pxPerFrame={pxPerFrame} rate={rate} start={start} />
     </svg>
   );
 }

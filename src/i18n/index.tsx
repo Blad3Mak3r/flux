@@ -1,31 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { en } from "./en";
-import type { MessageKey } from "./en";
-import { es } from "./es";
+import { LOCALE_STORAGE_KEY, LOCALES, initialLocale, translator } from "./messages";
+import type { Locale, MessageKey, Translate } from "./messages";
 
-export type { MessageKey };
-export type Locale = "en" | "es";
-
-export const LOCALES: { id: Locale; label: string }[] = [
-  { id: "en", label: "English" },
-  { id: "es", label: "Español" },
-];
-
-const MESSAGES: Record<Locale, Record<MessageKey, string>> = { en, es };
-const STORAGE_KEY = "flux.locale";
-
-export type Translate = (key: MessageKey, values?: Record<string, string | number>) => string;
-
-function initialLocale(): Locale {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "en" || stored === "es") return stored;
-  } catch {
-    // Storage can be unavailable; the default applies.
-  }
-  return "en";
-}
+export { LOCALES };
+export type { Locale, MessageKey, Translate };
 
 interface I18n {
   locale: Locale;
@@ -41,22 +20,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = locale;
     try {
-      localStorage.setItem(STORAGE_KEY, locale);
+      localStorage.setItem(LOCALE_STORAGE_KEY, locale);
     } catch {
       // Not persisting is fine.
     }
   }, [locale]);
 
-  const t = useCallback<Translate>(
-    (key, values) => {
-      const message = MESSAGES[locale][key];
-      if (!values) return message;
-      return message.replace(/\{(\w+)\}/g, (whole, name: string) =>
-        name in values ? String(values[name]) : whole,
-      );
-    },
-    [locale],
-  );
+  const t = useMemo(() => translator(locale), [locale]);
 
   const value = useMemo(() => ({ locale, setLocale, t }), [locale, t]);
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

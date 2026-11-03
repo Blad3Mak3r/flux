@@ -2,6 +2,10 @@ import { memo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { AudioClip, Track, Trigger } from "../project/types";
+import { moveTo, muteTrack, setGain } from "../state/actions";
+import { useDoc } from "../state/store";
+import { select, useUi } from "../state/ui";
+import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, EVENTS_LANE_H } from "../timeline/layout";
 import { traceStyle } from "../timeline/palette";
 import { frameX } from "../timeline/scale";
@@ -9,7 +13,6 @@ import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { Fader } from "./Fader";
 import { LevelMeter } from "./LevelMeter";
-import type { Peaks } from "./ClipWave";
 import { FlagIcon, MuteIcon, WaveIcon } from "./icons";
 
 /** Length shown for a clip whose audio length is not known yet (10 s at the project rate). */
@@ -19,15 +22,7 @@ export function laneHeight(track: Track): number {
   return track.kind.type === "audio" ? AUDIO_LANE_H : EVENTS_LANE_H;
 }
 
-export const TrackHeader = memo(function TrackHeader({
-  track,
-  onToggleMute,
-  onGain,
-}: {
-  track: Track;
-  onToggleMute: (trackId: string) => void;
-  onGain: (trackId: string, gainDb: number) => void;
-}) {
+export const TrackHeader = memo(function TrackHeader({ track }: { track: Track }) {
   const t = useT();
   const audio = track.kind.type === "audio";
   return (
@@ -53,7 +48,7 @@ export const TrackHeader = memo(function TrackHeader({
           aria-pressed={track.muted}
           aria-label={t("track.mute", { name: track.name })}
           title={t("track.mute", { name: track.name })}
-          onClick={() => onToggleMute(track.id)}
+          onClick={() => muteTrack(track.id)}
         >
           <MuteIcon on={track.muted} />
         </button>
@@ -64,7 +59,7 @@ export const TrackHeader = memo(function TrackHeader({
             name={track.name}
             valueDb={track.gainDb ?? 0}
             onPreview={(db) => previewTrackGain(track.id, db)}
-            onCommit={(db) => onGain(track.id, db)}
+            onCommit={(db) => setGain(track.id, db)}
           />
           <LevelMeter trackId={track.id} name={track.name} />
         </>
@@ -73,25 +68,8 @@ export const TrackHeader = memo(function TrackHeader({
   );
 });
 
-export interface Selected {
-  kind: "clip" | "trigger";
-  id: string;
-}
-
-interface ItemHandlers {
-  pxPerFrame: number;
-  selected: Selected | null;
-  onSelect: (selection: Selected) => void;
-  onMove: (id: string, position: number) => void;
-}
-
 /** Drag an item sideways in whole frames; commit once on release so undo takes one step. */
-function useDrag(
-  id: string,
-  kind: Selected["kind"],
-  position: number,
-  { pxPerFrame, onSelect, onMove }: ItemHandlers,
-) {
+function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFrame: number) {
   const [delta, setDelta] = useState(0);
   const origin = useRef<{ x: number; position: number } | null>(null);
 
@@ -100,7 +78,7 @@ function useDrag(
       if (event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
       origin.current = { x: event.clientX, position };
-      onSelect({ kind, id });
+      select({ kind, id });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (!origin.current) return;
@@ -108,7 +86,7 @@ function useDrag(
       setDelta(Math.max(frames, -origin.current.position));
     },
     onPointerUp() {
-      if (origin.current && delta !== 0) onMove(id, origin.current.position + delta);
+      if (origin.current && delta !== 0) moveTo(id, origin.current.position + delta);
       origin.current = null;
       setDelta(0);
     },
@@ -117,38 +95,46 @@ function useDrag(
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         event.stopPropagation();
-        onMove(id, Math.max(0, position + (event.key === "ArrowLeft" ? -step : step)));
+        moveTo(id, Math.max(0, position + (event.key === "ArrowLeft" ? -step : step)));
       }
     },
   };
   return { shown: position + delta, handlers };
 }
 
+/** Length in frames of a clip whose audio has been read, else the guess. */
+export function clipLength(audio: { seconds: number } | undefined, fps: number, guess: number): number {
+  return audio ? Math.round(audio.seconds * fps) : guess;
+}
+
 function ClipBlock({
   clip,
   name,
-  length,
+  guessLength,
   muted,
   rowHeight,
-  peaks,
   fps,
   tint,
-  ...handlers
+  pxPerFrame,
 }: {
   clip: AudioClip;
   name: string;
-  length: number;
+  /** Length shown while the audio has not been read. */
+  guessLength: number;
   muted: boolean;
   rowHeight: number;
-  peaks?: Peaks;
   /** Real frames per second, to turn frames on screen into seconds of audio. */
   fps: number;
   /** Colour and mute state of the track, which `currentColor` follows. */
   tint: string;
-} & ItemHandlers) {
-  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, handlers);
-  const selected = handlers.selected?.id === clip.id;
-  const width = Math.max(24, length * handlers.pxPerFrame);
+  pxPerFrame: number;
+}) {
+  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, pxPerFrame);
+  // Each clip asks the stores for its own slice: a selection or a decoded waveform elsewhere
+  // does not re-render it.
+  const selected = useUi((ui) => ui.selection?.id === clip.id);
+  const audio = useDoc((doc) => doc.audio[clip.asset]);
+  const width = Math.max(24, clipLength(audio, fps, guessLength) * pxPerFrame);
   return (
     <div
       className="clip"
@@ -157,7 +143,7 @@ function ClipBlock({
       aria-pressed={selected}
       data-selected={selected}
       data-muted={muted}
-      style={{ left: frameX(shown, handlers.pxPerFrame), width, height: rowHeight - 12 }}
+      style={{ left: frameX(shown, pxPerFrame), width, height: rowHeight - 12 }}
       {...pointer}
     >
       <ClipWave
@@ -165,8 +151,8 @@ function ClipBlock({
         width={width}
         height={rowHeight - 12}
         color="currentColor"
-        peaks={peaks}
-        pxPerSecond={handlers.pxPerFrame * fps}
+        peaks={audio?.peaks}
+        pxPerSecond={pxPerFrame * fps}
         tint={tint}
       />
       <span className="clip-label">
@@ -177,13 +163,9 @@ function ClipBlock({
   );
 }
 
-function TriggerFlag({
-  trigger,
-  muted,
-  ...handlers
-}: { trigger: Trigger; muted: boolean } & ItemHandlers) {
-  const { shown, handlers: pointer } = useDrag(trigger.id, "trigger", trigger.at, handlers);
-  const selected = handlers.selected?.id === trigger.id;
+function TriggerFlag({ trigger, muted, pxPerFrame }: { trigger: Trigger; muted: boolean; pxPerFrame: number }) {
+  const { shown, handlers: pointer } = useDrag(trigger.id, "trigger", trigger.at, pxPerFrame);
+  const selected = useUi((ui) => ui.selection?.id === trigger.id);
   return (
     <div
       className="flag"
@@ -193,7 +175,7 @@ function TriggerFlag({
       data-selected={selected}
       data-muted={muted}
       data-kind={trigger.action.type}
-      style={{ left: frameX(shown, handlers.pxPerFrame) }}
+      style={{ left: frameX(shown, pxPerFrame) }}
       {...pointer}
     >
       <span className="flag-chip">{trigger.label}</span>
@@ -204,19 +186,16 @@ function TriggerFlag({
 export const TrackLane = memo(function TrackLane({
   track,
   assetNames,
-  durations,
-  waveforms,
   guessLength,
   fps,
-  ...handlers
+  pxPerFrame,
 }: {
   track: Track;
   assetNames: Record<string, string>;
-  durations: Record<string, number>;
-  waveforms: Record<string, Peaks>;
   guessLength: number;
   fps: number;
-} & ItemHandlers) {
+  pxPerFrame: number;
+}) {
   const height = laneHeight(track);
   return (
     <div className="lane" style={{ height, ...traceStyle(track.color) }} data-muted={track.muted} data-kind={track.kind.type}>
@@ -226,17 +205,16 @@ export const TrackLane = memo(function TrackLane({
               key={clip.id}
               clip={clip}
               name={assetNames[clip.asset] ?? clip.asset}
-              length={durations[clip.asset] ?? guessLength}
+              guessLength={guessLength}
               muted={track.muted}
               rowHeight={height}
-              peaks={waveforms[clip.asset]}
               fps={fps}
               tint={`${track.color ?? ""}${track.muted}`}
-              {...handlers}
+              pxPerFrame={pxPerFrame}
             />
           ))
         : track.kind.triggers.map((trigger) => (
-            <TriggerFlag key={trigger.id} trigger={trigger} muted={track.muted} {...handlers} />
+            <TriggerFlag key={trigger.id} trigger={trigger} muted={track.muted} pxPerFrame={pxPerFrame} />
           ))}
     </div>
   );

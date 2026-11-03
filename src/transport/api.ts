@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Project } from "../project/types";
 
 // Mirrors src-tauri/src/engine/output.rs and src-tauri/src/transport_commands.rs.
@@ -35,13 +34,25 @@ export interface TrackPeak {
   peak: number;
 }
 
-export interface Levels {
-  tracks: TrackPeak[];
+/** Where a running output sends what it reports, about 30 times a second each, over lanes of their own. */
+export interface OutputLanes {
+  /** The position, when it moved. */
+  onPosition: (position: Position) => void;
+  /** The peak of each track; silence once after the sound stops, then nothing. */
+  onLevels: (tracks: TrackPeak[]) => void;
 }
 
-/** Opens the devices the project's `output` names; replaces a running output. */
-export function startOutput(project: Project): Promise<OutputInfo> {
-  return invoke<OutputInfo>("output_start", { project });
+/**
+ * Opens the devices the project's `output` names; replaces a running output. Position and levels
+ * come over one channel each, which live as long as this output does, so the meters can never hold
+ * up the timecode.
+ */
+export function startOutput(project: Project, lanes: OutputLanes): Promise<OutputInfo> {
+  const position = new Channel<Position>();
+  position.onmessage = lanes.onPosition;
+  const levels = new Channel<TrackPeak[]>();
+  levels.onmessage = lanes.onLevels;
+  return invoke<OutputInfo>("output_start", { project, onPosition: position, onLevels: levels });
 }
 
 /**
@@ -85,14 +96,4 @@ export function seek(frame: number): Promise<void> {
 /** The current position, or `null` when no output is running. */
 export function position(): Promise<Position | null> {
   return invoke<Position | null>("transport_position");
-}
-
-/** Calls `handler` about 30 times a second while the position changes. */
-export function onPosition(handler: (position: Position) => void): Promise<UnlistenFn> {
-  return listen<Position>("transport-position", (event) => handler(event.payload));
-}
-
-/** Calls `handler` with each track's peak about 30 times a second while there is sound. */
-export function onLevels(handler: (levels: Levels) => void): Promise<UnlistenFn> {
-  return listen<Levels>("transport-levels", (event) => handler(event.payload));
 }

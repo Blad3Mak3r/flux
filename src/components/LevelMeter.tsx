@@ -14,7 +14,7 @@ import {
 } from "../audio/level";
 import type { Ballistics } from "../audio/level";
 import { useT } from "../i18n";
-import { levelsStore, positionStore } from "../transport/playback";
+import { useTransport } from "../transport/store";
 
 /** Printed on the scale. Ticks without a label sit between them. */
 const LABELLED = [-48, -24, -12, 0];
@@ -49,8 +49,8 @@ function useMeter(trackId: string): [View, () => void] {
     const tick = (now: number) => {
       const dt = Math.min(now - last, 100);
       last = now;
-      const playing = positionStore.get()?.state === "playing";
-      const peak = playing ? (levelsStore.get()[trackId] ?? 0) : 0;
+      const { position, levels } = useTransport.getState();
+      const peak = position?.state === "playing" ? (levels[trackId] ?? 0) : 0;
       state.current = stepBallistics(state.current, dbFromLinear(peak), dt, reduced.matches);
       const next = viewOf(state.current);
       setView((was) =>
@@ -64,9 +64,9 @@ function useMeter(trackId: string): [View, () => void] {
       frame = requestAnimationFrame(tick);
     };
     wake.current = start;
-    const off = [levelsStore.subscribe(start), positionStore.subscribe(start)];
+    const unsubscribe = useTransport.subscribe(start);
     return () => {
-      off.forEach((unsubscribe) => unsubscribe());
+      unsubscribe();
       cancelAnimationFrame(frame);
     };
   }, [trackId]);
