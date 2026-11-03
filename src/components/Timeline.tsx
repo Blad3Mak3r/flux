@@ -63,6 +63,7 @@ export function Timeline({
   onSelect,
   onMove,
   onToggleMute,
+  onGain,
   onSeek,
 }: {
   project: Project;
@@ -76,6 +77,7 @@ export function Timeline({
   onSelect: (selection: Selected | null) => void;
   onMove: (id: string, position: number) => void;
   onToggleMute: (trackId: string) => void;
+  onGain: (trackId: string, gainDb: number) => void;
   onSeek: (absoluteFrame: number) => void;
 }) {
   const t = useT();
@@ -187,7 +189,7 @@ export function Timeline({
           >
             <div className="headers-inner">
               {project.tracks.map((track) => (
-                <TrackHeader key={track.id} track={track} onToggleMute={onToggleMute} />
+                <TrackHeader key={track.id} track={track} onToggleMute={onToggleMute} onGain={onGain} />
               ))}
               <div className="filler">
                 <p className="hint">{t("tracks.hint")}</p>

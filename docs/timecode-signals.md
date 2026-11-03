@@ -111,6 +111,14 @@ The music is decoded once and mixed in the same callback that renders LTC, on th
   `gainDb` as `10^(dB/20)`. The callback mixes in chunks of 256 frames held on the stack, adds the clips, clamps to
   -1..1 and writes left and right to `output.audio.channels` (one channel receives the mono sum); LTC then writes its
   own channel. A clip whose audio cannot be read is skipped and reported in `OutputInfo.warnings`, never an error.
+- **Track gain and levels** (`mixer.rs`): each track's clips are summed, multiplied by the track's fader (`gainDb`
+  absent is 0 dB, `-60` or less is silence) and added to the programme, so a clip sounds at track gain times clip
+  gain. The fader lives in an atomic that `output_set_track_gain(trackId, gainDb)` writes without rebuilding the
+  programme; the callback ramps from the gain the last chunk ended on to the new one over the next 256-frame chunk, so
+  a drag never clicks. After the gain the callback keeps the largest absolute sample of each track in an atomic
+  (`fetch_max`, no locks, no allocation). The emitter thread reads and resets those peaks every ~33 ms and sends them
+  as the `transport-levels` event, `{ tracks: [{ id, peak }] }` with linear amplitudes (the UI converts to dBFS); a
+  muted track is not in the clip set and has no peak. Silence is sent once after the audio stops and not repeated.
 - **Updating while running**: the callback receives a new `Arc<ClipSet>` through the same channel as transport
   commands and swaps it in. `Output` keeps every set it ever sent until it stops, so the callback is never the one to
   free memory.

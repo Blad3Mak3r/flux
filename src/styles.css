@@ -620,12 +620,18 @@ input:disabled {
 .track-header {
   display: flex;
   flex: none;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
   padding: 0 8px 0 12px;
   background: var(--panel);
-  border-right: 1px solid var(--rule-strong);
   border-bottom: 1px solid var(--rule);
+}
+
+.track-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .track-kind {
@@ -654,6 +660,151 @@ input:disabled {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink);
+}
+
+/* Fader: a rail with a square thumb; 0 dB is the notch. */
+.fader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fader-track {
+  position: relative;
+  flex: 1;
+  height: 16px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.fader-track::before {
+  content: "";
+  position: absolute;
+  inset: 7px 0;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+}
+
+.fader-unity {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 1px;
+  background: var(--ink-faint);
+}
+
+.fader-thumb {
+  position: absolute;
+  top: 1px;
+  width: 8px;
+  height: 14px;
+  margin-left: -4px;
+  background: var(--ink);
+  border: 1px solid var(--panel-lo);
+  border-radius: 1px;
+}
+
+.fader-track:hover .fader-thumb {
+  background: var(--phosphor);
+}
+
+.fader-value {
+  flex: 0 0 38px;
+  text-align: right;
+  font-family: var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* Level meter: square segments on the screen ground, a scale printed below. Flat fills only. */
+.meter {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.meter-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.meter-bar {
+  display: flex;
+  gap: 1px;
+  height: 10px;
+  padding: 1px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+}
+
+.meter-segment {
+  flex: 1;
+  background: var(--lamp-off);
+}
+
+.meter-segment[data-on="true"][data-tone="green"] {
+  background: var(--phosphor);
+}
+
+.meter-segment[data-on="true"][data-tone="yellow"] {
+  background: var(--amber);
+}
+
+.meter-segment[data-on="true"][data-tone="red"] {
+  background: var(--signal);
+}
+
+.meter-scale {
+  position: relative;
+  height: 12px;
+  margin: 0 2px;
+}
+
+.meter-tick {
+  position: absolute;
+  top: 0;
+  padding-top: 5px;
+  border-left: 1px solid var(--ink-faint);
+  font-family: var(--font-measure);
+  font-size: 9px;
+  line-height: 1;
+  color: var(--ink-dim);
+  transform: translateX(-0.5px);
+}
+
+.meter-tick:not(:empty) {
+  padding-left: 2px;
+}
+
+.meter-tick[data-end="true"] {
+  padding-left: 0;
+  padding-right: 2px;
+  border-left: 0;
+  border-right: 1px solid var(--ink-faint);
+  transform: translateX(-100%);
+}
+
+.meter-clip {
+  flex: 0 0 auto;
+  height: 12px;
+  margin-top: 0;
+  padding: 0 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 10px;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+  border-radius: 1px;
+}
+
+.meter-clip[aria-pressed="true"] {
+  color: var(--panel-lo);
+  background: var(--signal);
+  border-color: var(--signal);
 }
 
 .icon-button {

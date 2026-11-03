@@ -8,6 +8,14 @@ import type { OutputInfo, Position } from "./api";
 /** Latest position from the backend, or `null` while no output runs. Many readers, 30 Hz. */
 export const positionStore = createStore<Position | null>(null);
 
+/** Peak of each audio track in the latest `transport-levels` event, linear, by track id. */
+export const levelsStore = createStore<Record<string, number>>({});
+
+/** Moves a track's fader on the running output while it is dragged. No output is not an error. */
+export function previewTrackGain(trackId: string, gainDb: number): void {
+  api.setTrackGain(trackId, gainDb).catch(() => undefined);
+}
+
 /** Edits arrive in bursts (dragging a clip); the audio is rebuilt once they pause. */
 const CLIPS_DEBOUNCE_MS = 200;
 
@@ -48,19 +56,17 @@ export function usePlayback(project: Project, report: (error: string) => void): 
   reportRef.current = report;
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const unlisteners: Array<() => void> = [];
     let cancelled = false;
+    const keep = (off: () => void) => (cancelled ? off() : unlisteners.push(off));
+    // Outside the desktop app there is no event bus; the UI still works parked.
+    api.onPosition((position) => positionStore.set(position)).then(keep, () => undefined);
     api
-      .onPosition((position) => positionStore.set(position))
-      .then((off) => {
-        if (cancelled) off();
-        else unlisten = off;
-      })
-      // Outside the desktop app there is no event bus; the UI still works parked.
-      .catch(() => undefined);
+      .onLevels(({ tracks }) => levelsStore.set(Object.fromEntries(tracks.map((t) => [t.id, t.peak]))))
+      .then(keep, () => undefined);
     return () => {
       cancelled = true;
-      unlisten?.();
+      unlisteners.forEach((off) => off());
     };
   }, []);
 

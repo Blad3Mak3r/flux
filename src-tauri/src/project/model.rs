@@ -55,6 +55,9 @@ pub struct Track {
     pub id: String,
     pub name: String,
     pub muted: bool,
+    /// The track's fader in dB; absent is 0 dB. Only audio tracks have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gain_db: Option<f32>,
     pub kind: TrackKind,
 }
 
@@ -154,6 +157,12 @@ impl Project {
         let mut item_ids = HashSet::new();
         for track in &self.tracks {
             ensure_unique(&mut track_ids, "track id", &track.id)?;
+            if track.gain_db.is_some_and(|db| !db.is_finite()) {
+                return Err(ProjectError::Invalid(format!(
+                    "track {} has a gain that is not a number",
+                    track.id
+                )));
+            }
             match &track.kind {
                 TrackKind::Audio { clips } => {
                     for clip in clips {
@@ -249,6 +258,7 @@ pub(super) mod tests {
                     id: "t1".into(),
                     name: "Backing".into(),
                     muted: false,
+                    gain_db: Some(-6.0),
                     kind: TrackKind::Audio {
                         clips: vec![AudioClip {
                             id: "c1".into(),
@@ -262,6 +272,7 @@ pub(super) mod tests {
                     id: "t2".into(),
                     name: "Cues".into(),
                     muted: true,
+                    gain_db: None,
                     kind: TrackKind::Events {
                         triggers: vec![
                             Trigger {
@@ -305,7 +316,7 @@ pub(super) mod tests {
         "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav" }],
         "tracks": [
             {
-                "id": "t1", "name": "Backing", "muted": false,
+                "id": "t1", "name": "Backing", "muted": false, "gainDb": -6.0,
                 "kind": { "type": "audio", "clips": [
                     { "id": "c1", "asset": "a1", "start": 120, "gainDb": -3.5 }
                 ] }
@@ -366,6 +377,21 @@ pub(super) mod tests {
         json["output"].as_object_mut().unwrap().remove("audio");
         let parsed: Project = serde_json::from_value(json).unwrap();
         assert_eq!(parsed.output.audio, None);
+    }
+
+    #[test]
+    fn track_without_a_gain_should_parse_and_serialize_without_one() {
+        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+        assert_eq!(parsed.tracks[1].gain_db, None);
+        let json = serde_json::to_value(&parsed).unwrap();
+        assert!(json["tracks"][1].get("gainDb").is_none());
+    }
+
+    #[test]
+    fn validate_should_reject_a_track_gain_that_is_not_finite() {
+        let mut project = sample_project();
+        project.tracks[0].gain_db = Some(f32::NAN);
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
     }
 
     #[test]

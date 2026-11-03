@@ -23,6 +23,8 @@ export interface Track {
   id: string;
   name: string;
   muted: boolean;
+  /** The track's fader in dB, audio tracks only. Absent is 0 dB; -60 or less is silence. */
+  gainDb?: number;
   kind: TrackKind;
 }
 
