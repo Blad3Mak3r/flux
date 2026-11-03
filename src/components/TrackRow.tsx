@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import type { AudioClip, Track, Trigger } from "../project/types";
 import { AUDIO_LANE_H, EVENTS_LANE_H } from "../timeline/layout";
 import { ClipWave } from "./ClipWave";
+import type { Peaks } from "./ClipWave";
 import { FlagIcon, MuteIcon, WaveIcon } from "./icons";
 
 /** Length shown for a clip whose audio length is not known yet (10 s at the project rate). */
@@ -103,6 +104,8 @@ function ClipBlock({
   length,
   muted,
   rowHeight,
+  peaks,
+  fps,
   ...handlers
 }: {
   clip: AudioClip;
@@ -110,6 +113,9 @@ function ClipBlock({
   length: number;
   muted: boolean;
   rowHeight: number;
+  peaks?: Peaks;
+  /** Real frames per second, to turn frames on screen into seconds of audio. */
+  fps: number;
 } & ItemHandlers) {
   const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, handlers);
   const selected = handlers.selected?.id === clip.id;
@@ -125,7 +131,14 @@ function ClipBlock({
       style={{ left: shown * handlers.pxPerFrame, width, height: rowHeight - 12 }}
       {...pointer}
     >
-      <ClipWave seed={clip.asset} width={width} height={rowHeight - 12} color="currentColor" />
+      <ClipWave
+        seed={clip.asset}
+        width={width}
+        height={rowHeight - 12}
+        color="currentColor"
+        peaks={peaks}
+        pxPerSecond={handlers.pxPerFrame * fps}
+      />
       <span className="clip-label">
         {name}
         {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
@@ -162,13 +175,17 @@ export const TrackLane = memo(function TrackLane({
   track,
   assetNames,
   durations,
+  waveforms,
   guessLength,
+  fps,
   ...handlers
 }: {
   track: Track;
   assetNames: Record<string, string>;
   durations: Record<string, number>;
+  waveforms: Record<string, Peaks>;
   guessLength: number;
+  fps: number;
 } & ItemHandlers) {
   const height = laneHeight(track);
   return (
@@ -182,6 +199,8 @@ export const TrackLane = memo(function TrackLane({
               length={durations[clip.asset] ?? guessLength}
               muted={track.muted}
               rowHeight={height}
+              peaks={waveforms[clip.asset]}
+              fps={fps}
               {...handlers}
             />
           ))
