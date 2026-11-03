@@ -95,14 +95,26 @@ pub enum TriggerAction {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputConfig {
+    /// Where the project's audio clips are played.
+    pub audio: Option<AudioOutput>,
     pub ltc: Option<LtcOutput>,
     pub mtc: Option<MtcOutput>,
+}
+
+/// Channel numbers are 1-based, as an audio interface labels them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioOutput {
+    pub device_name: String,
+    /// Interface channels that receive the programme: `[1, 2]` for a stereo pair.
+    pub channels: Vec<u16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LtcOutput {
     pub device_name: String,
+    /// 1-based interface channel.
     pub channel: u16,
 }
 
@@ -161,8 +173,38 @@ impl Project {
                 }
             }
         }
+        self.output.validate()
+    }
+}
+
+impl OutputConfig {
+    /// Channels are 1-based and a programme channel may be listed only once.
+    fn validate(&self) -> Result<()> {
+        if let Some(ltc) = &self.ltc {
+            check_channel(ltc.channel)?;
+        }
+        if let Some(audio) = &self.audio {
+            let mut seen = HashSet::new();
+            for &channel in &audio.channels {
+                check_channel(channel)?;
+                if !seen.insert(channel) {
+                    return Err(ProjectError::Invalid(format!(
+                        "duplicate audio output channel: {channel}"
+                    )));
+                }
+            }
+        }
         Ok(())
     }
+}
+
+fn check_channel(channel: u16) -> Result<()> {
+    if channel == 0 {
+        return Err(ProjectError::Invalid(
+            "output channels are 1-based, 0 is not valid".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// An asset file must be `audio/<name>` with a plain file name: no separators, no `.`/`..`.
@@ -241,6 +283,10 @@ pub(super) mod tests {
                 },
             ],
             output: OutputConfig {
+                audio: Some(AudioOutput {
+                    device_name: "Main Interface".into(),
+                    channels: vec![1, 2],
+                }),
                 ltc: Some(LtcOutput {
                     device_name: "Main Interface".into(),
                     channel: 3,
@@ -274,6 +320,7 @@ pub(super) mod tests {
             }
         ],
         "output": {
+            "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
             "ltc": { "deviceName": "Main Interface", "channel": 3 },
             "mtc": { "portName": "IAC Driver Bus 1" }
         }
@@ -310,6 +357,32 @@ pub(super) mod tests {
     fn validate_should_reject_duplicate_ids() {
         let mut project = sample_project();
         project.tracks[1].id = "t1".into();
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn project_without_audio_output_should_still_parse() {
+        let mut json: serde_json::Value = serde_json::from_str(V1_FIXTURE).unwrap();
+        json["output"].as_object_mut().unwrap().remove("audio");
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.output.audio, None);
+    }
+
+    #[test]
+    fn validate_should_reject_channel_zero() {
+        let mut project = sample_project();
+        project.output.ltc.as_mut().unwrap().channel = 0;
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+
+        let mut project = sample_project();
+        project.output.audio.as_mut().unwrap().channels = vec![0, 1];
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_repeated_audio_channel() {
+        let mut project = sample_project();
+        project.output.audio.as_mut().unwrap().channels = vec![1, 1];
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
     }
 

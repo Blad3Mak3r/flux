@@ -49,6 +49,9 @@ export type TriggerAction = { type: "marker" } | { type: "midi"; bytes: number[]
 
 /** Devices are stored by name hint only, never by OS identifier. */
 export interface OutputConfig {
+  /** Where the project's audio clips play. `channels` are 1-based, e.g. `[1, 2]`. */
+  audio: { deviceName: string; channels: number[] } | null;
+  /** `channel` is 1-based. */
   ltc: { deviceName: string; channel: number } | null;
   mtc: { portName: string } | null;
 }
