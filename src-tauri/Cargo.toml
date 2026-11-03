@@ -28,6 +28,8 @@ uuid = { version = "1.29.0", features = ["v4"] }
 tauri-plugin-dialog = "2.8.4"
 cpal = "0.18.2"
 midir = "0.11.1"
+symphonia = { version = "0.6.1", features = ["mp3", "aiff"] }
+rubato = "5.0.1"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
