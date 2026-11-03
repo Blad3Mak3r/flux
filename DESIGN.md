@@ -154,7 +154,7 @@ A restrained, near-monochrome faceplate with three signal hues used sparingly an
 
 **Character:** plain and legible so the screen, not the type, carries the identity. Legends are small, bold, uppercase and widely tracked, as if printed on the panel.
 
-**Decision on record:** the UI face is deliberately the system stack (Operate mode: the operator works inside it for hours, familiar native rendering is the point). This is an accepted decision, not a settled ideal. The finish review left "self-host an engraved legend face" open and unresolved pending the user's own acceptance.
+**Decision on record:** the UI face is deliberately the system stack (Operate mode: the operator works inside it for hours, familiar native rendering is the point). The user accepted it explicitly. The finish review had left "self-host an engraved legend face" open pending that acceptance; it is closed, and can be reopened if the product later wants a printed-legend face.
 
 ### Hierarchy
 - **Title** (700, 15px): empty-state title, dialog heading.
@@ -237,6 +237,6 @@ The ruler is SVG ticks and labels over the graticule with a phosphor cursor and 
 Recorded honestly as unresolved, not as rules:
 - The waveform is a labelled placeholder, not real audio peaks.
 - There is no add-track control; tracks are created by importing audio or pressing M.
-- No engraved legend face is shipped; the system stack is the accepted stand-in until the user decides.
+- No engraved legend face is shipped; the user accepted the system stack. Reopen only if the product wants a printed-legend face later.
 - The seed reference in the contract (`97c645d5`) is the raw key the roll printed, kept as printed.
 - Minor build drift: a few component fills repeat token values as literals (key and button hover `oklch(0.35 0.016 250)`, primary hover `oklch(0.92 0.17 128)`, clip tints); run-info warnings use amber outside the cue/hold meaning.
