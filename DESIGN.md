@@ -101,6 +101,14 @@ components:
     backgroundColor: "{colors.screen}"
     textColor: "{colors.ink}"
     padding: "2px 10px 2px 8px"
+  fader:
+    backgroundColor: "{colors.screen}"
+    textColor: "{colors.ink-dim}"
+    height: "16px"
+  level-meter:
+    backgroundColor: "{colors.screen}"
+    textColor: "{colors.ink-dim}"
+    height: "10px"
 ---
 
 # Design System: Flux Timecode
@@ -212,6 +220,9 @@ A recessed screen window holding a 5x7 dot-matrix face drawn as SVG squares; lit
 ### Ruler, Lanes, Clips and Cues (signature)
 The ruler is SVG ticks and labels over the graticule with a phosphor cursor and span. Lanes have a centre line and a major-grid bottom rule. An audio clip is a solid phosphor waveform in a dim-phosphor bordered box with a label plate. A cue is a 1px amber flag line with a chip: hatched for marker, dotted for MIDI. Selected = 2px ink outline. A muted track draws clips hollow and dashed, flags dashed and 70% opaque, with the name struck through and a MUTED tag. The playhead is a 2px ink line (vermilion when playing) with a triangle head.
 
+### Fader and Level Meter
+Both sit in an audio track's header under the name row, which is why an audio lane is 96px tall. The fader is a recessed rail with a 1px notch at 0 dB and a square ink thumb (phosphor on hover), the value in measure type to its right; range -inf to +6 dB, 1 dB per arrow key, 0.1 with Shift, 6 per Page key, double-click returns to 0 dB. The meter is 24 square segments of 2.5 dB on the screen ground, off = `lamp-off`, lit = phosphor up to -12 dBFS, amber to -3, vermilion above. Flat fills only, no glow, no gradient. The peak-hold marker is one lone lit segment above the bar. A printed scale (-48, -24, -12, 0 with ticks between) sits below, and the accessible value says the level in words, so colour never carries the reading alone. The CLIP lamp is printed text that fills vermilion when the peak reached 0 dBFS and stays until pressed. The bar rises at once and falls at 24 dB/s, the marker holds 1.5 s then falls at 12 dB/s; with reduced motion the bar follows the signal and the marker jumps instead of sliding.
+
 ### Status Bar and Dialog
 30px recessed bar: message left (vermilion bold on error), tabular measurements right. The unsaved dialog is a square panel, max 420px, with a flat backdrop.
 
@@ -238,6 +249,7 @@ The ruler is SVG ticks and labels over the graticule with a phosphor cursor and 
 ## Open Items
 
 Recorded honestly as unresolved, not as rules:
+- The CLIP lamp and the top meter segments use vermilion although the transport is not live: an over-0 dBFS peak is treated as a fault, since the signal exceeded what the device can play. Revisit if vermilion should stay reserved for the transport.
 - The waveform is a labelled placeholder, not real audio peaks.
 - There is no add-track control; tracks are created by importing audio or pressing M.
 - No engraved legend face is shipped; the user accepted the system stack. Reopen only if the product wants a printed-legend face later.

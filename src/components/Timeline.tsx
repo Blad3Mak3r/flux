@@ -62,6 +62,7 @@ export function Timeline({
   onSelect,
   onMove,
   onToggleMute,
+  onGain,
   onSeek,
 }: {
   project: Project;
@@ -75,6 +76,7 @@ export function Timeline({
   onSelect: (selection: Selected | null) => void;
   onMove: (id: string, position: number) => void;
   onToggleMute: (trackId: string) => void;
+  onGain: (trackId: string, gainDb: number) => void;
   onSeek: (absoluteFrame: number) => void;
 }) {
   const t = useT();
@@ -196,7 +198,7 @@ export function Timeline({
 
           {project.tracks.map((track) => (
             <div className="screen-row" key={track.id}>
-              <TrackHeader track={track} onToggleMute={onToggleMute} />
+              <TrackHeader track={track} onToggleMute={onToggleMute} onGain={onGain} />
               <div style={{ width: laneWidth }} className="lane-wrap">
                 <TrackLane
                   track={track}

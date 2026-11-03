@@ -19,7 +19,15 @@ import { errorMessage, importAudio, newProject, openProject, saveProject } from 
 import { demoShow } from "./state/demo";
 import type { AssetAudio } from "./state/doc";
 import { docReducer, initialDoc, isDirty } from "./state/doc";
-import { addAudioClip, addMarker, emptyProject, moveItem, removeItem, toggleMute } from "./state/edit";
+import {
+  addAudioClip,
+  addMarker,
+  emptyProject,
+  moveItem,
+  removeItem,
+  setTrackGain,
+  toggleMute,
+} from "./state/edit";
 import { nominalFps, realFps } from "./timecode";
 import { patchReadout } from "./timeline/layout";
 import { DEFAULT_PX_PER_FRAME, clampZoom } from "./timeline/scale";
@@ -347,6 +355,7 @@ function Shell() {
           onSelect={select}
           onMove={(id, position) => edit(moveItem(project, id, position))}
           onToggleMute={(trackId) => edit(toggleMute(project, trackId))}
+          onGain={(trackId, gainDb) => edit(setTrackGain(project, trackId, gainDb))}
           onSeek={playback.seek}
         />
         <Inspector

@@ -17,7 +17,7 @@ use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 use super::ltc::{LtcConfig, LtcStream};
-use super::mixer::{ClipSet, Programme};
+use super::mixer::{ClipSet, MIX_CHUNK, Programme, SharedLevels};
 use super::mtc::MtcScheduler;
 use super::transport::{Clock, Command, Transport, TransportState};
 use crate::audio::ENGINE_RATE;
@@ -190,9 +190,6 @@ pub struct LtcChannel {
     /// Zero-based index into each frame of the interleaved buffer.
     pub channel: usize,
 }
-
-/// Frames mixed at a time, on the stack: the callback must not allocate.
-const MIX_CHUNK: usize = 256;
 
 /// Fills audio buffers from the transport. Owned by the audio callback, so it must not allocate
 /// or wait.
@@ -382,6 +379,8 @@ pub struct Output {
     /// Every clip set ever sent. The audio callback swaps sets in and must never be the one to free
     /// the old one, so this side keeps them alive until the output stops.
     clip_sets: Mutex<Vec<Arc<ClipSet>>>,
+    /// The faders and peak meters of the clip set being played.
+    levels: SharedLevels,
     reader: PositionReader,
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
@@ -431,6 +430,7 @@ impl Output {
         let (ready_tx, ready_rx) = mpsc::channel();
         let Programme { set, warnings } = programme;
         let clips = Arc::new(set);
+        let levels = SharedLevels::new(clips.levels());
 
         let audio_thread = {
             let spec = AudioSpec {
@@ -494,6 +494,7 @@ impl Output {
         Ok(Self {
             messages,
             clip_sets: Mutex::new(vec![clips]),
+            levels,
             reader: PositionReader {
                 shared,
                 clock,
@@ -518,6 +519,7 @@ impl Output {
     /// Replaces the audio being played, after the project's clips changed.
     pub fn set_clips(&self, set: ClipSet) -> Result<(), OutputError> {
         let set = Arc::new(set);
+        self.levels.replace(set.levels());
         self.clip_sets
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -529,6 +531,11 @@ impl Output {
 
     pub fn reader(&self) -> PositionReader {
         self.reader.clone()
+    }
+
+    /// Where to move a track's fader and read its peak, whichever clip set is playing.
+    pub fn levels(&self) -> SharedLevels {
+        self.levels.clone()
     }
 }
 
@@ -978,14 +985,18 @@ mod tests {
 
     /// A clip of constant stereo samples, as 16-bit values, that starts at the timeline origin.
     fn clip(left: i16, right: i16, frames: usize) -> ClipSet {
-        ClipSet::new(vec![ClipPlayer {
-            audio: Arc::new(Decoded {
-                samples: (0..frames).flat_map(|_| [left, right]).collect(),
-                source_rate: ENGINE_RATE,
-            }),
-            start: 0,
-            gain: 1.0,
-        }])
+        ClipSet::new(
+            vec![ClipPlayer {
+                audio: Arc::new(Decoded {
+                    samples: (0..frames).flat_map(|_| [left, right]).collect(),
+                    source_rate: ENGINE_RATE,
+                }),
+                start: 0,
+                gain: 1.0,
+                track: 0,
+            }],
+            vec![("t1".into(), 1.0)],
+        )
     }
 
     /// A renderer playing `clips` on the given 0-based channels, with LTC on `ltc` if any.
@@ -1069,17 +1080,21 @@ mod tests {
 
     #[test]
     fn render_should_clamp_a_programme_that_is_too_loud() {
-        let loud = ClipSet::new(vec![
-            ClipPlayer {
-                audio: Arc::new(Decoded {
-                    samples: vec![i16::MAX; 20],
-                    source_rate: ENGINE_RATE,
-                }),
-                start: 0,
-                gain: 1.0,
-            };
-            3
-        ]);
+        let loud = ClipSet::new(
+            vec![
+                ClipPlayer {
+                    audio: Arc::new(Decoded {
+                        samples: vec![i16::MAX; 20],
+                        source_rate: ENGINE_RATE,
+                    }),
+                    start: 0,
+                    gain: 1.0,
+                    track: 0,
+                };
+                3
+            ],
+            vec![("t1".into(), 1.0)],
+        );
         let (mut renderer, tx, _) = programme_renderer(2, vec![0, 1], None, loud);
         tx.send(Message::Transport(Command::Play)).unwrap();
         let mut buffer = [0.0f32; 2 * 10];
