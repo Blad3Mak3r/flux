@@ -81,3 +81,30 @@ export const TrashIcon = () => (
     <path d="M3 4.5 H13 M6 4.5 V2.5 H10 V4.5 M4.5 4.5 V13.5 H11.5 V4.5 M7 7 V11 M9 7 V11" />
   </Icon>
 );
+
+// Window buttons sit on the same 16px grid; the stroke is 1px lighter than the content icons so
+// they stay quiet beside the menu text.
+export const MinimizeIcon = () => (
+  <Icon>
+    <path d="M3 8.5 H13" />
+  </Icon>
+);
+
+export const MaximizeIcon = () => (
+  <Icon>
+    <rect x="3.5" y="3.5" width="9" height="9" />
+  </Icon>
+);
+
+export const RestoreIcon = () => (
+  <Icon>
+    <path d="M5.5 5.5 V3.5 H12.5 V10.5 H10.5" />
+    <rect x="3.5" y="5.5" width="7" height="7" />
+  </Icon>
+);
+
+export const CloseIcon = () => (
+  <Icon>
+    <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" />
+  </Icon>
+);

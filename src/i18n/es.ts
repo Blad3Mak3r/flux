@@ -15,6 +15,12 @@ export const es: Record<MessageKey, string> = {
   "menu.file": "Proyecto",
   "menu.edit": "Edición",
 
+  "window.group": "Controles de la ventana",
+  "window.minimize": "Minimizar",
+  "window.maximize": "Maximizar",
+  "window.restore": "Restaurar",
+  "window.close": "Cerrar",
+
   "project.untitled": "Show sin título",
   "project.unsaved": "Cambios sin guardar",
 
