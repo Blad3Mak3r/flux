@@ -81,15 +81,43 @@ the transport reaches frame N.
 While an output runs, the event `transport-position` carries a `Position` about 30 times a second whenever it
 changes.
 
-- One audio device carries everything: the LTC device, or the `output.audio` device when there is no LTC. If both
-  are set they must be the same device. The stream opens at 48 kHz with the fewest channels that cover the highest
-  channel used, in 32-bit float, else 32 or 16-bit integer. Clip playback (A4) will use the same stream.
+- One audio device carries everything: the LTC device, or the `output.audio` device when there is no LTC, or the
+  system's default output when neither names one (an empty `deviceName`). If both are set they must be the same
+  device. Neither LTC nor MTC is needed to play the music. The stream opens at 48 kHz with the fewest channels that cover the highest
+  channel used, in 32-bit float, else 32 or 16-bit integer. The programme (below) uses the same stream.
 - The audio device's sample clock is the master. The callback owns the `Transport`, drains commands with
   `try_recv`, renders LTC into its channel, advances the position and publishes it with `try_lock`: it never
   allocates or waits. A reader holding the lock only makes it skip one update.
 - MTC runs on a thread that polls every millisecond. It reads the published position and extrapolates with the wall
   clock (at most 100 ms), so quarter frames are not quantised to the audio buffer. It sends a full frame whenever the
   transport epoch changes. A missing MIDI port becomes a warning in `OutputInfo`; the audio side still starts.
-- Only the audio device is required: an MTC-only project cannot start yet, because there is no software clock.
+- The audio device always provides the clock, so an MTC-only project still opens one (the default output).
 - On Windows `thread::park_timeout(1 ms)` may sleep for the system timer resolution (about 15 ms), which jitters MTC
   quarter frames; raising the timer resolution is a follow-up.
+
+## Programme audio (`audio/`, `engine/mixer.rs`)
+
+The music is decoded once and mixed in the same callback that renders LTC, on the same clock.
+
+- **Decoding** (`audio/decode.rs`, symphonia: wav, aiff, flac, mp3, ogg): every file becomes stereo, 48 kHz (rubato's
+  FFT resampler converts other rates), 16-bit. Mono plays on both sides; channels beyond two are dropped. Sixteen
+  bits keeps a three minute song near 35 MB in memory, where 32-bit float would take 70 MB.
+- **Peaks** (`audio/peaks.rs`): the min and max of every 10 ms as signed bytes, which is what the timeline draws.
+- **Commands**: `audio_analyze(asset)` decodes an asset (cached by asset id) and returns `{ durationSeconds,
+  sourceRate, peaksPerSecond, peaks }`; the UI calls it on import and when a project opens, so clip lengths and
+  waveforms are real. `output_set_clips(project)` sends the current clips to a running output. `output_start`
+  decodes whatever has not been decoded yet.
+- **Mixing** (`mixer.rs`): clips of tracks that are not muted, placed by `Clock::frames_to_samples(clip.start)`, with
+  `gainDb` as `10^(dB/20)`. The callback mixes in chunks of 256 frames held on the stack, adds the clips, clamps to
+  -1..1 and writes left and right to `output.audio.channels` (one channel receives the mono sum); LTC then writes its
+  own channel. A clip whose audio cannot be read is skipped and reported in `OutputInfo.warnings`, never an error.
+- **Updating while running**: the callback receives a new `Arc<ClipSet>` through the same channel as transport
+  commands and swaps it in. `Output` keeps every set it ever sent until it stops, so the callback is never the one to
+  free memory.
+- **Real-time check**: every second the callback compares the audio it rendered with the wall clock; more than 1.5
+  times faster sets `Position.clockUnpaced`, and the UI shows the clock lamp as faulty ("Not real time"). ALSA's
+  null device ("Discard all samples") does exactly that and made the timecode run ~500 times too fast.
+
+On Linux under WSLg only the null device exists until `libasound2-plugins` is installed, which gives ALSA a `pulse`
+and `default` device that reach WSLg's PulseAudio. The cpal PulseAudio host was tried and could not complete the
+handshake with WSLg's server, so it is not enabled.
