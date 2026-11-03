@@ -15,7 +15,7 @@ import { I18nProvider, useT } from "./i18n";
 import type { MessageKey } from "./i18n";
 import { analyzeAudio } from "./audio/api";
 import type { Peaks } from "./components/ClipWave";
-import { errorMessage, importAudio, newProject, openProject, saveProject } from "./project/api";
+import { errorMessage, importAudio, newProject, openProjectAt, pickProjectPath, saveProject } from "./project/api";
 import type { AssetAudio } from "./state/doc";
 import { docReducer, initialDoc, isDirty } from "./state/doc";
 import {
@@ -133,9 +133,12 @@ function Shell() {
     if (clockUnpaced) sayError(t("output.clockFast"));
   }, [clockUnpaced, sayError, t]);
 
-  // The backend forgets the previous project's assets on `project_new`; start from a clean slate.
+  // The backend forgets the previous project's assets on `project_new`; start from a clean slate,
+  // or from the show the welcome window asked for.
   useEffect(() => {
-    newProject(project.name, frameRate).catch(() => undefined);
+    const path = new URLSearchParams(window.location.search).get("open");
+    if (path) void openAt(path);
+    else newProject(project.name, frameRate).catch(() => undefined);
     // Once, on startup.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -190,14 +193,22 @@ function Shell() {
       say("status.ready");
     });
 
+  const openAt = async (path: string) => {
+    try {
+      const opened = await openProjectAt(path);
+      load(opened, path);
+      say("status.opened", { name: basename(path) });
+      analyse(opened.assets);
+    } catch (err) {
+      fail(err);
+    }
+  };
+
   const doOpen = () =>
     replaceDoc(async () => {
       try {
-        const opened = await openProject();
-        if (!opened) return;
-        load(opened.project, opened.path);
-        say("status.opened", { name: basename(opened.path) });
-        analyse(opened.project.assets);
+        const path = await pickProjectPath();
+        if (path) await openAt(path);
       } catch (err) {
         fail(err);
       }

@@ -1,0 +1,187 @@
+import { useCallback, useEffect, useState } from "react";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FolderIcon, PlusIcon, TrashIcon } from "../components/icons";
+import { WindowControls, hasNativeWindow } from "../components/WindowControls";
+import { I18nProvider, useI18n } from "../i18n";
+import { errorMessage, pickProjectPath } from "../project/api";
+import { openEditor, projectDelete, recentsForget, recentsList } from "./api";
+import type { RecentShow } from "./api";
+
+const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["day", 86_400],
+  ["hour", 3_600],
+  ["minute", 60],
+];
+
+/** "2 days ago" in the interface language. */
+function ago(openedAt: number, locale: string): string {
+  const seconds = Math.round(openedAt - Date.now() / 1000);
+  const format = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const [unit, size] = UNITS.find(([, size]) => Math.abs(seconds) >= size) ?? ["minute", 60];
+  return format.format(Math.round(seconds / size), unit);
+}
+
+function Welcome() {
+  const { t, locale } = useI18n();
+  const [shows, setShows] = useState<RecentShow[] | null>(null);
+  const [asking, setAsking] = useState<RecentShow | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(
+    () =>
+      recentsList().then(setShows, (err) => {
+        setShows([]);
+        setError(errorMessage(err));
+      }),
+    [],
+  );
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  // Opening a window twice would fail on its label, so one action runs at a time.
+  const guarded = (action: () => Promise<void>) => async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openPicked = guarded(async () => {
+    const path = await pickProjectPath();
+    if (path) await openEditor(path);
+  });
+  const openShow = (path: string) => guarded(() => openEditor(path))();
+  const forget = (path: string) => guarded(() => recentsForget(path).then(reload))();
+  const confirmDelete = guarded(async () => {
+    if (!asking) return;
+    const { path } = asking;
+    setAsking(null);
+    await projectDelete(path);
+    await reload();
+  });
+
+  return (
+    <div className="welcome">
+      <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
+        <p className="brand" data-tauri-drag-region>{t("app.title")}</p>
+        {hasNativeWindow() && (
+          <div className="menu-end">
+            <WindowControls />
+          </div>
+        )}
+      </nav>
+
+      <main className="welcome-body">
+        <div className="button-row">
+          <button type="button" className="button primary" disabled={busy} onClick={() => void guarded(() => openEditor(null))()}>
+            <PlusIcon />
+            {t("welcome.new")}
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={() => void openPicked()}>
+            <FolderIcon />
+            {t("welcome.open")}
+          </button>
+        </div>
+
+        <section aria-labelledby="recent-legend">
+          <h2 className="legend" id="recent-legend">{t("welcome.recent")}</h2>
+          {shows?.length === 0 ? (
+            <div className="empty-state">
+              <p className="empty-title">{t("welcome.empty.title")}</p>
+              <p>{t("welcome.empty.body")}</p>
+            </div>
+          ) : (
+            <ul className="recents">
+              {shows?.map((show) => {
+                const name = show.meta?.name ?? basename(show.path);
+                const readable = show.meta !== null;
+                return (
+                  <li key={show.path} className="recent">
+                    <button
+                      type="button"
+                      className="recent-open"
+                      disabled={busy || !readable}
+                      aria-label={t("welcome.openName", { name })}
+                      onClick={() => openShow(show.path)}
+                    >
+                      <span className="recent-name">{name}</span>
+                      <span className="recent-path" title={show.path}>{show.path}</span>
+                      <span className="recent-meta">
+                        {show.meta ? (
+                          <>
+                            <span className="mono">{t(`frameRate.${show.meta.frameRate}`)}</span>
+                            <span className="mono">{t("welcome.tracks", { count: show.meta.trackCount })}</span>
+                            <span>{ago(show.openedAt, locale)}</span>
+                          </>
+                        ) : (
+                          <span className="recent-state">
+                            {t(show.exists ? "welcome.unreadable" : "welcome.missing")}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    {show.exists ? (
+                      <button
+                        type="button"
+                        className="icon-button"
+                        disabled={busy}
+                        aria-label={t("welcome.delete", { name })}
+                        title={t("welcome.delete", { name })}
+                        onClick={() => setAsking(show)}
+                      >
+                        <TrashIcon />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button"
+                        disabled={busy}
+                        aria-label={t("welcome.forgetName", { name })}
+                        onClick={() => forget(show.path)}
+                      >
+                        {t("welcome.forget")}
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
+        {error && (
+          <p className="message" data-tone="error" role="alert">
+            {error}
+          </p>
+        )}
+      </main>
+
+      <ConfirmDialog
+        open={asking !== null}
+        title={t("delete.title", { name: asking ? (asking.meta?.name ?? basename(asking.path)) : "" })}
+        detail={asking?.path}
+        body={t("delete.body")}
+        confirmLabel={t("delete.confirm")}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setAsking(null)}
+      />
+    </div>
+  );
+}
+
+export default function WelcomeView() {
+  return (
+    <I18nProvider>
+      <Welcome />
+    </I18nProvider>
+  );
+}
