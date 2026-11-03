@@ -4,6 +4,7 @@ mod commands;
 pub mod devices;
 pub mod engine;
 pub mod project;
+mod recents;
 mod transport_commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -19,6 +20,9 @@ pub fn run() {
             commands::project_open,
             commands::project_import_audio,
             commands::project_save,
+            commands::project_delete,
+            recents::recents_list,
+            recents::recents_forget,
             audio_commands::audio_analyze,
             devices::devices_list_audio,
             devices::devices_list_midi,
