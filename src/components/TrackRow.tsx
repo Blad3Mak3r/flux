@@ -3,6 +3,7 @@ import type { KeyboardEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { AudioClip, Track, Trigger } from "../project/types";
 import { AUDIO_LANE_H, EVENTS_LANE_H } from "../timeline/layout";
+import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { Fader } from "./Fader";
@@ -146,7 +147,7 @@ function ClipBlock({
       aria-pressed={selected}
       data-selected={selected}
       data-muted={muted}
-      style={{ left: shown * handlers.pxPerFrame, width, height: rowHeight - 12 }}
+      style={{ left: frameX(shown, handlers.pxPerFrame), width, height: rowHeight - 12 }}
       {...pointer}
     >
       <ClipWave
@@ -181,7 +182,7 @@ function TriggerFlag({
       data-selected={selected}
       data-muted={muted}
       data-kind={trigger.action.type}
-      style={{ left: shown * handlers.pxPerFrame }}
+      style={{ left: frameX(shown, handlers.pxPerFrame) }}
       {...pointer}
     >
       <span className="flag-chip">{trigger.label}</span>

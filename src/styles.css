@@ -482,9 +482,14 @@ input:disabled {
 }
 
 .zoom-corner {
+  position: relative;
+  z-index: 1;
   display: grid;
+  flex: none;
   align-items: center;
   padding-inline: 12px;
+  background: var(--panel);
+  box-shadow: 0 1px 0 var(--rule-strong);
 }
 
 .zoom-value {
@@ -495,9 +500,40 @@ input:disabled {
   color: var(--ink);
 }
 
+.screen-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The track-header column sits beside the scroller, so the horizontal scrollbar spans the lanes only. */
+.screen-side {
+  display: flex;
+  flex: 0 0 var(--header-w);
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--rule-strong);
+}
+
+.screen-headers {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The bottom padding is the lanes' scrollbar, so both columns reach the same last scroll position. */
+.headers-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: var(--scrollbar-h);
+}
+
 .screen-scroll {
   position: relative;
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
 }
@@ -508,11 +544,27 @@ input:disabled {
   flex-direction: column;
   min-height: 100%;
   background-color: var(--screen);
-  background-image:
-    linear-gradient(to right, var(--grat-major) 0 1px, transparent 1px),
-    linear-gradient(to right, var(--grat-minor) 0 1px, transparent 1px);
-  background-size: var(--major-px) 100%, var(--minor-px) 100%;
-  background-position: var(--header-w) 0;
+}
+
+.graticule {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.graticule path {
+  fill: none;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.graticule-minor {
+  stroke: var(--grat-minor);
+}
+
+.graticule-major {
+  stroke: var(--grat-major);
 }
 
 .filler {
@@ -525,25 +577,13 @@ input:disabled {
   color: var(--ink-faint);
 }
 
-.screen-row {
-  display: flex;
-}
-
 .ruler-row {
   position: sticky;
   top: 0;
   z-index: 5;
+  flex: none;
   background: var(--panel-lo);
   box-shadow: 0 1px 0 var(--rule-strong);
-}
-
-.corner {
-  position: sticky;
-  left: 0;
-  z-index: 8;
-  flex: 0 0 var(--header-w);
-  background: var(--panel);
-  border-right: 1px solid var(--rule-strong);
 }
 
 .ruler {
@@ -578,17 +618,13 @@ input:disabled {
 }
 
 .track-header {
-  position: sticky;
-  left: 0;
-  z-index: 7;
   display: flex;
-  flex: 0 0 var(--header-w);
+  flex: none;
   flex-direction: column;
   justify-content: center;
   gap: 6px;
   padding: 0 8px 0 12px;
   background: var(--panel);
-  border-right: 1px solid var(--rule-strong);
   border-bottom: 1px solid var(--rule);
 }
 
@@ -795,12 +831,9 @@ input:disabled {
   color: var(--ink);
 }
 
-.lane-wrap {
-  flex: none;
-}
-
 .lane {
   position: relative;
+  flex: none;
   width: 100%;
   background-image: linear-gradient(to bottom, transparent calc(50% - 0.5px), var(--grat-minor) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px));
   border-bottom: 1px solid var(--grat-major);

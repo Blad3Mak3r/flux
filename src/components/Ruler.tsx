@@ -3,7 +3,7 @@ import type { PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
-import { pickTicks } from "../timeline/scale";
+import { frameX, pickTicks, tickPositions } from "../timeline/scale";
 import { RULER_H, patchReadout, readoutStore } from "../timeline/layout";
 import { useStore } from "../store";
 
@@ -31,22 +31,15 @@ export function Ruler({
 
   const { path, labels } = useMemo(() => {
     const ticks = pickTicks(pxPerFrame, rate);
-    const frames = Math.ceil(width / pxPerFrame);
+    const { major, minor } = tickPositions(pxPerFrame, rate, width);
     let d = "";
-    const items: { x: number; text: string }[] = [];
-    if (ticks.minor !== null) {
-      for (let f = 0; f <= frames; f += ticks.minor) {
-        if (f % ticks.major === 0) continue;
-        const x = Math.round(f * pxPerFrame) + 0.5;
-        d += `M${x} ${RULER_H - 7}V${RULER_H}`;
-      }
-    }
-    for (let f = 0; f <= frames; f += ticks.major) {
-      const x = Math.round(f * pxPerFrame) + 0.5;
+    for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
+    const items = major.map((f) => {
+      const x = frameX(f, pxPerFrame) + 0.5;
       d += `M${x} ${RULER_H - 16}V${RULER_H}`;
       const full = formatFrames(start + f, rate);
-      items.push({ x, text: ticks.wholeSeconds ? full.slice(0, 8) : full });
-    }
+      return { x, text: ticks.wholeSeconds ? full.slice(0, 8) : full };
+    });
     return { path: d, labels: items };
   }, [width, pxPerFrame, rate, start]);
 
@@ -95,15 +88,15 @@ export function Ruler({
       {spanStart !== null && spanEnd !== null && spanEnd > spanStart && (
         <rect
           className="ruler-span"
-          x={spanStart * pxPerFrame}
+          x={frameX(spanStart, pxPerFrame)}
           y={0}
-          width={(spanEnd - spanStart) * pxPerFrame}
+          width={frameX(spanEnd, pxPerFrame) - frameX(spanStart, pxPerFrame)}
           height={RULER_H}
         />
       )}
-      {spanA !== null && <path className="ruler-cursor" d={`M${spanA * pxPerFrame + 0.5} 0V${RULER_H}`} />}
+      {spanA !== null && <path className="ruler-cursor" d={`M${frameX(spanA, pxPerFrame) + 0.5} 0V${RULER_H}`} />}
       {spanB !== null && spanB !== spanA && (
-        <path className="ruler-cursor" d={`M${spanB * pxPerFrame + 0.5} 0V${RULER_H}`} />
+        <path className="ruler-cursor" d={`M${frameX(spanB, pxPerFrame) + 0.5} 0V${RULER_H}`} />
       )}
       <path className="ruler-ticks" d={path} />
       {labels.map(({ x, text }) => (
