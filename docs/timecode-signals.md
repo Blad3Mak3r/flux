@@ -38,7 +38,29 @@ the audio callback never allocates.
 - `full_frame` returns `F0 7F 7F 01 01 hh mm ss ff F7` with the rate code in bits 5-6 of `hh`. It is meant for
   start and seek.
 
-## Open decisions
+- `MtcScheduler` decides when each quarter frame goes out. `resync(position)` returns the full-frame message for a
+  start or seek; quarter frames resume at the next group of eight (an even frame), because a receiver needs a
+  group to begin at piece 0. `poll(position, send)` calls `send` for every quarter frame whose time has come, and
+  skips ahead to the next group if the caller stalls instead of flooding the port with stale pieces.
 
-Default LTC level and edge shaping, and the sample-rate policy, are not decided: the encoder takes them from the
-caller. Where the LTC word sits relative to the frame boundary is up to the transport.
+## Transport (`transport.rs`)
+
+The audio device's sample clock is the master. `Transport` holds the position as a **sample count** since the
+timeline origin; the output callback calls `advance(samples)` with what it produced, so playback, LTC and MTC share
+one clock and cannot drift apart. Nothing in it allocates or locks.
+
+- `Clock` converts between samples and frames, MTC quarter frames (4 per frame) and LTC half cells (160 per frame).
+  Every boundary is the exact fraction rounded to the nearest sample, so 1000 frames of 29.97 fps at 48 kHz are
+  exactly 1 601 600 samples and errors never accumulate.
+- `Command`: `Play`, `Pause`, `Stop` (back to the start), `Seek(frame)`. A seek takes a frame count, like every
+  position in the project; positions before `project.timecode.start` go to the start.
+- `epoch()` changes whenever playback starts or the position jumps (start, stop, seek) but not on pause. Generators
+  compare it with the last epoch they saw and call `resync`.
+- `LtcStream` plays LTC in step with the transport: silence until the next frame boundary, then one frame after
+  another from a preallocated buffer, so `fill` is safe in the audio callback.
+
+## Defaults and open decisions
+
+`LtcConfig::default()` is 48 kHz, level 0.5 (-6 dBFS) and a one-sample edge. These can become project settings later.
+Whether the LTC word should lead the video frame by some offset is not decided: today frame N starts exactly where
+the transport reaches frame N.
