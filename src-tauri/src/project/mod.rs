@@ -3,6 +3,7 @@
 mod archive;
 mod error;
 mod model;
+mod preview;
 mod session;
 
 pub use archive::{AssetSource, ProjectArchive, open, save};
@@ -11,4 +12,5 @@ pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, FORMAT_VERSION, FrameRate, LtcOutput, MtcOutput,
     OutputConfig, Project, TimecodeSettings, Track, TrackKind, Trigger, TriggerAction,
 };
+pub use preview::{AudioStamp, Preview};
 pub use session::Session;

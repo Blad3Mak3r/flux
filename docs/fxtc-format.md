@@ -5,6 +5,7 @@ A `.fxtc` file is a zip archive. Implementation: `src-tauri/src/project/`.
 ```
 project.json          deflated
 audio/<file name>     stored (audio is large and usually compressed already)
+peaks/<file name>.bin stored, optional: the waveform preview of that audio (see below)
 ```
 
 - The `audio/` folder is flat: an asset file is `audio/<name>` with no further separators, `.` or `..`.
@@ -39,6 +40,33 @@ Ids are strings chosen by the caller. They must be unique: asset ids, asset file
 (the last two kinds share one namespace). Output channels must be at least 1, and `output.audio.channels` must not
 repeat a channel.
 
+## Waveform previews (`peaks/`)
+
+Drawing a waveform and knowing a clip's length needs the audio decoded, which is slow for a show with many songs. So
+the first time an asset is analysed its preview is kept, and the next save writes it into the archive as
+`peaks/<audio file name>.bin` (the name of the asset's `audio/` entry plus `.bin`). Opening the project reads the
+preview instead of decoding; the audio is decoded only when it is played.
+
+It is a **cache**: the entry is optional, `formatVersion` stays 1, readers ignore a missing one and regenerate it, and
+older builds ignore it. It may be regenerated or dropped at any time. All integers are little-endian.
+
+| Offset | Type | Field |
+| --- | --- | --- |
+| 0 | u32 | Layout version of the entry, `1`. Another value is treated as missing. |
+| 4 | u32 | `peaksPerSecond` (100). |
+| 8 | u32 | `sourceRate`: sample rate of the file before conversion. |
+| 12 | u32 | CRC-32 of the audio the preview was made from. |
+| 16 | u64 | Size in bytes of that audio. |
+| 24 | f64 | `durationSeconds`. |
+| 32 | i8[] | `[min0, max0, min1, max1, ...]`, full scale at -128 and 127; an even count. |
+
+The CRC-32 and size are the ones the zip directory records for the `audio/` entry, so a preview is used only while they
+match the audio the archive holds: replacing the audio invalidates it, with no need to read the audio to find out. An
+unreadable entry counts as missing.
+
+When saving, a preview generated in this session is written; otherwise the entry of the archive the asset is copied
+from is copied without recompressing (like the audio), and an asset that has none gets none.
+
 ## Devices
 
 Devices are machine-specific, so a project stores a **name hint** only (`deviceName`, `portName`), never an OS
@@ -68,7 +96,7 @@ never fails because of hardware.
 
 `save` writes the archive to `<target>.tmp` and renames it over the target, so a failed save leaves the existing file
 as it was. Each asset is taken from either a file on disk (newly imported) or an existing `.fxtc`, from which the entry
-is copied without recompressing.
+(and its preview) is copied without recompressing.
 
 ## Tauri commands
 
