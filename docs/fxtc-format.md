@@ -13,7 +13,9 @@ audio/<file name>     stored (audio is large and usually compressed already)
 ## `project.json`
 
 camelCase JSON. Every position is a **frame count** at the project frame rate: cues and LTC/MTC are
-frame-aligned, and frame counts avoid rounding at 29.97 fps.
+frame-aligned, and frame counts avoid rounding at 29.97 fps. `timecode.start` is the timecode of the timeline origin;
+the positions of clips (`start`) and cues (`at`) are counted **from that origin**, so a clip at `start: 0` begins at
+`timecode.start`. The transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |

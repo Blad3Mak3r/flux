@@ -26,8 +26,9 @@ code is `src-tauri/src/project/`.
 - Rust + Tauri v2 for the backend (`src-tauri/`).
 - React + TypeScript for the UI (`src/`).
 
-This is the standard Tauri v2 layout, scaffolded from `create-tauri-app` (`react-ts` template, npm). The UI in
-`src/App.tsx` is still the template demo.
+This is the standard Tauri v2 layout, scaffolded from `create-tauri-app` (`react-ts` template, npm). The UI follows
+the "Bench Instrument" design recorded in `PRODUCT.md` and `DESIGN.md`; read them before UI work. Every user-facing
+string goes through `src/i18n` (English default, Spanish second), never hard-coded.
 
 ## Skills
 
@@ -57,6 +58,7 @@ the task matches:
   - `npm run tauri dev` — run the desktop app with hot reload.
   - `npm run tauri build` — production bundle.
   - `npm run typecheck` — TypeScript check (`tsc --noEmit`).
+  - `npm test` — frontend unit tests (`node --test`, no dependencies).
   - `cargo fmt --check`, `cargo clippy`, `cargo test` — from `src-tauri/`.
 
 ## Git workflow
