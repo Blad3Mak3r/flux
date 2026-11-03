@@ -7,6 +7,7 @@ project.json          deflated
 audio/<file name>     stored (audio is large and usually compressed already)
 peaks/<file name>.bin stored, optional: the waveform preview of that audio (see below)
 ```
+
 - The `audio/` folder is flat: an asset file is `audio/<name>` with no further separators, `.` or `..`.
 - Readers reject any archive entry whose name escapes the archive root (zip-slip).
 
