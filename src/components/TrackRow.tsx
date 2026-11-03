@@ -3,6 +3,7 @@ import type { KeyboardEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { AudioClip, Track, Trigger } from "../project/types";
 import { AUDIO_LANE_H, EVENTS_LANE_H } from "../timeline/layout";
+import { traceStyle } from "../timeline/palette";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { Fader } from "./Fader";
@@ -29,7 +30,13 @@ export const TrackHeader = memo(function TrackHeader({
   const t = useT();
   const audio = track.kind.type === "audio";
   return (
-    <div className="track-header" style={{ height: laneHeight(track) }} data-muted={track.muted} data-audio={audio}>
+    <div
+      className="track-header"
+      style={{ height: laneHeight(track), ...traceStyle(track.color) }}
+      data-muted={track.muted}
+      data-audio={audio}
+      data-colored={track.color !== undefined}
+    >
       <div className="track-head-row">
         <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.events")}>
           {audio ? <WaveIcon /> : <FlagIcon />}
@@ -124,6 +131,7 @@ function ClipBlock({
   rowHeight,
   peaks,
   fps,
+  tint,
   ...handlers
 }: {
   clip: AudioClip;
@@ -134,6 +142,8 @@ function ClipBlock({
   peaks?: Peaks;
   /** Real frames per second, to turn frames on screen into seconds of audio. */
   fps: number;
+  /** Colour and mute state of the track, which `currentColor` follows. */
+  tint: string;
 } & ItemHandlers) {
   const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, handlers);
   const selected = handlers.selected?.id === clip.id;
@@ -156,6 +166,7 @@ function ClipBlock({
         color="currentColor"
         peaks={peaks}
         pxPerSecond={handlers.pxPerFrame * fps}
+        tint={tint}
       />
       <span className="clip-label">
         {name}
@@ -207,7 +218,7 @@ export const TrackLane = memo(function TrackLane({
 } & ItemHandlers) {
   const height = laneHeight(track);
   return (
-    <div className="lane" style={{ height }} data-muted={track.muted} data-kind={track.kind.type}>
+    <div className="lane" style={{ height, ...traceStyle(track.color) }} data-muted={track.muted} data-kind={track.kind.type}>
       {track.kind.type === "audio"
         ? track.kind.clips.map((clip) => (
             <ClipBlock
@@ -219,6 +230,7 @@ export const TrackLane = memo(function TrackLane({
               rowHeight={height}
               peaks={waveforms[clip.asset]}
               fps={fps}
+              tint={`${track.color ?? ""}${track.muted}`}
               {...handlers}
             />
           ))

@@ -54,6 +54,7 @@ export function ClipWave({
   color,
   peaks,
   pxPerSecond,
+  tint,
 }: {
   seed: string;
   width: number;
@@ -62,6 +63,8 @@ export function ClipWave({
   /** Real waveform; without it a placeholder is drawn. */
   peaks?: Peaks;
   pxPerSecond: number;
+  /** Changes whenever the colour `currentColor` resolves to does, so the canvas is drawn again. */
+  tint?: string;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
@@ -90,7 +93,7 @@ export function ClipWave({
       const amplitude = envelope * (0.45 + random() * 0.55) * (mid - 4);
       context.fillRect(x, mid - amplitude, 1, Math.max(1, amplitude * 2));
     }
-  }, [seed, width, height, color, peaks, pxPerSecond]);
+  }, [seed, width, height, color, peaks, pxPerSecond, tint]);
 
   return <canvas ref={ref} className="clip-wave" style={{ width, height }} aria-hidden="true" />;
 }

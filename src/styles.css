@@ -818,6 +818,24 @@ input:disabled {
   flex: none;
 }
 
+/* A track is drawn in its own colour (--trace, set inline) or in the default of its kind:
+   phosphor for audio, amber for events. */
+.track-header,
+.lane {
+  --trace-c: var(--trace, var(--phosphor));
+  --trace-c-dim: var(--trace-dim, var(--phosphor-dim));
+}
+
+.track-header[data-audio="false"],
+.lane[data-kind="events"] {
+  --trace-c: var(--trace, var(--amber));
+  --trace-c-dim: var(--trace-dim, var(--amber-dim));
+}
+
+.track-header[data-colored="true"] .track-kind {
+  color: var(--trace-c);
+}
+
 .lane {
   position: relative;
   width: 100%;
@@ -830,9 +848,9 @@ input:disabled {
   position: absolute;
   top: 6px;
   overflow: hidden;
-  color: var(--phosphor);
-  background: oklch(0.87 0.17 128 / 0.1);
-  border: 1px solid var(--phosphor-dim);
+  color: var(--trace-c);
+  background: color-mix(in oklch, var(--trace-c) 10%, transparent);
+  border: 1px solid var(--trace-c-dim);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -877,7 +895,7 @@ input:disabled {
   top: 0;
   bottom: 0;
   width: 0;
-  border-left: 1px solid var(--amber);
+  border-left: 1px solid var(--trace-c);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -893,7 +911,7 @@ input:disabled {
   text-overflow: ellipsis;
   white-space: nowrap;
   background-color: oklch(0.2 0.03 205);
-  border: 1px solid var(--amber-dim);
+  border: 1px solid var(--trace-c-dim);
   border-left: 0;
   color: var(--ink);
   font-size: 11px;
@@ -903,13 +921,13 @@ input:disabled {
 .flag[data-kind="marker"] .flag-chip {
   background-image: repeating-linear-gradient(
     135deg,
-    oklch(0.82 0.15 78 / 0.28) 0 2px,
+    color-mix(in oklch, var(--trace-c) 28%, transparent) 0 2px,
     transparent 2px 6px
   );
 }
 
 .flag[data-kind="midi"] .flag-chip {
-  background-image: radial-gradient(oklch(0.82 0.15 78 / 0.55) 1px, transparent 1.4px);
+  background-image: radial-gradient(color-mix(in oklch, var(--trace-c) 55%, transparent) 1px, transparent 1.4px);
   background-size: 5px 5px;
 }
 
@@ -928,7 +946,7 @@ input:disabled {
 .lane[data-muted="true"] .clip {
   background: transparent;
   border-style: dashed;
-  color: var(--phosphor-dim);
+  color: var(--trace-c-dim);
 }
 
 .lane[data-muted="true"] .clip-wave {
@@ -1085,6 +1103,66 @@ input:disabled {
   align-content: start;
   gap: 14px;
   padding: 16px 16px 24px;
+}
+
+.color-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.color-field legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.color-field .button {
+  justify-self: start;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* A square swatch; the chosen one also takes a 2px ink outline and a dark tick, not colour alone. */
+.swatch {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+}
+
+.swatch:hover {
+  border-color: var(--ink);
+}
+
+.swatch[aria-pressed="true"] {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.swatch[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 4px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--panel-lo);
+  border-width: 0 2px 2px 0;
+  transform: rotate(40deg);
 }
 
 .panel-body h3 {
