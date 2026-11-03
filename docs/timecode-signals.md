@@ -103,10 +103,12 @@ The music is decoded once and mixed in the same callback that renders LTC, on th
   FFT resampler converts other rates), 16-bit. Mono plays on both sides; channels beyond two are dropped. Sixteen
   bits keeps a three minute song near 35 MB in memory, where 32-bit float would take 70 MB.
 - **Peaks** (`audio/peaks.rs`): the min and max of every 10 ms as signed bytes, which is what the timeline draws.
-- **Commands**: `audio_analyze(asset)` decodes an asset (cached by asset id) and returns `{ durationSeconds,
-  sourceRate, peaksPerSecond, peaks }`; the UI calls it on import and when a project opens, so clip lengths and
-  waveforms are real. `output_set_clips(project)` sends the current clips to a running output. `output_start`
-  decodes whatever has not been decoded yet.
+- **Commands**: `audio_analyze(asset)` returns `{ durationSeconds, sourceRate, peaksPerSecond, peaks }`; the UI calls
+  it on import and when a project opens, so clip lengths and waveforms are real. It first looks for the preview stored
+  in the `.fxtc` (`peaks/`, see [fxtc-format.md](fxtc-format.md)) and only decodes the asset (cached by asset id) when
+  there is none or it was made from other audio; the result is kept for the next save. Opening a project whose
+  previews are stored decodes nothing. `output_set_clips(project)` sends the current clips to a running output.
+  `output_start` decodes whatever has not been decoded yet.
 - **Mixing** (`mixer.rs`): clips of tracks that are not muted, placed by `Clock::frames_to_samples(clip.start)`, with
   `gainDb` as `10^(dB/20)`. The callback mixes in chunks of 256 frames held on the stack, adds the clips, clamps to
   -1..1 and writes left and right to `output.audio.channels` (one channel receives the mono sum); LTC then writes its
