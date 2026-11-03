@@ -49,13 +49,17 @@ export function Faceplate({
   const timecode = formatFrames(frame, frameRate);
   const running = playback.info !== null;
   const { ltc, mtc } = project.output;
-  const deviceName = ltc?.deviceName ?? project.output.audio?.deviceName ?? null;
+  // An empty name is the system's default output, which is what plays when nothing was chosen.
+  const deviceName = ltc?.deviceName ?? project.output.audio?.deviceName ?? "";
+  const clockRow = position?.clockUnpaced
+    ? { state: "fault" as LampState, status: "output.state.fast" as MessageKey }
+    : rowState(true, devices.audioPresence === "unset" ? "found" : devices.audioPresence, running, position?.deviceLost);
 
   const rows: OutputRow[] = [
     {
       legend: "output.clock",
-      ...rowState(deviceName !== null, devices.audioPresence, running, position?.deviceLost),
-      detail: deviceName ?? t("output.notSet"),
+      ...clockRow,
+      detail: deviceName || t("output.default"),
     },
     {
       legend: "output.ltc",

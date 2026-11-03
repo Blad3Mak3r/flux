@@ -51,7 +51,11 @@ pub struct MidiPort {
 }
 
 /// Opens the output device a project's name hint refers to, looking in the default host first.
+/// An empty hint is the system's default output.
 pub fn open_audio(hint: &str) -> Option<cpal::Device> {
+    if hint.is_empty() {
+        return cpal::default_host().default_output_device();
+    }
     let default_host = cpal::default_host().id();
     let mut hosts = cpal::available_hosts();
     hosts.sort_by_key(|id| *id != default_host);

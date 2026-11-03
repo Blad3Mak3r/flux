@@ -14,6 +14,12 @@ export const en = {
   "menu.file": "Project",
   "menu.edit": "Edit",
 
+  "window.group": "Window controls",
+  "window.minimize": "Minimize",
+  "window.maximize": "Maximize",
+  "window.restore": "Restore",
+  "window.close": "Close",
+
   "project.untitled": "Untitled show",
   "project.unsaved": "Unsaved changes",
 
@@ -42,6 +48,9 @@ export const en = {
   "output.state.lost": "Lost",
   "output.state.unknown": "Unknown",
   "output.channel": "Ch {channel}",
+  "output.default": "System default",
+  "output.state.fast": "Not real time",
+  "output.clockFast": "This audio device does not keep real time, so the timecode runs wrong. Choose another device in the Output tab.",
   "output.notSet": "None",
 
   "tracks.legend": "Tracks",
@@ -86,6 +95,9 @@ export const en = {
   "project.start": "Start timecode",
 
   "out.audioDevice": "Audio device",
+  "out.programme": "Programme output",
+  "out.pair": "{first}–{second}",
+  "out.mono": "{channel} (mono)",
   "out.choose": "Choose a device",
   "out.notConnected": "{name} (not connected)",
   "out.ltcEnable": "Send LTC",
@@ -108,6 +120,8 @@ export const en = {
   "dialog.cancel": "Cancel",
 
   "status.ready": "Ready",
+  "status.analysing": "Reading audio…",
+  "status.analysed": "Audio ready",
   "status.saved": "Saved {name}",
   "status.opened": "Opened {name}",
   "status.imported": "Imported {name}",

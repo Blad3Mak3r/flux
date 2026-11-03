@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Faceplate } from "./components/Faceplate";
 import { Inspector } from "./components/Inspector";
 import type { InspectorTab } from "./components/Inspector";
@@ -8,18 +9,22 @@ import type { Message } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import type { Selected } from "./components/TrackRow";
 import { UnsavedDialog } from "./components/UnsavedDialog";
+import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
 import { I18nProvider, useT } from "./i18n";
 import type { MessageKey } from "./i18n";
+import { analyzeAudio } from "./audio/api";
+import type { Peaks } from "./components/ClipWave";
 import { errorMessage, importAudio, newProject, openProject, saveProject } from "./project/api";
 import { demoShow } from "./state/demo";
+import type { AssetAudio } from "./state/doc";
 import { docReducer, initialDoc, isDirty } from "./state/doc";
 import { addAudioClip, addMarker, emptyProject, moveItem, removeItem, toggleMute } from "./state/edit";
-import { nominalFps } from "./timecode";
+import { nominalFps, realFps } from "./timecode";
 import { patchReadout } from "./timeline/layout";
 import { DEFAULT_PX_PER_FRAME, clampZoom } from "./timeline/scale";
 import { positionStore, usePlayback } from "./transport/playback";
-import type { Project } from "./project/types";
+import type { AudioAsset, Project } from "./project/types";
 
 const ZOOM_STEP = 1.25;
 
@@ -59,6 +64,57 @@ function Shell() {
   const playback = usePlayback(project, sayError);
   const devices = useDevices(project.output);
 
+  // Lengths in frames and waveforms of the audio the backend has decoded.
+  const durations = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(doc.audio).map(([id, info]) => [id, Math.round(info.seconds * realFps(frameRate))]),
+      ),
+    [doc.audio, frameRate],
+  );
+  const waveforms = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(doc.audio)
+          .filter((entry): entry is [string, AssetAudio & { peaks: number[]; peaksPerSecond: number }] =>
+            Boolean(entry[1].peaks && entry[1].peaksPerSecond),
+          )
+          .map(([id, info]): [string, Peaks] => [id, { values: info.peaks, perSecond: info.peaksPerSecond }]),
+      ),
+    [doc.audio],
+  );
+
+  // A document that is replaced while its audio is still being read must not receive the result.
+  const generation = useRef(0);
+  const analyse = (assets: AudioAsset[]) => {
+    const current = generation.current;
+    if (assets.length === 0) return;
+    say("status.analysing");
+    let pending = assets.length;
+    for (const asset of assets) {
+      analyzeAudio(asset)
+        .then((info) => {
+          if (generation.current !== current) return;
+          dispatch({
+            type: "audio",
+            id: asset.id,
+            info: { seconds: info.durationSeconds, peaks: info.peaks, peaksPerSecond: info.peaksPerSecond },
+          });
+        })
+        .catch((err) => generation.current === current && sayError(`${asset.name}: ${errorMessage(err)}`))
+        .finally(() => {
+          pending -= 1;
+          if (pending === 0 && generation.current === current) say("status.analysed");
+        });
+    }
+  };
+
+  // The clock of the audio device is the master; one that does not keep real time ruins the timecode.
+  const clockUnpaced = useSyncExternalStore(positionStore.subscribe, () => positionStore.get()?.clockUnpaced ?? false);
+  useEffect(() => {
+    if (clockUnpaced) sayError(t("output.clockFast"));
+  }, [clockUnpaced, sayError, t]);
+
   // The backend forgets the previous project's assets on `project_new`; start from a clean slate.
   useEffect(() => {
     newProject(project.name, frameRate).catch(() => undefined);
@@ -70,13 +126,36 @@ function Shell() {
     document.title = `${project.name}${dirty ? " ●" : ""} — ${t("app.title")}`;
   }, [project.name, dirty, t]);
 
+  // Closing the window (our button, Alt+F4, the OS) must not throw unsaved work away silently.
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  useEffect(() => {
+    if (!hasNativeWindow()) return;
+    const appWindow = getCurrentWindow();
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    appWindow
+      .onCloseRequested((event) => {
+        if (!dirtyRef.current) return;
+        event.preventDefault();
+        setPending(() => () => appWindow.destroy());
+      })
+      .then((off) => (cancelled ? off() : (stop = off)))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, []);
+
   const edit = useCallback((next: Project) => dispatch({ type: "edit", project: next }), []);
   const currentFrame = () => positionStore.get()?.frame ?? playback.parked;
 
   // Replace the document, asking first when there is work to lose.
   const replaceDoc = (action: () => Promise<void> | void) => (dirty ? setPending(() => action) : void action());
 
-  const load = (next: Project, path: string | null, extra?: { demo?: boolean; durations?: Record<string, number> }) => {
+  const load = (next: Project, path: string | null, extra?: { demo?: boolean; audio?: Record<string, AssetAudio> }) => {
+    generation.current += 1;
     dispatch({ type: "load", project: next, path, ...extra });
     setSelection(null);
     setZoom(DEFAULT_PX_PER_FRAME);
@@ -100,6 +179,7 @@ function Shell() {
         if (!opened) return;
         load(opened.project, opened.path);
         say("status.opened", { name: basename(opened.path) });
+        analyse(opened.project.assets);
       } catch (err) {
         fail(err);
       }
@@ -108,7 +188,7 @@ function Shell() {
   const doDemo = () =>
     replaceDoc(() => {
       const demo = demoShow("Demo show");
-      load(demo.project, null, { demo: true, durations: demo.durations });
+      load(demo.project, null, { demo: true, audio: demo.audio });
       say("status.demoLoaded");
     });
 
@@ -142,6 +222,7 @@ function Shell() {
         say("status.imported", { name: asset.name });
       }
       edit(next);
+      analyse(assets);
       setSelection({ kind: "clip", id: last });
       setTab("selection");
     } catch (err) {
@@ -256,7 +337,8 @@ function Shell() {
         <Timeline
           key={docKey}
           project={project}
-          durations={doc.durations}
+          durations={durations}
+          waveforms={waveforms}
           parked={playback.parked}
           selection={selection}
           pxPerFrame={zoom}
@@ -272,6 +354,7 @@ function Shell() {
           onTab={setTab}
           project={project}
           selection={selection}
+          audio={doc.audio}
           devices={devices}
           playback={playback}
           onEdit={edit}

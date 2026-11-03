@@ -2,6 +2,13 @@
 
 import type { Project } from "../project/types";
 
+/** What is known about an imported audio file. The demo show has lengths but no waveforms. */
+export interface AssetAudio {
+  seconds: number;
+  peaks?: number[];
+  peaksPerSecond?: number;
+}
+
 export interface Doc {
   project: Project;
   /** Path of the `.fxtc` on disk, or `null` for a project that was never saved. */
@@ -12,12 +19,13 @@ export interface Doc {
   saved: Project | null;
   /** The demo show uses synthetic audio the backend has never seen, so it cannot be saved. */
   demo: boolean;
-  /** Length in frames of the audio assets we know the duration of. */
-  durations: Record<string, number>;
+  /** Real length and waveform of the assets the backend has decoded, by asset id. */
+  audio: Record<string, AssetAudio>;
 }
 
 export type DocAction =
-  | { type: "load"; project: Project; path: string | null; demo?: boolean; durations?: Record<string, number> }
+  | { type: "load"; project: Project; path: string | null; demo?: boolean; audio?: Record<string, AssetAudio> }
+  | { type: "audio"; id: string; info: AssetAudio }
   | { type: "edit"; project: Project }
   | { type: "undo" }
   | { type: "redo" }
@@ -26,7 +34,7 @@ export type DocAction =
 const HISTORY_LIMIT = 200;
 
 export function initialDoc(project: Project): Doc {
-  return { project, path: null, past: [], future: [], saved: null, demo: false, durations: {} };
+  return { project, path: null, past: [], future: [], saved: null, demo: false, audio: {} };
 }
 
 export function isDirty(doc: Doc): boolean {
@@ -43,8 +51,10 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
         future: [],
         saved: action.path === null ? null : action.project,
         demo: action.demo ?? false,
-        durations: action.durations ?? {},
+        audio: action.audio ?? {},
       };
+    case "audio":
+      return { ...doc, audio: { ...doc.audio, [action.id]: action.info } };
     case "edit":
       if (action.project === doc.project) return doc;
       return {

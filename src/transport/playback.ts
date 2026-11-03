@@ -8,6 +8,9 @@ import type { OutputInfo, Position } from "./api";
 /** Latest position from the backend, or `null` while no output runs. Many readers, 30 Hz. */
 export const positionStore = createStore<Position | null>(null);
 
+/** Edits arrive in bursts (dragging a clip); the audio is rebuilt once they pause. */
+const CLIPS_DEBOUNCE_MS = 200;
+
 /** What the output was opened for; when it changes, the next Play reopens the devices. */
 function signature(project: Project): string {
   return JSON.stringify([project.timecode, project.output]);
@@ -15,6 +18,8 @@ function signature(project: Project): string {
 
 export interface Playback {
   info: OutputInfo | null;
+  /** Files the output could not use (missing or unreadable audio), from starting or from edits. */
+  clipWarnings: string[];
   /** Frame count to show when no output runs (absolute, including the start offset). */
   parked: number;
   play: () => Promise<void>;
@@ -32,6 +37,7 @@ export interface Playback {
  */
 export function usePlayback(project: Project, report: (error: string) => void): Playback {
   const [info, setInfo] = useState<OutputInfo | null>(null);
+  const [clipWarnings, setClipWarnings] = useState<string[]>([]);
   const [parked, setParked] = useState(project.timecode.start);
   const openedFor = useRef<string | null>(null);
   const projectRef = useRef(project);
@@ -76,9 +82,20 @@ export function usePlayback(project: Project, report: (error: string) => void): 
     const opened = await api.startOutput(current);
     openedFor.current = signature(current);
     setInfo(opened);
+    setClipWarnings([]);
     positionStore.set(null);
     await api.seek(parkedRef.current);
   }, [info]);
+
+  // While the output runs, edits to the tracks (muting, moving, importing) reach the audio too.
+  const { tracks, assets } = project;
+  useEffect(() => {
+    if (!info) return;
+    const timer = setTimeout(() => {
+      api.setClips(projectRef.current).then(setClipWarnings, (err) => reportRef.current(errorMessage(err)));
+    }, CLIPS_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [info, tracks, assets]);
 
   const startOutput = useCallback(() => guard(open), [guard, open]);
 
@@ -131,5 +148,5 @@ export function usePlayback(project: Project, report: (error: string) => void): 
     [guard, info],
   );
 
-  return { info, parked, play, pause, stop, toggle, seek, startOutput, stopOutput };
+  return { info, clipWarnings, parked, play, pause, stop, toggle, seek, startOutput, stopOutput };
 }

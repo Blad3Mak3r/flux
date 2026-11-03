@@ -49,6 +49,8 @@ export function useDevices(output: OutputConfig): Devices {
     let cancelled = false;
     const resolve = (hint: string | null, find: (name: string) => Promise<unknown>, set: (p: Presence) => void) => {
       if (hint === null) return set("unset");
+      // An empty name is the system's default output: there is nothing to look for.
+      if (hint === "") return set("found");
       find(hint)
         .then((found) => !cancelled && set(found ? "found" : "missing"))
         .catch(() => !cancelled && set("unknown"));
