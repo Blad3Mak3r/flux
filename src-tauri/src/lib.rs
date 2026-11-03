@@ -5,7 +5,9 @@ pub mod devices;
 pub mod engine;
 pub mod project;
 mod recents;
+mod startup;
 mod transport_commands;
+mod windows;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -23,6 +25,9 @@ pub fn run() {
             commands::project_delete,
             recents::recents_list,
             recents::recents_forget,
+            startup::startup_run,
+            windows::window_show_welcome,
+            windows::window_open_editor,
             audio_commands::audio_analyze,
             devices::devices_list_audio,
             devices::devices_list_midi,
