@@ -212,6 +212,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             muted,
+            gain_db: None,
             kind: TrackKind::Audio { clips },
         }
     }

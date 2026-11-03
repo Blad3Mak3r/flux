@@ -112,6 +112,7 @@ mod tests {
             id: "t1".into(),
             name: "Backing".into(),
             muted: false,
+            gain_db: None,
             kind: TrackKind::Audio {
                 clips: vec![AudioClip {
                     id: "c1".into(),
