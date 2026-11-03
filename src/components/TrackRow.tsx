@@ -3,7 +3,10 @@ import type { KeyboardEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { AudioClip, Track, Trigger } from "../project/types";
 import { AUDIO_LANE_H, EVENTS_LANE_H } from "../timeline/layout";
+import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
+import { Fader } from "./Fader";
+import { LevelMeter } from "./LevelMeter";
 import type { Peaks } from "./ClipWave";
 import { FlagIcon, MuteIcon, WaveIcon } from "./icons";
 
@@ -17,32 +20,47 @@ export function laneHeight(track: Track): number {
 export const TrackHeader = memo(function TrackHeader({
   track,
   onToggleMute,
+  onGain,
 }: {
   track: Track;
   onToggleMute: (trackId: string) => void;
+  onGain: (trackId: string, gainDb: number) => void;
 }) {
   const t = useT();
   const audio = track.kind.type === "audio";
   return (
-    <div className="track-header" style={{ height: laneHeight(track) }} data-muted={track.muted}>
-      <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.events")}>
-        {audio ? <WaveIcon /> : <FlagIcon />}
-        <span className="visually-hidden">{t(audio ? "track.kind.audio" : "track.kind.events")}</span>
-      </span>
-      <span className="track-name" title={track.name}>
-        {track.name}
-      </span>
-      {track.muted && <span className="track-muted-tag">{t("track.muted")}</span>}
-      <button
-        type="button"
-        className="icon-button"
-        aria-pressed={track.muted}
-        aria-label={t("track.mute", { name: track.name })}
-        title={t("track.mute", { name: track.name })}
-        onClick={() => onToggleMute(track.id)}
-      >
-        <MuteIcon on={track.muted} />
-      </button>
+    <div className="track-header" style={{ height: laneHeight(track) }} data-muted={track.muted} data-audio={audio}>
+      <div className="track-head-row">
+        <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.events")}>
+          {audio ? <WaveIcon /> : <FlagIcon />}
+          <span className="visually-hidden">{t(audio ? "track.kind.audio" : "track.kind.events")}</span>
+        </span>
+        <span className="track-name" title={track.name}>
+          {track.name}
+        </span>
+        {track.muted && <span className="track-muted-tag">{t("track.muted")}</span>}
+        <button
+          type="button"
+          className="icon-button"
+          aria-pressed={track.muted}
+          aria-label={t("track.mute", { name: track.name })}
+          title={t("track.mute", { name: track.name })}
+          onClick={() => onToggleMute(track.id)}
+        >
+          <MuteIcon on={track.muted} />
+        </button>
+      </div>
+      {audio && (
+        <>
+          <Fader
+            name={track.name}
+            valueDb={track.gainDb ?? 0}
+            onPreview={(db) => previewTrackGain(track.id, db)}
+            onCommit={(db) => onGain(track.id, db)}
+          />
+          <LevelMeter trackId={track.id} name={track.name} />
+        </>
+      )}
     </div>
   );
 });

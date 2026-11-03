@@ -29,6 +29,16 @@ export interface Position {
   clockUnpaced: boolean;
 }
 
+/** The loudest sample of one track since the previous event, as a linear amplitude. */
+export interface TrackPeak {
+  id: string;
+  peak: number;
+}
+
+export interface Levels {
+  tracks: TrackPeak[];
+}
+
 /** Opens the devices the project's `output` names; replaces a running output. */
 export function startOutput(project: Project): Promise<OutputInfo> {
   return invoke<OutputInfo>("output_start", { project });
@@ -40,6 +50,14 @@ export function startOutput(project: Project): Promise<OutputInfo> {
  */
 export function setClips(project: Project): Promise<string[]> {
   return invoke<string[]>("output_set_clips", { project });
+}
+
+/**
+ * Moves one track's fader on a running output, without rebuilding the programme, so it can follow
+ * a drag. Committing the edit to the project is what makes it stick.
+ */
+export function setTrackGain(trackId: string, gainDb: number): Promise<void> {
+  return invoke("output_set_track_gain", { trackId, gainDb });
 }
 
 export function stopOutput(): Promise<void> {
@@ -72,4 +90,9 @@ export function position(): Promise<Position | null> {
 /** Calls `handler` about 30 times a second while the position changes. */
 export function onPosition(handler: (position: Position) => void): Promise<UnlistenFn> {
   return listen<Position>("transport-position", (event) => handler(event.payload));
+}
+
+/** Calls `handler` with each track's peak about 30 times a second while there is sound. */
+export function onLevels(handler: (levels: Levels) => void): Promise<UnlistenFn> {
+  return listen<Levels>("transport-levels", (event) => handler(event.payload));
 }

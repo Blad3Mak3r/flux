@@ -97,6 +97,17 @@ export function toggleMute(project: Project, trackId: string): Project {
   );
 }
 
+/** Sets an audio track's fader. 0 dB is stored as no value, as in a file that never had one. */
+export function setTrackGain(project: Project, trackId: string, gainDb: number): Project {
+  const target = project.tracks.find((track) => track.id === trackId);
+  if (!target || target.kind.type !== "audio" || (target.gainDb ?? 0) === gainDb) return project;
+  return mapTracks(project, (track) => {
+    if (track.id !== trackId) return track;
+    const { gainDb: _previous, ...rest } = track;
+    return gainDb === 0 ? rest : { ...rest, gainDb };
+  });
+}
+
 /** Adds a marker at `at` on the first events track, creating one when there is none. */
 export function addMarker(
   project: Project,
