@@ -25,6 +25,8 @@ export interface Track {
   muted: boolean;
   /** The track's fader in dB, audio tracks only. Absent is 0 dB; -60 or less is silence. */
   gainDb?: number;
+  /** The colour the track is drawn in, `#rrggbb`. Absent is the default for its kind. */
+  color?: string;
   kind: TrackKind;
 }
 

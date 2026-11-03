@@ -399,6 +399,7 @@ mod tests {
             name: id.into(),
             muted,
             gain_db: None,
+            color: None,
             kind: TrackKind::Audio { clips },
         }
     }

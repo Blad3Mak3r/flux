@@ -4,6 +4,7 @@ import type { Project } from "../project/types";
 import { createStore } from "../store";
 import * as api from "./api";
 import type { OutputInfo, Position } from "./api";
+import { stoppedAt } from "./stopped";
 
 /** Latest position from the backend, or `null` while no output runs. Many readers, 30 Hz. */
 export const positionStore = createStore<Position | null>(null);
@@ -105,17 +106,21 @@ export function usePlayback(project: Project, report: (error: string) => void): 
 
   const startOutput = useCallback(() => guard(open), [guard, open]);
 
+  const closeOutput = useCallback(async () => {
+    await api.stopOutput();
+    openedFor.current = null;
+    setInfo(null);
+    positionStore.set(null);
+  }, []);
+
   const stopOutput = useCallback(
     () =>
       guard(async () => {
         const last = positionStore.get();
         if (last) setParked(last.frame);
-        await api.stopOutput();
-        openedFor.current = null;
-        setInfo(null);
-        positionStore.set(null);
+        await closeOutput();
       }),
-    [guard],
+    [guard, closeOutput],
   );
 
   const play = useCallback(
@@ -132,10 +137,17 @@ export function usePlayback(project: Project, report: (error: string) => void): 
   const stop = useCallback(
     () =>
       guard(async () => {
-        setParked(projectRef.current.timecode.start);
-        if (info) await api.stop();
+        const current = projectRef.current;
+        const { start } = current.timecode;
+        setParked(start);
+        if (!info) return;
+        // An output opened for another start counts from the old one, so its position is wrong.
+        if (openedFor.current !== signature(current)) return closeOutput();
+        const last = positionStore.get();
+        if (last) positionStore.set(stoppedAt(last, start));
+        await api.stop();
       }),
-    [guard, info],
+    [guard, info, closeOutput],
   );
 
   const toggle = useCallback(async () => {

@@ -58,6 +58,9 @@ pub struct Track {
     /// The track's fader in dB; absent is 0 dB. Only audio tracks have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gain_db: Option<f32>,
+    /// The colour the track is drawn in, `#rrggbb`; absent is the default for its kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     pub kind: TrackKind,
 }
 
@@ -163,6 +166,9 @@ impl Project {
                     track.id
                 )));
             }
+            if let Some(color) = &track.color {
+                check_color(color)?;
+            }
             match &track.kind {
                 TrackKind::Audio { clips } => {
                     for clip in clips {
@@ -204,6 +210,18 @@ impl OutputConfig {
             }
         }
         Ok(())
+    }
+}
+
+/// `#rrggbb`, so it can go into a stylesheet as it is.
+fn check_color(color: &str) -> Result<()> {
+    match color.strip_prefix('#') {
+        Some(digits) if digits.len() == 6 && digits.bytes().all(|b| b.is_ascii_hexdigit()) => {
+            Ok(())
+        }
+        _ => Err(ProjectError::Invalid(format!(
+            "track colour must look like #rrggbb: {color}"
+        ))),
     }
 }
 
@@ -259,6 +277,7 @@ pub(super) mod tests {
                     name: "Backing".into(),
                     muted: false,
                     gain_db: Some(-6.0),
+                    color: Some("#5cd0ea".into()),
                     kind: TrackKind::Audio {
                         clips: vec![AudioClip {
                             id: "c1".into(),
@@ -273,6 +292,7 @@ pub(super) mod tests {
                     name: "Cues".into(),
                     muted: true,
                     gain_db: None,
+                    color: None,
                     kind: TrackKind::Events {
                         triggers: vec![
                             Trigger {
@@ -309,14 +329,14 @@ pub(super) mod tests {
         }
     }
 
-    const V1_FIXTURE: &str = r#"{
+    const V1_FIXTURE: &str = r##"{
         "formatVersion": 1,
         "name": "Opening night",
         "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
         "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav" }],
         "tracks": [
             {
-                "id": "t1", "name": "Backing", "muted": false, "gainDb": -6.0,
+                "id": "t1", "name": "Backing", "muted": false, "gainDb": -6.0, "color": "#5cd0ea",
                 "kind": { "type": "audio", "clips": [
                     { "id": "c1", "asset": "a1", "start": 120, "gainDb": -3.5 }
                 ] }
@@ -335,7 +355,7 @@ pub(super) mod tests {
             "ltc": { "deviceName": "Main Interface", "channel": 3 },
             "mtc": { "portName": "IAC Driver Bus 1" }
         }
-    }"#;
+    }"##;
 
     #[test]
     fn v1_fixture_should_parse_into_the_sample_project() {
@@ -392,6 +412,27 @@ pub(super) mod tests {
         let mut project = sample_project();
         project.tracks[0].gain_db = Some(f32::NAN);
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn track_without_a_colour_should_parse_and_serialize_without_one() {
+        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+        assert_eq!(parsed.tracks[1].color, None);
+        let json = serde_json::to_value(&parsed).unwrap();
+        assert!(json["tracks"][1].get("color").is_none());
+        assert_eq!(json["tracks"][0]["color"], "#5cd0ea");
+    }
+
+    #[test]
+    fn validate_should_reject_a_track_colour_that_is_not_a_hex_triplet() {
+        for bad in ["red", "#fff", "5cd0ea", "#5cd0eg", "#5cd0ea; x", ""] {
+            let mut project = sample_project();
+            project.tracks[0].color = Some(bad.into());
+            assert!(
+                matches!(project.validate(), Err(ProjectError::Invalid(_))),
+                "{bad:?} should be rejected"
+            );
+        }
     }
 
     #[test]

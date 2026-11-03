@@ -1,10 +1,12 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { FrameRate, Project, TriggerAction } from "../project/types";
+import type { FrameRate, Project, Track, TriggerAction } from "../project/types";
 import type { AssetAudio } from "../state/doc";
-import { findItem, setFrameRate, setName, setStart, updateClip, updateTrigger } from "../state/edit";
+import { findItem, setFrameRate, setName, setStart, setTrackColor, updateClip, updateTrigger } from "../state/edit";
+import { TRACK_COLORS } from "../timeline/palette";
 import { SelectField, TextField, TimecodeField } from "./fields";
-import { TrashIcon } from "./icons";
+import { ChevronLeftIcon, ChevronRightIcon, OutputIcon, ProjectIcon, SelectionIcon, TrashIcon } from "./icons";
+import { MOD_KEY } from "./MenuBar";
 import { OutputPanel } from "./OutputPanel";
 import type { Devices } from "../devices/useDevices";
 import type { Playback } from "../transport/playback";
@@ -14,6 +16,7 @@ export type InspectorTab = "selection" | "project" | "output";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const TABS: InspectorTab[] = ["selection", "project", "output"];
+const TAB_ICONS = { selection: SelectionIcon, project: ProjectIcon, output: OutputIcon };
 
 const hex = (bytes: number[]) => bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
 
@@ -23,6 +26,51 @@ function parseBytes(text: string): number[] | null {
   if (parts.length === 0 || parts[0] === "") return null;
   const bytes = parts.map((part) => (/^[0-9a-f]{1,2}$/i.test(part) ? parseInt(part, 16) : NaN));
   return bytes.some(Number.isNaN) ? null : bytes;
+}
+
+/** The colour of the track an item sits on. Each swatch is named, so colour is never the only cue. */
+function TrackColorField({
+  project,
+  track,
+  onEdit,
+}: {
+  project: Project;
+  track: Track;
+  onEdit: (project: Project) => void;
+}) {
+  const t = useT();
+  const pick = (color: string | null) => onEdit(setTrackColor(project, track.id, color));
+  return (
+    <fieldset className="color-field">
+      <legend>{t("track.color")}</legend>
+      <div className="swatches">
+        {TRACK_COLORS.map(({ id, hex }) => {
+          const name = t(`track.color.${id}` as MessageKey);
+          return (
+            <button
+              key={id}
+              type="button"
+              className="swatch"
+              style={{ background: hex }}
+              aria-pressed={track.color === hex}
+              aria-label={t("track.color.set", { color: name })}
+              title={name}
+              onClick={() => pick(hex)}
+            />
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="button"
+        aria-pressed={track.color === undefined}
+        disabled={track.color === undefined}
+        onClick={() => pick(null)}
+      >
+        {t("track.color.default")}
+      </button>
+    </fieldset>
+  );
 }
 
 function SelectionPanel({
@@ -71,6 +119,7 @@ function SelectionPanel({
           onCommit={(text) => onEdit(updateClip(project, clip.id, { gainDb: Number(text) }))}
         />
         {!audio[clip.asset]?.peaks && <p className="field-note">{t("clip.lengthGuess")}</p>}
+        <TrackColorField project={project} track={track} onEdit={onEdit} />
         <button type="button" className="button danger" onClick={onDelete}>
           <TrashIcon />
           {t("inspector.delete")}
@@ -116,6 +165,7 @@ function SelectionPanel({
           }}
         />
       )}
+      <TrackColorField project={project} track={found.track} onEdit={onEdit} />
       <button type="button" className="button danger" onClick={onDelete}>
         <TrashIcon />
         {t("inspector.delete")}
@@ -155,6 +205,8 @@ function ProjectPanel({ project, onEdit }: { project: Project; onEdit: (project:
 export function Inspector({
   tab,
   onTab,
+  collapsed,
+  onToggle,
   project,
   selection,
   audio,
@@ -164,7 +216,10 @@ export function Inspector({
   onDelete,
 }: {
   tab: InspectorTab;
+  /** Picks a tab; from the collapsed rail it also opens the sidebar. */
   onTab: (tab: InspectorTab) => void;
+  collapsed: boolean;
+  onToggle: () => void;
   project: Project;
   selection: Selected | null;
   audio: Record<string, AssetAudio>;
@@ -174,30 +229,67 @@ export function Inspector({
   onDelete: () => void;
 }) {
   const t = useT();
+  const toggleLabel = `${t(collapsed ? "inspector.expand" : "inspector.collapse")} (${MOD_KEY}+B)`;
+  const toggle = (
+    <button
+      type="button"
+      className="icon-button inspector-toggle"
+      aria-expanded={!collapsed}
+      aria-controls="inspector-body"
+      aria-label={t(collapsed ? "inspector.expand" : "inspector.collapse")}
+      title={toggleLabel}
+      onClick={onToggle}
+    >
+      {collapsed ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+    </button>
+  );
+
+  if (collapsed) {
+    return (
+      <aside className="inspector" id="inspector-body" data-collapsed="true" aria-label={t("inspector.legend")}>
+        {toggle}
+        <div className="rail">
+          {TABS.map((id) => {
+            const TabIcon = TAB_ICONS[id];
+            const label = t(`inspector.tab.${id}` as MessageKey);
+            return (
+              <button key={id} type="button" className="icon-button" aria-label={label} title={label} onClick={() => onTab(id)}>
+                <TabIcon />
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="inspector" aria-label={t("inspector.legend")}>
-      <div className="tabs" role="tablist">
-        {TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            id={`tab-${id}`}
-            aria-selected={tab === id}
-            aria-controls={`panel-${id}`}
-            tabIndex={tab === id ? 0 : -1}
-            onClick={() => onTab(id)}
-            onKeyDown={(event) => {
-              const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-              if (step === 0) return;
-              const next = TABS[(TABS.indexOf(id) + step + TABS.length) % TABS.length];
-              onTab(next);
-              document.getElementById(`tab-${next}`)?.focus();
-            }}
-          >
-            {t(`inspector.tab.${id}` as MessageKey)}
-          </button>
-        ))}
+    <aside className="inspector" id="inspector-body" aria-label={t("inspector.legend")}>
+      <div className="tab-row">
+        {toggle}
+        <div className="tabs" role="tablist">
+          {TABS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`tab-${id}`}
+              aria-selected={tab === id}
+              aria-controls={`panel-${id}`}
+              tabIndex={tab === id ? 0 : -1}
+              onClick={() => onTab(id)}
+              onKeyDown={(event) => {
+                const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                if (step === 0) return;
+                const next = TABS[(TABS.indexOf(id) + step + TABS.length) % TABS.length];
+                onTab(next);
+                document.getElementById(`tab-${next}`)?.focus();
+              }}
+            >
+              {t(`inspector.tab.${id}` as MessageKey)}
+            </button>
+          ))}
+        </div>
       </div>
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="panel">
         {tab === "selection" && (

@@ -2,6 +2,9 @@ import { LOCALES, useI18n } from "../i18n";
 import type { Locale } from "../i18n";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
+/** The modifier key as this platform prints it, for shortcut hints. */
+export const MOD_KEY = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+
 export function MenuBar({
   name,
   dirty,
@@ -12,7 +15,6 @@ export function MenuBar({
   onSave,
   onSaveAs,
   onImport,
-  onDemo,
   onUndo,
   onRedo,
 }: {
@@ -25,12 +27,11 @@ export function MenuBar({
   onSave: () => void;
   onSaveAs: () => void;
   onImport: () => void;
-  onDemo: () => void;
   onUndo: () => void;
   onRedo: () => void;
 }) {
   const { t, locale, setLocale } = useI18n();
-  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+  const mod = MOD_KEY;
   // Shortcuts live in the tooltip: printed on every button they crowd a bar this narrow.
   const hint = (label: string, keys: string) => `${label} (${keys})`;
   return (
@@ -59,7 +60,6 @@ export function MenuBar({
       </div>
 
       <div className="menu-end">
-        <button type="button" onClick={onDemo}>{t("menu.demo")}</button>
         <label className="locale">
           <span className="visually-hidden">{t("menu.language")}</span>
           <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>

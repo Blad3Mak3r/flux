@@ -108,6 +108,17 @@ export function setTrackGain(project: Project, trackId: string, gainDb: number):
   });
 }
 
+/** Sets the colour a track is drawn in; `null` returns to the default, stored as no value. */
+export function setTrackColor(project: Project, trackId: string, color: string | null): Project {
+  const target = project.tracks.find((track) => track.id === trackId);
+  if (!target || (target.color ?? null) === color) return project;
+  return mapTracks(project, (track) => {
+    if (track.id !== trackId) return track;
+    const { color: _previous, ...rest } = track;
+    return color === null ? rest : { ...rest, color };
+  });
+}
+
 /** Adds a marker at `at` on the first events track, creating one when there is none. */
 export function addMarker(
   project: Project,
