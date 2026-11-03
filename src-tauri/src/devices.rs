@@ -50,6 +50,21 @@ pub struct MidiPort {
     pub name: String,
 }
 
+/// Opens the output device a project's name hint refers to, looking in the default host first.
+pub fn open_audio(hint: &str) -> Option<cpal::Device> {
+    let default_host = cpal::default_host().id();
+    let mut hosts = cpal::available_hosts();
+    hosts.sort_by_key(|id| *id != default_host);
+
+    let devices: Vec<(String, cpal::Device)> = hosts
+        .into_iter()
+        .filter_map(|id| cpal::host_from_id(id).ok()?.output_devices().ok())
+        .flatten()
+        .filter_map(|device| Some((device_name(&device)?, device)))
+        .collect();
+    find_by_name(hint, &devices, |(name, _)| name).map(|(_, device)| device.clone())
+}
+
 /// Every output device of every audio host available, the default host's first.
 pub fn list_audio() -> Vec<AudioDevice> {
     let default_host = cpal::default_host().id();

@@ -2,5 +2,6 @@
 
 pub mod ltc;
 pub mod mtc;
+pub mod output;
 pub mod timecode;
 pub mod transport;

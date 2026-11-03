@@ -64,3 +64,32 @@ one clock and cannot drift apart. Nothing in it allocates or locks.
 `LtcConfig::default()` is 48 kHz, level 0.5 (-6 dBFS) and a one-sample edge. These can become project settings later.
 Whether the LTC word should lead the video frame by some offset is not decided: today frame N starts exactly where
 the transport reaches frame N.
+
+## Output and transport commands (`output.rs`, `transport_commands.rs`)
+
+`output_start(project)` opens the devices `project.output` names and starts a stopped transport at
+`project.timecode.start`; it replaces a running output. TS wrappers are in `src/transport/api.ts`.
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `output_start` | `project` | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `mtcPort`, `warnings`. |
+| `output_stop` | | Closes the devices. |
+| `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
+| `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
+| `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`) or `null` when no output runs. |
+
+While an output runs, the event `transport-position` carries a `Position` about 30 times a second whenever it
+changes.
+
+- One audio device carries everything: the LTC device, or the `output.audio` device when there is no LTC. If both
+  are set they must be the same device. The stream opens at 48 kHz with the fewest channels that cover the highest
+  channel used, in 32-bit float, else 32 or 16-bit integer. Clip playback (A4) will use the same stream.
+- The audio device's sample clock is the master. The callback owns the `Transport`, drains commands with
+  `try_recv`, renders LTC into its channel, advances the position and publishes it with `try_lock`: it never
+  allocates or waits. A reader holding the lock only makes it skip one update.
+- MTC runs on a thread that polls every millisecond. It reads the published position and extrapolates with the wall
+  clock (at most 100 ms), so quarter frames are not quantised to the audio buffer. It sends a full frame whenever the
+  transport epoch changes. A missing MIDI port becomes a warning in `OutputInfo`; the audio side still starts.
+- Only the audio device is required: an MTC-only project cannot start yet, because there is no software clock.
+- On Windows `thread::park_timeout(1 ms)` may sleep for the system timer resolution (about 15 ms), which jitters MTC
+  quarter frames; raising the timer resolution is a follow-up.

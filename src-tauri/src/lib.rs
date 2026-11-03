@@ -2,6 +2,7 @@ mod commands;
 pub mod devices;
 pub mod engine;
 pub mod project;
+mod transport_commands;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -15,6 +16,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::SharedSession::default())
+        .manage(transport_commands::SharedOutput::default())
         .invoke_handler(tauri::generate_handler![
             greet,
             commands::project_new,
@@ -25,6 +27,13 @@ pub fn run() {
             devices::devices_list_midi,
             devices::devices_find_audio,
             devices::devices_find_midi,
+            transport_commands::output_start,
+            transport_commands::output_stop,
+            transport_commands::transport_play,
+            transport_commands::transport_pause,
+            transport_commands::transport_stop,
+            transport_commands::transport_seek,
+            transport_commands::transport_position,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

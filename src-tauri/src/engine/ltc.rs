@@ -218,17 +218,22 @@ impl LtcStream {
     /// Writes the next `out.len()` samples of the signal.
     pub fn fill(&mut self, out: &mut [f32]) {
         for sample in out {
-            if self.lead_in > 0 {
-                self.lead_in -= 1;
-                *sample = 0.0;
-                continue;
-            }
-            if self.played == self.frame.len() {
-                self.encode_next_frame();
-            }
-            *sample = self.frame[self.played];
-            self.played += 1;
+            *sample = self.next_sample();
         }
+    }
+
+    /// The next sample of the signal.
+    pub fn next_sample(&mut self) -> f32 {
+        if self.lead_in > 0 {
+            self.lead_in -= 1;
+            return 0.0;
+        }
+        if self.played == self.frame.len() {
+            self.encode_next_frame();
+        }
+        let sample = self.frame[self.played];
+        self.played += 1;
+        sample
     }
 
     fn encode_next_frame(&mut self) {
