@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-03T00:00:00Z",
+  "title": "Design System: Flux Timecode",
+  "extensions": {
+    "colorMeta": {
+      "panel": { "role": "neutral", "displayName": "Faceplate", "canonical": "oklch(0.255 0.014 250)", "tonalRamp": ["oklch(0.15 0.012 250)", "oklch(0.2 0.013 250)", "oklch(0.255 0.014 250)", "oklch(0.31 0.015 250)", "oklch(0.46 0.018 250)", "oklch(0.6 0.016 250)", "oklch(0.76 0.014 250)", "oklch(0.93 0.01 250)"] },
+      "screen": { "role": "neutral", "displayName": "Screen", "canonical": "oklch(0.175 0.024 205)", "tonalRamp": ["oklch(0.15 0.022 205)", "oklch(0.175 0.024 205)", "oklch(0.235 0.03 205)", "oklch(0.255 0.032 205)", "oklch(0.36 0.05 205)", "oklch(0.5 0.06 205)", "oklch(0.7 0.07 205)", "oklch(0.93 0.03 205)"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(0.93 0.012 85)", "tonalRamp": ["oklch(0.15 0.012 85)", "oklch(0.3 0.014 85)", "oklch(0.45 0.015 85)", "oklch(0.6 0.016 85)", "oklch(0.76 0.016 85)", "oklch(0.84 0.014 85)", "oklch(0.93 0.012 85)", "oklch(0.97 0.008 85)"] },
+      "phosphor": { "role": "primary", "displayName": "Phosphor Green", "canonical": "oklch(0.87 0.17 128)", "tonalRamp": ["oklch(0.15 0.05 128)", "oklch(0.28 0.08 128)", "oklch(0.4 0.1 128)", "oklch(0.6 0.12 128)", "oklch(0.72 0.15 128)", "oklch(0.87 0.17 128)", "oklch(0.92 0.17 128)", "oklch(0.95 0.1 128)"] },
+      "amber": { "role": "secondary", "displayName": "Cue Amber", "canonical": "oklch(0.82 0.15 78)", "tonalRamp": ["oklch(0.15 0.04 78)", "oklch(0.28 0.06 78)", "oklch(0.4 0.09 78)", "oklch(0.58 0.11 78)", "oklch(0.7 0.14 78)", "oklch(0.82 0.15 78)", "oklch(0.9 0.12 78)", "oklch(0.95 0.06 78)"] },
+      "signal": { "role": "tertiary", "displayName": "Live Vermilion", "canonical": "oklch(0.7 0.2 32)", "tonalRamp": ["oklch(0.15 0.05 32)", "oklch(0.28 0.09 32)", "oklch(0.4 0.14 32)", "oklch(0.5 0.17 32)", "oklch(0.6 0.2 32)", "oklch(0.7 0.2 32)", "oklch(0.82 0.13 32)", "oklch(0.93 0.05 32)"] }
+    },
+    "typographyMeta": {
+      "legend": { "displayName": "Legend", "purpose": "Silkscreened section legends and field labels, uppercase and widely tracked." },
+      "key": { "displayName": "Key label", "purpose": "Transport keys and tabs." },
+      "body": { "displayName": "Body", "purpose": "Names, fields, lamp rows." },
+      "title": { "displayName": "Title", "purpose": "Empty-state title and dialog heading." },
+      "measure": { "displayName": "Measure", "purpose": "Timecode, ruler labels, numeric fields; tabular numerals, measurement only." }
+    },
+    "shadows": [
+      { "name": "ruler-rule", "value": "0 1px 0 oklch(0.46 0.018 250)", "purpose": "Hard 1px divider under the sticky ruler; not a lift." }
+    ],
+    "motion": [
+      { "name": "ease", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Key and button background change, 120ms. Disabled under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "1180px" },
+      { "name": "min-window", "value": "960px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Transport Key",
+      "kind": "button",
+      "refersTo": "key",
+      "description": "Raised square key with icon, legend and state lamp.",
+      "html": "<button class=\"ds-key\" data-lamp=\"on\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><path d=\"M4 3 L13 8 L4 13 Z\" fill=\"currentColor\"/></svg><span>Play</span></button>",
+      "css": ".ds-key{position:relative;display:grid;justify-items:center;align-content:center;gap:5px;min-width:84px;height:70px;padding:4px 14px 0;background:oklch(0.31 0.015 250);color:oklch(0.93 0.012 85);border:1px solid oklch(0.46 0.018 250);border-bottom-width:4px;border-radius:2px;font:600 10px system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}.ds-key::before{content:'';position:absolute;top:6px;right:6px;width:6px;height:6px;background:oklch(0.34 0.012 250)}.ds-key[data-lamp=on]::before{background:oklch(0.93 0.012 85)}.ds-key:hover{background:oklch(0.35 0.016 250)}.ds-key:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}.ds-key:active{background:oklch(0.2 0.013 250);border-top-width:4px;border-bottom-width:1px}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Solid phosphor action.",
+      "html": "<button class=\"ds-btn-primary\">Import audio</button>",
+      "css": ".ds-btn-primary{height:32px;padding:0 12px;background:oklch(0.87 0.17 128);color:oklch(0.2 0.013 250);border:1px solid oklch(0.87 0.17 128);border-radius:2px;font:600 13px system-ui,sans-serif}.ds-btn-primary:hover{background:oklch(0.92 0.17 128)}.ds-btn-primary:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Ink outline on a clear ground for destructive actions.",
+      "html": "<button class=\"ds-btn-danger\">Delete track</button>",
+      "css": ".ds-btn-danger{height:32px;padding:0 12px;background:transparent;color:oklch(0.93 0.012 85);border:1px solid oklch(0.93 0.012 85);border-radius:2px;font:600 13px system-ui,sans-serif}.ds-btn-danger:hover{background:oklch(0.31 0.015 250)}.ds-btn-danger:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Screen-coloured field with strong rule border.",
+      "html": "<input class=\"ds-field\" type=\"text\" value=\"01:00:00:00\"/>",
+      "css": ".ds-field{width:100%;height:32px;padding:0 8px;background:oklch(0.175 0.024 205);color:oklch(0.93 0.012 85);border:1px solid oklch(0.46 0.018 250);border-radius:2px;font:13px ui-monospace,Menlo,Consolas,monospace}.ds-field:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}"
+    },
+    {
+      "name": "Inspector Tab",
+      "kind": "nav",
+      "refersTo": "tab-selected",
+      "description": "Uppercase tab with a phosphor underline when selected.",
+      "html": "<button class=\"ds-tab\" aria-selected=\"true\">Track</button>",
+      "css": ".ds-tab{height:34px;padding:0 12px;background:oklch(0.2 0.013 250);color:oklch(0.93 0.012 85);border:0;border-bottom:2px solid oklch(0.87 0.17 128);font:700 11px system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}.ds-tab:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:-2px}"
+    },
+    {
+      "name": "Marker Cue Chip",
+      "kind": "chip",
+      "refersTo": "cue-chip",
+      "description": "Amber flag chip; hatched fill marks a marker (dotted marks MIDI).",
+      "html": "<span class=\"ds-chip\">Verse 1</span>",
+      "css": ".ds-chip{display:inline-block;padding:2px 10px 2px 8px;background-color:oklch(0.2 0.03 205);background-image:repeating-linear-gradient(135deg,oklch(0.82 0.15 78/.28) 0 2px,transparent 2px 6px);border:1px solid oklch(0.58 0.11 78);border-left:0;box-shadow:-1px 0 0 oklch(0.82 0.15 78);color:oklch(0.93 0.012 85);font:600 11px system-ui,sans-serif}"
+    },
+    {
+      "name": "Output Lamp",
+      "kind": "custom",
+      "refersTo": "lamp",
+      "description": "Square lamp with printed status word; phosphor on, vermilion fault.",
+      "html": "<div class=\"ds-lamp-row\"><span class=\"ds-lamp\"></span><b>LTC</b><span>ON</span></div>",
+      "css": ".ds-lamp-row{display:flex;align-items:center;gap:12px;font:13px system-ui,sans-serif;color:oklch(0.76 0.016 85)}.ds-lamp{width:10px;height:10px;background:oklch(0.87 0.17 128);border:1px solid oklch(0.87 0.17 128)}.ds-lamp-row b{letter-spacing:.1em;color:oklch(0.93 0.012 85)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Bench Instrument",
+    "overview": "The app is an oscilloscope-style faceplate, not a dashboard. A matte charcoal-blue panel carries silkscreened legends, square engraved keys and small state lamps; set into it is a deep teal-black screen etched with a graticule, on which time is read off a ruler and clips and cues are drawn as phosphor and amber traces. The scene is a booth or a stage, so the system is dark by commitment: there is no light theme and none should be added.\n\nTime comes first. The timecode is a 5x7 dot-matrix readout at the top left of the faceplate, transport keys sit in the centre, output lamps at the right. Below, a ruler over graticule lanes with track legends on the left, and an inspector on the right. It is Operate mode: dense, measurable, quiet until something is live.\n\nThe system refuses the web-dashboard card layout and the grey DAW slab. There is no glow and there are no rounded cards. State never rides on colour alone: kind, selection, mute and lamp state each carry a second cue (fill pattern, outline, dash, position, text).",
+    "keyCharacteristics": [
+      "Two grounds only: faceplate (hue 250) and screen (hue 205); everything on the screen is read against the graticule.",
+      "Colour is signal: phosphor reads, amber cues and holds, vermilion means live or fault.",
+      "Squared forms, 2px control radius at most, 1px rules, lamps as squares.",
+      "Dot-matrix digits snapped to whole device pixels.",
+      "Layouts survive longer Spanish text (English default, Spanish shipped, no hard-coded strings)."
+    ],
+    "rules": [
+      { "name": "The Live-Only Vermilion Rule", "body": "Vermilion appears only when something is live or faulted. The playhead is ink while stopped and turns vermilion only while playing.", "section": "colors" },
+      { "name": "The Second Cue Rule", "body": "No state is carried by colour alone: audio is a solid waveform, a marker is a hatched chip, a MIDI cue is a dotted chip; selection is a 2px ink outline; mute is dashed and hollow with a struck name; lamps also print a status word.", "section": "colors" },
+      { "name": "The Measurement Only Rule", "body": "Monospace is for things you measure. Names, labels and prose are never monospace.", "section": "typography" },
+      { "name": "The No Glow Rule", "body": "Nothing glows, blurs or casts a soft shadow. Phosphor is a flat fill.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep the product dark-only; scene is booth or stage.",
+      "Do use phosphor for reading, amber for cues and hold, vermilion for live and fault only.",
+      "Do tell every kind and state apart by a second cue as well as colour (fill pattern, outline, dash, printed word).",
+      "Do keep corners square (2px at most) and rules at 1px, 2px for plate edges.",
+      "Do keep the dot-matrix cell on whole device pixels.",
+      "Do put every user-facing string through i18n (English and Spanish) and test layouts with the longer Spanish text.",
+      "Do keep monospace to measurement and tabular numerals on all time values.",
+      "Do keep the existing themed selection, caret, 2px phosphor focus ring, scrollbars and reduced-motion handling on new surfaces."
+    ],
+    "donts": [
+      "Don't use rounded cards, soft shadows, blur or glow.",
+      "Don't add a light theme.",
+      "Don't use vermilion for decoration, emphasis or warnings that are not live or fault.",
+      "Don't let colour alone carry kind, selection, mute or lamp state.",
+      "Don't set names, labels or prose in monospace.",
+      "Don't drift toward a dashboard card grid or a grey DAW slab."
+    ]
+  }
+}
