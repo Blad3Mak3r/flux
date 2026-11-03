@@ -1139,6 +1139,7 @@ name = "flux-timecode"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "crc32fast",
  "midir",
  "rubato",
  "serde",
