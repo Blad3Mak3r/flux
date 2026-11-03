@@ -1,4 +1,5 @@
 mod commands;
+pub mod engine;
 pub mod project;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
