@@ -24,3 +24,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Impeccable working output (screenshots, decision pages); the design record is DESIGN.md
+.impeccable/review/
+.impeccable/questions/
