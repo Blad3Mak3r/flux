@@ -5,7 +5,7 @@ import { useStore } from "../store";
 import { HEADER_W } from "../timeline/layout";
 import { positionStore } from "../transport/playback";
 
-/** The line at the current position. While playing, it keeps itself in view by turning pages. */
+/** The line at the current position. It keeps itself in view by turning pages, also after a jump (Stop, seek). */
 export function Playhead({
   parked,
   start,
@@ -25,11 +25,11 @@ export function Playhead({
 
   useEffect(() => {
     const box = scroller.current;
-    if (!box || !playing) return;
+    if (!box) return;
     const visibleLeft = box.scrollLeft;
     const visibleRight = visibleLeft + box.clientWidth - HEADER_W;
     if (x > visibleRight - 40 || x < visibleLeft) box.scrollLeft = Math.max(0, x - 120);
-  }, [x, playing, scroller]);
+  }, [x, scroller]);
 
   return (
     <div
