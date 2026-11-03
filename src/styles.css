@@ -261,9 +261,24 @@ input:disabled {
   border-radius: 2px;
 }
 
+/* The language selector is a menubar control like the buttons: same 28px box, centred, and its
+   focus ring stays inside the 38px bar. */
+.locale {
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+
 .menubar select {
+  height: 28px;
+  padding: 0 6px;
+  line-height: 1;
   background: var(--panel);
   border-color: var(--rule);
+}
+
+.menubar select:focus-visible {
+  outline-offset: 0;
 }
 
 .menubar button:hover:not(:disabled) {
