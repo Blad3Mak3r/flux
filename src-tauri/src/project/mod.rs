@@ -8,7 +8,7 @@ mod session;
 pub use archive::{AssetSource, ProjectArchive, open, save};
 pub use error::{ProjectError, Result};
 pub use model::{
-    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, FrameRate, LtcOutput, MtcOutput,
+    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, FORMAT_VERSION, FrameRate, LtcOutput, MtcOutput,
     OutputConfig, Project, TimecodeSettings, Track, TrackKind, Trigger, TriggerAction,
 };
 pub use session::Session;
