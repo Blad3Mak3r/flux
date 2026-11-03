@@ -4,6 +4,8 @@
 //! the number of samples it produces, and the LTC and MTC generators are driven by that same
 //! position, so playback, LTC and MTC cannot drift apart. Nothing here allocates or locks.
 
+use serde::Serialize;
+
 use crate::project::FrameRate;
 
 /// Converts between samples and the frames, bit cells and quarter frames of one frame rate.
@@ -27,6 +29,10 @@ impl Clock {
             fps_num,
             fps_den,
         }
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate as u32
     }
 
     /// Sample at which tick number `ticks` starts, when each frame is divided into `per_frame`
@@ -64,7 +70,8 @@ impl Clock {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum TransportState {
     Stopped,
     Playing,
