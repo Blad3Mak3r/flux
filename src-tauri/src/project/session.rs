@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use serde::Serialize;
 use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
@@ -10,14 +11,29 @@ use super::error::{ProjectError, Result};
 use super::model::{AUDIO_DIR, AudioAsset, FrameRate, Project, check_asset_path};
 use super::preview::{AudioStamp, Preview, StoredPreview};
 
+/// The document being edited, as the backend last heard of it. The window that edits it can be
+/// reloaded, and picks it up from here again.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Document {
+    pub project: Project,
+    /// Where the `.fxtc` lives, or `None` for a project that was never saved.
+    pub path: Option<PathBuf>,
+    /// The project as it was last opened or saved, or as it started for a new one: the document is
+    /// unsaved when `project` differs from it.
+    pub baseline: Project,
+}
+
 /// Backend state for the project being edited.
 ///
-/// The frontend owns the `Project` value and sends it back on save; the session only remembers
-/// where the bytes of each asset live: in the `.fxtc` it was opened or saved from, or in a file
-/// imported from disk that is not in any archive yet. It also holds the waveforms generated since the
-/// project was opened, which the next save writes into the file.
+/// The frontend edits the `Project` and sends each state of it to the session, which keeps the
+/// latest as the [`Document`]. For the audio, the session remembers where the bytes of each asset
+/// live: in the `.fxtc` it was opened or saved from, or in a file imported from disk that is not in
+/// any archive yet. It also holds the waveforms generated since the project was opened, which the
+/// next save writes into the file.
 #[derive(Debug, Default)]
 pub struct Session {
+    document: Option<Document>,
     sources: HashMap<String, AssetSource>,
     previews: HashMap<String, StoredPreview>,
 }
@@ -26,14 +42,44 @@ impl Session {
     pub fn new_project(&mut self, name: &str, frame_rate: FrameRate) -> Project {
         self.sources.clear();
         self.previews.clear();
-        Project::new(name, frame_rate)
+        let project = Project::new(name, frame_rate);
+        self.document = Some(Document {
+            baseline: project.clone(),
+            project: project.clone(),
+            path: None,
+        });
+        project
     }
 
     pub fn open(&mut self, path: &Path) -> Result<Project> {
         let (project, _archive) = archive::open(path)?;
         self.sources = archive_sources(&project, path);
         self.previews.clear();
+        self.document = Some(Document {
+            baseline: project.clone(),
+            project: project.clone(),
+            path: Some(path.to_path_buf()),
+        });
         Ok(project)
+    }
+
+    /// Remembers the latest state of the project being edited.
+    pub fn update(&mut self, project: Project) {
+        match &mut self.document {
+            Some(document) => document.project = project,
+            None => {
+                self.document = Some(Document {
+                    baseline: project.clone(),
+                    project,
+                    path: None,
+                });
+            }
+        }
+    }
+
+    /// The document being edited, if one was started.
+    pub fn document(&self) -> Option<Document> {
+        self.document.clone()
     }
 
     /// Registers an audio file from disk and returns the asset to add to the project.
@@ -102,6 +148,11 @@ impl Session {
         self.sources = archive_sources(project, path);
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
+        self.document = Some(Document {
+            project: project.clone(),
+            path: Some(path.to_path_buf()),
+            baseline: project.clone(),
+        });
         Ok(())
     }
 }
@@ -161,6 +212,99 @@ mod tests {
             .read_to_end(&mut bytes)
             .unwrap();
         bytes
+    }
+
+    #[test]
+    fn document_should_be_none_until_a_project_is_started() {
+        assert_eq!(Session::default().document(), None);
+    }
+
+    #[test]
+    fn new_project_should_start_an_unsaved_document() {
+        let mut session = Session::default();
+        let project = session.new_project("Show", FrameRate::Fps25);
+
+        let document = session.document().unwrap();
+        assert_eq!(document.project, project);
+        assert_eq!(document.baseline, project);
+        assert_eq!(document.path, None);
+    }
+
+    #[test]
+    fn update_should_keep_the_latest_project_and_leave_the_baseline() {
+        let mut session = Session::default();
+        let started = session.new_project("Show", FrameRate::Fps25);
+        let mut edited = started.clone();
+        edited.name = "Edited".into();
+
+        session.update(edited.clone());
+
+        let document = session.document().unwrap();
+        assert_eq!(document.project, edited);
+        assert_eq!(document.baseline, started);
+    }
+
+    #[test]
+    fn update_should_start_a_document_when_there_is_none() {
+        let mut session = Session::default();
+        let project = Project::new("Show", FrameRate::Fps25);
+
+        session.update(project.clone());
+
+        let document = session.document().unwrap();
+        assert_eq!(
+            (document.project, document.baseline),
+            (project.clone(), project)
+        );
+    }
+
+    #[test]
+    fn save_should_make_the_saved_project_the_baseline_and_remember_the_path() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, mut project) = imported_project(&dir);
+        project.name = "Saved".into();
+        let path = dir.path().join("show.fxtc");
+
+        session.save(&project, &path).unwrap();
+
+        let document = session.document().unwrap();
+        assert_eq!(document.baseline, project);
+        assert_eq!(document.path, Some(path));
+    }
+
+    #[test]
+    fn a_failed_save_should_leave_the_document_as_it_was() {
+        let dir = TempDir::new().unwrap();
+        let (_, project) = imported_project(&dir);
+        let mut session = Session::default();
+        session.update(Project::new("Other", FrameRate::Fps25));
+        let before = session.document();
+
+        assert!(
+            session
+                .save(&project, &dir.path().join("show.fxtc"))
+                .is_err()
+        );
+
+        assert_eq!(session.document(), before);
+    }
+
+    #[test]
+    fn open_should_start_a_document_at_the_opened_file() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, project) = imported_project(&dir);
+        let path = dir.path().join("show.fxtc");
+        session.save(&project, &path).unwrap();
+
+        let mut reopened = Session::default();
+        let opened = reopened.open(&path).unwrap();
+
+        let document = reopened.document().unwrap();
+        assert_eq!(
+            (document.project, document.baseline),
+            (opened.clone(), opened)
+        );
+        assert_eq!(document.path, Some(path));
     }
 
     #[test]
