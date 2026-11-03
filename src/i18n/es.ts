@@ -78,6 +78,8 @@ export const es: Record<MessageKey, string> = {
   "inspector.tab.selection": "Selección",
   "inspector.tab.project": "Proyecto",
   "inspector.tab.output": "Salida",
+  "inspector.collapse": "Contraer el inspector",
+  "inspector.expand": "Expandir el inspector",
   "inspector.nothing": "Selecciona un clip o un cue para ver sus detalles.",
   "inspector.delete": "Eliminar",
   "clip.title": "Clip de audio",

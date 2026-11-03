@@ -101,6 +101,10 @@ components:
     backgroundColor: "{colors.screen}"
     textColor: "{colors.ink}"
     padding: "2px 10px 2px 8px"
+  inspector-rail:
+    backgroundColor: "{colors.panel}"
+    textColor: "{colors.ink-dim}"
+    width: "40px"
   fader:
     backgroundColor: "{colors.screen}"
     textColor: "{colors.ink-dim}"
@@ -177,11 +181,11 @@ A restrained, near-monochrome faceplate with three signal hues used sparingly an
 
 ## Layout
 
-A full-height grid, `min-width: 960px` (minimum window 960x600), body never scrolls: rows are menubar (38px), faceplate, work area, statusbar (30px). The faceplate is three columns (readout, keys, lamps) with a 28px gap and 16px/20px padding. The work area is the screen (flexible) plus a 300px inspector. The screen holds a sticky ruler row and sticky 208px track headers; the graticule is a background aligned to the end of the header column, major and minor lines set by timeline scale.
+A full-height grid, `min-width: 960px` (minimum window 960x600), body never scrolls: rows are menubar (38px), faceplate, work area, statusbar (30px). The faceplate is three columns (readout, keys, lamps) with a 28px gap and 16px/20px padding. The work area is the screen (flexible) plus a 300px inspector that collapses to a 40px rail (see Inspector Toggle and Rail). The screen holds a sticky ruler row and sticky 208px track headers; the graticule is a background aligned to the end of the header column, major and minor lines set by timeline scale.
 
 Spacing is a small hand-set rhythm: 4, 6, 8, 10, 12, 14, 16, 24px. Controls are 28px (icon and menubar buttons), 32px (fields and buttons), 34px (tabs, screen bar), 70px (keys).
 
-Below 1180px: brand hidden, keys shrink to 70px minimum, lamp columns tighten, inspector narrows to 264px, faceplate gap 18px, and the dot-matrix cell steps down from 9 to 7 CSS pixels. Text truncates with ellipsis rather than wrapping; fixed columns use `ch` or `em` widths so Spanish strings fit.
+Below 1180px: brand hidden, keys shrink to 70px minimum, lamp columns tighten, inspector narrows to 264px (the rail stays 40px), faceplate gap 18px, and the dot-matrix cell steps down from 9 to 7 CSS pixels. Text truncates with ellipsis rather than wrapping; fixed columns use `ch` or `em` widths so Spanish strings fit.
 
 ## Elevation & Depth
 
@@ -210,6 +214,9 @@ The native title bar is off (`decorations: false`), so the menubar is the title 
 
 ### Tabs
 Inspector tabs: 34px, uppercase 11px bold. Selected = ink on recessed fill with a 2px phosphor underline.
+
+### Inspector Toggle and Rail
+A 34px square icon button on the inspector's left edge, at the start of the tab row, collapses the sidebar; Ctrl+B (⌘B on macOS) does the same and the tooltip says so. It carries `aria-expanded` and a translated label ("Collapse the inspector" / "Expand the inspector"), and the chevron points the way the edge will move. Collapsed, the inspector is a 40px rail with a 1px rule on its left: the toggle on top, then one 28px icon button per tab (selection cursor, project sliders, output waveform), each labelled with the tab name. Choosing one opens the sidebar on that tab. The screen takes the freed width, so the ruler, lanes and playhead reflow with no page scroll at the 960px minimum. The state is remembered between sessions (`localStorage`, failing soft to expanded).
 
 ### Output Lamps
 Rows of a 10px square lamp, uppercase name, status word and a truncating detail. Off = `lamp-off`; on = phosphor; fault = vermilion. The status word is always printed.

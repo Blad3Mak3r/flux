@@ -4,7 +4,8 @@ import type { FrameRate, Project, TriggerAction } from "../project/types";
 import type { AssetAudio } from "../state/doc";
 import { findItem, setFrameRate, setName, setStart, updateClip, updateTrigger } from "../state/edit";
 import { SelectField, TextField, TimecodeField } from "./fields";
-import { TrashIcon } from "./icons";
+import { ChevronLeftIcon, ChevronRightIcon, OutputIcon, ProjectIcon, SelectionIcon, TrashIcon } from "./icons";
+import { MOD_KEY } from "./MenuBar";
 import { OutputPanel } from "./OutputPanel";
 import type { Devices } from "../devices/useDevices";
 import type { Playback } from "../transport/playback";
@@ -14,6 +15,7 @@ export type InspectorTab = "selection" | "project" | "output";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const TABS: InspectorTab[] = ["selection", "project", "output"];
+const TAB_ICONS = { selection: SelectionIcon, project: ProjectIcon, output: OutputIcon };
 
 const hex = (bytes: number[]) => bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
 
@@ -155,6 +157,8 @@ function ProjectPanel({ project, onEdit }: { project: Project; onEdit: (project:
 export function Inspector({
   tab,
   onTab,
+  collapsed,
+  onToggle,
   project,
   selection,
   audio,
@@ -164,7 +168,10 @@ export function Inspector({
   onDelete,
 }: {
   tab: InspectorTab;
+  /** Picks a tab; from the collapsed rail it also opens the sidebar. */
   onTab: (tab: InspectorTab) => void;
+  collapsed: boolean;
+  onToggle: () => void;
   project: Project;
   selection: Selected | null;
   audio: Record<string, AssetAudio>;
@@ -174,30 +181,67 @@ export function Inspector({
   onDelete: () => void;
 }) {
   const t = useT();
+  const toggleLabel = `${t(collapsed ? "inspector.expand" : "inspector.collapse")} (${MOD_KEY}+B)`;
+  const toggle = (
+    <button
+      type="button"
+      className="icon-button inspector-toggle"
+      aria-expanded={!collapsed}
+      aria-controls="inspector-body"
+      aria-label={t(collapsed ? "inspector.expand" : "inspector.collapse")}
+      title={toggleLabel}
+      onClick={onToggle}
+    >
+      {collapsed ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+    </button>
+  );
+
+  if (collapsed) {
+    return (
+      <aside className="inspector" id="inspector-body" data-collapsed="true" aria-label={t("inspector.legend")}>
+        {toggle}
+        <div className="rail">
+          {TABS.map((id) => {
+            const TabIcon = TAB_ICONS[id];
+            const label = t(`inspector.tab.${id}` as MessageKey);
+            return (
+              <button key={id} type="button" className="icon-button" aria-label={label} title={label} onClick={() => onTab(id)}>
+                <TabIcon />
+              </button>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="inspector" aria-label={t("inspector.legend")}>
-      <div className="tabs" role="tablist">
-        {TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            id={`tab-${id}`}
-            aria-selected={tab === id}
-            aria-controls={`panel-${id}`}
-            tabIndex={tab === id ? 0 : -1}
-            onClick={() => onTab(id)}
-            onKeyDown={(event) => {
-              const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-              if (step === 0) return;
-              const next = TABS[(TABS.indexOf(id) + step + TABS.length) % TABS.length];
-              onTab(next);
-              document.getElementById(`tab-${next}`)?.focus();
-            }}
-          >
-            {t(`inspector.tab.${id}` as MessageKey)}
-          </button>
-        ))}
+    <aside className="inspector" id="inspector-body" aria-label={t("inspector.legend")}>
+      <div className="tab-row">
+        {toggle}
+        <div className="tabs" role="tablist">
+          {TABS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              id={`tab-${id}`}
+              aria-selected={tab === id}
+              aria-controls={`panel-${id}`}
+              tabIndex={tab === id ? 0 : -1}
+              onClick={() => onTab(id)}
+              onKeyDown={(event) => {
+                const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+                if (step === 0) return;
+                const next = TABS[(TABS.indexOf(id) + step + TABS.length) % TABS.length];
+                onTab(next);
+                document.getElementById(`tab-${next}`)?.focus();
+              }}
+            >
+              {t(`inspector.tab.${id}` as MessageKey)}
+            </button>
+          ))}
+        </div>
       </div>
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="panel">
         {tab === "selection" && (

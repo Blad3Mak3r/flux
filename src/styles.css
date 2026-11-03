@@ -156,6 +156,10 @@ input:disabled {
   min-height: 0;
 }
 
+.work[data-inspector-collapsed="true"] {
+  grid-template-columns: minmax(0, 1fr) 40px;
+}
+
 /* ---- Menu bar ---- */
 
 .menubar {
@@ -1011,9 +1015,43 @@ input:disabled {
   background: var(--panel);
 }
 
-.tabs {
+.tab-row {
   display: flex;
   border-bottom: 1px solid var(--rule-strong);
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The toggle sits on the sidebar's left edge, in the tab row, and heads the rail when collapsed. */
+.inspector-toggle {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 0;
+  border-right: 1px solid var(--rule);
+}
+
+.inspector[data-collapsed="true"] {
+  align-items: stretch;
+  border-left: 1px solid var(--rule-strong);
+}
+
+.inspector[data-collapsed="true"] .inspector-toggle {
+  width: 100%;
+  border-right: 0;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.rail {
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 4px;
+  padding: 6px 0;
 }
 
 .tabs button {
@@ -1258,6 +1296,10 @@ input:disabled {
 
   .work {
     grid-template-columns: minmax(0, 1fr) 264px;
+  }
+
+  .work[data-inspector-collapsed="true"] {
+    grid-template-columns: minmax(0, 1fr) 40px;
   }
 
   .faceplate {

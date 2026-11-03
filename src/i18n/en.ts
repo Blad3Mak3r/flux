@@ -75,6 +75,8 @@ export const en = {
   "inspector.tab.selection": "Selection",
   "inspector.tab.project": "Project",
   "inspector.tab.output": "Output",
+  "inspector.collapse": "Collapse the inspector",
+  "inspector.expand": "Expand the inspector",
   "inspector.nothing": "Select a clip or a cue to see its details.",
   "inspector.delete": "Delete",
   "clip.title": "Audio clip",

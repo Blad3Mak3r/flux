@@ -2,6 +2,9 @@ import { LOCALES, useI18n } from "../i18n";
 import type { Locale } from "../i18n";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
+/** The modifier key as this platform prints it, for shortcut hints. */
+export const MOD_KEY = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+
 export function MenuBar({
   name,
   dirty,
@@ -28,7 +31,7 @@ export function MenuBar({
   onRedo: () => void;
 }) {
   const { t, locale, setLocale } = useI18n();
-  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
+  const mod = MOD_KEY;
   // Shortcuts live in the tooltip: printed on every button they crowd a bar this narrow.
   const hint = (label: string, keys: string) => `${label} (${keys})`;
   return (
