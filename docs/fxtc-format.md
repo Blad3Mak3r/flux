@@ -40,6 +40,20 @@ Ids are strings chosen by the caller. They must be unique: asset ids, asset file
 Devices are machine-specific, so a project stores a **name hint** only (`deviceName`, `portName`), never an OS
 identifier. Resolving the hint to a device, and the fallback when it is missing, happens when the project is opened.
 
+Implementation: `src-tauri/src/devices.rs` (cpal for audio, midir for MIDI), wrappers in `src/devices/api.ts`.
+Nothing is cached, so calling a list command again is the refresh after a hot-plug.
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `devices_list_audio` | | Output devices of every audio host: `{ host, name, outputChannels, sampleRates, isDefault }`. |
+| `devices_list_midi` | | MIDI output ports: `{ name }`. Fails if the system has no MIDI support. |
+| `devices_find_audio` | `name` | The matching audio device, or `null` when it is not connected. |
+| `devices_find_midi` | `name` | The matching MIDI port, or `null` when it is not connected (or MIDI is unavailable). |
+
+A hint matches exactly, or else ignoring case, surrounding whitespace and the `client:port` numbers ALSA appends to
+MIDI port names. A missing device is `null`, never an error: the UI asks for a replacement and opening a project
+never fails because of hardware.
+
 ## Versioning
 
 `FORMAT_VERSION` is the highest version this build understands. Files with a higher version fail with

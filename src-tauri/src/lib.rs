@@ -1,4 +1,5 @@
 mod commands;
+pub mod devices;
 pub mod project;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -19,6 +20,10 @@ pub fn run() {
             commands::project_open,
             commands::project_import_audio,
             commands::project_save,
+            devices::devices_list_audio,
+            devices::devices_list_midi,
+            devices::devices_find_audio,
+            devices::devices_find_midi,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
