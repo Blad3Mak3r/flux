@@ -249,7 +249,7 @@ Both sit in an audio track's header under the name row, which is why an audio la
 ## Open Items
 
 Recorded honestly as unresolved, not as rules:
-- Clip is vermilion on a meter that is not "live" in the playhead sense: it is treated as a fault (the signal exceeded what the device can play). Revisit if vermilion should stay reserved for the transport.
+- The CLIP lamp and the top meter segments use vermilion although the transport is not live: an over-0 dBFS peak is treated as a fault, since the signal exceeded what the device can play. Revisit if vermilion should stay reserved for the transport.
 - The waveform is a labelled placeholder, not real audio peaks.
 - There is no add-track control; tracks are created by importing audio or pressing M.
 - No engraved legend face is shipped; the user accepted the system stack. Reopen only if the product wants a printed-legend face later.
