@@ -12,6 +12,10 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, State};
 
+use crate::audio::SharedAudio;
+use crate::audio_commands::load;
+use crate::commands::SharedSession;
+use crate::engine::mixer::{self, Programme};
 use crate::engine::output::{Output, OutputError, OutputInfo, Position, PositionReader};
 use crate::engine::transport::Command;
 use crate::project::Project;
@@ -73,17 +77,46 @@ fn spawn_emitter(app: AppHandle, reader: PositionReader, stop: Arc<AtomicBool>) 
 pub async fn output_start(
     app: AppHandle,
     state: State<'_, SharedOutput>,
+    session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
     project: Project,
 ) -> Result<OutputInfo, OutputError> {
-    let state = Arc::clone(&state);
+    let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     tauri::async_runtime::spawn_blocking(move || {
         let previous = lock(&state).take();
         drop(previous);
 
-        let output = Output::start(&project)?;
+        let output = Output::start(&project, programme(&project, &session, &audio))?;
         let info = output.info().clone();
         *lock(&state) = Some(Running::new(output, app));
         Ok(info)
+    })
+    .await
+    .map_err(|err| OutputError::Stream(err.to_string()))?
+}
+
+/// The audio of the project's clips, decoding what has not been decoded yet. A file that cannot be
+/// read is left out and reported, never an error.
+fn programme(project: &Project, session: &SharedSession, audio: &SharedAudio) -> Programme {
+    mixer::build(project, |asset| load(session, audio, asset))
+}
+
+/// Sends the project's current clips to the running output, after tracks were muted or clips
+/// moved. Returns the warnings about files that could not be used.
+#[tauri::command]
+pub async fn output_set_clips(
+    state: State<'_, SharedOutput>,
+    session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
+    project: Project,
+) -> Result<Vec<String>, OutputError> {
+    let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
+    tauri::async_runtime::spawn_blocking(move || {
+        let Programme { set, warnings } = programme(&project, &session, &audio);
+        match lock(&state).as_ref() {
+            Some(running) => running.output.set_clips(set).map(|()| warnings),
+            None => Err(OutputError::NotRunning),
+        }
     })
     .await
     .map_err(|err| OutputError::Stream(err.to_string()))?
