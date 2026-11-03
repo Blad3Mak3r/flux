@@ -1,5 +1,5 @@
 import type { FrameRate } from "../project/types";
-import { nominalFps } from "../timecode";
+import { nominalFps } from "../timecode.ts";
 
 export const MIN_PX_PER_FRAME = 0.04;
 export const MAX_PX_PER_FRAME = 40;
@@ -41,4 +41,29 @@ export function pickTicks(pxPerFrame: number, rate: FrameRate): Ticks {
 
 export function clampZoom(pxPerFrame: number): number {
   return Math.min(MAX_PX_PER_FRAME, Math.max(MIN_PX_PER_FRAME, pxPerFrame));
+}
+
+/** Pixel column of a frame. The ruler, graticule, clips, flags and playhead all use this rounding. */
+export function frameX(frame: number, pxPerFrame: number): number {
+  return Math.round(frame * pxPerFrame);
+}
+
+export interface TickPositions {
+  /** Frames of the labelled ticks. */
+  major: number[];
+  /** Frames of the unlabelled ticks, without the ones that coincide with a major tick. */
+  minor: number[];
+}
+
+/** Every tick up to `width` pixels, so the ruler and the graticule are drawn from the same list. */
+export function tickPositions(pxPerFrame: number, rate: FrameRate, width: number): TickPositions {
+  const ticks = pickTicks(pxPerFrame, rate);
+  const frames = Math.ceil(width / pxPerFrame);
+  const major: number[] = [];
+  const minor: number[] = [];
+  for (let f = 0; f <= frames; f += ticks.major) major.push(f);
+  if (ticks.minor !== null) {
+    for (let f = 0; f <= frames; f += ticks.minor) if (f % ticks.major !== 0) minor.push(f);
+  }
+  return { major, minor };
 }
