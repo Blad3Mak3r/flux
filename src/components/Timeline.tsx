@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { Project } from "../project/types";
-import { nominalFps } from "../timecode";
+import { nominalFps, realFps } from "../timecode";
 import { HEADER_W, RULER_H, patchReadout, readoutStore } from "../timeline/layout";
 import { clampZoom, pickTicks } from "../timeline/scale";
 import { useStore } from "../store";
+import type { Peaks } from "./ClipWave";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { GUESS_SECONDS, TrackHeader, TrackLane } from "./TrackRow";
@@ -52,6 +53,7 @@ function Overlays({ pxPerFrame }: { pxPerFrame: number }) {
 export function Timeline({
   project,
   durations,
+  waveforms,
   parked,
   selection,
   pxPerFrame,
@@ -64,6 +66,7 @@ export function Timeline({
 }: {
   project: Project;
   durations: Record<string, number>;
+  waveforms: Record<string, Peaks>;
   parked: number;
   selection: Selected | null;
   pxPerFrame: number;
@@ -199,7 +202,9 @@ export function Timeline({
                   track={track}
                   assetNames={assetNames}
                   durations={durations}
+                  waveforms={waveforms}
                   guessLength={guessLength}
+                  fps={realFps(frameRate)}
                   pxPerFrame={pxPerFrame}
                   selected={selection}
                   onSelect={onSelect}

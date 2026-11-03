@@ -25,11 +25,21 @@ export interface Position {
   positionSamples: number;
   /** The audio device failed or went away while running. */
   deviceLost: boolean;
+  /** The device renders audio faster than real time (ALSA's null device does): the clock is wrong. */
+  clockUnpaced: boolean;
 }
 
 /** Opens the devices the project's `output` names; replaces a running output. */
 export function startOutput(project: Project): Promise<OutputInfo> {
   return invoke<OutputInfo>("output_start", { project });
+}
+
+/**
+ * Sends the project's current clips to a running output, after tracks were muted or clips moved.
+ * Resolves to the files that could not be used.
+ */
+export function setClips(project: Project): Promise<string[]> {
+  return invoke<string[]>("output_set_clips", { project });
 }
 
 export function stopOutput(): Promise<void> {

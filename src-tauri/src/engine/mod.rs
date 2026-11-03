@@ -1,6 +1,7 @@
 //! Timecode engine: frame math, signal encoders and transport.
 
 pub mod ltc;
+pub mod mixer;
 pub mod mtc;
 pub mod output;
 pub mod timecode;

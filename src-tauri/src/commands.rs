@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tauri::State;
 
+use crate::audio::SharedAudio;
 use crate::project::{AudioAsset, FrameRate, Project, ProjectError, Result, Session};
 
 pub type SharedSession = Arc<Mutex<Session>>;
@@ -29,14 +30,21 @@ where
 #[tauri::command]
 pub async fn project_new(
     session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
     name: String,
     frame_rate: FrameRate,
 ) -> Result<Project> {
+    audio.clear();
     run(&session, move |s| Ok(s.new_project(&name, frame_rate))).await
 }
 
 #[tauri::command]
-pub async fn project_open(session: State<'_, SharedSession>, path: PathBuf) -> Result<Project> {
+pub async fn project_open(
+    session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
+    path: PathBuf,
+) -> Result<Project> {
+    audio.clear();
     run(&session, move |s| s.open(&path)).await
 }
 

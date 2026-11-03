@@ -1,6 +1,7 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { FrameRate, Project, TriggerAction } from "../project/types";
+import type { AssetAudio } from "../state/doc";
 import { findItem, setFrameRate, setName, setStart, updateClip, updateTrigger } from "../state/edit";
 import { SelectField, TextField, TimecodeField } from "./fields";
 import { TrashIcon } from "./icons";
@@ -27,11 +28,13 @@ function parseBytes(text: string): number[] | null {
 function SelectionPanel({
   project,
   selection,
+  audio,
   onEdit,
   onDelete,
 }: {
   project: Project;
   selection: Selected | null;
+  audio: Record<string, AssetAudio>;
   onEdit: (project: Project) => void;
   onDelete: () => void;
 }) {
@@ -67,7 +70,7 @@ function SelectionPanel({
           validate={(text) => (Number.isFinite(Number(text)) && text.trim() !== "" ? null : t("field.numberInvalid"))}
           onCommit={(text) => onEdit(updateClip(project, clip.id, { gainDb: Number(text) }))}
         />
-        <p className="field-note">{t("clip.lengthGuess")}</p>
+        {!audio[clip.asset]?.peaks && <p className="field-note">{t("clip.lengthGuess")}</p>}
         <button type="button" className="button danger" onClick={onDelete}>
           <TrashIcon />
           {t("inspector.delete")}
@@ -154,6 +157,7 @@ export function Inspector({
   onTab,
   project,
   selection,
+  audio,
   devices,
   playback,
   onEdit,
@@ -163,6 +167,7 @@ export function Inspector({
   onTab: (tab: InspectorTab) => void;
   project: Project;
   selection: Selected | null;
+  audio: Record<string, AssetAudio>;
   devices: Devices;
   playback: Playback;
   onEdit: (project: Project) => void;
@@ -196,7 +201,7 @@ export function Inspector({
       </div>
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="panel">
         {tab === "selection" && (
-          <SelectionPanel project={project} selection={selection} onEdit={onEdit} onDelete={onDelete} />
+          <SelectionPanel project={project} selection={selection} audio={audio} onEdit={onEdit} onDelete={onDelete} />
         )}
         {tab === "project" && <ProjectPanel project={project} onEdit={onEdit} />}
         {tab === "output" && <OutputPanel project={project} devices={devices} playback={playback} onEdit={onEdit} />}

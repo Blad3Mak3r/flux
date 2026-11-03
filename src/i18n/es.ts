@@ -49,6 +49,9 @@ export const es: Record<MessageKey, string> = {
   "output.state.lost": "Perdida",
   "output.state.unknown": "Desconocida",
   "output.channel": "Can. {channel}",
+  "output.default": "Predeterminado del sistema",
+  "output.state.fast": "Sin tiempo real",
+  "output.clockFast": "Este dispositivo de audio no marca el tiempo real, así que el timecode va mal. Elige otro dispositivo en la pestaña Salida.",
   "output.notSet": "Ninguno",
 
   "tracks.legend": "Pistas",
@@ -97,6 +100,9 @@ export const es: Record<MessageKey, string> = {
   "project.start": "Timecode de inicio",
 
   "out.audioDevice": "Dispositivo de audio",
+  "out.programme": "Salida del programa",
+  "out.pair": "{first}–{second}",
+  "out.mono": "{channel} (mono)",
   "out.choose": "Elige un dispositivo",
   "out.notConnected": "{name} (no conectado)",
   "out.ltcEnable": "Enviar LTC",
@@ -119,6 +125,8 @@ export const es: Record<MessageKey, string> = {
   "dialog.cancel": "Cancelar",
 
   "status.ready": "Listo",
+  "status.analysing": "Leyendo el audio…",
+  "status.analysed": "Audio listo",
   "status.saved": "Guardado {name}",
   "status.opened": "Abierto {name}",
   "status.imported": "Importado {name}",

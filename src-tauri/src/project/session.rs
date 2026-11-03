@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 use uuid::Uuid;
@@ -56,6 +57,20 @@ impl Session {
         self.sources
             .insert(asset.id.clone(), AssetSource::Disk(file.to_path_buf()));
         Ok(asset)
+    }
+
+    /// The bytes of an asset, from wherever the session knows them to be.
+    pub fn asset_bytes(&self, asset: &AudioAsset) -> Result<Vec<u8>> {
+        match self.sources.get(&asset.id) {
+            Some(AssetSource::Disk(path)) => Ok(fs::read(path)?),
+            Some(AssetSource::Archive(path)) => {
+                let (_, mut archive) = archive::open(path)?;
+                let mut bytes = Vec::new();
+                archive.asset_reader(&asset.file)?.read_to_end(&mut bytes)?;
+                Ok(bytes)
+            }
+            None => Err(ProjectError::MissingAsset(asset.id.clone())),
+        }
     }
 
     /// Writes `project` to `path`. Afterwards every asset is read from that file.
@@ -216,6 +231,30 @@ mod tests {
 
         assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn asset_bytes_should_read_an_imported_file_and_then_the_saved_archive() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, project) = imported_project(&dir);
+        let asset = &project.assets[0];
+        assert_eq!(session.asset_bytes(asset).unwrap(), AUDIO_BYTES);
+
+        session
+            .save(&project, &dir.path().join("show.fxtc"))
+            .unwrap();
+
+        assert_eq!(session.asset_bytes(asset).unwrap(), AUDIO_BYTES);
+    }
+
+    #[test]
+    fn asset_bytes_should_fail_for_an_asset_the_session_never_saw() {
+        let dir = TempDir::new().unwrap();
+        let (_, project) = imported_project(&dir);
+
+        let result = Session::default().asset_bytes(&project.assets[0]);
+
+        assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
     }
 
     #[test]

@@ -27,22 +27,25 @@ export function OutputPanel({
   const channelCount = device?.outputChannels ?? Math.max(output.ltc?.channel ?? 2, 2);
   const change = (next: Partial<OutputConfig>) => onEdit(setOutput(project, { ...output, ...next }));
 
+  // Where the music goes: a stereo pair of the interface, `[1, 2]` unless the project says otherwise.
+  const programme = output.audio?.channels.length ? output.audio.channels : [1, 2];
+  const pairs: number[][] =
+    channelCount < 2
+      ? [[1]]
+      : Array.from({ length: Math.floor(channelCount / 2) }, (_, i) => [2 * i + 1, 2 * i + 2]);
+
   const chooseDevice = (name: string) => {
     const chosen = devices.audio.find((d) => d.name === name);
     const channels = chosen?.outputChannels ?? 2;
     change({
-      audio: name ? { deviceName: name, channels: channels >= 2 ? [1, 2] : [1] } : null,
-      ltc: output.ltc && name
-        ? { deviceName: name, channel: Math.min(output.ltc.channel, channels) }
-        : null,
+      audio: { deviceName: name, channels: channels >= 2 ? [1, 2] : [1] },
+      ltc: output.ltc ? { deviceName: name, channel: Math.min(output.ltc.channel, channels) } : null,
     });
   };
 
   const toggleLtc = (on: boolean) =>
     change({
-      ltc: on && deviceName
-        ? { deviceName, channel: Math.min(DEFAULT_LTC_CHANNEL_CAP, channelCount) }
-        : null,
+      ltc: on ? { deviceName, channel: Math.min(DEFAULT_LTC_CHANNEL_CAP, channelCount) } : null,
     });
 
   const midiHint = output.mtc?.portName ?? "";
@@ -53,7 +56,7 @@ export function OutputPanel({
       {!devices.available && <p className="field-note">{t("out.desktopOnly")}</p>}
 
       <SelectField label={t("out.audioDevice")} value={deviceName} onChange={chooseDevice} disabled={!devices.available}>
-        <option value="">{t("out.choose")}</option>
+        <option value="">{t("output.default")}</option>
         {deviceName && !device && <option value={deviceName}>{t("out.notConnected", { name: deviceName })}</option>}
         {devices.audio.map((d) => (
           <option key={`${d.host}:${d.name}`} value={d.name}>
@@ -63,12 +66,28 @@ export function OutputPanel({
       </SelectField>
       {devices.available && devices.audio.length === 0 && <p className="field-note">{t("out.noDevices")}</p>}
 
+      <SelectField
+        label={t("out.programme")}
+        value={programme.join("-")}
+        onChange={(pair) =>
+          change({ audio: { deviceName, channels: pair.split("-").map(Number) } })
+        }
+        disabled={!devices.available}
+      >
+        {pairs.map((pair) => (
+          <option key={pair.join("-")} value={pair.join("-")}>
+            {pair.length === 1
+              ? t("out.mono", { channel: pair[0] })
+              : t("out.pair", { first: pair[0], second: pair[1] })}
+          </option>
+        ))}
+      </SelectField>
+
       <div className="check-row">
         <input
           id="ltc-enable"
           type="checkbox"
           checked={output.ltc !== null}
-          disabled={!deviceName}
           onChange={(event) => toggleLtc(event.target.checked)}
         />
         <label htmlFor="ltc-enable">{t("out.ltcEnable")}</label>
@@ -125,7 +144,7 @@ export function OutputPanel({
             {t("out.stop")}
           </button>
         ) : (
-          <button type="button" className="button primary" onClick={() => void playback.startOutput()} disabled={!deviceName}>
+          <button type="button" className="button primary" onClick={() => void playback.startOutput()}>
             {t("out.start")}
           </button>
         )}
@@ -134,7 +153,7 @@ export function OutputPanel({
       {playback.info && (
         <div className="run-info" role="status">
           <p>{t("out.runningOn", { device: playback.info.device, rate: playback.info.sampleRate })}</p>
-          {playback.info.warnings.map((warning) => (
+          {[...playback.info.warnings, ...playback.clipWarnings].map((warning) => (
             <p key={warning} className="warning">
               {warning}
             </p>

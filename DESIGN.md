@@ -134,7 +134,7 @@ A restrained, near-monochrome faceplate with three signal hues used sparingly an
 - **Cue Amber** (`amber`): cues (flag line), the paused hold word, run-info warnings. **Dim Amber** (`amber-dim`) outlines cue chips.
 
 ### Tertiary
-- **Live Vermilion** (`signal`): live and fault state only: the PLAYING word, the playhead while playing, a live key lamp, fault lamps, invalid fields and error messages.
+- **Live Vermilion** (`signal`): live and fault state only: the PLAYING word, the playhead while playing, a live key lamp, fault lamps (including the clock lamp reading "Not real time" when the audio device does not keep time), invalid fields and error messages.
 
 ### Neutral
 - **Faceplate** (`panel`), **Faceplate Raised** (`panel-hi`: keys, buttons, hover chrome), **Faceplate Recessed** (`panel-lo`: menubar, statusbar, pressed keys, ruler row), **Rule** and **Rule Strong** (`rule`, `rule-strong`: 1px and 2px dividers, control borders), **Lamp Off** (`lamp-off`).

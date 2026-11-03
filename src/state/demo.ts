@@ -3,11 +3,12 @@
 // saved.
 
 import type { Project } from "../project/types";
+import type { AssetAudio } from "./doc";
 
 const FPS = 25;
 const seconds = (s: number) => s * FPS;
 
-export function demoShow(name: string): { project: Project; durations: Record<string, number> } {
+export function demoShow(name: string): { project: Project; audio: Record<string, AssetAudio> } {
   const project: Project = {
     formatVersion: 1,
     name,
@@ -67,10 +68,10 @@ export function demoShow(name: string): { project: Project; durations: Record<st
   };
   return {
     project,
-    durations: {
-      "demo-intro": seconds(14),
-      "demo-song": seconds(190),
-      "demo-click": seconds(190),
+    audio: {
+      "demo-intro": { seconds: 14 },
+      "demo-song": { seconds: 190 },
+      "demo-click": { seconds: 190 },
     },
   };
 }
