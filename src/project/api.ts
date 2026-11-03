@@ -17,11 +17,13 @@ export function newProject(name: string, frameRate: FrameRate): Promise<Project>
   return invoke<Project>("project_new", { name, frameRate });
 }
 
-/** Asks for a `.fxtc` and opens it. Resolves to `null` when the dialog is cancelled. */
-export async function openProject(): Promise<{ path: string; project: Project } | null> {
-  const path = await open({ filters: [PROJECT_FILTER] });
-  if (path === null) return null;
-  return { path, project: await invoke<Project>("project_open", { path }) };
+/** Asks for a `.fxtc`. Resolves to `null` when the dialog is cancelled. */
+export function pickProjectPath(): Promise<string | null> {
+  return open({ filters: [PROJECT_FILTER] });
+}
+
+export function openProjectAt(path: string): Promise<Project> {
+  return invoke<Project>("project_open", { path });
 }
 
 /**
