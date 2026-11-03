@@ -102,7 +102,11 @@ export function Fader({
         onPointerUp={(event) => {
           if (draft !== null) commit(fromPointer(event));
         }}
-        onPointerCancel={() => setDraft(null)}
+        onPointerCancel={() => {
+          // A cancelled drag changes nothing: put the audio back where the project has it.
+          setDraft(null);
+          onPreview(valueDb);
+        }}
       >
         <span className="fader-unity" style={{ left: `${dbToFader(0) * 100}%` }} aria-hidden="true" />
         <span className="fader-thumb" style={{ left: `${dbToFader(shown) * 100}%` }} aria-hidden="true" />
