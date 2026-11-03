@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
 use zip::result::ZipError;
@@ -9,7 +9,8 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::error::{ProjectError, Result};
-use super::model::{FORMAT_VERSION, Project, check_asset_path};
+use super::model::{AudioAsset, FORMAT_VERSION, Project, check_asset_path};
+use super::preview::{AudioStamp, Preview, StoredPreview, preview_path};
 
 const PROJECT_JSON: &str = "project.json";
 
@@ -77,15 +78,51 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
     Ok((project, ProjectArchive { archive }))
 }
 
+/// The preview stored for `asset`, if there is one made from the audio the archive holds now.
+///
+/// A preview is only a cache, so one that is missing, unreadable or made from other audio is `None`.
+pub fn read_preview(path: &Path, asset: &AudioAsset) -> Result<Option<Preview>> {
+    let mut archive = open_archive(path)?;
+    let audio = by_name(&mut archive, &asset.file)?;
+    let stamp = AudioStamp {
+        size: audio.size(),
+        crc32: audio.crc32(),
+    };
+    drop(audio);
+
+    let mut bytes = Vec::new();
+    match archive.by_name(&preview_path(&asset.file)) {
+        Ok(mut entry) => {
+            if entry.read_to_end(&mut bytes).is_err() {
+                return Ok(None);
+            }
+        }
+        Err(ZipError::FileNotFound) => return Ok(None),
+        Err(err) => return Err(err.into()),
+    }
+    Ok(StoredPreview::decode(&bytes)
+        .filter(|stored| stored.stamp == stamp)
+        .map(|stored| stored.preview))
+}
+
 /// Writes `project` and its assets to `path`. `sources` maps each asset id to its bytes.
+///
+/// `previews` are the waveforms generated in this session; an asset without one keeps the preview
+/// of the archive it is copied from, if any.
 ///
 /// The archive is written to a temporary file next to `path` and renamed over it, so a failed
 /// save leaves any existing file untouched.
-pub fn save(path: &Path, project: &Project, sources: &HashMap<String, AssetSource>) -> Result<()> {
+pub fn save(
+    path: &Path,
+    project: &Project,
+    sources: &HashMap<String, AssetSource>,
+    previews: &HashMap<String, StoredPreview>,
+) -> Result<()> {
     project.validate()?;
 
     let tmp = tmp_path(path);
-    let written = write_archive(&tmp, project, sources).and_then(|()| Ok(fs::rename(&tmp, path)?));
+    let written =
+        write_archive(&tmp, project, sources, previews).and_then(|()| Ok(fs::rename(&tmp, path)?));
     if written.is_err() {
         let _ = fs::remove_file(&tmp);
     }
@@ -96,6 +133,7 @@ fn write_archive(
     path: &Path,
     project: &Project,
     sources: &HashMap<String, AssetSource>,
+    previews: &HashMap<String, StoredPreview>,
 ) -> Result<()> {
     let mut zip = ZipWriter::new(File::create(path)?);
 
@@ -105,7 +143,7 @@ fn write_archive(
     )?;
     serde_json::to_writer_pretty(&mut zip, project)?;
 
-    // Audio is large and usually compressed already, so it is stored as is.
+    // Audio is large and usually compressed already, so it is stored as is; previews are mostly noise.
     let stored = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Stored)
         .large_file(true);
@@ -114,6 +152,8 @@ fn write_archive(
         let source = sources
             .get(&asset.id)
             .ok_or_else(|| ProjectError::MissingAsset(asset.file.clone()))?;
+        let fresh = previews.get(&asset.id);
+        let preview_file = preview_path(&asset.file);
         match source {
             AssetSource::Disk(file) => {
                 zip.start_file(&asset.file, stored)?;
@@ -125,7 +165,18 @@ fn write_archive(
                     Entry::Vacant(entry) => entry.insert(open_archive(archive_path)?),
                 };
                 zip.raw_copy_file(by_name(archive, &asset.file)?)?;
+                if fresh.is_none() {
+                    match archive.by_name(&preview_file) {
+                        Ok(entry) => zip.raw_copy_file(entry)?,
+                        Err(ZipError::FileNotFound) => {}
+                        Err(err) => return Err(err.into()),
+                    }
+                }
             }
+        }
+        if let Some(fresh) = fresh {
+            zip.start_file(&preview_file, stored)?;
+            zip.write_all(&fresh.encode())?;
         }
     }
 
@@ -163,6 +214,7 @@ mod tests {
 
     use super::*;
     use crate::project::model::tests::sample_project;
+    use crate::project::preview::tests::stored;
 
     const AUDIO_BYTES: &[u8] = b"RIFF....fake wav payload";
 
@@ -198,7 +250,7 @@ mod tests {
         let path = dir.path().join("show.fxtc");
         let project = sample_project();
 
-        save(&path, &project, &disk_sources(&dir)).unwrap();
+        save(&path, &project, &disk_sources(&dir), &HashMap::new()).unwrap();
         let (opened, mut archive) = open(&path).unwrap();
 
         assert_eq!(opened, project);
@@ -209,7 +261,13 @@ mod tests {
     fn saved_archive_should_contain_project_json_and_the_audio_entry() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("show.fxtc");
-        save(&path, &sample_project(), &disk_sources(&dir)).unwrap();
+        save(
+            &path,
+            &sample_project(),
+            &disk_sources(&dir),
+            &HashMap::new(),
+        )
+        .unwrap();
 
         let archive = open_archive(&path).unwrap();
         let mut names: Vec<_> = archive
@@ -225,12 +283,18 @@ mod tests {
     fn save_should_keep_assets_when_resaving_in_place_from_the_opened_archive() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("show.fxtc");
-        save(&path, &sample_project(), &disk_sources(&dir)).unwrap();
+        save(
+            &path,
+            &sample_project(),
+            &disk_sources(&dir),
+            &HashMap::new(),
+        )
+        .unwrap();
 
         let (mut project, archive) = open(&path).unwrap();
         project.name = "Renamed".into();
         let sources = HashMap::from([("a1".to_owned(), AssetSource::Archive(path.clone()))]);
-        save(&path, &project, &sources).unwrap();
+        save(&path, &project, &sources, &HashMap::new()).unwrap();
         drop(archive);
 
         let (reopened, mut archive) = open(&path).unwrap();
@@ -242,14 +306,20 @@ mod tests {
     fn save_should_leave_the_existing_file_untouched_when_an_asset_source_is_missing() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("show.fxtc");
-        save(&path, &sample_project(), &disk_sources(&dir)).unwrap();
+        save(
+            &path,
+            &sample_project(),
+            &disk_sources(&dir),
+            &HashMap::new(),
+        )
+        .unwrap();
         let before = fs::read(&path).unwrap();
 
         let sources = HashMap::from([(
             "a1".to_owned(),
             AssetSource::Disk(dir.path().join("does-not-exist.wav")),
         )]);
-        let result = save(&path, &sample_project(), &sources);
+        let result = save(&path, &sample_project(), &sources, &HashMap::new());
 
         assert!(matches!(result, Err(ProjectError::Io(_))));
         assert_eq!(fs::read(&path).unwrap(), before);
@@ -261,7 +331,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("show.fxtc");
 
-        let result = save(&path, &sample_project(), &HashMap::new());
+        let result = save(&path, &sample_project(), &HashMap::new(), &HashMap::new());
 
         assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
         assert!(!path.exists());
@@ -330,12 +400,141 @@ mod tests {
     fn asset_reader_should_refuse_paths_outside_the_audio_folder() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("show.fxtc");
-        save(&path, &sample_project(), &disk_sources(&dir)).unwrap();
+        save(
+            &path,
+            &sample_project(),
+            &disk_sources(&dir),
+            &HashMap::new(),
+        )
+        .unwrap();
         let (_, mut archive) = open(&path).unwrap();
 
         assert!(matches!(
             archive.asset_reader("project.json"),
             Err(ProjectError::InvalidAssetPath(_))
         ));
+    }
+
+    fn sample_asset() -> AudioAsset {
+        sample_project().assets.remove(0)
+    }
+
+    fn previews(audio: &[u8]) -> HashMap<String, StoredPreview> {
+        HashMap::from([("a1".to_owned(), stored(audio))])
+    }
+
+    fn entry_names(path: &Path) -> Vec<String> {
+        let mut names: Vec<_> = open_archive(path)
+            .unwrap()
+            .file_names()
+            .map(|name| name.unwrap().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn save_should_store_the_preview_next_to_the_audio_and_read_preview_should_return_it() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.fxtc");
+        let fresh = previews(AUDIO_BYTES);
+
+        save(&path, &sample_project(), &disk_sources(&dir), &fresh).unwrap();
+
+        assert_eq!(
+            entry_names(&path),
+            ["audio/click.wav", "peaks/click.wav.bin", "project.json"]
+        );
+        assert_eq!(
+            read_preview(&path, &sample_asset()).unwrap(),
+            Some(fresh["a1"].preview.clone())
+        );
+        assert!(open(&path).is_ok());
+    }
+
+    #[test]
+    fn read_preview_should_be_none_when_the_archive_has_no_preview() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.fxtc");
+        save(
+            &path,
+            &sample_project(),
+            &disk_sources(&dir),
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        assert_eq!(read_preview(&path, &sample_asset()).unwrap(), None);
+    }
+
+    #[test]
+    fn read_preview_should_ignore_a_preview_made_from_other_audio() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.fxtc");
+        let before_replacing_the_audio = previews(b"RIFF....the old payload");
+
+        save(
+            &path,
+            &sample_project(),
+            &disk_sources(&dir),
+            &before_replacing_the_audio,
+        )
+        .unwrap();
+
+        assert_eq!(read_preview(&path, &sample_asset()).unwrap(), None);
+    }
+
+    #[test]
+    fn read_preview_should_ignore_an_entry_this_build_cannot_read() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.fxtc");
+        let json = serde_json::to_vec(&sample_project()).unwrap();
+        zip_with(
+            &path,
+            &[
+                (PROJECT_JSON, &json),
+                ("audio/click.wav", AUDIO_BYTES),
+                ("peaks/click.wav.bin", b"garbage"),
+            ],
+        );
+
+        assert_eq!(read_preview(&path, &sample_asset()).unwrap(), None);
+        assert!(open(&path).is_ok());
+    }
+
+    #[test]
+    fn save_should_copy_the_preview_from_the_source_archive_when_there_is_no_new_one() {
+        let dir = TempDir::new().unwrap();
+        let original = dir.path().join("show.fxtc");
+        let fresh = previews(AUDIO_BYTES);
+        save(&original, &sample_project(), &disk_sources(&dir), &fresh).unwrap();
+
+        let copy = dir.path().join("copy.fxtc");
+        let sources = HashMap::from([("a1".to_owned(), AssetSource::Archive(original))]);
+        save(&copy, &sample_project(), &sources, &HashMap::new()).unwrap();
+
+        assert_eq!(
+            read_preview(&copy, &sample_asset()).unwrap(),
+            Some(fresh["a1"].preview.clone())
+        );
+    }
+
+    #[test]
+    fn save_should_not_invent_a_preview_for_an_archive_that_has_none() {
+        let dir = TempDir::new().unwrap();
+        let original = dir.path().join("show.fxtc");
+        save(
+            &original,
+            &sample_project(),
+            &disk_sources(&dir),
+            &HashMap::new(),
+        )
+        .unwrap();
+
+        let copy = dir.path().join("copy.fxtc");
+        let sources = HashMap::from([("a1".to_owned(), AssetSource::Archive(original))]);
+        save(&copy, &sample_project(), &sources, &HashMap::new()).unwrap();
+
+        assert_eq!(entry_names(&copy), ["audio/click.wav", "project.json"]);
     }
 }

@@ -8,26 +8,31 @@ use uuid::Uuid;
 use super::archive::{self, AssetSource};
 use super::error::{ProjectError, Result};
 use super::model::{AUDIO_DIR, AudioAsset, FrameRate, Project, check_asset_path};
+use super::preview::{AudioStamp, Preview, StoredPreview};
 
 /// Backend state for the project being edited.
 ///
 /// The frontend owns the `Project` value and sends it back on save; the session only remembers
 /// where the bytes of each asset live: in the `.fxtc` it was opened or saved from, or in a file
-/// imported from disk that is not in any archive yet.
+/// imported from disk that is not in any archive yet. It also holds the waveforms generated since the
+/// project was opened, which the next save writes into the file.
 #[derive(Debug, Default)]
 pub struct Session {
     sources: HashMap<String, AssetSource>,
+    previews: HashMap<String, StoredPreview>,
 }
 
 impl Session {
     pub fn new_project(&mut self, name: &str, frame_rate: FrameRate) -> Project {
         self.sources.clear();
+        self.previews.clear();
         Project::new(name, frame_rate)
     }
 
     pub fn open(&mut self, path: &Path) -> Result<Project> {
         let (project, _archive) = archive::open(path)?;
         self.sources = archive_sources(&project, path);
+        self.previews.clear();
         Ok(project)
     }
 
@@ -73,10 +78,30 @@ impl Session {
         }
     }
 
+    /// The stored waveform of an asset, without decoding it: one generated in this session, or the one
+    /// in the `.fxtc` the asset is read from if it was made from the same audio.
+    pub fn preview(&self, asset: &AudioAsset) -> Result<Option<Preview>> {
+        if let Some(stored) = self.previews.get(&asset.id) {
+            return Ok(Some(stored.preview.clone()));
+        }
+        match self.sources.get(&asset.id) {
+            Some(AssetSource::Archive(path)) => archive::read_preview(path, asset),
+            _ => Ok(None),
+        }
+    }
+
+    /// Keeps the waveform of the audio with this `stamp` for the next save.
+    pub fn remember_preview(&mut self, asset: &AudioAsset, stamp: AudioStamp, preview: Preview) {
+        self.previews
+            .insert(asset.id.clone(), StoredPreview { stamp, preview });
+    }
+
     /// Writes `project` to `path`. Afterwards every asset is read from that file.
     pub fn save(&mut self, project: &Project, path: &Path) -> Result<()> {
-        archive::save(path, project, &self.sources)?;
+        archive::save(path, project, &self.sources, &self.previews)?;
         self.sources = archive_sources(project, path);
+        // They are in the file now, which is where they are read from from here on.
+        self.previews.clear();
         Ok(())
     }
 }
@@ -267,5 +292,55 @@ mod tests {
         let result = session.save(&project, &dir.path().join("show.fxtc"));
 
         assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
+    }
+
+    fn sample_preview() -> Preview {
+        Preview {
+            duration_seconds: 2.0,
+            source_rate: 44_100,
+            peaks_per_second: 100,
+            peaks: vec![-5, 5],
+        }
+    }
+
+    #[test]
+    fn preview_should_survive_saving_as_another_file() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, project) = imported_project(&dir);
+        let asset = &project.assets[0];
+        session.remember_preview(asset, AudioStamp::of(AUDIO_BYTES), sample_preview());
+        assert_eq!(session.preview(asset).unwrap(), Some(sample_preview()));
+
+        let original = dir.path().join("show.fxtc");
+        session.save(&project, &original).unwrap();
+        let mut reopened = Session::default();
+        let opened = reopened.open(&original).unwrap();
+        let copy = dir.path().join("copy.fxtc");
+        reopened.save(&opened, &copy).unwrap();
+
+        let mut from_copy = Session::default();
+        from_copy.open(&copy).unwrap();
+        assert_eq!(from_copy.preview(asset).unwrap(), Some(sample_preview()));
+    }
+
+    #[test]
+    fn preview_should_be_dropped_when_the_audio_it_was_made_from_is_not_the_saved_audio() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, project) = imported_project(&dir);
+        let asset = &project.assets[0];
+        session.remember_preview(asset, AudioStamp::of(b"other audio"), sample_preview());
+        let path = dir.path().join("show.fxtc");
+
+        session.save(&project, &path).unwrap();
+
+        assert_eq!(session.preview(asset).unwrap(), None);
+    }
+
+    #[test]
+    fn preview_should_be_none_for_an_imported_file_nobody_analysed() {
+        let dir = TempDir::new().unwrap();
+        let (session, project) = imported_project(&dir);
+
+        assert_eq!(session.preview(&project.assets[0]).unwrap(), None);
     }
 }
