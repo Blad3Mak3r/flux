@@ -3,6 +3,7 @@
 //! Pure functions and a small stateful encoder, with no I/O, so it is tested without hardware.
 
 use super::timecode::Timecode;
+use super::transport::Clock;
 use crate::project::FrameRate;
 
 pub const BITS_PER_FRAME: usize = 80;
@@ -74,14 +75,22 @@ pub struct LtcConfig {
     pub edge_samples: u32,
 }
 
+impl Default for LtcConfig {
+    /// 48 kHz, half scale (-6 dBFS) and a one-sample edge: a clean signal that most readers accept.
+    fn default() -> Self {
+        Self {
+            sample_rate: 48_000,
+            level: 0.5,
+            edge_samples: 1,
+        }
+    }
+}
+
 /// Turns LTC words into audio samples. It keeps the signal level and the fractional sample
 /// position between frames, so consecutive frames join without clicks or drift.
 #[derive(Debug, Clone)]
 pub struct LtcEncoder {
-    sample_rate: u64,
-    /// Frame rate as the fraction `fps_num / fps_den` (30000 / 1001 for 29.97).
-    fps_num: u64,
-    fps_den: u64,
+    clock: Clock,
     /// Largest change of the output per sample.
     max_step: f32,
     /// Polarity the signal is heading to.
@@ -94,12 +103,6 @@ pub struct LtcEncoder {
 
 impl LtcEncoder {
     pub fn new(config: LtcConfig, rate: FrameRate) -> Self {
-        let (fps_num, fps_den) = match rate {
-            FrameRate::Fps24 => (24, 1),
-            FrameRate::Fps25 => (25, 1),
-            FrameRate::Fps2997Drop => (30_000, 1_001),
-            FrameRate::Fps30 => (30, 1),
-        };
         let level = config.level.clamp(0.0, 1.0);
         let max_step = if config.edge_samples == 0 {
             f32::INFINITY
@@ -107,9 +110,7 @@ impl LtcEncoder {
             2.0 * level / config.edge_samples as f32
         };
         Self {
-            sample_rate: u64::from(config.sample_rate),
-            fps_num,
-            fps_den,
+            clock: Clock::new(config.sample_rate, rate),
             max_step,
             target: -level,
             last: -level,
@@ -120,7 +121,13 @@ impl LtcEncoder {
     /// An upper bound for the samples of one frame, to reserve the output buffer up front: the
     /// audio callback must not allocate.
     pub fn max_frame_samples(&self) -> usize {
-        (self.sample_rate * self.fps_den).div_ceil(self.fps_num) as usize + 1
+        self.clock.max_samples_per_frame()
+    }
+
+    /// Positions the encoder so the next frame it encodes is frame number `frame` of the
+    /// timeline, starting exactly where the transport's clock puts that frame.
+    pub fn start_at_frame(&mut self, frame: u64) {
+        self.halves = frame * BITS_PER_FRAME as u64 * 2;
     }
 
     /// Appends the samples of one frame to `out`. The frame lasts `sample_rate / fps` samples,
@@ -154,9 +161,83 @@ impl LtcEncoder {
 
     /// Sample index where half cell number `halves` starts, rounded to the nearest sample.
     fn boundary(&self, halves: u64) -> u64 {
-        let halves_per_second = u128::from(2 * BITS_PER_FRAME as u64 * self.fps_num);
-        let scaled = u128::from(halves) * u128::from(self.sample_rate) * u128::from(self.fps_den);
-        ((2 * scaled + halves_per_second) / (2 * halves_per_second)) as u64
+        self.clock
+            .ticks_to_samples(halves, 2 * BITS_PER_FRAME as u64)
+    }
+}
+
+/// Plays LTC in step with the transport: silence until the next frame boundary, then one frame
+/// after another. Everything is preallocated, so [`LtcStream::fill`] suits the audio callback.
+#[derive(Debug, Clone)]
+pub struct LtcStream {
+    encoder: LtcEncoder,
+    clock: Clock,
+    rate: FrameRate,
+    /// Frame count of the timeline origin.
+    start: u64,
+    user_bits: u32,
+    /// Samples of the frame being played and how many have gone out.
+    frame: Vec<f32>,
+    played: usize,
+    /// Timeline frame to encode next.
+    next_frame: u64,
+    /// Samples of silence left before the first frame.
+    lead_in: u64,
+}
+
+impl LtcStream {
+    pub fn new(config: LtcConfig, rate: FrameRate, start: u64, user_bits: u32) -> Self {
+        let encoder = LtcEncoder::new(config, rate);
+        Self {
+            frame: Vec::with_capacity(encoder.max_frame_samples()),
+            clock: encoder.clock,
+            encoder,
+            rate,
+            start,
+            user_bits,
+            played: 0,
+            next_frame: 0,
+            lead_in: 0,
+        }
+    }
+
+    /// Restarts at transport position `position` (samples since the timeline origin), after a
+    /// start or a seek. A frame cannot start halfway, so the output is silent until the next one.
+    pub fn resync(&mut self, position: u64) {
+        let mut frame = self.clock.samples_to_frames(position);
+        if self.clock.frames_to_samples(frame) < position {
+            frame += 1;
+        }
+        self.lead_in = self.clock.frames_to_samples(frame) - position;
+        self.next_frame = frame;
+        self.encoder.start_at_frame(frame);
+        self.frame.clear();
+        self.played = 0;
+    }
+
+    /// Writes the next `out.len()` samples of the signal.
+    pub fn fill(&mut self, out: &mut [f32]) {
+        for sample in out {
+            if self.lead_in > 0 {
+                self.lead_in -= 1;
+                *sample = 0.0;
+                continue;
+            }
+            if self.played == self.frame.len() {
+                self.encode_next_frame();
+            }
+            *sample = self.frame[self.played];
+            self.played += 1;
+        }
+    }
+
+    fn encode_next_frame(&mut self) {
+        let timecode = Timecode::from_frames(self.start + self.next_frame, self.rate);
+        let bits = frame_bits(timecode, self.rate, self.user_bits);
+        self.frame.clear();
+        self.encoder.encode_frame(&bits, &mut self.frame);
+        self.played = 0;
+        self.next_frame += 1;
     }
 }
 
@@ -219,7 +300,8 @@ mod tests {
         // The encoder starts low and flips at once; a low sample in front makes that visible.
         // A flipped sample at the end closes the last half cell the same way.
         let closing = -samples.last().map_or(1.0, |last| last.signum());
-        let signal: Vec<f32> = std::iter::once(-1.0)
+        let lead = -samples.first().map_or(1.0, |first| first.signum());
+        let signal: Vec<f32> = std::iter::once(lead)
             .chain(samples.iter().copied())
             .chain(std::iter::once(closing))
             .collect();
@@ -426,6 +508,95 @@ mod tests {
             encoder.encode_frame(&bits, &mut out);
             assert!(out.len() <= bound);
             assert_eq!(out.capacity(), bound, "the buffer reallocated");
+        }
+    }
+
+    /// Fills the stream with chunks of uneven sizes, like successive audio callbacks.
+    fn fill_in_chunks(stream: &mut LtcStream, total: usize) -> Vec<f32> {
+        let mut out = vec![0.0; total];
+        let mut at = 0;
+        for size in [64, 333, 480, 1, 1_024].into_iter().cycle() {
+            if at >= total {
+                break;
+            }
+            let end = (at + size).min(total);
+            stream.fill(&mut out[at..end]);
+            at = end;
+        }
+        out
+    }
+
+    #[test]
+    fn stream_should_match_the_encoder_regardless_of_chunk_size() {
+        for rate in RATES {
+            let cfg = config(48_000, 1);
+            let (expected, _) = encode(rate, cfg, 0, 20);
+            let mut stream = LtcStream::new(cfg, rate, 0, 0);
+            stream.resync(0);
+            let actual = fill_in_chunks(&mut stream, expected.len());
+            assert_eq!(actual, expected, "{rate:?}");
+        }
+    }
+
+    #[test]
+    fn stream_should_be_silent_until_the_next_frame_boundary() {
+        let rate = FrameRate::Fps25;
+        let mut stream = LtcStream::new(config(48_000, 0), rate, 0, 0);
+        // Frame 1 starts at sample 1920.
+        stream.resync(1_000);
+        let out = fill_in_chunks(&mut stream, 920 + 200);
+        assert!(out[..920].iter().all(|&s| s == 0.0));
+        assert!(out[920..].iter().any(|&s| s != 0.0));
+        assert_ne!(out[920], 0.0, "the frame must start on the boundary");
+    }
+
+    #[test]
+    fn stream_should_start_a_frame_at_once_when_resynced_on_a_boundary() {
+        let rate = FrameRate::Fps2997Drop;
+        let mut stream = LtcStream::new(config(48_000, 0), rate, 0, 0);
+        let clock = Clock::new(48_000, rate);
+        stream.resync(clock.frames_to_samples(7));
+        let mut first = [0.0; 4];
+        stream.fill(&mut first);
+        assert!(first.iter().all(|&s| s != 0.0));
+    }
+
+    #[test]
+    fn stream_should_decode_to_the_timecode_it_was_resynced_to() {
+        for rate in RATES {
+            let clock = Clock::new(48_000, rate);
+            let start = 90_000;
+            let mut stream = LtcStream::new(config(48_000, 0), rate, start, 0);
+            // Play a little, then seek to frame 500 of the timeline.
+            stream.resync(0);
+            fill_in_chunks(&mut stream, 5_000);
+            stream.resync(clock.frames_to_samples(500));
+            let samples = fill_in_chunks(&mut stream, clock.frames_to_samples(10) as usize);
+
+            let bits = decode(&samples, 48_000, rate);
+            let decoded: Vec<_> = bits
+                .chunks_exact(BITS_PER_FRAME)
+                .map(|chunk| parse(&<LtcBits>::try_from(chunk).unwrap()).0)
+                .collect();
+            let expected: Vec<_> = (0..decoded.len() as u64)
+                .map(|i| Timecode::from_frames(start + 500 + i, rate))
+                .collect();
+            assert!(decoded.len() >= 9, "{rate:?}: {} frames", decoded.len());
+            assert_eq!(decoded, expected, "{rate:?}");
+        }
+    }
+
+    #[test]
+    fn encoder_boundaries_should_agree_with_the_transport_clock() {
+        for rate in RATES {
+            let clock = Clock::new(48_000, rate);
+            let encoder = LtcEncoder::new(config(48_000, 0), rate);
+            for frame in 0..500 {
+                assert_eq!(
+                    encoder.boundary(frame * 2 * BITS_PER_FRAME as u64),
+                    clock.frames_to_samples(frame)
+                );
+            }
         }
     }
 }

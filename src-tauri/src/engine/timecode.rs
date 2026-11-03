@@ -44,6 +44,16 @@ impl FrameRate {
         }
     }
 
+    /// The real frame rate as `(numerator, denominator)`: 30000 / 1001 for 29.97.
+    pub fn fraction(self) -> (u64, u64) {
+        match self {
+            FrameRate::Fps24 => (24, 1),
+            FrameRate::Fps25 => (25, 1),
+            FrameRate::Fps2997Drop => (30_000, 1_001),
+            FrameRate::Fps30 => (30, 1),
+        }
+    }
+
     pub fn is_drop_frame(self) -> bool {
         self == FrameRate::Fps2997Drop
     }
