@@ -23,7 +23,8 @@ frame-aligned, and frame counts avoid rounding at 29.97 fps.
 | `timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
 | `assets[]` | `{ id, name, file }` | `file` is the archive path under `audio/`. |
 | `tracks[]` | `{ id, name, muted, kind }` | `kind` is tagged by `type`, see below. |
-| `output.ltc` | `{ deviceName, channel }` \| `null` | LTC out through an audio interface. |
+| `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
+| `output.ltc` | `{ deviceName, channel }` \| `null` | LTC out through an audio interface; `channel` is 1-based. May share a device with `output.audio`. |
 | `output.mtc` | `{ portName }` \| `null` | MTC out through a MIDI port. |
 
 Track kinds:
@@ -33,7 +34,8 @@ Track kinds:
   `{ "type": "midi", "bytes": [...] }`.
 
 Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/trigger ids
-(the last two kinds share one namespace).
+(the last two kinds share one namespace). Output channels must be at least 1, and `output.audio.channels` must not
+repeat a channel.
 
 ## Devices
 
