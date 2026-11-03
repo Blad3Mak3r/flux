@@ -9,8 +9,23 @@ mod startup;
 mod transport_commands;
 mod windows;
 
+/// WSLg's Wayland compositor places every window itself and ignores the position an app asks for,
+/// so the windows would not open centred. Its X11 server honours it.
+#[cfg(target_os = "linux")]
+fn prefer_x11_under_wsl() {
+    use std::env::{set_var, var_os};
+
+    if var_os("WSL_DISTRO_NAME").is_some() && var_os("GDK_BACKEND").is_none() {
+        // SAFETY: called first thing in `run`, before any thread exists.
+        unsafe { set_var("GDK_BACKEND", "x11") };
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    prefer_x11_under_wsl();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
