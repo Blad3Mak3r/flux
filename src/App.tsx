@@ -16,7 +16,6 @@ import type { MessageKey } from "./i18n";
 import { analyzeAudio } from "./audio/api";
 import type { Peaks } from "./components/ClipWave";
 import { errorMessage, importAudio, newProject, openProject, saveProject } from "./project/api";
-import { demoShow } from "./state/demo";
 import type { AssetAudio } from "./state/doc";
 import { docReducer, initialDoc, isDirty } from "./state/doc";
 import {
@@ -162,9 +161,9 @@ function Shell() {
   // Replace the document, asking first when there is work to lose.
   const replaceDoc = (action: () => Promise<void> | void) => (dirty ? setPending(() => action) : void action());
 
-  const load = (next: Project, path: string | null, extra?: { demo?: boolean; audio?: Record<string, AssetAudio> }) => {
+  const load = (next: Project, path: string | null) => {
     generation.current += 1;
-    dispatch({ type: "load", project: next, path, ...extra });
+    dispatch({ type: "load", project: next, path });
     setSelection(null);
     setZoom(DEFAULT_PX_PER_FRAME);
     setDocKey((key) => key + 1);
@@ -193,18 +192,7 @@ function Shell() {
       }
     });
 
-  const doDemo = () =>
-    replaceDoc(() => {
-      const demo = demoShow("Demo show");
-      load(demo.project, null, { demo: true, audio: demo.audio });
-      say("status.demoLoaded");
-    });
-
   const save = async (asNew: boolean): Promise<boolean> => {
-    if (doc.demo) {
-      sayError(t("status.demoLoaded"));
-      return false;
-    }
     try {
       const path = await saveProject(project, asNew ? null : doc.path);
       if (path === null) return false;
@@ -336,7 +324,6 @@ function Shell() {
         onSave={() => void save(false)}
         onSaveAs={() => void save(true)}
         onImport={() => void doImport()}
-        onDemo={doDemo}
         onUndo={() => dispatch({ type: "undo" })}
         onRedo={() => dispatch({ type: "redo" })}
       />

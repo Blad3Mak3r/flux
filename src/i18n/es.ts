@@ -8,7 +8,6 @@ export const es: Record<MessageKey, string> = {
   "menu.save": "Guardar",
   "menu.saveAs": "Guardar como…",
   "menu.importAudio": "Importar audio…",
-  "menu.demo": "Cargar show de ejemplo",
   "menu.undo": "Deshacer",
   "menu.redo": "Rehacer",
   "menu.language": "Idioma",
@@ -137,8 +136,6 @@ export const es: Record<MessageKey, string> = {
   "status.opened": "Abierto {name}",
   "status.imported": "Importado {name}",
   "status.markerAdded": "Marcador añadido",
-  "status.demoLoaded":
-    "Show de ejemplo cargado. Su audio es sintético, así que no se puede guardar.",
   "status.cursor": "Cursor",
   "status.span": "Intervalo",
   "status.frames": "{count} fot.",

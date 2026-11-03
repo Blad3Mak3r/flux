@@ -12,7 +12,6 @@ export function MenuBar({
   onSave,
   onSaveAs,
   onImport,
-  onDemo,
   onUndo,
   onRedo,
 }: {
@@ -25,7 +24,6 @@ export function MenuBar({
   onSave: () => void;
   onSaveAs: () => void;
   onImport: () => void;
-  onDemo: () => void;
   onUndo: () => void;
   onRedo: () => void;
 }) {
@@ -59,7 +57,6 @@ export function MenuBar({
       </div>
 
       <div className="menu-end">
-        <button type="button" onClick={onDemo}>{t("menu.demo")}</button>
         <label className="locale">
           <span className="visually-hidden">{t("menu.language")}</span>
           <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
