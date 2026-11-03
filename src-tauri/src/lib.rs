@@ -1,4 +1,5 @@
 mod commands;
+pub mod devices;
 pub mod engine;
 pub mod project;
 
@@ -20,6 +21,10 @@ pub fn run() {
             commands::project_open,
             commands::project_import_audio,
             commands::project_save,
+            devices::devices_list_audio,
+            devices::devices_list_midi,
+            devices::devices_find_audio,
+            devices::devices_find_midi,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
