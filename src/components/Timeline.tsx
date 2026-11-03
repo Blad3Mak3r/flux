@@ -3,10 +3,11 @@ import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { Project } from "../project/types";
 import { nominalFps, realFps } from "../timecode";
-import { HEADER_W, RULER_H, patchReadout, readoutStore } from "../timeline/layout";
-import { clampZoom, pickTicks } from "../timeline/scale";
+import { RULER_H, patchReadout, readoutStore } from "../timeline/layout";
+import { clampZoom, frameX } from "../timeline/scale";
 import { useStore } from "../store";
 import type { Peaks } from "./ClipWave";
+import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { GUESS_SECONDS, TrackHeader, TrackLane } from "./TrackRow";
@@ -40,11 +41,11 @@ function Overlays({ pxPerFrame }: { pxPerFrame: number }) {
       {spanStart !== null && spanEnd !== null && spanEnd > spanStart && (
         <div
           className="span-shade"
-          style={{ left: HEADER_W + spanStart * pxPerFrame, width: (spanEnd - spanStart) * pxPerFrame }}
+          style={{ left: frameX(spanStart, pxPerFrame), width: frameX(spanEnd, pxPerFrame) - frameX(spanStart, pxPerFrame) }}
         />
       )}
       {hover !== null && (
-        <div className="hover-line" style={{ transform: `translateX(${HEADER_W + hover * pxPerFrame}px)` }} />
+        <div className="hover-line" style={{ transform: `translateX(${frameX(hover, pxPerFrame)}px)` }} />
       )}
     </>
   );
@@ -79,7 +80,9 @@ export function Timeline({
 }) {
   const t = useT();
   const scroller = useRef<HTMLDivElement>(null);
+  const headers = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(900);
+  const [scrollbarHeight, setScrollbarHeight] = useState(0);
   const { frameRate, start } = project.timecode;
   const fps = nominalFps(frameRate);
   const guessLength = GUESS_SECONDS * fps;
@@ -87,9 +90,13 @@ export function Timeline({
   useEffect(() => {
     const box = scroller.current;
     if (!box) return;
-    const observer = new ResizeObserver(() => setViewWidth(box.clientWidth));
+    const measure = () => {
+      setViewWidth(box.clientWidth);
+      setScrollbarHeight(box.offsetHeight - box.clientHeight);
+    };
+    const observer = new ResizeObserver(measure);
     observer.observe(box);
-    setViewWidth(box.clientWidth);
+    measure();
     return () => observer.disconnect();
   }, []);
 
@@ -105,7 +112,7 @@ export function Timeline({
       event.preventDefault();
       const { pxPerFrame: current, onZoom: setZoom } = zoomRef.current;
       const next = clampZoom(current * (event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
-      const pointerX = event.clientX - box.getBoundingClientRect().left - HEADER_W;
+      const pointerX = event.clientX - box.getBoundingClientRect().left;
       const frameUnderPointer = (box.scrollLeft + pointerX) / current;
       setZoom(next);
       requestAnimationFrame(() => {
@@ -126,18 +133,10 @@ export function Timeline({
     Math.max(end * TAIL, MIN_SECONDS * fps) * pxPerFrame,
     // Never narrower than the window, so the graticule fills the screen.
   );
-  const laneWidth = Math.max(contentWidth, viewWidth - HEADER_W);
-  const ticks = pickTicks(pxPerFrame, frameRate);
-
-  // The graticule is drawn once behind every lane, so it also fills the screen below the tracks.
-  const screenStyle = {
-    "--major-px": `${ticks.major * pxPerFrame}px`,
-    "--minor-px": `${(ticks.minor ?? ticks.major) * pxPerFrame}px`,
-    width: HEADER_W + laneWidth,
-  } as CSSProperties;
+  const laneWidth = Math.max(contentWidth, viewWidth);
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    const left = event.currentTarget.getBoundingClientRect().left + HEADER_W;
+    const left = event.currentTarget.getBoundingClientRect().left;
     patchReadout({ hover: Math.max(0, Math.round((event.clientX - left) / pxPerFrame)) });
   };
 
@@ -149,41 +148,71 @@ export function Timeline({
         </h2>
       </div>
 
-      <div className="screen-scroll" ref={scroller} onPointerDown={(event) => event.target === event.currentTarget && onSelect(null)}>
-        <div
-          className="screen-inner"
-          style={screenStyle}
-          onPointerMove={onPointerMove}
-          onPointerLeave={() => patchReadout({ hover: null })}
-        >
-          <div className="screen-row ruler-row" style={{ height: RULER_H }}>
-            <div className="corner zoom-corner">
-              <div className="zoom">
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => onZoom(clampZoom(pxPerFrame / ZOOM_STEP))}
-                  aria-label={t("timeline.zoomOut")}
-                  title={t("timeline.zoomOut")}
-                >
-                  <ZoomOutIcon />
-                </button>
-                <output className="zoom-value" aria-label={t("status.zoom")}>
-                  {zoomPercent}%
-                </output>
-                <button
-                  type="button"
-                  className="icon-button"
-                  onClick={() => onZoom(clampZoom(pxPerFrame * ZOOM_STEP))}
-                  aria-label={t("timeline.zoomIn")}
-                  title={t("timeline.zoomIn")}
-                >
-                  <ZoomInIcon />
-                </button>
+      <div className="screen-body" style={{ "--scrollbar-h": `${scrollbarHeight}px` } as CSSProperties}>
+        {/* Outside the horizontal scroller, so its scrollbar spans the lanes only. */}
+        <div className="screen-side">
+          <div className="zoom-corner" style={{ height: RULER_H }}>
+            <div className="zoom">
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => onZoom(clampZoom(pxPerFrame / ZOOM_STEP))}
+                aria-label={t("timeline.zoomOut")}
+                title={t("timeline.zoomOut")}
+              >
+                <ZoomOutIcon />
+              </button>
+              <output className="zoom-value" aria-label={t("status.zoom")}>
+                {zoomPercent}%
+              </output>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => onZoom(clampZoom(pxPerFrame * ZOOM_STEP))}
+                aria-label={t("timeline.zoomIn")}
+                title={t("timeline.zoomIn")}
+              >
+                <ZoomInIcon />
+              </button>
+            </div>
+          </div>
+
+          {/* Follows the lanes' vertical scroll; the wheel over it scrolls the lanes. */}
+          <div
+            className="screen-headers"
+            ref={headers}
+            onWheel={(event) => {
+              if (!event.ctrlKey && !event.metaKey && scroller.current) scroller.current.scrollTop += event.deltaY;
+            }}
+          >
+            <div className="headers-inner">
+              {project.tracks.map((track) => (
+                <TrackHeader key={track.id} track={track} onToggleMute={onToggleMute} />
+              ))}
+              <div className="filler">
+                <p className="hint">{t("tracks.hint")}</p>
               </div>
             </div>
+          </div>
+        </div>
 
-            <div style={{ width: laneWidth }}>
+        <div
+          className="screen-scroll"
+          ref={scroller}
+          onScroll={(event) => {
+            if (headers.current) headers.current.scrollTop = event.currentTarget.scrollTop;
+          }}
+          onPointerDown={(event) => event.target === event.currentTarget && onSelect(null)}
+        >
+          <div
+            className="screen-inner"
+            style={{ width: laneWidth }}
+            onPointerMove={onPointerMove}
+            onPointerLeave={() => patchReadout({ hover: null })}
+          >
+            <Graticule width={laneWidth} pxPerFrame={pxPerFrame} rate={frameRate} />
+
+            <div className="ruler-row" style={{ height: RULER_H }}>
               <Ruler
                 width={laneWidth}
                 pxPerFrame={pxPerFrame}
@@ -192,46 +221,33 @@ export function Timeline({
                 onSeek={(relative) => onSeek(start + relative)}
               />
             </div>
-          </div>
 
-          {project.tracks.map((track) => (
-            <div className="screen-row" key={track.id}>
-              <TrackHeader track={track} onToggleMute={onToggleMute} />
-              <div style={{ width: laneWidth }} className="lane-wrap">
-                <TrackLane
-                  track={track}
-                  assetNames={assetNames}
-                  durations={durations}
-                  waveforms={waveforms}
-                  guessLength={guessLength}
-                  fps={realFps(frameRate)}
-                  pxPerFrame={pxPerFrame}
-                  selected={selection}
-                  onSelect={onSelect}
-                  onMove={onMove}
-                />
-              </div>
-            </div>
-          ))}
+            {project.tracks.map((track) => (
+              <TrackLane
+                key={track.id}
+                track={track}
+                assetNames={assetNames}
+                durations={durations}
+                waveforms={waveforms}
+                guessLength={guessLength}
+                fps={realFps(frameRate)}
+                pxPerFrame={pxPerFrame}
+                selected={selection}
+                onSelect={onSelect}
+                onMove={onMove}
+              />
+            ))}
 
-          {project.tracks.length === 0 && (
-            <div className="screen-row empty-row">
-              <div className="corner" />
-              <div className="empty-state" style={{ width: laneWidth }}>
+            {project.tracks.length === 0 && (
+              <div className="empty-state">
                 <p className="empty-title">{t("track.empty.title")}</p>
                 <p>{t("track.empty.body")}</p>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="screen-row filler">
-            <div className="corner">
-              <p className="hint">{t("tracks.hint")}</p>
-            </div>
+            <Overlays pxPerFrame={pxPerFrame} />
+            <Playhead parked={parked} start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
           </div>
-
-          <Overlays pxPerFrame={pxPerFrame} />
-          <Playhead parked={parked} start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
         </div>
       </div>
     </section>
