@@ -1,13 +1,14 @@
 # Flux Timecode
 
 Desktop application to build timecode tracks from songs, events and cues. It is a hybrid: QLab's cue / show-control
-model with a REAPER-style timeline and track interface, in a modern look. The repository is greenfield (no code yet).
+model with a REAPER-style timeline and track interface, in a modern look.
 
 ## Scope
 
 - Supports both **MTC** (MIDI Timecode) and **LTC** (Linear/audio Timecode).
 - Devices are user-selectable: audio interfaces (LTC and project audio) and MIDI interfaces/ports (MTC).
-- Signal direction (generate/output vs. chase/input) is still an open decision; do not assume one.
+- Flux is the **master clock and only generates** timecode (LTC out through audio, MTC out through MIDI). Chasing an
+  external timecode (input) is out of scope for now.
 
 ## Project file format
 
