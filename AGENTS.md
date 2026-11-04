@@ -18,6 +18,8 @@ Projects use the `.fxtc` extension. A `.fxtc` is a **zip container** holding:
   configuration (timecode format, frame rate, start offset, MTC/LTC settings, device preferences).
 - The **audio files** used by the project's tracks, bundled in the archive so a project is self-contained and portable.
 
+Releases, the update feed and the download page (`landing/`) are described in [docs/releasing.md](docs/releasing.md).
+
 The full spec (layout, fields, versioning, device-name hints) is in [docs/fxtc-format.md](docs/fxtc-format.md); the
 code is `src-tauri/src/project/`.
 

@@ -37,7 +37,7 @@ QLab's cue and show-control model combined with a REAPER-style timeline and trac
 - Not built yet: clip playback and mixing, trigger firing (`marker`, `midi`), waveform peaks, and any real UI. `src/App.tsx` is still the Tauri template demo.
 - Internationalisation is a requirement from the start. English is the default and Spanish is the second language. No user-facing string is hard-coded.
 - The UI must be legible in the dark and from a distance: the current timecode has to read at a glance.
-- Undecided: LTC level and edge defaults beyond the shipped defaults, supported audio formats beyond wav, aiff, flac, mp3 and ogg, a non-drop 29.97 rate, trigger actions beyond `marker` and `midi`, and release and packaging.
+- Undecided: LTC level and edge defaults beyond the shipped defaults, supported audio formats beyond wav, aiff, flac, mp3 and ogg, a non-drop 29.97 rate, and trigger actions beyond `marker` and `midi`. Releases are decided: see `docs/releasing.md`.
 
 ## Brand Commitments
 
