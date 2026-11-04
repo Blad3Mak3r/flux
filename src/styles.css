@@ -447,6 +447,11 @@ input:disabled {
   border-color: var(--phosphor);
 }
 
+.lamp[data-state="hold"] {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
 .lamp[data-state="fault"] {
   background: var(--signal);
   border-color: var(--signal);
@@ -1437,6 +1442,44 @@ input:disabled {
 .launcher .message {
   max-width: 100%;
   white-space: normal;
+}
+
+/* Fixed height, so the window does not change when the download bar comes and goes. */
+.startup-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 32px;
+}
+
+.startup-foot .message {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* Download bar: the level meter's ground and rule, filled flat in phosphor. */
+.update-bar {
+  flex: 1;
+  height: 10px;
+  padding: 1px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+}
+
+.update-bar span {
+  display: block;
+  height: 100%;
+  background: var(--phosphor);
+}
+
+.update-figures {
+  font-family: var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--ink-dim);
+  white-space: nowrap;
 }
 
 .welcome {
