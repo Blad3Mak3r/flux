@@ -1,0 +1,136 @@
+name: Release
+
+# Builds the installers and publishes a GitHub Release. It runs when a pull request that changes
+# the app version reaches main (see prepare-release.yml), or by hand to release the version main
+# already carries when that version has no tag yet (the first release).
+
+on:
+  push:
+    branches: [main]
+    paths: [src-tauri/tauri.conf.json]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - id: check
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Fails when the manifests carry different versions.
+          version=$(node scripts/set-version.mjs --check)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$([[ $version == *-* ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+          release=true
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released."
+            release=false
+          elif [ "$EVENT" = push ]; then
+            # Any edit of tauri.conf.json lands here; only a changed version is a release.
+            previous=$(git show "$BEFORE:src-tauri/tauri.conf.json" 2>/dev/null \
+              | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version' || true)
+            if [ "$previous" = "$version" ]; then
+              echo "The version did not change ($version)."
+              release=false
+            fi
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: verify
+    if: needs.verify.outputs.release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target aarch64-apple-darwin
+          - os: macos-latest
+            args: --target x86_64-apple-darwin
+          - os: ubuntu-22.04
+            args: ""
+          - os: windows-latest
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ startsWith(matrix.os, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      # The Tauri prerequisites, plus ALSA for the audio and MIDI crates.
+      - name: Install the Linux libraries
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libasound2-dev
+
+      - run: npm ci
+
+      # The release stays a draft until every platform has built (see `publish`).
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: v${{ needs.verify.outputs.version }}
+          releaseName: Flux Timecode v${{ needs.verify.outputs.version }}
+          releaseBody: Installers for Flux Timecode v${{ needs.verify.outputs.version }}. The download page picks the right one for your system.
+          releaseDraft: true
+          prerelease: ${{ needs.verify.outputs.prerelease == 'true' }}
+          generateReleaseNotes: true
+          releaseCommitish: ${{ github.sha }}
+          # The download page writes latest.json itself (landing/scripts/release-site.mjs).
+          uploadUpdaterJson: false
+          releaseAssetNamePattern: flux-timecode_[version]_[platform]_[arch][ext]
+          args: ${{ matrix.args }}
+
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v${{ needs.verify.outputs.version }}
+    steps:
+      # Publishing creates the tag at the release commit.
+      - name: Publish the release
+        run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+
+      # Pre-releases are archived here but are not offered to users.
+      - name: Update the download page
+        if: needs.verify.outputs.prerelease != 'true'
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main

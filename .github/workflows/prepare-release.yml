@@ -1,0 +1,55 @@
+name: Prepare release
+
+# Run this one by hand: Actions > Prepare release > Run workflow, and type the version.
+# It opens a pull request that bumps the version everywhere. Merging that pull request is what
+# starts the release build (release.yml).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, e.g. 0.2.0. A pre-release is a number: 0.3.0-1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      - name: Refuse a version that already has a tag
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::The tag v$VERSION already exists."
+            exit 1
+          fi
+
+      # Fails unless the version is valid SemVer and newer than the current one.
+      - name: Set the version
+        run: node scripts/set-version.mjs "$VERSION"
+
+      - name: Open the release pull request
+        run: |
+          branch="chore/release-v$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          git commit -m "chore(release): v$VERSION"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "chore(release): v$VERSION" \
+            --body "$(printf '## Summary\n\nBumps the version to %s. Merging this pull request builds the installers, publishes the release and updates the download page.\n\n## Changes\n\n- `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json` now carry %s.\n\n## Validation\n\n`scripts/set-version.mjs` checked that every file carried the same version, that %s is valid and that it is newer than the current one.\n' "$VERSION" "$VERSION" "$VERSION")"
