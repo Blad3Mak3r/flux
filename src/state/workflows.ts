@@ -2,7 +2,15 @@
 // they run, so none of them closes over a project that has since changed.
 
 import type { Translate } from "../i18n/messages";
-import { errorMessage, importAudio, newProject, openProject, projectDocument, saveProject } from "../project/api";
+import {
+  errorMessage,
+  importAudio,
+  newProject,
+  openProjectAt,
+  pickProjectPath,
+  projectDocument,
+  saveProject,
+} from "../project/api";
 import type { BackendDocument } from "../project/api";
 import type { Project } from "../project/types";
 import { currentFrame } from "../transport/store";
@@ -45,8 +53,12 @@ function restore({ project, path, baseline }: BackendDocument): void {
 let started: Promise<void> | null = null;
 
 /**
- * Opens the window on the backend's document: the one it kept while the window was reloaded, or a
- * new one. Outside the desktop app there is no backend and the window keeps its own. Once only.
+ * Opens the window on a document: the one the backend kept while the window was reloaded, else the
+ * show the welcome window asked for (`?open=` in the address), else a new one. The address keeps
+ * its `?open=` on a reload, which is why the backend's copy, with the edits made since, comes
+ * first. The editor window is built once per run, so a document the backend already holds is
+ * always this window's own. Outside the desktop app there is no backend and the window keeps its
+ * own. Once only.
  */
 export function startDocument(t: Translate): Promise<void> {
   started ??= (async () => {
@@ -57,6 +69,8 @@ export function startDocument(t: Translate): Promise<void> {
       return;
     }
     if (found) return restore(found);
+    const path = new URLSearchParams(window.location.search).get("open");
+    if (path) return openAt(path);
     const fresh = await newProject(t("project.untitled"), "fps25").catch(() => null);
     if (fresh) load(fresh, null);
   })();
@@ -72,14 +86,22 @@ export const newDocument = (t: Translate) =>
     say("status.ready");
   });
 
+async function openAt(path: string): Promise<void> {
+  try {
+    const opened = await openProjectAt(path);
+    load(opened, path);
+    say("status.opened", { name: basename(path) });
+    analyse(opened.assets);
+  } catch (err) {
+    fail(err);
+  }
+}
+
 export const openDocument = () =>
   replaceDoc(async () => {
     try {
-      const opened = await openProject();
-      if (!opened) return;
-      load(opened.project, opened.path);
-      say("status.opened", { name: basename(opened.path) });
-      analyse(opened.project.assets);
+      const path = await pickProjectPath();
+      if (path) await openAt(path);
     } catch (err) {
       fail(err);
     }

@@ -119,6 +119,11 @@ saved (as it started, for a new one) and the document is unsaved when `project` 
 selection and the zoom are the window's and do not survive a reload; the waveforms are read again, from the stored
 previews or the decoded audio. Starting the window also stops an output a previous load left running.
 
+The editor window opens on, in this order: the document the backend already holds (a reload), the show named by
+`?open=` in its address (what the welcome window asks for; the address keeps it on a reload, which is why the backend's
+copy, with the edits made since, comes first), or a new project. The editor window is built once per run, so a document
+the backend holds is always that window's own.
+
 The backend also remembers where each asset's bytes come from (the `.fxtc` it was opened or saved from, or an imported
 file not yet in any archive), so saving a project that references an asset the backend never saw fails with
 `MissingAsset`.

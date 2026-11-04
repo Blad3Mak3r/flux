@@ -4,12 +4,13 @@ use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use zip::result::ZipError;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::error::{ProjectError, Result};
-use super::model::{AudioAsset, FORMAT_VERSION, Project, check_asset_path};
+use super::model::{AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path};
 use super::preview::{AudioStamp, Preview, StoredPreview, preview_path};
 
 const PROJECT_JSON: &str = "project.json";
@@ -76,6 +77,46 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
     }
 
     Ok((project, ProjectArchive { archive }))
+}
+
+/// What a list of shows displays, read from `project.json` alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectMeta {
+    pub name: String,
+    pub frame_rate: FrameRate,
+    pub track_count: usize,
+}
+
+/// Reads the summary of a `.fxtc` without validating the project or looking at its audio.
+///
+/// Unknown fields are ignored, so a file from a newer version still lists as long as these three
+/// fields keep their shape.
+pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Raw {
+        name: String,
+        timecode: RawTimecode,
+        tracks: Vec<serde::de::IgnoredAny>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct RawTimecode {
+        frame_rate: FrameRate,
+    }
+
+    let mut archive = open_archive(path)?;
+    let raw: Raw = match archive.by_name(PROJECT_JSON) {
+        Ok(entry) => serde_json::from_reader(entry)?,
+        Err(ZipError::FileNotFound) => return Err(ProjectError::MissingProjectJson),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(ProjectMeta {
+        name: raw.name,
+        frame_rate: raw.timecode.frame_rate,
+        track_count: raw.tracks.len(),
+    })
 }
 
 /// The preview stored for `asset`, if there is one made from the audio the archive holds now.
@@ -335,6 +376,51 @@ mod tests {
 
         assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn read_meta_should_summarise_a_saved_project() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.fxtc");
+        let project = sample_project();
+        save(&path, &project, &disk_sources(&dir), &HashMap::new()).unwrap();
+
+        let meta = read_meta(&path).unwrap();
+
+        assert_eq!(meta.name, project.name);
+        assert_eq!(meta.frame_rate, project.timecode.frame_rate);
+        assert_eq!(meta.track_count, project.tracks.len());
+    }
+
+    #[test]
+    fn read_meta_should_ignore_fields_it_does_not_know_and_a_newer_version() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.fxtc");
+        let newer = format!(
+            r#"{{ "formatVersion": {}, "name": "Later", "somethingNew": true,
+                 "timecode": {{ "frameRate": "fps25", "start": 0, "dropped": 1 }},
+                 "tracks": [{{ "future": 1 }}, {{ "future": 2 }}] }}"#,
+            FORMAT_VERSION + 1
+        );
+        zip_with(&path, &[(PROJECT_JSON, newer.as_bytes())]);
+
+        let meta = read_meta(&path).unwrap();
+
+        assert_eq!(meta.name, "Later");
+        assert_eq!(meta.frame_rate, FrameRate::Fps25);
+        assert_eq!(meta.track_count, 2);
+    }
+
+    #[test]
+    fn read_meta_should_reject_an_archive_without_project_json() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.fxtc");
+        zip_with(&path, &[("audio/click.wav", AUDIO_BYTES)]);
+
+        assert!(matches!(
+            read_meta(&path),
+            Err(ProjectError::MissingProjectJson)
+        ));
     }
 
     #[test]

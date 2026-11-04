@@ -6,7 +6,7 @@ mod model;
 mod preview;
 mod session;
 
-pub use archive::{AssetSource, ProjectArchive, open, save};
+pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
 pub use error::{ProjectError, Result};
 pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, FORMAT_VERSION, FrameRate, LtcOutput, MtcOutput,

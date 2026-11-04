@@ -82,6 +82,18 @@ export const TrashIcon = () => (
   </Icon>
 );
 
+export const PlusIcon = () => (
+  <Icon>
+    <path d="M8 3 V13 M3 8 H13" />
+  </Icon>
+);
+
+export const FolderIcon = () => (
+  <Icon>
+    <path d="M2.5 4.5 H6.5 L8 6 H13.5 V12.5 H2.5 Z" />
+  </Icon>
+);
+
 // Window buttons sit on the same 16px grid; the stroke is 1px lighter than the content icons so
 // they stay quiet beside the menu text.
 export const MinimizeIcon = () => (
