@@ -13,7 +13,9 @@ export interface Devices {
   midiError: string | null;
   /** The listing needs the desktop app; in a plain browser it never resolves. */
   available: boolean;
+  /** The device that plays the programme and provides the clock. */
   audioPresence: Presence;
+  ltcPresence: Presence;
   mtcPresence: Presence;
   refresh: () => void;
 }
@@ -25,11 +27,13 @@ export function useDevices(output: OutputConfig): Devices {
   const [midiError, setMidiError] = useState<string | null>(null);
   const [available, setAvailable] = useState(true);
   const [audioPresence, setAudioPresence] = useState<Presence>("unset");
+  const [ltcPresence, setLtcPresence] = useState<Presence>("unset");
   const [mtcPresence, setMtcPresence] = useState<Presence>("unset");
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((n) => n + 1), []);
 
-  const audioHint = output.ltc?.deviceName ?? output.audio?.deviceName ?? null;
+  const audioHint = output.audio?.deviceName ?? output.ltc?.deviceName ?? null;
+  const ltcHint = output.ltc?.deviceName ?? null;
   const midiHint = output.mtc?.portName ?? null;
 
   useEffect(() => {
@@ -56,11 +60,12 @@ export function useDevices(output: OutputConfig): Devices {
         .catch(() => !cancelled && set("unknown"));
     };
     resolve(audioHint, findAudioDevice, setAudioPresence);
+    resolve(ltcHint, findAudioDevice, setLtcPresence);
     resolve(midiHint, findMidiPort, setMtcPresence);
     return () => {
       cancelled = true;
     };
-  }, [audioHint, midiHint, tick]);
+  }, [audioHint, ltcHint, midiHint, tick]);
 
-  return { audio, midi, midiError, available, audioPresence, mtcPresence, refresh };
+  return { audio, midi, midiError, available, audioPresence, ltcPresence, mtcPresence, refresh };
 }

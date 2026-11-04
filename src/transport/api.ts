@@ -12,6 +12,8 @@ export interface OutputInfo {
   channels: number;
   /** 1-based interface channel carrying LTC. */
   ltcChannel: number | null;
+  /** The device LTC plays on when it is not `device`; null when LTC is off or shares it. */
+  ltcDevice: string | null;
   mtcPort: string | null;
   /** Things that did not stop the output, e.g. a missing MIDI port. */
   warnings: string[];
@@ -24,6 +26,8 @@ export interface Position {
   positionSamples: number;
   /** The audio device failed or went away while running. */
   deviceLost: boolean;
+  /** The LTC device, when it is not the programme's, failed or went away. */
+  ltcLost: boolean;
   /** The device renders audio faster than real time (ALSA's null device does): the clock is wrong. */
   clockUnpaced: boolean;
 }
