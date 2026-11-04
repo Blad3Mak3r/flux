@@ -13,4 +13,4 @@ pub use model::{
     OutputConfig, Project, TimecodeSettings, Track, TrackKind, Trigger, TriggerAction,
 };
 pub use preview::{AudioStamp, Preview};
-pub use session::Session;
+pub use session::{Document, Session};

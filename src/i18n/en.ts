@@ -172,6 +172,7 @@ export const en = {
   "status.analysing": "Reading audio…",
   "status.analysed": "Audio ready",
   "status.saved": "Saved {name}",
+  "status.restored": "Picked up {name} where you left it",
   "status.opened": "Opened {name}",
   "status.imported": "Imported {name}",
   "status.markerAdded": "Marker added",

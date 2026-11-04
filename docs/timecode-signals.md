@@ -67,19 +67,45 @@ the transport reaches frame N.
 
 ## Output and transport commands (`output.rs`, `transport_commands.rs`)
 
-`output_start(project)` opens the devices `project.output` names and starts a stopped transport at
+`output_start(project, onPosition, onLevels)` opens the devices `project.output` names and starts a stopped transport at
 `project.timecode.start`; it replaces a running output. TS wrappers are in `src/transport/api.ts`.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project` | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `mtcPort`, `warnings`. |
+| `output_start` | `project`, `onPosition`, `onLevels` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `mtcPort`, `warnings`. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
 | `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`) or `null` when no output runs. |
 
-While an output runs, the event `transport-position` carries a `Position` about 30 times a second whenever it
-changes.
+While an output runs it reports over two lanes, each with a thread of its own and the `Channel` that
+`output_start` was given for it, about 30 times a second each:
+
+| Lane | Thread | Channel (`output_start` argument) | Sends |
+| --- | --- | --- | --- |
+| Position | `flux-position` | `onPosition`: `Channel<Position>` | The `Position`, only when it moved. |
+| Levels | `flux-levels` | `onLevels`: `Channel<[{ id, peak }]>` | The peak of each track since the previous message; silence once after the sound stops, then nothing. |
+
+The lanes are independent, so a slow consumer of the meters never delays the timecode. A channel is ordered,
+goes to the window that opened the output and ends with it, which a broadcast event does not; the UI also drops a
+message that belongs to an output it has closed since.
+
+### Threads
+
+No command runs on the main thread, which belongs to the window and its event loop. Tauri runs a command without
+`async` inline on that thread, so the small ones (`transport_*`, `output_set_track_gain`) are
+`#[tauri::command(async)]` and use the command thread pool; the heavy ones (`output_start`, `output_stop`,
+`output_set_clips`, `project_*`, `devices_*`, `audio_analyze`) use the blocking pool. The rest:
+
+| Thread | Work |
+| --- | --- |
+| `flux-audio` | The audio callback: programme, LTC, position. Never allocates or waits. |
+| `flux-mtc` | MIDI Timecode quarter frames. |
+| `flux-position`, `flux-levels` | The two lanes above. |
+
+Commands that set the transport only enqueue a message for the audio callback, so two of them issued back to back
+from the UI are not guaranteed to run in order; the UI awaits the ones that depend on each other (Play waits for the
+output to open) and sends dragged seeks and faders one at a time, newest value last.
 
 - One audio device carries everything: the LTC device, or the `output.audio` device when there is no LTC, or the
   system's default output when neither names one (an empty `deviceName`). If both are set they must be the same
@@ -118,8 +144,8 @@ The music is decoded once and mixed in the same callback that renders LTC, on th
   gain. The fader lives in an atomic that `output_set_track_gain(trackId, gainDb)` writes without rebuilding the
   programme; the callback ramps from the gain the last chunk ended on to the new one over the next 256-frame chunk, so
   a drag never clicks. After the gain the callback keeps the largest absolute sample of each track in an atomic
-  (`fetch_max`, no locks, no allocation). The emitter thread reads and resets those peaks every ~33 ms and sends them
-  as the `transport-levels` event, `{ tracks: [{ id, peak }] }` with linear amplitudes (the UI converts to dBFS); a
+  (`fetch_max`, no locks, no allocation). The levels lane reads and resets those peaks every ~33 ms and sends them
+  as `[{ id, peak }]` with linear amplitudes (the UI converts to dBFS); a
   muted track is not in the clip set and has no peak. Silence is sent once after the audio stops and not repeated.
 - **Updating while running**: the callback receives a new `Arc<ClipSet>` through the same channel as transport
   commands and swaps it in. `Output` keeps every set it ever sent until it stops, so the callback is never the one to

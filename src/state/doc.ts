@@ -2,11 +2,17 @@
 
 import type { Project } from "../project/types";
 
+/** The waveform the backend decoded: `[min, max]` byte pairs, `perSecond` of them per second. */
+export interface Peaks {
+  values: number[];
+  perSecond: number;
+}
+
 /** What is known about an imported audio file. */
 export interface AssetAudio {
   seconds: number;
-  peaks?: number[];
-  peaksPerSecond?: number;
+  /** Kept as one object, so what draws it can tell by identity whether the waveform changed. */
+  peaks?: Peaks;
 }
 
 export interface Doc {
@@ -23,6 +29,8 @@ export interface Doc {
 
 export type DocAction =
   | { type: "load"; project: Project; path: string | null }
+  /** A document the backend kept while the window was reloaded; `saved` is what it is compared to. */
+  | { type: "restore"; project: Project; path: string | null; saved: Project }
   | { type: "audio"; id: string; info: AssetAudio }
   | { type: "edit"; project: Project }
   | { type: "undo" }
@@ -50,6 +58,8 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
         saved: action.path === null ? null : action.project,
         audio: {},
       };
+    case "restore":
+      return { project: action.project, path: action.path, past: [], future: [], saved: action.saved, audio: {} };
     case "audio":
       return { ...doc, audio: { ...doc.audio, [action.id]: action.info } };
     case "edit":

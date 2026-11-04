@@ -1,7 +1,11 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { FrameRate, Project, Track, TriggerAction } from "../project/types";
+import { deleteSelection, edit } from "../state/actions";
 import type { AssetAudio } from "../state/doc";
+import { useDoc } from "../state/store";
+import { openTab, toggleInspector, useUi } from "../state/ui";
+import type { InspectorTab, Selected } from "../state/ui";
 import { findItem, setFrameRate, setName, setStart, setTrackColor, updateClip, updateTrigger } from "../state/edit";
 import { TRACK_COLORS } from "../timeline/palette";
 import { SelectField, TextField, TimecodeField } from "./fields";
@@ -9,10 +13,6 @@ import { ChevronLeftIcon, ChevronRightIcon, OutputIcon, ProjectIcon, SelectionIc
 import { MOD_KEY } from "./MenuBar";
 import { OutputPanel } from "./OutputPanel";
 import type { Devices } from "../devices/useDevices";
-import type { Playback } from "../transport/playback";
-import type { Selected } from "./TrackRow";
-
-export type InspectorTab = "selection" | "project" | "output";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const TABS: InspectorTab[] = ["selection", "project", "output"];
@@ -202,32 +202,12 @@ function ProjectPanel({ project, onEdit }: { project: Project; onEdit: (project:
   );
 }
 
-export function Inspector({
-  tab,
-  onTab,
-  collapsed,
-  onToggle,
-  project,
-  selection,
-  audio,
-  devices,
-  playback,
-  onEdit,
-  onDelete,
-}: {
-  tab: InspectorTab;
-  /** Picks a tab; from the collapsed rail it also opens the sidebar. */
-  onTab: (tab: InspectorTab) => void;
-  collapsed: boolean;
-  onToggle: () => void;
-  project: Project;
-  selection: Selected | null;
-  audio: Record<string, AssetAudio>;
-  devices: Devices;
-  playback: Playback;
-  onEdit: (project: Project) => void;
-  onDelete: () => void;
-}) {
+export function Inspector({ devices }: { devices: Devices }) {
+  const tab = useUi((ui) => ui.tab);
+  const collapsed = useUi((ui) => ui.collapsed);
+  const selection = useUi((ui) => ui.selection);
+  const project = useDoc((doc) => doc.project);
+  const audio = useDoc((doc) => doc.audio);
   const t = useT();
   const toggleLabel = `${t(collapsed ? "inspector.expand" : "inspector.collapse")} (${MOD_KEY}+B)`;
   const toggle = (
@@ -238,7 +218,7 @@ export function Inspector({
       aria-controls="inspector-body"
       aria-label={t(collapsed ? "inspector.expand" : "inspector.collapse")}
       title={toggleLabel}
-      onClick={onToggle}
+      onClick={toggleInspector}
     >
       {collapsed ? <ChevronLeftIcon /> : <ChevronRightIcon />}
     </button>
@@ -253,7 +233,7 @@ export function Inspector({
             const TabIcon = TAB_ICONS[id];
             const label = t(`inspector.tab.${id}` as MessageKey);
             return (
-              <button key={id} type="button" className="icon-button" aria-label={label} title={label} onClick={() => onTab(id)}>
+              <button key={id} type="button" className="icon-button" aria-label={label} title={label} onClick={() => openTab(id)}>
                 <TabIcon />
               </button>
             );
@@ -277,12 +257,12 @@ export function Inspector({
               aria-selected={tab === id}
               aria-controls={`panel-${id}`}
               tabIndex={tab === id ? 0 : -1}
-              onClick={() => onTab(id)}
+              onClick={() => openTab(id)}
               onKeyDown={(event) => {
                 const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
                 if (step === 0) return;
                 const next = TABS[(TABS.indexOf(id) + step + TABS.length) % TABS.length];
-                onTab(next);
+                openTab(next);
                 document.getElementById(`tab-${next}`)?.focus();
               }}
             >
@@ -293,10 +273,10 @@ export function Inspector({
       </div>
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="panel">
         {tab === "selection" && (
-          <SelectionPanel project={project} selection={selection} audio={audio} onEdit={onEdit} onDelete={onDelete} />
+          <SelectionPanel project={project} selection={selection} audio={audio} onEdit={edit} onDelete={deleteSelection} />
         )}
-        {tab === "project" && <ProjectPanel project={project} onEdit={onEdit} />}
-        {tab === "output" && <OutputPanel project={project} devices={devices} playback={playback} onEdit={onEdit} />}
+        {tab === "project" && <ProjectPanel project={project} onEdit={edit} />}
+        {tab === "output" && <OutputPanel project={project} devices={devices} onEdit={edit} />}
       </div>
     </aside>
   );

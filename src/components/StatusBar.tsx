@@ -1,27 +1,15 @@
 import { useT } from "../i18n";
-import type { MessageKey } from "../i18n";
-import type { FrameRate } from "../project/types";
-import { useStore } from "../store";
+import { useDoc } from "../state/store";
+import { useUi } from "../state/ui";
 import { formatFrames } from "../timecode";
-import { readoutStore } from "../timeline/layout";
+import { selectSpan, useReadout } from "../timeline/layout";
 
-/** A status line is either a translatable message or raw text from the backend (an error). */
-export type Message =
-  | { key: MessageKey; values?: Record<string, string | number>; tone: "info" }
-  | { text: string; tone: "error" };
-
-export function StatusBar({
-  message,
-  rate,
-  start,
-}: {
-  message: Message;
-  rate: FrameRate;
-  start: number;
-}) {
+export function StatusBar() {
   const t = useT();
-  const { hover, spanA, spanB } = useStore(readoutStore);
-  const span = spanA !== null && spanB !== null ? Math.abs(spanB - spanA) : null;
+  const message = useUi((ui) => ui.message);
+  const { frameRate: rate, start } = useDoc((doc) => doc.project.timecode);
+  const hover = useReadout((readout) => readout.hover);
+  const span = useReadout(selectSpan);
   return (
     <footer className="statusbar">
       <p className="message" data-tone={message.tone} role={message.tone === "error" ? "alert" : "status"}>

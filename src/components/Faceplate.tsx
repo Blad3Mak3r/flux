@@ -1,11 +1,10 @@
 import type { Devices, Presence } from "../devices/useDevices";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { Project } from "../project/types";
+import { useDoc } from "../state/store";
 import { formatFrames } from "../timecode";
-import type { Playback } from "../transport/playback";
-import { positionStore } from "../transport/playback";
-import { useStore } from "../store";
+import { pause, play, stop } from "../transport/playback";
+import { selectFrame, selectMode, useTransport } from "../transport/store";
 import { DotMatrix } from "./DotMatrix";
 import { PauseIcon, PlayIcon, StopIcon } from "./icons";
 
@@ -32,28 +31,87 @@ function rowState(configured: boolean, presence: Presence, running: boolean, los
     : { state: "off", status: "output.state.off" };
 }
 
-export function Faceplate({
-  project,
-  playback,
-  devices,
-}: {
-  project: Project;
-  playback: Playback;
-  devices: Devices;
-}) {
+/** The timecode, at the pace the frames change. */
+function Readout() {
   const t = useT();
-  const position = useStore(positionStore);
-  const { frameRate, start } = project.timecode;
-  const state = position?.state ?? "stopped";
-  const frame = position?.frame ?? playback.parked;
+  const { frameRate, start } = useDoc((doc) => doc.project.timecode);
+  const frame = useTransport(selectFrame);
+  const state = useTransport(selectMode);
   const timecode = formatFrames(frame, frameRate);
-  const running = playback.info !== null;
-  const { ltc, mtc } = project.output;
+  return (
+    <section className="readout" aria-label={t("readout.label")}>
+      <DotMatrix text={timecode} label={`${t("readout.label")} ${timecode}`} />
+      <p className="readout-line">
+        <span className="state-word" data-state={state} role="status">
+          {t(`transport.state.${state}` as MessageKey)}
+        </span>
+        <span>{t(`frameRate.${frameRate}` as MessageKey)}</span>
+        <span>{t("readout.start", { timecode: formatFrames(start, frameRate) })}</span>
+      </p>
+    </section>
+  );
+}
+
+/** Redrawn only when the transport changes state, not with every frame. */
+function Keys() {
+  const t = useT();
+  const state = useTransport(selectMode);
+  return (
+    <section className="keys" aria-labelledby="transport-legend">
+      <h2 id="transport-legend" className="legend">
+        {t("transport.legend")}
+      </h2>
+      <div className="key-row">
+        <button
+          type="button"
+          className="key"
+          aria-pressed={state === "stopped"}
+          data-lamp={state === "stopped" ? "on" : "off"}
+          onClick={() => void stop()}
+        >
+          <StopIcon />
+          <span>{t("transport.stop")}</span>
+        </button>
+        <button
+          type="button"
+          className="key"
+          data-tone="live"
+          aria-pressed={state === "playing"}
+          data-lamp={state === "playing" ? "on" : "off"}
+          onClick={() => void play()}
+        >
+          <PlayIcon />
+          <span>{t("transport.play")}</span>
+        </button>
+        <button
+          type="button"
+          className="key"
+          data-tone="hold"
+          aria-pressed={state === "paused"}
+          data-lamp={state === "paused" ? "on" : "off"}
+          onClick={() => void pause()}
+        >
+          <PauseIcon />
+          <span>{t("transport.pause")}</span>
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function Lamps({ devices }: { devices: Devices }) {
+  const t = useT();
+  const output = useDoc((doc) => doc.project.output);
+  const info = useTransport((transport) => transport.info);
+  const deviceLost = useTransport((transport) => transport.position?.deviceLost);
+  const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced);
+  const running = info !== null;
+  const { ltc, mtc } = output;
   // An empty name is the system's default output, which is what plays when nothing was chosen.
-  const deviceName = ltc?.deviceName ?? project.output.audio?.deviceName ?? "";
-  const clockRow = position?.clockUnpaced
+  const deviceName = ltc?.deviceName ?? output.audio?.deviceName ?? "";
+  const clockRow = clockUnpaced
     ? { state: "fault" as LampState, status: "output.state.fast" as MessageKey }
-    : rowState(true, devices.audioPresence === "unset" ? "found" : devices.audioPresence, running, position?.deviceLost);
+    : rowState(true, devices.audioPresence === "unset" ? "found" : devices.audioPresence, running, deviceLost);
 
   const rows: OutputRow[] = [
     {
@@ -63,86 +121,43 @@ export function Faceplate({
     },
     {
       legend: "output.ltc",
-      ...rowState(ltc !== null, devices.audioPresence, running, position?.deviceLost),
+      ...rowState(ltc !== null, devices.audioPresence, running, deviceLost),
       detail: ltc ? t("output.channel", { channel: ltc.channel }) : t("output.notSet"),
     },
     {
       legend: "output.mtc",
-      ...rowState(mtc !== null, devices.mtcPresence, running && playback.info?.mtcPort != null),
+      ...rowState(mtc !== null, devices.mtcPresence, running && info?.mtcPort != null),
       detail: mtc?.portName ?? t("output.notSet"),
     },
   ];
 
   return (
+    <section className="lamps" aria-labelledby="output-legend">
+      <h2 id="output-legend" className="legend">
+        {t("output.legend")}
+      </h2>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.legend}>
+            <Lamp state={row.state} />
+            <span className="lamp-name">{t(row.legend)}</span>
+            <span className="lamp-status">{t(row.status)}</span>
+            <span className="lamp-detail" title={row.detail}>
+              {row.detail}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function Faceplate({ devices }: { devices: Devices }) {
+  return (
     <header className="faceplate">
-      <section className="readout" aria-label={t("readout.label")}>
-        <DotMatrix text={timecode} label={`${t("readout.label")} ${timecode}`} />
-        <p className="readout-line">
-          <span className="state-word" data-state={state} role="status">
-            {t(`transport.state.${state}` as MessageKey)}
-          </span>
-          <span>{t(`frameRate.${frameRate}` as MessageKey)}</span>
-          <span>{t("readout.start", { timecode: formatFrames(start, frameRate) })}</span>
-        </p>
-      </section>
-
-      <section className="keys" aria-labelledby="transport-legend">
-        <h2 id="transport-legend" className="legend">
-          {t("transport.legend")}
-        </h2>
-        <div className="key-row">
-          <button
-            type="button"
-            className="key"
-            aria-pressed={state === "stopped"}
-            data-lamp={state === "stopped" ? "on" : "off"}
-            onClick={() => void playback.stop()}
-          >
-            <StopIcon />
-            <span>{t("transport.stop")}</span>
-          </button>
-          <button
-            type="button"
-            className="key"
-            data-tone="live"
-            aria-pressed={state === "playing"}
-            data-lamp={state === "playing" ? "on" : "off"}
-            onClick={() => void playback.play()}
-          >
-            <PlayIcon />
-            <span>{t("transport.play")}</span>
-          </button>
-          <button
-            type="button"
-            className="key"
-            data-tone="hold"
-            aria-pressed={state === "paused"}
-            data-lamp={state === "paused" ? "on" : "off"}
-            onClick={() => void playback.pause()}
-          >
-            <PauseIcon />
-            <span>{t("transport.pause")}</span>
-          </button>
-        </div>
-      </section>
-
-      <section className="lamps" aria-labelledby="output-legend">
-        <h2 id="output-legend" className="legend">
-          {t("output.legend")}
-        </h2>
-        <ul>
-          {rows.map((row) => (
-            <li key={row.legend}>
-              <Lamp state={row.state} />
-              <span className="lamp-name">{t(row.legend)}</span>
-              <span className="lamp-status">{t(row.status)}</span>
-              <span className="lamp-detail" title={row.detail}>
-                {row.detail}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <Readout />
+      <Keys />
+      <Lamps devices={devices} />
     </header>
   );
 }

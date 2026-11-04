@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tauri::{AppHandle, State};
 
 use crate::audio::SharedAudio;
-use crate::project::{AudioAsset, FrameRate, Project, ProjectError, Result, Session};
+use crate::project::{AudioAsset, Document, FrameRate, Project, ProjectError, Result, Session};
 use crate::recents;
 
 pub type SharedSession = Arc<Mutex<Session>>;
@@ -27,6 +27,23 @@ where
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// The document being edited, or `None` before one was started. A window that was reloaded asks for
+/// it, because the project lives here as much as in the window.
+#[tauri::command]
+pub async fn project_document(session: State<'_, SharedSession>) -> Result<Option<Document>> {
+    run(&session, |s| Ok(s.document())).await
+}
+
+/// Keeps the latest state of the project being edited, for `project_document` to give back.
+#[tauri::command]
+pub async fn project_sync(session: State<'_, SharedSession>, project: Project) -> Result<()> {
+    run(&session, move |s| {
+        s.update(project);
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]

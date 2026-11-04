@@ -177,6 +177,7 @@ export const es: Record<MessageKey, string> = {
   "status.analysing": "Leyendo el audio…",
   "status.analysed": "Audio listo",
   "status.saved": "Guardado {name}",
+  "status.restored": "Recuperado {name} donde lo dejaste",
   "status.opened": "Abierto {name}",
   "status.imported": "Importado {name}",
   "status.markerAdded": "Marcador añadido",

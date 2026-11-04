@@ -105,11 +105,25 @@ Defined in `src-tauri/src/commands.rs`, typed wrappers (with the file dialogs) i
 
 | Command | Arguments | Result |
 | --- | --- | --- |
+| `project_document` | | The `Document` being edited (`project`, `path`, `baseline`), or `null` before one was started. |
+| `project_sync` | `project` | Keeps the latest state of the project being edited, for `project_document`. |
 | `project_new` | `name`, `frameRate` | A new `Project`; forgets the previous project's assets. |
 | `project_open` | `path` | The `Project` read from that `.fxtc`. |
 | `project_import_audio` | `path` | An `AudioAsset` (generated id, file `audio/<id>_<name>`) to add to the project. |
 | `project_save` | `project`, `path` | Writes the archive; afterwards all assets are read from `path`. |
 
-The frontend owns the edited `Project` and sends it back on save. The backend only remembers where each asset's bytes
-come from (the `.fxtc` it was opened or saved from, or an imported file not yet in any archive), so saving a project
-that references an asset the backend never saw fails with `MissingAsset`.
+The frontend edits the `Project` and sends each state of it with `project_sync` (the newest wins while one is being
+written). The backend keeps the latest as the `Document`, so that a window that is reloaded asks `project_document` and
+picks the project up where it was left, instead of starting over: `baseline` is the project as it was last opened or
+saved (as it started, for a new one) and the document is unsaved when `project` differs from it. Undo history, the
+selection and the zoom are the window's and do not survive a reload; the waveforms are read again, from the stored
+previews or the decoded audio. Starting the window also stops an output a previous load left running.
+
+The editor window opens on, in this order: the document the backend already holds (a reload), the show named by
+`?open=` in its address (what the welcome window asks for; the address keeps it on a reload, which is why the backend's
+copy, with the edits made since, comes first), or a new project. The editor window is built once per run, so a document
+the backend holds is always that window's own.
+
+The backend also remembers where each asset's bytes come from (the `.fxtc` it was opened or saved from, or an imported
+file not yet in any archive), so saving a project that references an asset the backend never saw fails with
+`MissingAsset`.

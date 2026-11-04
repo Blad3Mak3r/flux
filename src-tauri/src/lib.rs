@@ -33,6 +33,8 @@ pub fn run() {
         .manage(audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .invoke_handler(tauri::generate_handler![
+            commands::project_document,
+            commands::project_sync,
             commands::project_new,
             commands::project_open,
             commands::project_import_audio,

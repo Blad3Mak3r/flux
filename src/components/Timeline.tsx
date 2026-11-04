@@ -2,16 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { Project } from "../project/types";
+import { select, setZoom, useUi, zoomBy } from "../state/ui";
+import type { AssetAudio } from "../state/doc";
+import { useDoc } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
-import { RULER_H, patchReadout, readoutStore } from "../timeline/layout";
-import { clampZoom, frameX } from "../timeline/scale";
-import { useStore } from "../store";
-import type { Peaks } from "./ClipWave";
+import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
+import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
+import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
-import { GUESS_SECONDS, TrackHeader, TrackLane } from "./TrackRow";
-import type { Selected } from "./TrackRow";
+import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength } from "./TrackRow";
 import { ZoomInIcon, ZoomOutIcon } from "./icons";
 
 const ZOOM_STEP = 1.25;
@@ -19,11 +20,11 @@ const ZOOM_STEP = 1.25;
 const TAIL = 1.15;
 const MIN_SECONDS = 120;
 
-function contentEnd(project: Project, durations: Record<string, number>, guess: number): number {
+function contentEnd(project: Project, audio: Record<string, AssetAudio>, fps: number, guess: number): number {
   let end = 0;
   for (const track of project.tracks) {
     if (track.kind.type === "audio") {
-      for (const clip of track.kind.clips) end = Math.max(end, clip.start + (durations[clip.asset] ?? guess));
+      for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(audio[clip.asset], fps, guess));
     } else {
       for (const trigger of track.kind.triggers) end = Math.max(end, trigger.at + 25);
     }
@@ -31,63 +32,50 @@ function contentEnd(project: Project, durations: Record<string, number>, guess: 
   return end;
 }
 
-/** Shades the measured span and draws the cursor under the pointer across all lanes. */
-function Overlays({ pxPerFrame }: { pxPerFrame: number }) {
-  const { hover, spanA, spanB } = useStore(readoutStore);
-  const spanStart = spanA !== null && spanB !== null ? Math.min(spanA, spanB) : null;
-  const spanEnd = spanA !== null && spanB !== null ? Math.max(spanA, spanB) : null;
-  return (
-    <>
-      {spanStart !== null && spanEnd !== null && spanEnd > spanStart && (
-        <div
-          className="span-shade"
-          style={{ left: frameX(spanStart, pxPerFrame), width: frameX(spanEnd, pxPerFrame) - frameX(spanStart, pxPerFrame) }}
-        />
-      )}
-      {hover !== null && (
-        <div className="hover-line" style={{ transform: `translateX(${frameX(hover, pxPerFrame)}px)` }} />
-      )}
-    </>
-  );
+/** Shades the measured span. */
+function SpanShade({ pxPerFrame }: { pxPerFrame: number }) {
+  const spanA = useReadout((readout) => readout.spanA);
+  const spanB = useReadout((readout) => readout.spanB);
+  if (spanA === null || spanB === null || spanA === spanB) return null;
+  const from = frameX(Math.min(spanA, spanB), pxPerFrame);
+  return <div className="span-shade" style={{ left: from, width: frameX(Math.max(spanA, spanB), pxPerFrame) - from }} />;
 }
 
-export function Timeline({
-  project,
-  durations,
-  waveforms,
-  parked,
-  selection,
-  pxPerFrame,
-  zoomPercent,
-  onZoom,
-  onSelect,
-  onMove,
-  onToggleMute,
-  onGain,
-  onSeek,
-}: {
-  project: Project;
-  durations: Record<string, number>;
-  waveforms: Record<string, Peaks>;
-  parked: number;
-  selection: Selected | null;
-  pxPerFrame: number;
-  zoomPercent: number;
-  onZoom: (pxPerFrame: number) => void;
-  onSelect: (selection: Selected | null) => void;
-  onMove: (id: string, position: number) => void;
-  onToggleMute: (trackId: string) => void;
-  onGain: (trackId: string, gainDb: number) => void;
-  onSeek: (absoluteFrame: number) => void;
-}) {
+/**
+ * The cursor under the pointer, across all lanes. It follows the pointer by writing its own style
+ * from the store the moment the readout changes: going through a render would put it a frame or two
+ * behind the pointer, which is what makes it feel slow.
+ */
+function HoverLine({ pxPerFrame }: { pxPerFrame: number }) {
+  const line = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = line.current;
+    if (!element) return;
+    const place = (hover: number | null) => {
+      element.hidden = hover === null;
+      if (hover !== null) element.style.transform = `translateX(${frameX(hover, pxPerFrame)}px)`;
+    };
+    place(useReadout.getState().hover);
+    return useReadout.subscribe((readout, before) => {
+      if (readout.hover !== before.hover) place(readout.hover);
+    });
+  }, [pxPerFrame]);
+  return <div ref={line} className="hover-line" hidden />;
+}
+
+export function Timeline() {
   const t = useT();
   const scroller = useRef<HTMLDivElement>(null);
   const headers = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(900);
   const [scrollbarHeight, setScrollbarHeight] = useState(0);
+  const project = useDoc((doc) => doc.project);
+  const audio = useDoc((doc) => doc.audio);
+  const pxPerFrame = useUi((ui) => ui.zoom);
   const { frameRate, start } = project.timecode;
   const fps = nominalFps(frameRate);
   const guessLength = GUESS_SECONDS * fps;
+  const zoomPercent = Math.round((pxPerFrame / DEFAULT_PX_PER_FRAME) * 100);
 
   useEffect(() => {
     const box = scroller.current;
@@ -104,19 +92,17 @@ export function Timeline({
 
   // Ctrl + wheel (and trackpad pinch) zooms around the pointer. React's wheel listener is passive,
   // so this one is native.
-  const zoomRef = useRef({ pxPerFrame, onZoom });
-  zoomRef.current = { pxPerFrame, onZoom };
   useEffect(() => {
     const box = scroller.current;
     if (!box) return;
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
-      const { pxPerFrame: current, onZoom: setZoom } = zoomRef.current;
-      const next = clampZoom(current * (event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
+      const current = useUi.getState().zoom;
+      setZoom(current * (event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
+      const next = useUi.getState().zoom;
       const pointerX = event.clientX - box.getBoundingClientRect().left;
       const frameUnderPointer = (box.scrollLeft + pointerX) / current;
-      setZoom(next);
       requestAnimationFrame(() => {
         box.scrollLeft = frameUnderPointer * next - pointerX;
       });
@@ -130,7 +116,7 @@ export function Timeline({
     [project.assets],
   );
 
-  const end = contentEnd(project, durations, guessLength);
+  const end = contentEnd(project, audio, realFps(frameRate), guessLength);
   const contentWidth = Math.ceil(
     Math.max(end * TAIL, MIN_SECONDS * fps) * pxPerFrame,
     // Never narrower than the window, so the graticule fills the screen.
@@ -158,7 +144,7 @@ export function Timeline({
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => onZoom(clampZoom(pxPerFrame / ZOOM_STEP))}
+                onClick={() => zoomBy(1 / ZOOM_STEP)}
                 aria-label={t("timeline.zoomOut")}
                 title={t("timeline.zoomOut")}
               >
@@ -170,7 +156,7 @@ export function Timeline({
               <button
                 type="button"
                 className="icon-button"
-                onClick={() => onZoom(clampZoom(pxPerFrame * ZOOM_STEP))}
+                onClick={() => zoomBy(ZOOM_STEP)}
                 aria-label={t("timeline.zoomIn")}
                 title={t("timeline.zoomIn")}
               >
@@ -189,7 +175,7 @@ export function Timeline({
           >
             <div className="headers-inner">
               {project.tracks.map((track) => (
-                <TrackHeader key={track.id} track={track} onToggleMute={onToggleMute} onGain={onGain} />
+                <TrackHeader key={track.id} track={track} />
               ))}
               <div className="filler">
                 <p className="hint">{t("tracks.hint")}</p>
@@ -204,7 +190,7 @@ export function Timeline({
           onScroll={(event) => {
             if (headers.current) headers.current.scrollTop = event.currentTarget.scrollTop;
           }}
-          onPointerDown={(event) => event.target === event.currentTarget && onSelect(null)}
+          onPointerDown={(event) => event.target === event.currentTarget && select(null)}
         >
           <div
             className="screen-inner"
@@ -220,7 +206,7 @@ export function Timeline({
                 pxPerFrame={pxPerFrame}
                 rate={frameRate}
                 start={start}
-                onSeek={(relative) => onSeek(start + relative)}
+                onSeek={(relative) => seek(start + relative)}
               />
             </div>
 
@@ -229,14 +215,9 @@ export function Timeline({
                 key={track.id}
                 track={track}
                 assetNames={assetNames}
-                durations={durations}
-                waveforms={waveforms}
                 guessLength={guessLength}
                 fps={realFps(frameRate)}
                 pxPerFrame={pxPerFrame}
-                selected={selection}
-                onSelect={onSelect}
-                onMove={onMove}
               />
             ))}
 
@@ -247,8 +228,9 @@ export function Timeline({
               </div>
             )}
 
-            <Overlays pxPerFrame={pxPerFrame} />
-            <Playhead parked={parked} start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
+            <SpanShade pxPerFrame={pxPerFrame} />
+            <HoverLine pxPerFrame={pxPerFrame} />
+            <Playhead start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
           </div>
         </div>
       </div>
