@@ -27,7 +27,7 @@ the positions of clips (`start`) and cues (`at`) are counted **from that origin*
 | `assets[]` | `{ id, name, file }` | `file` is the archive path under `audio/`. |
 | `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, so `formatVersion` stays 1. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for events), also without a version bump. |
 | `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
-| `output.ltc` | `{ deviceName, channel }` \| `null` | LTC out through an audio interface; `channel` is 1-based. May share a device with `output.audio`. |
+| `output.ltc` | `{ deviceName, channel }` \| `null` | LTC out through an audio interface; `channel` is 1-based. May share a device with `output.audio` or name another one, which gets a stream of its own. |
 | `output.mtc` | `{ portName }` \| `null` | MTC out through a MIDI port. |
 
 Track kinds:
