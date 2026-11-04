@@ -101,6 +101,13 @@ impl MtcScheduler {
         full_frame(Timecode::from_frames(frame, self.rate), self.rate)
     }
 
+    /// The transport position (samples since the timeline origin) at which the next quarter frame
+    /// is due, so a caller can wait for it instead of polling.
+    pub fn next_due(&self) -> u64 {
+        self.clock
+            .ticks_to_samples(self.next_quarter, QUARTERS_PER_FRAME)
+    }
+
     /// Calls `send` for every quarter frame whose time has come at transport position
     /// `position`, in order. A caller that falls far behind skips ahead to the next group rather
     /// than flooding the port with stale messages.
@@ -232,6 +239,17 @@ mod tests {
         assert_eq!(full[5..9], [0x21, 0x00, 0x00, 0x00]);
         let sent = poll(&mut s, 0);
         assert_eq!(sent, [quarter_frames(tc(1, 0, 0, 0), FrameRate::Fps25)[0]]);
+    }
+
+    #[test]
+    fn next_due_should_follow_the_quarter_frames_as_they_are_sent() {
+        let mut s = scheduler(0);
+        s.resync(0);
+        assert_eq!(s.next_due(), 0);
+        poll(&mut s, 0);
+        assert_eq!(s.next_due(), 480);
+        poll(&mut s, 1_000);
+        assert_eq!(s.next_due(), 1_440);
     }
 
     #[test]

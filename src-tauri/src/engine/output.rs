@@ -27,8 +27,11 @@ use crate::devices;
 use crate::project::{FrameRate, Project};
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
-/// How often the MTC thread checks whether a quarter frame is due.
+/// The longest the MTC thread sleeps before it looks at the transport again.
 const MTC_TICK: Duration = Duration::from_millis(1);
+/// The last stretch before a quarter frame that the MTC thread spins instead of sleeping, because a
+/// sleep can overshoot by more than this.
+const MTC_SPIN: Duration = Duration::from_micros(200);
 /// The audio thread keeps its stream alive and wakes up this often to see whether to stop.
 const AUDIO_PARK: Duration = Duration::from_millis(50);
 /// The published position is one buffer old at most; extrapolating further than this would only
@@ -642,10 +645,13 @@ impl Output {
     pub fn set_clips(&self, set: ClipSet) -> Result<(), OutputError> {
         let set = Arc::new(set);
         self.levels.replace(set.levels());
-        self.clip_sets
+        let mut sets = self
+            .clip_sets
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Arc::clone(&set));
+            .unwrap_or_else(PoisonError::into_inner);
+        prune_clip_sets(&mut sets);
+        sets.push(Arc::clone(&set));
+        drop(sets);
         self.messages
             .send(Message::Clips(set))
             .map_err(|_| OutputError::NotRunning)
@@ -669,6 +675,13 @@ impl Drop for Output {
             let _ = handle.join();
         }
     }
+}
+
+/// Frees the clip sets the audio callback no longer holds. A set only this list references has
+/// been swapped out already, and nothing else can clone it, so dropping it here, on the control
+/// side, is the last release: the callback never frees one.
+fn prune_clip_sets(sets: &mut Vec<Arc<ClipSet>>) {
+    sets.retain(|set| Arc::strong_count(set) > 1);
 }
 
 struct AudioSpec {
@@ -927,6 +940,27 @@ fn connect_midi(hint: &str) -> Result<(String, midir::MidiOutputConnection), Str
         .map_err(|err| format!("MTC is off, cannot open {name}: {err}"))
 }
 
+/// How the MTC thread waits for the next quarter frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MtcWait {
+    Park(Duration),
+    /// Busy-wait this long: the quarter frame is closer than the OS can promise to wake us.
+    Spin(Duration),
+}
+
+/// Parks until shortly before the quarter frame is due, then spins the rest, so the message goes
+/// out when it falls due and not up to a timer tick later. `fresh` is false when the published
+/// position is old enough that waiting for it to reach the deadline could never end.
+fn mtc_wait(until_due: Duration, fresh: bool) -> MtcWait {
+    if !fresh {
+        MtcWait::Park(MTC_TICK)
+    } else if until_due <= MTC_SPIN {
+        MtcWait::Spin(until_due)
+    } else {
+        MtcWait::Park((until_due - MTC_SPIN).min(MTC_TICK))
+    }
+}
+
 /// Sends MTC from the position the audio callback publishes: a full frame whenever playback
 /// starts or jumps, and quarter frames as they fall due.
 fn run_mtc(
@@ -939,17 +973,34 @@ fn run_mtc(
     let mut seen_epoch = None;
     while !stop.load(Ordering::Relaxed) {
         let snapshot = shared.load();
-        let position = snapshot.estimated_position(shared.now(), clock);
+        let now = shared.now();
+        let position = snapshot.estimated_position(now, clock);
         if seen_epoch != Some(snapshot.epoch) {
             seen_epoch = Some(snapshot.epoch);
             let _ = connection.send(&scheduler.resync(position));
         }
+        let mut wait = MtcWait::Park(MTC_TICK);
         if snapshot.state == TransportState::Playing {
             scheduler.poll(position, |message| {
                 let _ = connection.send(&message);
             });
+            let samples = scheduler.next_due().saturating_sub(position);
+            let until_due = Duration::from_nanos(
+                (u128::from(samples) * 1_000_000_000 / u128::from(clock.sample_rate())) as u64,
+            );
+            let fresh =
+                Duration::from_nanos(now.saturating_sub(snapshot.stamp)) < MAX_EXTRAPOLATION;
+            wait = mtc_wait(until_due, fresh);
         }
-        thread::park_timeout(MTC_TICK);
+        match wait {
+            MtcWait::Park(time) => thread::park_timeout(time),
+            MtcWait::Spin(time) => {
+                let deadline = shared.now() + time.as_nanos() as u64;
+                while shared.now() < deadline && !stop.load(Ordering::Relaxed) {
+                    std::hint::spin_loop();
+                }
+            }
+        }
     }
 }
 
@@ -1527,6 +1578,34 @@ mod tests {
         follower.render(&mut buffer, 0);
 
         assert_eq!(buffer, ltc_from(1_000, 1_000)[..]);
+    }
+
+    #[test]
+    fn prune_should_free_only_the_sets_nothing_else_holds() {
+        let playing = Arc::new(ClipSet::default());
+        let old = Arc::new(ClipSet::default());
+        // The callback holds `playing` through a clone; `old` was swapped out and released.
+        let callback_copy = Arc::clone(&playing);
+        let mut sets = vec![Arc::clone(&old), Arc::clone(&playing)];
+        drop(old);
+
+        prune_clip_sets(&mut sets);
+
+        assert_eq!(sets.len(), 1);
+        assert!(Arc::ptr_eq(&sets[0], &callback_copy));
+    }
+
+    #[test]
+    fn mtc_wait_should_park_until_the_spin_window_and_spin_inside_it() {
+        let ms = Duration::from_millis;
+        assert_eq!(mtc_wait(ms(8), true), MtcWait::Park(MTC_TICK));
+        assert_eq!(mtc_wait(MTC_TICK, true), MtcWait::Park(MTC_TICK - MTC_SPIN));
+        assert_eq!(mtc_wait(MTC_SPIN, true), MtcWait::Spin(MTC_SPIN));
+    }
+
+    #[test]
+    fn mtc_wait_should_never_spin_on_a_stale_position() {
+        assert_eq!(mtc_wait(Duration::ZERO, false), MtcWait::Park(MTC_TICK));
     }
 
     #[test]
