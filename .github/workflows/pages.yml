@@ -1,7 +1,8 @@
 name: Pages
 
-# Publishes the landing page, with the download links and latest.json (the updater endpoint) of the
-# newest published release. It runs after each release, and when the landing page changes.
+# Publishes the landing page on Cloudflare Pages (https://fxtc.blademaker.tv), with the download
+# links and latest.json (the updater endpoint) of the newest published release. It runs after each
+# release, and when the landing page changes.
 
 on:
   push:
@@ -11,8 +12,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -21,11 +20,12 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     env:
       GH_TOKEN: ${{ github.token }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Where release.yml copies the installers.
+      DOWNLOADS_URL: https://dl.blademaker.tv
     steps:
       - uses: actions/checkout@v7
 
@@ -42,7 +42,7 @@ jobs:
           if gh api "repos/$GITHUB_REPOSITORY/releases/latest" > release/release.json; then
             tag=$(node -p 'JSON.parse(require("fs").readFileSync("release/release.json", "utf8")).tag_name')
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.sig' --dir release/signatures
-            node landing/scripts/release-site.mjs release/release.json release/signatures landing
+            node landing/scripts/release-site.mjs release/release.json release/signatures landing "$DOWNLOADS_URL"
           else
             echo "There is no release yet; the page shows that."
           fi
@@ -53,9 +53,6 @@ jobs:
       - run: npm run build
         working-directory: landing
 
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: landing/dist
-
-      - id: deployment
-        uses: actions/deploy-pages@v5
+      # Direct upload of the built site to the project's production branch.
+      - name: Deploy to Cloudflare Pages
+        run: npx --yes wrangler@4.157.0 pages deploy landing/dist --project-name=flux-timecode --branch=main

@@ -2,10 +2,12 @@
 //   public/latest.json     the updater endpoint the app checks at launch
 //   src/data/release.json  the version and download links the landing page prints
 //
-//   node scripts/release-site.mjs <release.json> <signatures dir> <landing dir>
+//   node scripts/release-site.mjs <release.json> <signatures dir> <landing dir> <downloads url>
 //
 // <release.json> is `gh api repos/{repo}/releases/latest`; <signatures dir> holds the release's
-// `.sig` files. The installers stay on the Release: the links point at them.
+// `.sig` files. The repository is private, so its release assets cannot be downloaded without
+// signing in: release.yml copies the installers to the downloads host (`<downloads url>/<tag>/<file>`)
+// and every link here points there.
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -41,8 +43,9 @@ const updaterKey = ({ os, arch, updater }) =>
 /**
  * @param release the Release as the GitHub API returns it
  * @param signatures file name -> contents of the `.sig` file
+ * @param downloadsUrl where the installers are served from, without a trailing slash
  */
-export function buildSite(release, signatures) {
+export function buildSite(release, signatures, downloadsUrl) {
   const version = String(release.tag_name).replace(/^v/, "");
   const platforms = {};
   const files = [];
@@ -50,15 +53,16 @@ export function buildSite(release, signatures) {
   for (const asset of release.assets) {
     const kind = classify(asset.name);
     if (!kind) continue;
+    const url = `${downloadsUrl}/${release.tag_name}/${encodeURIComponent(asset.name)}`;
     if (kind.updater !== undefined) {
       const signature = signatures[`${asset.name}.sig`];
-      if (signature) platforms[updaterKey(kind)] = { signature: signature.trim(), url: asset.browser_download_url };
+      if (signature) platforms[updaterKey(kind)] = { signature: signature.trim(), url };
       else console.warn(`No signature for ${asset.name}: it is left out of latest.json.`);
     }
     if (kind.install) {
       files.push({
         name: asset.name,
-        url: asset.browser_download_url,
+        url,
         size: asset.size,
         sha256: /^sha256:/.test(asset.digest ?? "") ? asset.digest.slice("sha256:".length) : null,
         os: kind.os,
@@ -78,9 +82,9 @@ export function buildSite(release, signatures) {
   };
 }
 
-function main([releaseFile, signaturesDir, landingDir]) {
-  if (!releaseFile || !signaturesDir || !landingDir) {
-    throw new Error("Usage: release-site.mjs <release.json> <signatures dir> <landing dir>");
+function main([releaseFile, signaturesDir, landingDir, downloadsUrl]) {
+  if (!releaseFile || !signaturesDir || !landingDir || !downloadsUrl) {
+    throw new Error("Usage: release-site.mjs <release.json> <signatures dir> <landing dir> <downloads url>");
   }
   const release = JSON.parse(readFileSync(releaseFile, "utf8"));
   const signatures = {};
@@ -89,7 +93,7 @@ function main([releaseFile, signaturesDir, landingDir]) {
     signatures[asset.name] = readFileSync(join(signaturesDir, asset.name), "utf8");
   }
 
-  const { latest, site } = buildSite(release, signatures);
+  const { latest, site } = buildSite(release, signatures, downloadsUrl.replace(/\/$/, ""));
   const write = (file, data) => {
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, JSON.stringify(data, null, 2) + "\n");

@@ -1,9 +1,8 @@
 import { defineConfig } from "astro/config";
 
-// Published at https://blad3mak3r.github.io/flux-timecode/ (GitHub Pages, project site).
+// Published at https://fxtc.blademaker.tv (Cloudflare Pages).
 export default defineConfig({
-  site: "https://blad3mak3r.github.io",
-  base: "/flux-timecode",
+  site: "https://fxtc.blademaker.tv",
   trailingSlash: "always",
   i18n: {
     defaultLocale: "en",

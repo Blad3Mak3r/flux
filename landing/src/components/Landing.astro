@@ -35,7 +35,6 @@ const labels = JSON.stringify({
   macos: t("hero.downloadFor.macos"),
   linux: t("hero.downloadFor.linux"),
 });
-const repo = "https://github.com/Blad3Mak3r/flux-timecode";
 ---
 
 <Base locale={locale}>
@@ -211,7 +210,6 @@ const repo = "https://github.com/Blad3Mak3r/flux-timecode";
     <div class="wrap foot-inner">
       <span class="measure">{release ? t("footer.version", { version: release.version }) : t("brand")}</span>
       <span class="foot-links">
-        <a href={repo}>{t("footer.source")}</a>
         {release && <a href={`${base}latest.json`}>{t("footer.feed")}</a>}
       </span>
     </div>

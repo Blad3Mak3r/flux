@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildSite, classify } from "./release-site.mjs";
 
-const url = (name) => `https://github.com/o/r/releases/download/v0.2.0/${name}`;
-const asset = (name, digest) => ({ name, size: 1000, browser_download_url: url(name), digest });
+const DOWNLOADS = "https://dl.example.test";
+const url = (name) => `${DOWNLOADS}/v0.2.0/${name}`;
+const asset = (name, digest) => ({ name, size: 1000, browser_download_url: `https://github.com/o/r/${name}`, digest });
 
 const NAMES = [
   "flux-timecode_0.2.0_linux_amd64.deb",
@@ -35,8 +36,8 @@ test("classify names what an asset installs and how the updater finds it", () =>
   assert.equal(classify("a_linux.deb"), null);
 });
 
-test("latest.json has an entry per updater target with the signature and the release URL", () => {
-  const { latest } = buildSite(release, signatures);
+test("latest.json has an entry per updater target with the signature and the downloads URL", () => {
+  const { latest } = buildSite(release, signatures, DOWNLOADS);
   assert.equal(latest.version, "0.2.0");
   assert.equal(latest.pub_date, "2026-11-04T12:00:00Z");
   assert.deepEqual(Object.keys(latest.platforms).sort(), [
@@ -53,7 +54,7 @@ test("latest.json has an entry per updater target with the signature and the rel
 });
 
 test("the downloads list the installers people run, not the update archives", () => {
-  const { site } = buildSite(release, signatures);
+  const { site } = buildSite(release, signatures, DOWNLOADS);
   assert.deepEqual(
     site.files.map((file) => `${file.os}/${file.arch}/${file.format}`).sort(),
     ["linux/x86_64/deb", "linux/x86_64/rpm", "macos/aarch64/dmg", "macos/x86_64/dmg", "windows/x86_64/msi"],
@@ -63,11 +64,17 @@ test("the downloads list the installers people run, not the update archives", ()
 });
 
 test("an installer without a signature is left out of latest.json but still downloadable", () => {
-  const { latest, site } = buildSite(release, { ...signatures, "flux-timecode_0.2.0_windows_x64.msi.sig": undefined });
+  const { latest, site } = buildSite(release, { ...signatures, "flux-timecode_0.2.0_windows_x64.msi.sig": undefined }, DOWNLOADS);
   assert.equal("windows-x86_64-msi" in latest.platforms, false);
   assert.ok(site.files.some((file) => file.format === "msi"));
 });
 
 test("a release the updater cannot use is an error", () => {
-  assert.throws(() => buildSite(release, {}), /no signed installer/);
+  assert.throws(() => buildSite(release, {}, DOWNLOADS), /no signed installer/);
+});
+
+test("a file name with unusual characters is encoded in its link", () => {
+  const odd = { ...release, assets: [asset("Flux Timecode_0.2.0_x64.msi"), asset("Flux Timecode_0.2.0_x64.msi.sig")] };
+  const { site } = buildSite(odd, { "Flux Timecode_0.2.0_x64.msi.sig": "s" }, `${DOWNLOADS}/`.replace(/\/$/, ""));
+  assert.equal(site.files[0].url, `${DOWNLOADS}/v0.2.0/Flux%20Timecode_0.2.0_x64.msi`);
 });

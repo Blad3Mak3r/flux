@@ -83,7 +83,6 @@ const en = {
     "Flux looks for updates each time it starts and installs them before it opens. On Windows and Linux, installing asks for your permission.",
 
   "footer.version": "Flux Timecode {version}",
-  "footer.source": "Source on GitHub",
   "footer.feed": "Update feed",
 } as const;
 
@@ -168,7 +167,6 @@ const es: Record<Key, string> = {
     "Flux busca actualizaciones cada vez que arranca y las instala antes de abrirse. En Windows y Linux, instalar pide tu permiso.",
 
   "footer.version": "Flux Timecode {version}",
-  "footer.source": "Código en GitHub",
   "footer.feed": "Canal de actualizaciones",
 };
 
@@ -184,7 +182,7 @@ export function translator(locale: Locale): Translate {
   };
 }
 
-/** The page of `locale` under the site's base path (`/flux-timecode/`). */
+/** The page of `locale` under the site's base path (`/` on its own domain). */
 export function pagePath(locale: Locale, base: string): string {
   const root = base.endsWith("/") ? base : `${base}/`;
   return locale === "en" ? root : `${root}${locale}/`;

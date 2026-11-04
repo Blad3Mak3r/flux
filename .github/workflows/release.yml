@@ -125,12 +125,32 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: v${{ needs.verify.outputs.version }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      # Publishing creates the tag at the release commit.
+      # Publishing creates the tag at the release commit. The Release stays as the private archive.
       - name: Publish the release
         run: gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
 
-      # Pre-releases are archived here but are not offered to users.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+
+      # The repository is private, so its release assets cannot be downloaded without signing in.
+      # The installers are served from R2 (https://dl.blademaker.tv/<tag>/<file>) instead.
+      # Pre-releases are archived on the Release only; they are not offered to users.
+      - name: Copy the installers to R2
+        if: needs.verify.outputs.prerelease != 'true'
+        run: |
+          mkdir assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
+          for file in assets/*; do
+            name=$(basename "$file")
+            # The signatures travel inside latest.json.
+            case "$name" in *.sig) continue ;; esac
+            npx --yes wrangler@4.157.0 r2 object put "flux-timecode-downloads/$TAG/$name" --file "$file" --remote
+          done
+
       - name: Update the download page
         if: needs.verify.outputs.prerelease != 'true'
         run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main
