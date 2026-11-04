@@ -268,6 +268,7 @@ mod tests {
             frame,
             position_samples: frame * 1_920,
             device_lost: false,
+            ltc_lost: false,
             clock_unpaced: false,
         }
     }

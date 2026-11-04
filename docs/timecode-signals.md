@@ -72,11 +72,11 @@ the transport reaches frame N.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project`, `onPosition`, `onLevels` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `mtcPort`, `warnings`. |
+| `output_start` | `project`, `onPosition`, `onLevels` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
-| `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`) or `null` when no output runs. |
+| `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`, `ltcLost`, `clockUnpaced`) or `null` when no output runs. |
 
 While an output runs it reports over two lanes, each with a thread of its own and the `Channel` that
 `output_start` was given for it, about 30 times a second each:
@@ -99,7 +99,8 @@ No command runs on the main thread, which belongs to the window and its event lo
 
 | Thread | Work |
 | --- | --- |
-| `flux-audio` | The audio callback: programme, LTC, position. Never allocates or waits. |
+| `flux-audio` | The audio callback: programme, LTC when it shares the device, position. Never allocates or waits. |
+| `flux-ltc` | The LTC callback, when LTC plays on a device other than the programme's. Never allocates or waits. |
 | `flux-mtc` | MIDI Timecode quarter frames. |
 | `flux-position`, `flux-levels` | The two lanes above. |
 
@@ -107,10 +108,22 @@ Commands that set the transport only enqueue a message for the audio callback, s
 from the UI are not guaranteed to run in order; the UI awaits the ones that depend on each other (Play waits for the
 output to open) and sends dragged seeks and faders one at a time, newest value last.
 
-- One audio device carries everything: the LTC device, or the `output.audio` device when there is no LTC, or the
-  system's default output when neither names one (an empty `deviceName`). If both are set they must be the same
-  device. Neither LTC nor MTC is needed to play the music. The stream opens at 48 kHz with the fewest channels that cover the highest
-  channel used, in 32-bit float, else 32 or 16-bit integer. The programme (below) uses the same stream.
+- The programme device is `output.audio`'s, or the system's default output when there is none (an empty
+  `deviceName`); a project written before `output.audio` existed has it on the LTC device. It is the master: it
+  carries the programme and the clock, and LTC too when `output.ltc` names the same device (compared by the device
+  each hint opens, so an empty name and the default device's name are the same). Neither LTC nor MTC is needed to
+  play the music. The stream opens at 48 kHz with the fewest channels that cover the highest channel used, in 32-bit
+  float, else 32 or 16-bit integer. The programme (below) uses the same stream.
+- **LTC on its own device**: when `output.ltc` names another device, a second stream (`flux-ltc`) plays only LTC.
+  Two devices have two sample clocks that drift apart, so `LtcFollower` does not count samples against the
+  transport: each callback reads the master's published position (`try_load`, never waiting; extrapolated with the
+  wall clock like MTC) and plays LTC from there. It starts the LTC stream over at the master's position when the
+  transport seeks, stops or resumes, or when the two differ by a frame or more, which at 50 ppm of clock difference
+  is about every 13 minutes at 25 fps. That start-over costs one LTC frame of silence and a jump of a frame.
+  There is no latency compensation: the two devices' output delays are not measured, so LTC and the music can be
+  offset by the difference between them (ms), which an LTC offset setting would fix. If the LTC device is missing or
+  cannot be opened, the output still starts without LTC and `warnings` says so (like MTC); if it fails while
+  running, `Position.ltcLost` is set.
 - The audio device's sample clock is the master. The callback owns the `Transport`, drains commands with
   `try_recv`, renders LTC into its channel, advances the position and publishes it with `try_lock`: it never
   allocates or waits. A reader holding the lock only makes it skip one update.

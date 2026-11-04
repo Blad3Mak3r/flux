@@ -23,9 +23,13 @@ export function OutputPanel({
   const info = useTransport((transport) => transport.info);
   const clipWarnings = useTransport((transport) => transport.clipWarnings);
   const { output } = project;
-  const deviceName = output.ltc?.deviceName ?? output.audio?.deviceName ?? "";
+  const deviceName = output.audio?.deviceName ?? output.ltc?.deviceName ?? "";
   const device = devices.audio.find((d) => d.name === deviceName);
-  const channelCount = device?.outputChannels ?? Math.max(output.ltc?.channel ?? 2, 2);
+  const channelCount = device?.outputChannels ?? Math.max(...(output.audio?.channels ?? []), 2);
+  // LTC plays on the programme's device unless it names another one.
+  const ltcDeviceName = output.ltc?.deviceName ?? deviceName;
+  const ltcDevice = devices.audio.find((d) => d.name === ltcDeviceName);
+  const ltcChannelCount = ltcDevice?.outputChannels ?? Math.max(output.ltc?.channel ?? 2, 2);
   const change = (next: Partial<OutputConfig>) => onEdit(setOutput(project, { ...output, ...next }));
 
   // Where the music goes: a stereo pair of the interface, `[1, 2]` unless the project says otherwise.
@@ -38,11 +42,32 @@ export function OutputPanel({
   const chooseDevice = (name: string) => {
     const chosen = devices.audio.find((d) => d.name === name);
     const channels = chosen?.outputChannels ?? 2;
+    // LTC moves along with the programme only while they share a device.
+    const ltcFollows = output.ltc !== null && output.ltc.deviceName === deviceName;
     change({
       audio: { deviceName: name, channels: channels >= 2 ? [1, 2] : [1] },
-      ltc: output.ltc ? { deviceName: name, channel: Math.min(output.ltc.channel, channels) } : null,
+      ltc: output.ltc && ltcFollows
+        ? { deviceName: name, channel: Math.min(output.ltc.channel, channels) }
+        : output.ltc,
     });
   };
+
+  const chooseLtcDevice = (name: string) => {
+    const channels = devices.audio.find((d) => d.name === name)?.outputChannels ?? 2;
+    change({ ltc: { deviceName: name, channel: Math.min(output.ltc?.channel ?? channels, channels) } });
+  };
+
+  const deviceOptions = (current: string, found: boolean) => (
+    <>
+      <option value="">{t("output.default")}</option>
+      {current && !found && <option value={current}>{t("out.notConnected", { name: current })}</option>}
+      {devices.audio.map((d) => (
+        <option key={`${d.host}:${d.name}`} value={d.name}>
+          {d.name} · {d.host} · {t("out.channels", { count: d.outputChannels })}
+        </option>
+      ))}
+    </>
+  );
 
   const toggleLtc = (on: boolean) =>
     change({
@@ -57,13 +82,7 @@ export function OutputPanel({
       {!devices.available && <p className="field-note">{t("out.desktopOnly")}</p>}
 
       <SelectField label={t("out.audioDevice")} value={deviceName} onChange={chooseDevice} disabled={!devices.available}>
-        <option value="">{t("output.default")}</option>
-        {deviceName && !device && <option value={deviceName}>{t("out.notConnected", { name: deviceName })}</option>}
-        {devices.audio.map((d) => (
-          <option key={`${d.host}:${d.name}`} value={d.name}>
-            {d.name} · {d.host} · {t("out.channels", { count: d.outputChannels })}
-          </option>
-        ))}
+        {deviceOptions(deviceName, device !== undefined)}
       </SelectField>
       {devices.available && devices.audio.length === 0 && <p className="field-note">{t("out.noDevices")}</p>}
 
@@ -94,17 +113,27 @@ export function OutputPanel({
         <label htmlFor="ltc-enable">{t("out.ltcEnable")}</label>
       </div>
       {output.ltc && (
-        <SelectField
-          label={t("out.ltcChannel")}
-          value={output.ltc.channel}
-          onChange={(channel) => change({ ltc: { ...output.ltc!, channel: Number(channel) } })}
-        >
-          {Array.from({ length: channelCount }, (_, i) => i + 1).map((channel) => (
-            <option key={channel} value={channel}>
-              {channel}
-            </option>
-          ))}
-        </SelectField>
+        <>
+          <SelectField
+            label={t("out.ltcDevice")}
+            value={ltcDeviceName}
+            onChange={chooseLtcDevice}
+            disabled={!devices.available}
+          >
+            {deviceOptions(ltcDeviceName, ltcDevice !== undefined)}
+          </SelectField>
+          <SelectField
+            label={t("out.ltcChannel")}
+            value={output.ltc.channel}
+            onChange={(channel) => change({ ltc: { ...output.ltc!, channel: Number(channel) } })}
+          >
+            {Array.from({ length: ltcChannelCount }, (_, i) => i + 1).map((channel) => (
+              <option key={channel} value={channel}>
+                {channel}
+              </option>
+            ))}
+          </SelectField>
+        </>
       )}
 
       <div className="check-row">
@@ -154,6 +183,7 @@ export function OutputPanel({
       {info && (
         <div className="run-info" role="status">
           <p>{t("out.runningOn", { device: info.device, rate: info.sampleRate })}</p>
+          {info.ltcDevice && <p>{t("out.ltcRunningOn", { device: info.ltcDevice })}</p>}
           {[...info.warnings, ...clipWarnings].map((warning) => (
             <p key={warning} className="warning">
               {warning}

@@ -104,11 +104,14 @@ function Lamps({ devices }: { devices: Devices }) {
   const output = useDoc((doc) => doc.project.output);
   const info = useTransport((transport) => transport.info);
   const deviceLost = useTransport((transport) => transport.position?.deviceLost);
+  const ltcLost = useTransport((transport) => transport.position?.ltcLost);
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced);
   const running = info !== null;
   const { ltc, mtc } = output;
   // An empty name is the system's default output, which is what plays when nothing was chosen.
-  const deviceName = ltc?.deviceName ?? output.audio?.deviceName ?? "";
+  const deviceName = output.audio?.deviceName ?? ltc?.deviceName ?? "";
+  // LTC has a stream of its own when it names another device than the one that plays the programme.
+  const ltcDevice = ltc && ltc.deviceName !== deviceName ? ltc.deviceName || t("output.default") : null;
   const clockRow = clockUnpaced
     ? { state: "fault" as LampState, status: "output.state.fast" as MessageKey }
     : rowState(true, devices.audioPresence === "unset" ? "found" : devices.audioPresence, running, deviceLost);
@@ -121,8 +124,10 @@ function Lamps({ devices }: { devices: Devices }) {
     },
     {
       legend: "output.ltc",
-      ...rowState(ltc !== null, devices.audioPresence, running, deviceLost),
-      detail: ltc ? t("output.channel", { channel: ltc.channel }) : t("output.notSet"),
+      ...rowState(ltc !== null, devices.ltcPresence, running && info?.ltcChannel != null, deviceLost || ltcLost),
+      detail: ltc
+        ? [t("output.channel", { channel: ltc.channel }), ltcDevice].filter(Boolean).join(" · ")
+        : t("output.notSet"),
     },
     {
       legend: "output.mtc",

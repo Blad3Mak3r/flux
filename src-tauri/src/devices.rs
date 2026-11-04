@@ -117,7 +117,7 @@ pub fn list_midi() -> Result<Vec<MidiPort>, DeviceError> {
         .collect())
 }
 
-fn device_name(device: &cpal::Device) -> Option<String> {
+pub fn device_name(device: &cpal::Device) -> Option<String> {
     Some(device.description().ok()?.name().to_owned())
 }
 
