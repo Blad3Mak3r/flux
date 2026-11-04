@@ -1,6 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { DotMatrix } from "../components/DotMatrix";
+import { BrandMark } from "../components/BrandMark";
 import { hasNativeWindow } from "../components/WindowControls";
 import { I18nProvider, useT } from "../i18n";
 import type { MessageKey } from "../i18n";
@@ -71,7 +72,7 @@ function Launcher() {
 
   return (
     <main className="launcher" data-tauri-drag-region>
-      <p className="brand" data-tauri-drag-region>{t("app.title")}</p>
+      <BrandMark />
       <DotMatrix text="00:00:00:00" label={t("readout.label")} />
       <ul className="startup" aria-live="polite">
         {STEPS.map(({ id, name }) => {

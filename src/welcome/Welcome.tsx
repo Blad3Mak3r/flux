@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { BrandMark } from "../components/BrandMark";
 import { FolderIcon, PlusIcon, TrashIcon } from "../components/icons";
 import { WindowControls, hasNativeWindow } from "../components/WindowControls";
 import { I18nProvider, useI18n } from "../i18n";
@@ -72,7 +73,7 @@ function Welcome() {
   return (
     <div className="welcome">
       <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
-        <p className="brand" data-tauri-drag-region>{t("app.title")}</p>
+        <BrandMark />
         {hasNativeWindow() && (
           <div className="menu-end">
             <WindowControls />

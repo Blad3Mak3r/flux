@@ -1,4 +1,5 @@
 import { LOCALES, useI18n } from "../i18n";
+import { BrandMark } from "./BrandMark";
 import type { Locale } from "../i18n";
 import { isDirty } from "../state/doc";
 import { dispatch, useDoc } from "../state/store";
@@ -19,7 +20,7 @@ export function MenuBar() {
   const hint = (label: string, keys: string) => `${label} (${keys})`;
   return (
     <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
-      <p className="brand" data-tauri-drag-region>{t("app.title")}</p>
+      <BrandMark />
       <p className="doc-name" title={name} data-tauri-drag-region>
         {name}
         {dirty && (

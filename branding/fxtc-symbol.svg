@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000" role="img" aria-labelledby="title desc">
+  <title id="title">FXTC — símbolo Flux Timecode</title>
+  <desc id="desc">Logotipo en forma de F escalonada, formado por seis piezas verdes inclinadas distribuidas en tres filas de tres, dos y una pieza.</desc>
+  <defs>
+      <linearGradient id="tileFill" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#BAFF42"/>
+        <stop offset="1" stop-color="#83F300"/>
+      </linearGradient>
+      <filter id="glow" x="-30%" y="-45%" width="160%" height="190%" color-interpolation-filters="sRGB">
+        <feGaussianBlur stdDeviation="11" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+  <g transform="translate(23 153)" fill="url(#tileFill)">
+    <path d="M 71 0 H 233 C 246 0 254 9 249 23 L 198 150 C 193 164 183 170 169 170 H 17 C 4 170 -3 159 2 145 L 53 18 C 57 7 63 0 71 0 Z" transform="translate(169 75)"/>
+    <path d="M 71 0 H 233 C 246 0 254 9 249 23 L 198 150 C 193 164 183 170 169 170 H 17 C 4 170 -3 159 2 145 L 53 18 C 57 7 63 0 71 0 Z" transform="translate(409 75)"/>
+    <path d="M 71 0 H 233 C 246 0 254 9 249 23 L 198 150 C 193 164 183 170 169 170 H 17 C 4 170 -3 159 2 145 L 53 18 C 57 7 63 0 71 0 Z" transform="translate(649 75)"/>
+    <path d="M 71 0 H 233 C 246 0 254 9 249 23 L 198 150 C 193 164 183 170 169 170 H 17 C 4 170 -3 159 2 145 L 53 18 C 57 7 63 0 71 0 Z" transform="translate(103 262)"/>
+    <path d="M 71 0 H 233 C 246 0 254 9 249 23 L 198 150 C 193 164 183 170 169 170 H 17 C 4 170 -3 159 2 145 L 53 18 C 57 7 63 0 71 0 Z" transform="translate(343 262)"/>
+    <path d="M 71 0 H 233 C 246 0 254 9 249 23 L 198 150 C 193 164 183 170 169 170 H 17 C 4 170 -3 159 2 145 L 53 18 C 57 7 63 0 71 0 Z" transform="translate(37 449)"/>
+  </g>
+</svg>
