@@ -1,0 +1,42 @@
+---
+import "../styles/global.css";
+import { translator } from "../i18n";
+import type { Locale } from "../i18n";
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = translator(locale);
+const base = import.meta.env.BASE_URL;
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#1b1f26" />
+    <title>{t("meta.title")}</title>
+    <meta name="description" content={t("meta.description")} />
+    <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+    <link rel="alternate" hreflang="en" href={new URL(base, Astro.site).href} />
+    <link rel="alternate" hreflang="es" href={new URL(`${base}es/`, Astro.site).href} />
+    <meta property="og:title" content={t("meta.title")} />
+    <meta property="og:description" content={t("meta.description")} />
+    <meta property="og:type" content="website" />
+  </head>
+  <body>
+    <!--
+      THESIS: the page is the app's faceplate in a browser; the running timecode is the hero, and it refuses the SaaS hero over a grid of icon cards.
+      OWN-WORLD: DESIGN.md's Bench Instrument: charcoal-blue faceplate, teal-black graticule screen, phosphor reads, amber cues, vermilion only while the clock runs; square, flat, 1px rules, system type, 5x7 dot-matrix digits.
+      STORY: a show technician sees timecode tracks on a real timeline, learns Flux is the clock (LTC and MTC), and downloads the right installer in one click.
+      FIRST VIEWPORT: left, title, lead and the Download button with version line; right, a graticule screen with the running readout over the timeline illustration.
+      FORM: an established-world extension of the app's faceplate, no new identity; downloads table below the fold.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+    -->
+    <slot />
+  </body>
+</html>

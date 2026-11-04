@@ -1,0 +1,224 @@
+---
+import Base from "../layouts/Base.astro";
+import DotReadout from "./DotReadout.astro";
+import Timeline from "./Timeline.astro";
+import { LOCALES, pagePath, translator } from "../i18n";
+import type { Key, Locale } from "../i18n";
+import { downloads, megabytes, release } from "../lib/release";
+import type { Download } from "../lib/release";
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = translator(locale);
+const base = import.meta.env.BASE_URL;
+
+const other = LOCALES.find((id) => id !== locale)!;
+const otherName = { en: "English", es: "Español" }[other];
+
+const date = release
+  ? new Intl.DateTimeFormat(locale, { dateStyle: "long", timeZone: "UTC" }).format(new Date(release.publishedAt))
+  : "";
+
+const systemKey = (file: Download): Key => {
+  if (file.os === "windows") return "dl.windows";
+  if (file.os === "macos") return file.arch === "aarch64" ? "dl.macos.aarch64" : "dl.macos.x86_64";
+  return file.format === "rpm" ? "dl.linux.rpm" : "dl.linux.deb";
+};
+const formatLabel = (file: Download) => (file.format === "msi" || file.format === "dmg" ? file.format.toUpperCase() : `.${file.format}`);
+const showChecksums = downloads.some((file) => file.sha256);
+
+const labels = JSON.stringify({
+  windows: t("hero.downloadFor.windows"),
+  macos: t("hero.downloadFor.macos"),
+  linux: t("hero.downloadFor.linux"),
+});
+const repo = "https://github.com/Blad3Mak3r/flux-timecode";
+---
+
+<Base locale={locale}>
+  <header class="bar">
+    <div class="wrap bar-inner">
+      <a class="brand" href={pagePath(locale, base)}>
+        <img src={`${base}favicon.svg`} alt="" width="35" height="22" />
+        <span>{t("brand")}</span>
+      </a>
+      <nav aria-label={t("nav.label")}>
+        <a href="#downloads">{t("nav.downloads")}</a>
+        <a href={pagePath(other, base)} lang={other} hreflang={other} aria-label={`${t("nav.language")}: ${otherName}`}>{otherName}</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <h1>{t("hero.title")}</h1>
+        <p class="lead">{t("hero.lead")}</p>
+
+        {
+          release ? (
+            <div class="get">
+              <div class="actions">
+                <a id="download" class="button primary large" href="#downloads" data-labels={labels}>
+                  {t("hero.download")}
+                </a>
+                <a class="link" href="#downloads">
+                  {t("hero.other")}
+                </a>
+              </div>
+              <p class="measure">
+                <span id="download-file" />v{release.version} · {date}
+              </p>
+            </div>
+          ) : (
+            <div class="get">
+              <p class="soon">{t("hero.soon")}</p>
+              <p class="measure">{t("hero.soonNote")}</p>
+            </div>
+          )
+        }
+        <p class="early">{t("hero.early")}</p>
+      </div>
+
+      <figure class="screen" data-live="false">
+        <div class="readout">
+          <DotReadout text="01:00:12:08" label={t("readout.label")} />
+        </div>
+        <Timeline t={t} />
+        <figcaption>{t("timeline.note")}</figcaption>
+      </figure>
+    </section>
+
+    <section class="wrap spec">
+      <article>
+        <h2 class="legend">{t("spec.timeline.title")}</h2>
+        <p>{t("spec.timeline.body")}</p>
+      </article>
+      <article>
+        <h2 class="legend">{t("spec.cues.title")}</h2>
+        <p>{t("spec.cues.body")}</p>
+      </article>
+      <article>
+        <h2 class="legend">{t("spec.project.title")}</h2>
+        <p>{t("spec.project.body")}</p>
+      </article>
+    </section>
+
+    <section class="wrap clock">
+      <div>
+        <h2>{t("clock.title")}</h2>
+        <p>{t("clock.body")}</p>
+      </div>
+      <ul class="lamps" aria-label={t("clock.title")}>
+        <li>
+          <span class="lamp" data-state="on"></span>
+          <span class="lamp-name">{t("clock.ltc")}</span>
+          <span class="lamp-status">{t("clock.ltc.status")}</span>
+          <span class="lamp-detail">{t("clock.ltc.detail")}</span>
+        </li>
+        <li>
+          <span class="lamp" data-state="on"></span>
+          <span class="lamp-name">{t("clock.mtc")}</span>
+          <span class="lamp-status">{t("clock.mtc.status")}</span>
+          <span class="lamp-detail">{t("clock.mtc.detail")}</span>
+        </li>
+        <li>
+          <span class="lamp" data-state="on"></span>
+          <span class="lamp-name">{t("clock.rate")}</span>
+          <span class="lamp-status">{t("clock.rate.status")}</span>
+          <span class="lamp-detail measure">{t("clock.rate.detail")}</span>
+        </li>
+      </ul>
+    </section>
+
+    {
+      release && (
+        <section class="wrap downloads-section" id="downloads">
+          <h2>{t("dl.title")}</h2>
+          <p class="measure">{t("dl.version", { version: release.version, date })}</p>
+          <table class="downloads">
+            <thead>
+              <tr>
+                <th scope="col">{t("dl.system")}</th>
+                <th scope="col">{t("dl.format")}</th>
+                <th scope="col">{t("dl.size")}</th>
+                {showChecksums && <th scope="col">{t("dl.checksum")}</th>}
+                <th scope="col">
+                  <span class="sr-only">{t("dl.get")}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {downloads.map((file) => (
+                <tr
+                  data-download
+                  data-os={file.os}
+                  data-arch={file.arch}
+                  data-format={file.format}
+                  data-format-label={formatLabel(file)}
+                  data-size-label={megabytes(file.size)}
+                >
+                  <td data-label={t("dl.system")}>
+                    <span>{t(systemKey(file))}</span>
+                    <span class="yours">{t("dl.yours")}</span>
+                  </td>
+                  <td data-label={t("dl.format")} class="measure">
+                    {formatLabel(file)}
+                  </td>
+                  <td data-label={t("dl.size")} class="measure">
+                    {megabytes(file.size)}
+                  </td>
+                  {showChecksums && (
+                    <td data-label={t("dl.checksum")} class="measure sha">
+                      {file.sha256 ?? "-"}
+                    </td>
+                  )}
+                  <td class="get-cell">
+                    <a class="button" href={file.url} download>
+                      {t("dl.get")}
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <h3 class="legend">{t("first.title")}</h3>
+          <dl class="first">
+            <div>
+              <dt>{t("first.windows.name")}</dt>
+              <dd>{t("first.windows.body")}</dd>
+            </div>
+            <div>
+              <dt>{t("first.macos.name")}</dt>
+              <dd>{t("first.macos.body")}</dd>
+            </div>
+            <div>
+              <dt>{t("first.linux.name")}</dt>
+              <dd>{t("first.linux.body")}</dd>
+            </div>
+          </dl>
+          <p class="updates">{t("first.updates")}</p>
+        </section>
+      )
+    }
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-inner">
+      <span class="measure">{release ? t("footer.version", { version: release.version }) : t("brand")}</span>
+      <span class="foot-links">
+        <a href={repo}>{t("footer.source")}</a>
+        {release && <a href={`${base}latest.json`}>{t("footer.feed")}</a>}
+      </span>
+    </div>
+  </footer>
+
+  <script>
+    import "../scripts/readout.ts";
+    import "../scripts/platform.ts";
+  </script>
+</Base>

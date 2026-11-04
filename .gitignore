@@ -28,3 +28,10 @@ dist-ssr
 # Impeccable working output (screenshots, decision pages); the design record is DESIGN.md
 .impeccable/review/
 .impeccable/questions/
+
+# Landing page (Astro): build output, and what scripts/release-site.mjs writes from a release
+landing/dist/
+landing/.astro/
+landing/node_modules/
+landing/public/latest.json
+landing/src/data/release.json

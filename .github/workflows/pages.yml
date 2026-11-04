@@ -1,0 +1,61 @@
+name: Pages
+
+# Publishes the landing page, with the download links and latest.json (the updater endpoint) of the
+# newest published release. It runs after each release, and when the landing page changes.
+
+on:
+  push:
+    branches: [main]
+    paths: ["landing/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      # `releases/latest` is the newest published release that is not a pre-release.
+      - name: Read the latest release
+        run: |
+          mkdir -p release/signatures
+          if gh api "repos/$GITHUB_REPOSITORY/releases/latest" > release/release.json; then
+            tag=$(node -p 'JSON.parse(require("fs").readFileSync("release/release.json", "utf8")).tag_name')
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.sig' --dir release/signatures
+            node landing/scripts/release-site.mjs release/release.json release/signatures landing
+          else
+            echo "There is no release yet; the page shows that."
+          fi
+
+      - run: npm ci
+        working-directory: landing
+
+      - run: npm run build
+        working-directory: landing
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: landing/dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v5

@@ -1,0 +1,120 @@
+---
+import type { Translate } from "../i18n";
+
+interface Props {
+  t: Translate;
+}
+
+const { t } = Astro.props;
+
+// Sixteen seconds across the ruler, from 01:00:00:00. The scripts move the playhead along it.
+const X0 = 20;
+const X1 = 580;
+const SECONDS = 16;
+const PX = (X1 - X0) / SECONDS;
+const HEIGHT = 200;
+
+const ticks = Array.from({ length: SECONDS + 1 }, (_, s) => ({
+  x: X0 + s * PX,
+  major: s % 4 === 0,
+  label: `01:00:${String(s).padStart(2, "0")}`,
+}));
+
+const LANES = [
+  { y: 32, h: 60 },
+  { y: 96, h: 60 },
+];
+const CLIPS = [
+  { lane: 0, from: 28, to: 306, name: `${t("timeline.track")} 1` },
+  { lane: 1, from: 322, to: 572, name: `${t("timeline.track")} 2` },
+];
+// A made-up waveform: a fixed sum of sines, so every build draws the same one.
+const wave = (from: number, to: number, mid: number, half: number, seed: number) => {
+  let d = "";
+  for (let x = from + 4; x < to - 2; x += 3) {
+    const a = Math.abs(Math.sin(x * 0.11 + seed) * 0.5 + Math.sin(x * 0.37 + seed * 2) * 0.3 + Math.sin(x * 0.023) * 0.2);
+    const h = Math.max(1.5, a * half * 0.9);
+    d += `M${x} ${(mid - h).toFixed(1)}V${(mid + h).toFixed(1)}`;
+  }
+  return d;
+};
+const CUES = [
+  { x: 76, kind: "marker" as const },
+  { x: 214, kind: "midi" as const },
+  { x: 340, kind: "marker" as const },
+  { x: 458, kind: "midi" as const },
+];
+const EVENTS_Y = 164;
+---
+
+<svg class="timeline" viewBox={`0 0 600 ${HEIGHT}`} aria-hidden="true" focusable="false" shape-rendering="crispEdges">
+  <defs>
+    <pattern id="tl-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="4" class="tl-pattern" />
+    </pattern>
+    <pattern id="tl-dots" width="4" height="4" patternUnits="userSpaceOnUse">
+      <rect x="1" y="1" width="1.5" height="1.5" class="tl-pattern-fill" />
+    </pattern>
+  </defs>
+
+  <rect class="tl-ruler" x="0" y="0" width="600" height="28" />
+  {
+    ticks.map((tick) => (
+      <>
+        <line class="tl-tick" x1={tick.x} x2={tick.x} y1={tick.major ? 14 : 22} y2="28" />
+        {tick.major && (
+          <text class="tl-label" x={tick.x + 3} y="11">
+            {tick.label}
+          </text>
+        )}
+      </>
+    ))
+  }
+
+  {
+    LANES.map((lane) => (
+      <>
+        <line class="tl-centre" x1="0" x2="600" y1={lane.y + lane.h / 2} y2={lane.y + lane.h / 2} />
+        <line class="tl-lane" x1="0" x2="600" y1={lane.y + lane.h} y2={lane.y + lane.h} />
+      </>
+    ))
+  }
+  {
+    CLIPS.map((clip, index) => {
+      const lane = LANES[clip.lane];
+      return (
+        <>
+          <rect class="tl-clip" x={clip.from} y={lane.y + 3} width={clip.to - clip.from} height={lane.h - 6} />
+          <path class="tl-wave" d={wave(clip.from, clip.to, lane.y + lane.h / 2, (lane.h - 6) / 2, index * 2.3 + 1)} />
+          <rect class="tl-plate" x={clip.from} y={lane.y + 3} width={clip.name.length * 5.4 + 10} height="13" />
+          <text class="tl-name" x={clip.from + 5} y={lane.y + 13}>
+            {clip.name}
+          </text>
+        </>
+      );
+    })
+  }
+
+  <line class="tl-lane" x1="0" x2="600" y1={EVENTS_Y + 32} y2={EVENTS_Y + 32} />
+  {
+    CUES.map((cue) => {
+      const name = t(cue.kind === "marker" ? "timeline.marker" : "timeline.midi");
+      const width = name.length * 5.4 + 22;
+      return (
+        <>
+          <line class="tl-flag" x1={cue.x} x2={cue.x} y1={EVENTS_Y - 4} y2={EVENTS_Y + 32} />
+          <rect class="tl-chip" x={cue.x} y={EVENTS_Y} width={width} height="15" />
+          <rect class="tl-chip-fill" x={cue.x + 1} y={EVENTS_Y + 1} width="9" height="13" fill={`url(#${cue.kind === "marker" ? "tl-hatch" : "tl-dots"})`} />
+          <text class="tl-name" x={cue.x + 15} y={EVENTS_Y + 11}>
+            {name}
+          </text>
+        </>
+      );
+    })
+  }
+
+  <g class="tl-playhead" data-playhead transform={`translate(${X0 + (12.32 / SECONDS) * (X1 - X0)} 0)`}>
+    <line x1="0" x2="0" y1="0" y2={HEIGHT} />
+    <path d="M-5 0H5L0 7Z" />
+  </g>
+</svg>

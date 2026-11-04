@@ -1,0 +1,30 @@
+---
+import { ROWS, layout, pixels } from "../lib/dots";
+
+interface Props {
+  text: string;
+  label: string;
+}
+
+const { text, label } = Astro.props;
+const { offsets, width } = layout(text);
+---
+
+<svg
+  class="dot-matrix"
+  viewBox={`0 0 ${width} ${ROWS}`}
+  style={`--cols:${width}`}
+  role="img"
+  aria-label={label}
+  shape-rendering="crispEdges"
+  data-readout
+>
+  {
+    [...text].map((char, index) => (
+      <g transform={`translate(${offsets[index]} 0)`} data-slot={char === ":" ? undefined : index}>
+        <path class="dot-off" d={pixels(char, false) + pixels(char, true)} />
+        <path class="dot-on" d={pixels(char, true)} />
+      </g>
+    ))
+  }
+</svg>
