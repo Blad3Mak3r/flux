@@ -16,7 +16,7 @@
         "title": "Flux Timecode",
         "url": "index.html?view=launcher",
         "width": 440,
-        "height": 260,
+        "height": 330,
         "center": true,
         "resizable": false,
         "maximizable": false,
@@ -49,9 +49,21 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2MkFDRkZBNTM5QjZERDkKUldUWmJadFQrczhxUmtWWEE5STdFU3QxNjdSWVZtYVRUOTRLQ3NCaWxMdW1IL21HNHl6aDJ1RGcK",
+      "endpoints": ["https://blad3mak3r.github.io/flux-timecode/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["deb", "rpm", "msi", "app", "dmg"],
+    "createUpdaterArtifacts": true,
+    "linux": {
+      "deb": { "depends": ["libasound2t64 | libasound2"] },
+      "rpm": { "depends": ["alsa-lib"] }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
