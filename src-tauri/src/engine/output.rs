@@ -642,10 +642,13 @@ impl Output {
     pub fn set_clips(&self, set: ClipSet) -> Result<(), OutputError> {
         let set = Arc::new(set);
         self.levels.replace(set.levels());
-        self.clip_sets
+        let mut sets = self
+            .clip_sets
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Arc::clone(&set));
+            .unwrap_or_else(PoisonError::into_inner);
+        prune_clip_sets(&mut sets);
+        sets.push(Arc::clone(&set));
+        drop(sets);
         self.messages
             .send(Message::Clips(set))
             .map_err(|_| OutputError::NotRunning)
@@ -669,6 +672,13 @@ impl Drop for Output {
             let _ = handle.join();
         }
     }
+}
+
+/// Frees the clip sets the audio callback no longer holds. A set only this list references has
+/// been swapped out already, and nothing else can clone it, so dropping it here, on the control
+/// side, is the last release: the callback never frees one.
+fn prune_clip_sets(sets: &mut Vec<Arc<ClipSet>>) {
+    sets.retain(|set| Arc::strong_count(set) > 1);
 }
 
 struct AudioSpec {
@@ -1527,6 +1537,21 @@ mod tests {
         follower.render(&mut buffer, 0);
 
         assert_eq!(buffer, ltc_from(1_000, 1_000)[..]);
+    }
+
+    #[test]
+    fn prune_should_free_only_the_sets_nothing_else_holds() {
+        let playing = Arc::new(ClipSet::default());
+        let old = Arc::new(ClipSet::default());
+        // The callback holds `playing` through a clone; `old` was swapped out and released.
+        let callback_copy = Arc::clone(&playing);
+        let mut sets = vec![Arc::clone(&old), Arc::clone(&playing)];
+        drop(old);
+
+        prune_clip_sets(&mut sets);
+
+        assert_eq!(sets.len(), 1);
+        assert!(Arc::ptr_eq(&sets[0], &callback_copy));
     }
 
     #[test]
