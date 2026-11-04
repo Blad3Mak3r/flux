@@ -174,12 +174,14 @@ input:disabled {
 }
 
 .brand {
-  white-space: nowrap;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink-dim);
+  display: flex;
+  flex: none;
+}
+
+.brand img {
+  display: block;
+  height: 18px;
+  width: auto;
 }
 
 .doc-name {
@@ -1408,6 +1410,10 @@ input:disabled {
   user-select: none;
 }
 
+.launcher .brand img {
+  height: 30px;
+}
+
 .launcher .dot-matrix {
   padding: 10px 14px;
   background: var(--screen);
@@ -1551,7 +1557,7 @@ input:disabled {
 /* ---- Narrow windows ---- */
 
 @media (max-width: 1180px) {
-  .brand {
+  .app .brand {
     display: none;
   }
 
