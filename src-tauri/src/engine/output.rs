@@ -1,9 +1,11 @@
-//! Real-time output: the audio stream that plays the programme and LTC and is the master clock,
-//! and the MIDI thread that sends MTC from that same clock.
+//! Real-time output: the audio stream that plays the programme and is the master clock, the LTC
+//! that goes out on it or on a stream of its own, and the MIDI thread that sends MTC from that same
+//! clock.
 //!
-//! What can be tested without hardware is kept apart from the device code: [`Renderer`] fills a
-//! buffer for any sample type, [`pick_config`] chooses a stream format, and [`Snapshot`] turns the
-//! last published position into a current one. [`Output`] only wires them to cpal and midir.
+//! What can be tested without hardware is kept apart from the device code: [`Renderer`] and
+//! [`LtcFollower`] fill a buffer for any sample type, [`pick_config`] chooses a stream format, and
+//! [`Snapshot`] turns the last published position into a current one. [`Output`] only wires them to
+//! cpal and midir.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -35,10 +37,6 @@ const MAX_EXTRAPOLATION: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Error)]
 pub enum OutputError {
-    #[error(
-        "LTC is on {ltc} but the programme audio is on {audio}: one device per project for now"
-    )]
-    DifferentDevices { ltc: String, audio: String },
     #[error("audio device not found: {0}")]
     DeviceMissing(String),
     #[error("this system has no default audio output; choose a device in the Output tab")]
@@ -133,6 +131,8 @@ pub struct SharedClock {
     snapshot: Mutex<Snapshot>,
     base: Instant,
     lost: AtomicBool,
+    /// The LTC stream, when it runs on a device of its own, failed or went away.
+    ltc_lost: AtomicBool,
     unpaced: AtomicBool,
 }
 
@@ -147,6 +147,7 @@ impl SharedClock {
             }),
             base: Instant::now(),
             lost: AtomicBool::new(false),
+            ltc_lost: AtomicBool::new(false),
             unpaced: AtomicBool::new(false),
         }
     }
@@ -166,9 +167,24 @@ impl SharedClock {
         *self.snapshot.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Like [`load`](Self::load) but never waits, for a second audio callback: `None` when the
+    /// master callback is publishing at this very moment.
+    pub fn try_load(&self) -> Option<Snapshot> {
+        match self.snapshot.try_lock() {
+            Ok(snapshot) => Some(*snapshot),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(*poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    }
+
     /// Whether the audio device failed or went away while running.
     pub fn is_lost(&self) -> bool {
         self.lost.load(Ordering::Relaxed)
+    }
+
+    /// Whether the LTC device, when it is not the programme's, failed or went away while running.
+    pub fn is_ltc_lost(&self) -> bool {
+        self.ltc_lost.load(Ordering::Relaxed)
     }
 
     /// Whether the device renders audio faster than real time, so the position cannot be trusted.
@@ -296,6 +312,97 @@ impl Renderer {
     }
 }
 
+/// Something that fills the buffers of one audio stream.
+trait Fill: Send + 'static {
+    fn fill<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64);
+}
+
+impl Fill for Renderer {
+    fn fill<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
+        self.render(data, now);
+    }
+}
+
+/// Plays LTC on an audio device that is not the master's. The two sample clocks are independent
+/// and drift apart, so this does not count samples against the transport: it reads where the
+/// master is, plays LTC from there, and starts over from the master's position whenever it is a
+/// frame or more away, or the master seeks.
+#[derive(Debug)]
+pub struct LtcFollower {
+    stream: LtcStream,
+    /// Zero-based index into each frame of the interleaved buffer.
+    channel: usize,
+    channels: usize,
+    clock: Clock,
+    shared: Arc<SharedClock>,
+    /// The last position read; kept when the master is publishing and the read is skipped.
+    snapshot: Snapshot,
+    /// The transport position of the next sample `stream` writes. `None` until synchronised, and
+    /// after the transport stops playing.
+    next: Option<u64>,
+    seen_epoch: u64,
+}
+
+impl LtcFollower {
+    pub fn new(
+        stream: LtcStream,
+        channel: usize,
+        channels: usize,
+        clock: Clock,
+        shared: Arc<SharedClock>,
+    ) -> Self {
+        let snapshot = shared.load();
+        Self {
+            stream,
+            channel,
+            channels,
+            clock,
+            shared,
+            seen_epoch: snapshot.epoch,
+            snapshot,
+            next: None,
+        }
+    }
+
+    /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
+    pub fn render<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
+        data.fill(T::EQUILIBRIUM);
+        if let Some(snapshot) = self.shared.try_load() {
+            self.snapshot = snapshot;
+        }
+        let snapshot = self.snapshot;
+        if snapshot.state != TransportState::Playing {
+            self.next = None;
+            self.seen_epoch = snapshot.epoch;
+            return;
+        }
+
+        let target = snapshot.estimated_position(now, self.clock);
+        let one_frame = self.clock.frames_to_samples(1);
+        let in_step = self.seen_epoch == snapshot.epoch
+            && self
+                .next
+                .is_some_and(|next| next.abs_diff(target) < one_frame);
+        if !in_step {
+            self.seen_epoch = snapshot.epoch;
+            self.stream.resync(target);
+            self.next = Some(target);
+        }
+
+        for frame in data.chunks_exact_mut(self.channels) {
+            frame[self.channel] = T::from_sample(self.stream.next_sample());
+        }
+        let written = (data.len() / self.channels) as u64;
+        self.next = self.next.map(|next| next + written);
+    }
+}
+
+impl Fill for LtcFollower {
+    fn fill<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
+        self.render(data, now);
+    }
+}
+
 /// One entry of a device's `supported_output_configs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfigRange {
@@ -333,6 +440,8 @@ pub struct OutputInfo {
     pub channels: u16,
     /// 1-based interface channel carrying LTC.
     pub ltc_channel: Option<u16>,
+    /// The device LTC plays on when it is not `device`; `None` when LTC is off or shares it.
+    pub ltc_device: Option<String>,
     pub mtc_port: Option<String>,
     /// Things that did not stop the output but the user should know, e.g. a missing MIDI port.
     pub warnings: Vec<String>,
@@ -346,6 +455,8 @@ pub struct Position {
     pub frame: u64,
     pub position_samples: u64,
     pub device_lost: bool,
+    /// The LTC device, when it is not the programme's, failed or went away.
+    pub ltc_lost: bool,
     /// The device renders audio faster than real time (ALSA's null device does), so the position
     /// and the timecode are wrong. Pick another device.
     pub clock_unpaced: bool,
@@ -368,6 +479,7 @@ impl PositionReader {
             frame: self.start + self.clock.samples_to_frames(position),
             position_samples: position,
             device_lost: self.shared.is_lost(),
+            ltc_lost: self.shared.is_ltc_lost(),
             clock_unpaced: self.shared.is_unpaced(),
         }
     }
@@ -394,16 +506,11 @@ impl Output {
     pub fn start(project: &Project, programme: Programme) -> Result<Self, OutputError> {
         let output = &project.output;
         // An empty device name is the system's default output, so a project without any device
-        // chosen still plays.
-        let device_hint = match (&output.ltc, &output.audio) {
-            (Some(ltc), Some(audio)) if ltc.device_name != audio.device_name => {
-                return Err(OutputError::DifferentDevices {
-                    ltc: ltc.device_name.clone(),
-                    audio: audio.device_name.clone(),
-                });
-            }
-            (Some(ltc), _) => ltc.device_name.clone(),
-            (None, Some(audio)) => audio.device_name.clone(),
+        // chosen still plays. A project written before `output.audio` existed carries the
+        // programme on the LTC device.
+        let device_hint = match (&output.audio, &output.ltc) {
+            (Some(audio), _) => audio.device_name.clone(),
+            (None, Some(ltc)) => ltc.device_name.clone(),
             (None, None) => String::new(),
         };
         let programme_channels: Vec<u16> = output
@@ -412,10 +519,15 @@ impl Output {
             .map(|audio| audio.channels.clone())
             .filter(|channels| !channels.is_empty())
             .unwrap_or_else(|| vec![1, 2]);
-        let needed = output
-            .ltc
-            .iter()
-            .map(|ltc| ltc.channel)
+        // LTC shares the programme's stream unless it names another device, which then gets a
+        // stream of its own.
+        let (shared_ltc, own_ltc) = match &output.ltc {
+            Some(ltc) if same_device(&ltc.device_name, &device_hint) => (Some(ltc.channel), None),
+            Some(ltc) => (None, Some(ltc)),
+            None => (None, None),
+        };
+        let needed = shared_ltc
+            .into_iter()
             .chain(programme_channels.iter().copied())
             .max()
             .unwrap_or(2);
@@ -427,43 +539,52 @@ impl Output {
         let shared = Arc::new(SharedClock::new());
         let stop = Arc::new(AtomicBool::new(false));
         let (messages, message_rx) = mpsc::channel();
-        let (ready_tx, ready_rx) = mpsc::channel();
         let Programme { set, warnings } = programme;
         let clips = Arc::new(set);
         let levels = SharedLevels::new(clips.levels());
 
-        let audio_thread = {
-            let spec = AudioSpec {
-                device_hint,
-                needed,
-                programme: programme_channels,
-                clips: Arc::clone(&clips),
-                ltc_channel: output.ltc.as_ref().map(|ltc| ltc.channel),
-                ltc_config,
+        let spec = AudioSpec {
+            device_hint,
+            needed,
+            programme: programme_channels,
+            clips: Arc::clone(&clips),
+            ltc_channel: shared_ltc,
+            ltc_config,
+            rate,
+            start,
+            clock,
+        };
+        let (audio_thread, audio) = spawn_stream("flux-audio", Arc::clone(&stop), {
+            let shared = Arc::clone(&shared);
+            move || open_stream(spec, message_rx, shared)
+        })?;
+
+        let mut threads = vec![audio_thread];
+        let mut warnings = warnings;
+        let mut ltc_channel = shared_ltc;
+        let mut ltc_device = None;
+        if let Some(ltc) = own_ltc {
+            let spec = LtcSpec {
+                device_hint: ltc.device_name.clone(),
+                channel: ltc.channel,
+                config: ltc_config,
                 rate,
                 start,
                 clock,
             };
-            let (shared, stop) = (Arc::clone(&shared), Arc::clone(&stop));
-            thread::Builder::new()
-                .name("flux-audio".into())
-                .spawn(move || run_audio(spec, message_rx, shared, stop, ready_tx))
-                .map_err(|err| OutputError::Stream(err.to_string()))?
-        };
-        let audio = match ready_rx.recv() {
-            Ok(Ok(audio)) => audio,
-            Ok(Err(err)) => {
-                let _ = audio_thread.join();
-                return Err(err);
+            let opened = spawn_stream("flux-ltc", Arc::clone(&stop), {
+                let shared = Arc::clone(&shared);
+                move || open_ltc_stream(spec, shared)
+            });
+            match opened {
+                Ok((handle, device)) => {
+                    threads.push(handle);
+                    ltc_channel = Some(ltc.channel);
+                    ltc_device = Some(device);
+                }
+                Err(err) => warnings.push(format!("LTC is off, {err}")),
             }
-            Err(_) => {
-                let _ = audio_thread.join();
-                return Err(OutputError::Stream("the audio thread stopped".into()));
-            }
-        };
-
-        let mut threads = vec![audio_thread];
-        let mut warnings = warnings;
+        }
         let mut mtc_port = None;
         if let Some(mtc) = &output.mtc {
             match connect_midi(&mtc.port_name) {
@@ -487,7 +608,8 @@ impl Output {
             device: audio.device,
             sample_rate: ltc_config.sample_rate,
             channels: audio.channels,
-            ltc_channel: output.ltc.as_ref().map(|ltc| ltc.channel),
+            ltc_channel,
+            ltc_device,
             mtc_port,
             warnings,
         };
@@ -555,7 +677,7 @@ struct AudioSpec {
     /// 1-based interface channels of the programme.
     programme: Vec<u16>,
     clips: Arc<ClipSet>,
-    /// 1-based.
+    /// 1-based. `None` when LTC is off or plays on a device of its own.
     ltc_channel: Option<u16>,
     ltc_config: LtcConfig,
     rate: FrameRate,
@@ -568,46 +690,84 @@ struct AudioInfo {
     channels: u16,
 }
 
-/// Owns the cpal stream for as long as the output runs. A cpal stream is not `Send` on every
-/// platform, so it is created, played and dropped on this one thread.
-fn run_audio(
-    spec: AudioSpec,
-    messages: Receiver<Message>,
-    shared: Arc<SharedClock>,
-    stop: Arc<AtomicBool>,
-    ready: Sender<Result<AudioInfo, OutputError>>,
-) {
-    let (stream, info) = match open_stream(spec, messages, shared) {
-        Ok(opened) => opened,
-        Err(err) => {
-            let _ = ready.send(Err(err));
-            return;
-        }
-    };
-    let _ = ready.send(Ok(info));
-    while !stop.load(Ordering::Relaxed) {
-        thread::park_timeout(AUDIO_PARK);
-    }
-    drop(stream);
+struct LtcSpec {
+    device_hint: String,
+    /// 1-based.
+    channel: u16,
+    config: LtcConfig,
+    rate: FrameRate,
+    start: u64,
+    clock: Clock,
 }
 
-fn open_stream(
-    spec: AudioSpec,
-    messages: Receiver<Message>,
-    shared: Arc<SharedClock>,
-) -> Result<(cpal::Stream, AudioInfo), OutputError> {
-    let device = devices::open_audio(&spec.device_hint).ok_or_else(|| {
-        if spec.device_hint.is_empty() {
+/// Whether two device name hints open the same audio device. Different hints can: an empty one is
+/// the system's default output, and names match loosely.
+fn same_device(a: &str, b: &str) -> bool {
+    let name =
+        |hint: &str| devices::open_audio(hint).and_then(|device| devices::device_name(&device));
+    a == b || matches!((name(a), name(b)), (Some(a), Some(b)) if a == b)
+}
+
+/// Runs `open` on a thread of its own, which keeps the stream it returns for as long as the output
+/// runs, and waits until the stream is open or has failed. A cpal stream is not `Send` on every
+/// platform, so it is created, played and dropped on that one thread.
+fn spawn_stream<I: Send + 'static>(
+    name: &str,
+    stop: Arc<AtomicBool>,
+    open: impl FnOnce() -> Result<(cpal::Stream, I), OutputError> + Send + 'static,
+) -> Result<(JoinHandle<()>, I), OutputError> {
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let thread = thread::Builder::new()
+        .name(name.into())
+        .spawn(move || {
+            let (stream, info) = match open() {
+                Ok(opened) => opened,
+                Err(err) => {
+                    let _ = ready_tx.send(Err(err));
+                    return;
+                }
+            };
+            let _ = ready_tx.send(Ok(info));
+            while !stop.load(Ordering::Relaxed) {
+                thread::park_timeout(AUDIO_PARK);
+            }
+            drop(stream);
+        })
+        .map_err(|err| OutputError::Stream(err.to_string()))?;
+    match ready_rx.recv() {
+        Ok(Ok(info)) => Ok((thread, info)),
+        Ok(Err(err)) => {
+            let _ = thread.join();
+            Err(err)
+        }
+        Err(_) => {
+            let _ = thread.join();
+            Err(OutputError::Stream("the audio thread stopped".into()))
+        }
+    }
+}
+
+/// An output device and the stream format chosen for it.
+struct OpenedDevice {
+    device: cpal::Device,
+    name: String,
+    channels: u16,
+    format: SampleFormat,
+}
+
+/// Opens the device `hint` names with the fewest channels that cover `needed`, at `rate`.
+fn open_device(hint: &str, needed: u16, rate: u32) -> Result<OpenedDevice, OutputError> {
+    let device = devices::open_audio(hint).ok_or_else(|| {
+        if hint.is_empty() {
             OutputError::NoDefaultDevice
         } else {
-            OutputError::DeviceMissing(spec.device_hint.clone())
+            OutputError::DeviceMissing(hint.to_owned())
         }
     })?;
     let name = device
         .description()
         .map(|description| description.name().to_owned())
-        .unwrap_or_else(|_| spec.device_hint.clone());
-    let rate = spec.ltc_config.sample_rate;
+        .unwrap_or_else(|_| hint.to_owned());
 
     let ranges: Vec<ConfigRange> = device
         .supported_output_configs()
@@ -620,11 +780,27 @@ fn open_stream(
         })
         .collect();
     let (channels, format) =
-        pick_config(&ranges, spec.needed, rate).ok_or_else(|| OutputError::Unsupported {
+        pick_config(&ranges, needed, rate).ok_or_else(|| OutputError::Unsupported {
             device: name.clone(),
-            channels: spec.needed,
+            channels: needed,
             rate,
         })?;
+    Ok(OpenedDevice {
+        device,
+        name,
+        channels,
+        format,
+    })
+}
+
+fn open_stream(
+    spec: AudioSpec,
+    messages: Receiver<Message>,
+    shared: Arc<SharedClock>,
+) -> Result<(cpal::Stream, AudioInfo), OutputError> {
+    let rate = spec.ltc_config.sample_rate;
+    let opened = open_device(&spec.device_hint, spec.needed, rate)?;
+    let channels = opened.channels;
 
     let ltc = spec.ltc_channel.map(|channel| LtcChannel {
         stream: LtcStream::new(spec.ltc_config, spec.rate, spec.start, 0),
@@ -646,15 +822,61 @@ fn open_stream(
         usize::from(channels),
         Arc::clone(&shared),
     );
+    let lost = Arc::clone(&shared);
+    let stream = start_stream(&opened, rate, renderer, shared, move |err| {
+        eprintln!("flux: audio stream error: {err}");
+        lost.lost.store(true, Ordering::Relaxed);
+    })?;
+    Ok((
+        stream,
+        AudioInfo {
+            device: opened.name,
+            channels,
+        },
+    ))
+}
+
+/// Opens the stream LTC plays on when its device is not the programme's. It follows the master's
+/// position, so a failure here loses the LTC and nothing else.
+fn open_ltc_stream(
+    spec: LtcSpec,
+    shared: Arc<SharedClock>,
+) -> Result<(cpal::Stream, String), OutputError> {
+    let rate = spec.config.sample_rate;
+    let opened = open_device(&spec.device_hint, spec.channel, rate)?;
+    let follower = LtcFollower::new(
+        LtcStream::new(spec.config, spec.rate, spec.start, 0),
+        usize::from(spec.channel) - 1,
+        usize::from(opened.channels),
+        spec.clock,
+        Arc::clone(&shared),
+    );
+    let lost = Arc::clone(&shared);
+    let stream = start_stream(&opened, rate, follower, shared, move |err| {
+        eprintln!("flux: LTC stream error: {err}");
+        lost.ltc_lost.store(true, Ordering::Relaxed);
+    })?;
+    Ok((stream, opened.name))
+}
+
+/// Builds the stream in the format chosen for the device, and starts it.
+fn start_stream<F: Fill>(
+    opened: &OpenedDevice,
+    rate: u32,
+    filler: F,
+    shared: Arc<SharedClock>,
+    on_error: impl FnMut(cpal::Error) + Send + 'static,
+) -> Result<cpal::Stream, OutputError> {
     let config = cpal::StreamConfig {
-        channels,
+        channels: opened.channels,
         sample_rate: rate,
         buffer_size: cpal::BufferSize::Default,
     };
-    let stream = match format {
-        SampleFormat::F32 => build::<f32>(&device, config, renderer, shared),
-        SampleFormat::I32 => build::<i32>(&device, config, renderer, shared),
-        SampleFormat::I16 => build::<i16>(&device, config, renderer, shared),
+    let device = &opened.device;
+    let stream = match opened.format {
+        SampleFormat::F32 => build::<f32, _>(device, config, filler, shared, on_error),
+        SampleFormat::I32 => build::<i32, _>(device, config, filler, shared, on_error),
+        SampleFormat::I16 => build::<i16, _>(device, config, filler, shared, on_error),
         other => Err(OutputError::Stream(format!(
             "unsupported sample format {other}"
         ))),
@@ -662,33 +884,25 @@ fn open_stream(
     stream
         .play()
         .map_err(|err| OutputError::Stream(err.to_string()))?;
-    Ok((
-        stream,
-        AudioInfo {
-            device: name,
-            channels,
-        },
-    ))
+    Ok(stream)
 }
 
-fn build<T>(
+fn build<T, F>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
-    mut renderer: Renderer,
+    mut filler: F,
     shared: Arc<SharedClock>,
+    on_error: impl FnMut(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, OutputError>
 where
     T: SizedSample + FromSample<f32>,
+    F: Fill,
 {
-    let callback_clock = Arc::clone(&shared);
     device
         .build_output_stream(
             config,
-            move |data: &mut [T], _| renderer.render(data, callback_clock.now()),
-            move |err| {
-                eprintln!("flux: audio stream error: {err}");
-                shared.lost.store(true, Ordering::Relaxed);
-            },
+            move |data: &mut [T], _| filler.fill(data, shared.now()),
+            on_error,
             None,
         )
         .map_err(|err| OutputError::Stream(err.to_string()))
@@ -1175,5 +1389,154 @@ mod tests {
         }
 
         assert!(shared.is_unpaced());
+    }
+
+    /// A follower writing mono LTC on channel 0, and the clock it follows.
+    fn follower() -> (LtcFollower, Arc<SharedClock>) {
+        let shared = Arc::new(SharedClock::new());
+        let follower = LtcFollower::new(
+            LtcStream::new(config(), RATE, 0, 0),
+            0,
+            1,
+            clock(),
+            Arc::clone(&shared),
+        );
+        (follower, shared)
+    }
+
+    fn master_at(shared: &SharedClock, state: TransportState, epoch: u64, position: u64) {
+        shared.publish(Snapshot {
+            state,
+            epoch,
+            position,
+            stamp: 0,
+        });
+    }
+
+    /// `len` samples of LTC started at transport position `position`.
+    fn ltc_from(position: u64, len: usize) -> Vec<f32> {
+        let mut stream = LtcStream::new(config(), RATE, 0, 0);
+        stream.resync(position);
+        let mut out = vec![0.0; len];
+        stream.fill(&mut out);
+        out
+    }
+
+    #[test]
+    fn follower_should_be_silent_while_the_master_is_not_playing() {
+        let (mut follower, shared) = follower();
+        let mut buffer = [1.0f32; 4_000];
+        follower.render(&mut buffer, 0);
+        assert!(buffer.iter().all(|&s| s == 0.0));
+
+        master_at(&shared, TransportState::Paused, 1, 9_000);
+        follower.render(&mut buffer, 0);
+        assert!(buffer.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn follower_should_play_the_masters_position_on_its_channel_only() {
+        let shared = Arc::new(SharedClock::new());
+        let mut follower = LtcFollower::new(
+            LtcStream::new(config(), RATE, 0, 0),
+            2,
+            4,
+            clock(),
+            Arc::clone(&shared),
+        );
+        master_at(&shared, TransportState::Playing, 1, 5_000);
+        let mut buffer = [0.0f32; 4 * 4_000];
+        follower.render(&mut buffer, 0);
+
+        assert_eq!(channel_of(&buffer, 4, 2), ltc_from(5_000, 4_000));
+        for other in [0, 1, 3] {
+            assert!(channel_of(&buffer, 4, other).iter().all(|&s| s == 0.0));
+        }
+    }
+
+    #[test]
+    fn follower_should_keep_its_frames_whole_while_in_step_with_the_master() {
+        let (mut follower, shared) = follower();
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut first = [0.0f32; 1_000];
+        follower.render(&mut first, 0);
+
+        // The master is 1 000 samples further, and the follower is where it should be.
+        master_at(&shared, TransportState::Playing, 1, 1_000);
+        let mut second = [0.0f32; 1_000];
+        follower.render(&mut second, 0);
+
+        let expected = ltc_from(0, 2_000);
+        assert_eq!(first, expected[..1_000]);
+        assert_eq!(second, expected[1_000..]);
+    }
+
+    #[test]
+    fn follower_should_ignore_a_difference_of_less_than_a_frame() {
+        let (mut follower, shared) = follower();
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut first = [0.0f32; 1_000];
+        follower.render(&mut first, 0);
+
+        // A frame is 1 920 samples at 25 fps: the master is 900 ahead of where the follower is.
+        master_at(&shared, TransportState::Playing, 1, 1_900);
+        let mut second = [0.0f32; 1_000];
+        follower.render(&mut second, 0);
+
+        assert_eq!(second, ltc_from(0, 2_000)[1_000..]);
+    }
+
+    #[test]
+    fn follower_should_start_over_when_the_clocks_drift_a_frame_apart() {
+        let (mut follower, shared) = follower();
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut buffer = [0.0f32; 1_000];
+        follower.render(&mut buffer, 0);
+
+        // The follower is at 1 000; the master reports 1 920 samples (one frame) beyond that.
+        master_at(&shared, TransportState::Playing, 1, 2_920);
+        follower.render(&mut buffer, 0);
+
+        assert_eq!(buffer, ltc_from(2_920, 1_000)[..]);
+    }
+
+    #[test]
+    fn follower_should_start_over_after_a_seek() {
+        let (mut follower, shared) = follower();
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut buffer = [0.0f32; 1_000];
+        follower.render(&mut buffer, 0);
+
+        // A seek lands where the follower would have been, but it is a new start all the same.
+        master_at(&shared, TransportState::Playing, 2, 1_000);
+        follower.render(&mut buffer, 0);
+
+        assert_eq!(buffer, ltc_from(1_000, 1_000)[..]);
+    }
+
+    #[test]
+    fn follower_should_start_over_when_playing_resumes_after_a_pause() {
+        let (mut follower, shared) = follower();
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut buffer = [0.0f32; 1_000];
+        follower.render(&mut buffer, 0);
+        master_at(&shared, TransportState::Paused, 1, 1_000);
+        follower.render(&mut buffer, 0);
+
+        master_at(&shared, TransportState::Playing, 1, 1_000);
+        follower.render(&mut buffer, 0);
+
+        assert_eq!(buffer, ltc_from(1_000, 1_000)[..]);
+    }
+
+    #[test]
+    fn follower_should_follow_the_wall_clock_between_the_masters_updates() {
+        let (mut follower, shared) = follower();
+        // Published at 0 ns; 10 ms later the master has played 480 more samples.
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut buffer = [0.0f32; 1_000];
+        follower.render(&mut buffer, 10_000_000);
+
+        assert_eq!(buffer, ltc_from(480, 1_000)[..]);
     }
 }
