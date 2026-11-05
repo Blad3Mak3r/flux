@@ -5,6 +5,7 @@ import { Inspector } from "./components/Inspector";
 import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
+import { Live } from "./live/Live";
 import { UnsavedDialog } from "./components/UnsavedDialog";
 import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
@@ -13,7 +14,7 @@ import { deleteSelection } from "./state/actions";
 import { isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, select, sayError, toggleInspector, useUi, zoomBy } from "./state/ui";
+import { ask, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
 import {
   addMarkerAtPlayhead,
   importAudioFiles,
@@ -47,6 +48,7 @@ function Shell() {
   const output = useDoc((doc) => doc.project.output);
   const docKey = useUi((ui) => ui.docKey);
   const collapsed = useUi((ui) => ui.collapsed);
+  const view = useUi((ui) => ui.view);
   const asking = useUi((ui) => ui.pending !== null);
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced ?? false);
   const devices = useDevices(output);
@@ -105,6 +107,8 @@ function Shell() {
           : key === "o" ? "open"
           : key === "n" ? "new"
           : key === "b" ? "toggleInspector"
+          : key === "1" ? "viewEdit"
+          : key === "2" ? "viewLive"
           : key === "=" || key === "+" ? "zoomIn"
           : key === "-" ? "zoomOut"
           : null;
@@ -116,6 +120,7 @@ function Shell() {
         else if (action === "open") openDocument();
         else if (action === "new") newDocument(t);
         else if (action === "toggleInspector") toggleInspector();
+        else if (action === "viewEdit" || action === "viewLive") setView(action === "viewEdit" ? "edit" : "live");
         else zoomBy(action === "zoomIn" ? ZOOM_STEP : 1 / ZOOM_STEP);
         return;
       }
@@ -156,9 +161,15 @@ function Shell() {
     <div className="app">
       <MenuBar />
       <Faceplate devices={devices} />
-      <main className="work" data-inspector-collapsed={collapsed}>
-        <Timeline key={docKey} />
-        <Inspector devices={devices} />
+      <main className="work" data-view={view} data-inspector-collapsed={collapsed}>
+        {view === "live" ? (
+          <Live />
+        ) : (
+          <>
+            <Timeline key={docKey} />
+            <Inspector devices={devices} />
+          </>
+        )}
       </main>
       <StatusBar />
       <UnsavedDialog

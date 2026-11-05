@@ -7,6 +7,9 @@ import { DEFAULT_PX_PER_FRAME, clampZoom } from "../timeline/scale";
 
 export type InspectorTab = "selection" | "project" | "output";
 
+/** The timeline is edited in `edit` and run on stage in `live`. */
+export type View = "edit" | "live";
+
 export interface Selected {
   kind: "clip" | "trigger";
   id: string;
@@ -24,6 +27,7 @@ interface UiState {
   selection: Selected | null;
   tab: InspectorTab;
   collapsed: boolean;
+  view: View;
   zoom: number;
   /** A new document starts the timeline over: scrolled to the origin, at the default zoom. */
   docKey: number;
@@ -41,10 +45,21 @@ function readCollapsed(): boolean {
   }
 }
 
+const VIEW_KEY = "flux.view";
+
+function readView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "live" ? "live" : "edit";
+  } catch {
+    return "edit";
+  }
+}
+
 export const useUi = create<UiState>()(() => ({
   selection: null,
   tab: "selection",
   collapsed: readCollapsed(),
+  view: readView(),
   zoom: DEFAULT_PX_PER_FRAME,
   docKey: 0,
   message: { key: "status.ready", tone: "info" },
@@ -62,6 +77,15 @@ export function setCollapsed(collapsed: boolean): void {
   set({ collapsed });
   try {
     localStorage.setItem(INSPECTOR_KEY, collapsed ? "1" : "0");
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+export function setView(view: View): void {
+  set({ view });
+  try {
+    localStorage.setItem(VIEW_KEY, view);
   } catch {
     // Not remembered, still works.
   }

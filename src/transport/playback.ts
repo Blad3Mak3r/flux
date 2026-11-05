@@ -4,6 +4,7 @@
 // Plain functions over the stores rather than a hook: nothing here renders, so nothing re-renders
 // when it works, and every export is one stable function.
 
+import { useLive } from "../live/store";
 import { errorMessage } from "../project/api";
 import type { Project } from "../project/types";
 import { useDoc } from "../state/store";
@@ -41,6 +42,7 @@ const lanes = (id: number): OutputLanes => ({
   onPosition: (position) => id === run && useTransport.setState({ position }),
   onLevels: (tracks) =>
     id === run && useTransport.setState({ levels: Object.fromEntries(tracks.map((track) => [track.id, track.peak])) }),
+  onLive: (state) => id === run && useLive.setState({ state }),
 });
 
 /** While the output runs, edits to the tracks (muting, moving, importing) reach the audio too. */
