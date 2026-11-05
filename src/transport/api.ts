@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { LiveState } from "../live/api";
-import type { Project } from "../project/types";
+import type { Project, Tempo } from "../project/types";
 
 // Mirrors src-tauri/src/engine/output.rs and src-tauri/src/transport_commands.rs.
 
@@ -15,6 +15,8 @@ export interface OutputInfo {
   ltc: LtcInfo[];
   /** One entry per `output.mtc` of the project, in the same order. */
   mtc: MtcInfo[];
+  /** Where the metronome plays; `null` when the project has no metronome output. */
+  metronome: MetronomeInfo | null;
   /** Things that did not stop the output, e.g. a missing MIDI port. */
   warnings: string[];
 }
@@ -24,6 +26,12 @@ export interface LtcInfo {
   device: string;
   /** 1-based interface channel. */
   channel: number;
+  ok: boolean;
+}
+
+/** How the metronome ended up; when it did not open, `device` is the name the project holds. */
+export interface MetronomeInfo {
+  device: string;
   ok: boolean;
 }
 
@@ -98,6 +106,11 @@ export function setClips(project: Project): Promise<string[]> {
  */
 export function setTrackGain(trackId: string, gainDb: number): Promise<void> {
   return invoke("output_set_track_gain", { trackId, gainDb });
+}
+
+/** Moves the metronome of a running output to the active timeline's tempo and click switch. */
+export function setTempo(tempo: Tempo): Promise<void> {
+  return invoke("output_set_tempo", { tempo });
 }
 
 export function stopOutput(): Promise<void> {

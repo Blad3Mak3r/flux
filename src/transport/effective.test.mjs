@@ -25,3 +25,14 @@ test("edit without a preview device plays like live", () => {
   const { preview, ...plain } = output;
   assert.equal(effectiveOutput(plain, "edit"), plain);
 });
+
+test("edit with a preview device keeps the metronome on its own device", () => {
+  const metronome = { deviceName: "Band", channels: [3, 4], gainDb: -6 };
+  assert.deepEqual(effectiveOutput({ ...output, metronome }, "edit"), {
+    audio: { deviceName: "Phones", channels: [3, 4] },
+    ltc: [],
+    mtc: [],
+    metronome,
+  });
+  assert.equal(effectiveOutput({ ...output, metronome }, "live").metronome, metronome);
+});

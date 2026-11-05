@@ -10,9 +10,11 @@ import type {
   OutputConfig,
   Project,
   Note,
+  Tempo,
   Timeline,
   Track,
 } from "../project/types";
+import { DEFAULT_TEMPO, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/types.ts";
 
 export function emptyProject(name: string, frameRate: FrameRate): Project {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -22,7 +24,9 @@ export function emptyProject(name: string, frameRate: FrameRate): Project {
     meta: { id: crypto.randomUUID(), createdAt: now, modifiedAt: now, createdWith: "", savedWith: "" },
     assets: [],
     output: { audio: null, ltc: [], mtc: [] },
-    timelines: [{ id: crypto.randomUUID(), name, timecode: { frameRate, start: 0 }, tracks: [] }],
+    timelines: [
+      { id: crypto.randomUUID(), name, timecode: { frameRate, start: 0 }, tempo: DEFAULT_TEMPO, tracks: [] },
+    ],
   };
 }
 
@@ -264,6 +268,36 @@ export function addAudioClip(
     tracks: [...t.tracks, track],
   }));
   return { project: next, id };
+}
+
+/** A tempo the backend accepts: a BPM in range, to two decimals, and a whole number of beats a bar. */
+export function clampTempo(tempo: Tempo): Tempo {
+  const bpm = Number.isFinite(tempo.bpm) ? Math.min(MAX_BPM, Math.max(MIN_BPM, tempo.bpm)) : DEFAULT_TEMPO.bpm;
+  const beats = Number.isFinite(tempo.beatsPerBar) ? Math.round(tempo.beatsPerBar) : DEFAULT_TEMPO.beatsPerBar;
+  return { ...tempo, bpm: Math.round(bpm * 100) / 100, beatsPerBar: Math.min(MAX_BEATS_PER_BAR, Math.max(1, beats)) };
+}
+
+/** Changes the tempo of a timeline. One that comes out the same keeps the project as it was. */
+export function setTempo(project: Project, timeline: string, patch: Partial<Tempo>): Project {
+  return inTimeline(project, timeline, (t) => {
+    const tempo = clampTempo({ ...t.tempo, ...patch });
+    return tempo.bpm === t.tempo.bpm && tempo.beatsPerBar === t.tempo.beatsPerBar && tempo.click === t.tempo.click
+      ? t
+      : { ...t, tempo };
+  });
+}
+
+/** Records the tempo of an audio file; `null` forgets it, stored as no value. */
+export function setAssetBpm(project: Project, assetId: string, bpm: number | null): Project {
+  const target = project.assets.find((asset) => asset.id === assetId);
+  const next = bpm === null ? null : clampTempo({ ...DEFAULT_TEMPO, bpm }).bpm;
+  if (!target || (target.bpm ?? null) === next) return project;
+  const assets = project.assets.map((asset) => {
+    if (asset.id !== assetId) return asset;
+    const { bpm: _previous, ...rest } = asset;
+    return next === null ? rest : { ...rest, bpm: next };
+  });
+  return { ...project, assets };
 }
 
 export function setName(project: Project, name: string): Project {

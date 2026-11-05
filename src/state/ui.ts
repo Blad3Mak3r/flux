@@ -10,6 +10,9 @@ import { isPlaying } from "../transport/store";
 /** The timeline is edited in `edit` and run on stage in `live`. */
 export type View = "edit" | "live";
 
+/** What the ruler counts: timecode, or bars and beats from the timeline's tempo. */
+export type RulerMode = "time" | "bars";
+
 export interface Selected {
   kind: "clip" | "note";
   id: string;
@@ -45,6 +48,7 @@ interface UiState {
   selection: Selected | null;
   collapsed: boolean;
   view: View;
+  ruler: RulerMode;
   /** The timeline scrolls to keep the playhead in view while the show plays. */
   follow: boolean;
   /** The user scrolled by hand while following: it stays put until they say otherwise. */
@@ -73,6 +77,15 @@ function readCollapsed(): boolean {
 
 const VIEW_KEY = "flux.view";
 const FOLLOW_KEY = "flux.follow";
+const RULER_KEY = "flux.ruler";
+
+function readRuler(): RulerMode {
+  try {
+    return localStorage.getItem(RULER_KEY) === "bars" ? "bars" : "time";
+  } catch {
+    return "time";
+  }
+}
 
 function readFollow(): boolean {
   try {
@@ -94,6 +107,7 @@ export const useUi = create<UiState>()(() => ({
   selection: null,
   collapsed: readCollapsed(),
   view: readView(),
+  ruler: readRuler(),
   follow: readFollow(),
   detached: false,
   zoom: DEFAULT_PX_PER_FRAME,
@@ -128,6 +142,15 @@ export function setView(view: View): void {
   set({ view });
   try {
     localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+export function setRulerMode(ruler: RulerMode): void {
+  set({ ruler });
+  try {
+    localStorage.setItem(RULER_KEY, ruler);
   } catch {
     // Not remembered, still works.
   }

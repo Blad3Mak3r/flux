@@ -151,6 +151,7 @@ function ClipBlock({
   // does not re-render it.
   const selected = useUi((ui) => ui.selection?.id === clip.id);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
+  const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const width = Math.max(24, clipLength(audio, fps, guessLength) * pxPerFrame);
   return (
     <div
@@ -178,6 +179,7 @@ function ClipBlock({
       />
       <span className="clip-label">
         {name}
+        {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
         {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
       </span>
     </div>

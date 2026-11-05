@@ -3,8 +3,35 @@ import type { PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
-import { frameX, pickTicks, tickPositions } from "../timeline/scale";
+import { barTickPositions, frameX, pickTicks, tickPositions } from "../timeline/scale";
+import type { BeatGrid } from "../timeline/scale";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
+
+/** The bar lines and beats, labelled with bar numbers (`3`) and, zoomed in, beats (`3.2`). */
+const BarTicks = memo(function BarTicks({
+  width,
+  pxPerFrame,
+  grid,
+}: {
+  width: number;
+  pxPerFrame: number;
+  grid: BeatGrid;
+}) {
+  const { major, minor } = barTickPositions(pxPerFrame, grid, width);
+  let d = "";
+  for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
+  for (const { frame } of major) d += `M${frameX(frame, pxPerFrame) + 0.5} ${RULER_H - 16}V${RULER_H}`;
+  return (
+    <>
+      <path className="ruler-ticks" d={d} />
+      {major.map(({ frame, label }) => (
+        <text key={frame} className="ruler-label" x={frameX(frame, pxPerFrame) + 5.5} y={RULER_H - 19}>
+          {label}
+        </text>
+      ))}
+    </>
+  );
+});
 
 /** The ticks and their labels: a lot of nodes, redrawn only when the zoom, the width or the rate change. */
 const RulerTicks = memo(function RulerTicks({
@@ -67,20 +94,23 @@ function RulerSpan({ pxPerFrame }: { pxPerFrame: number }) {
 
 /**
  * The time axis. Ticks are drawn as one path; labels carry the project timecode, so the start
- * offset is already in every number. Click or drag to move the playhead; hold Shift and drag to
- * measure the span between two points.
+ * offset is already in every number. With a `grid` the axis counts bars and beats instead. Click or
+ * drag to move the playhead; hold Shift and drag to measure the span between two points.
  */
 export function Ruler({
   width,
   pxPerFrame,
   rate,
   start,
+  grid,
   onSeek,
 }: {
   width: number;
   pxPerFrame: number;
   rate: FrameRate;
   start: number;
+  /** The beat grid to count in, or `null` for timecode. */
+  grid: BeatGrid | null;
   onSeek: (relativeFrame: number) => void;
 }) {
   const t = useT();
@@ -125,7 +155,11 @@ export function Ruler({
       onPointerCancel={() => (mode.current = null)}
     >
       <RulerSpan pxPerFrame={pxPerFrame} />
-      <RulerTicks width={width} pxPerFrame={pxPerFrame} rate={rate} start={start} />
+      {grid ? (
+        <BarTicks width={width} pxPerFrame={pxPerFrame} grid={grid} />
+      ) : (
+        <RulerTicks width={width} pxPerFrame={pxPerFrame} rate={rate} start={start} />
+      )}
     </svg>
   );
 }

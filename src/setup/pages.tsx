@@ -14,10 +14,14 @@ import { useTransport } from "../transport/store";
 import {
   addLtc,
   addMtc,
+  clearMetronome,
   clearPreview,
   isConnected,
   removeLtc,
   removeMtc,
+  setMetronomeChannels,
+  setMetronomeDevice,
+  setMetronomeGain,
   setPreviewDevice,
   setProgrammeDevice,
   updateLtc,
@@ -226,6 +230,72 @@ export function AudioPage({ devices }: { devices: Devices }) {
             </option>
           ))}
         </SelectField>
+      )}
+    </div>
+  );
+}
+
+/** The select value that stands for "no metronome output". */
+const NO_METRONOME = "__none__";
+
+/** The metronome's own device, channels and level. It follows the tempo of the active timeline. */
+export function MetronomePage({ devices }: { devices: Devices }) {
+  const t = useT();
+  const [output, change] = useOutput();
+  const info = useTransport((transport) => transport.info);
+  const metronome = output.metronome;
+  const count = channelsOf(devices, metronome?.deviceName ?? "", Math.max(...(metronome?.channels ?? []), 2));
+  const channels = metronome?.channels.length ? metronome.channels : [1, 2];
+  const connected = !metronome || !devices.available || isConnected(metronome.deviceName, devices.audio.map((d) => d.name));
+  const state = !metronome
+    ? undefined
+    : !connected || info?.metronome?.ok === false
+      ? { state: "fault" as const, word: "output.state.missing" as const }
+      : info?.metronome
+        ? { state: "on" as const, word: "output.state.running" as const }
+        : { state: "off" as const, word: "setup.state.waiting" as const };
+  return (
+    <div className="setup-fields">
+      <p className="setup-intro">{t("setup.metronome.intro")}</p>
+      {!devices.available && <p className="field-note">{t("out.desktopOnly")}</p>}
+      <SelectField
+        label={t("out.metronomeDevice")}
+        value={metronome ? metronome.deviceName : NO_METRONOME}
+        hint={t("setup.metronome.note")}
+        disabled={!devices.available}
+        onChange={(name) =>
+          change(name === NO_METRONOME ? clearMetronome(output) : setMetronomeDevice(output, name, channelsOf(devices, name, 2)))
+        }
+      >
+        <option value={NO_METRONOME}>{t("out.metronomeNone")}</option>
+        <DeviceOptions current={metronome?.deviceName ?? ""} devices={devices} />
+      </SelectField>
+      {metronome && (
+        <>
+          <SelectField
+            label={t("out.metronomeChannels")}
+            value={channels.join("-")}
+            disabled={!devices.available}
+            onChange={(pair) => change(setMetronomeChannels(output, pair.split("-").map(Number)))}
+          >
+            {pairsOf(count).map((pair) => (
+              <option key={pair.join("-")} value={pair.join("-")}>
+                {pair.length === 1
+                  ? t("out.mono", { channel: pair[0] })
+                  : t("out.pair", { first: pair[0], second: pair[1] })}
+              </option>
+            ))}
+          </SelectField>
+          <TextField
+            label={t("out.metronomeLevel")}
+            value={String(metronome.gainDb ?? 0)}
+            inputMode="decimal"
+            monospace
+            validate={(text) => (Number.isFinite(Number(text)) && text.trim() !== "" ? null : t("field.numberInvalid"))}
+            onCommit={(text) => change(setMetronomeGain(output, Number(text)))}
+          />
+          {state && <RowStatus {...state} />}
+        </>
       )}
     </div>
   );

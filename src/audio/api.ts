@@ -12,6 +12,11 @@ export interface AudioInfo {
   peaks: number[];
 }
 
+/** The tempo of an imported file in BPM, or `null` when it shows no steady pulse. Decodes it if needed. */
+export function detectBpm(asset: AudioAsset): Promise<number | null> {
+  return invoke<number | null>("audio_detect_bpm", { asset });
+}
+
 /** Decodes an imported file in the backend: its real length and its waveform. */
 export function analyzeAudio(asset: AudioAsset): Promise<AudioInfo> {
   return invoke<AudioInfo>("audio_analyze", { asset });

@@ -18,8 +18,25 @@ export interface Timeline {
   id: string;
   name: string;
   timecode: { frameRate: FrameRate; start: number };
+  /** The beat grid and the metronome of the timeline. */
+  tempo: Tempo;
   tracks: Track[];
 }
+
+/** Beats are counted from the timeline origin. Where the click plays is `OutputConfig.metronome`. */
+export interface Tempo {
+  /** 20 to 400. */
+  bpm: number;
+  /** 1 to 16. */
+  beatsPerBar: number;
+  /** Whether the metronome plays while this timeline runs. */
+  click: boolean;
+}
+
+export const MIN_BPM = 20;
+export const MAX_BPM = 400;
+export const MAX_BEATS_PER_BAR = 16;
+export const DEFAULT_TEMPO: Tempo = { bpm: 120, beatsPerBar: 4, click: false };
 
 /** A project with the id of its active timeline, as the backend answers after it changed something. */
 export interface ProjectState {
@@ -47,6 +64,8 @@ export interface AudioAsset {
   name: string;
   /** Archive path, `audio/<file name>`. */
   file: string;
+  /** The tempo found in the audio or set by the user; absent when it was never detected. */
+  bpm?: number;
 }
 
 export interface Track {
@@ -91,10 +110,20 @@ export interface OutputConfig {
   audio: { deviceName: string; channels: number[] } | null;
   /** Where the Edit view auditions the clips instead of `audio`, with no timecode. Absent: Edit plays like Live. */
   preview?: { deviceName: string; channels: number[] };
+  /** Where the metronome clicks, with a device and level of its own. Absent: no click plays. */
+  metronome?: MetronomeOutputConfig;
   /** Any number of LTC signals, each on its own device and 1-based channel. */
   ltc: LtcOutputConfig[];
   /** Any number of MIDI ports that receive MTC. */
   mtc: MtcOutputConfig[];
+}
+
+export interface MetronomeOutputConfig {
+  deviceName: string;
+  /** 1-based; a pair plays the click on both. */
+  channels: number[];
+  /** Level of the click in dB; 0 when absent. */
+  gainDb?: number;
 }
 
 export interface LtcOutputConfig {

@@ -1,10 +1,10 @@
 // Edits to the open document, built from the latest project at the moment they run. Each is one
 // stable function, so it can be handed to any component without a closure over a stale project.
 
-import type { Project } from "../project/types";
+import type { Project, Tempo } from "../project/types";
 import { activeTimeline } from "./doc";
 import { dispatch, useDoc } from "./store";
-import { moveItem, moveTrack, removeItem, removeTrack, setTrackGain, toggleMute } from "./edit";
+import { moveItem, moveTrack, removeItem, removeTrack, setTempo, setTrackGain, toggleMute } from "./edit";
 import { select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
@@ -20,6 +20,9 @@ export const reorderTrack = (trackId: string, to: number) => editWith((p, tl) =>
 export const muteTrack = (trackId: string) => editWith((p, tl) => toggleMute(p, tl, trackId));
 export const setGain = (trackId: string, gainDb: number) =>
   editWith((p, tl) => setTrackGain(p, tl, trackId, gainDb));
+
+/** Changes the tempo, beats per bar or click switch of the active timeline. */
+export const setTimelineTempo = (patch: Partial<Tempo>) => editWith((p, tl) => setTempo(p, tl, patch));
 
 export function deleteTrack(trackId: string): void {
   editWith((p, tl) => removeTrack(p, tl, trackId));

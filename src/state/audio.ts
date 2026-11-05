@@ -1,9 +1,11 @@
 // Reading the audio the backend decodes after an import or an open: real length and waveform.
 
-import { analyzeAudio } from "../audio/api";
+import { analyzeAudio, detectBpm } from "../audio/api";
 import { errorMessage } from "../project/api";
 import type { AudioAsset } from "../project/types";
-import { dispatch } from "./store";
+import { edit } from "./actions";
+import { setAssetBpm } from "./edit";
+import { dispatch, useDoc } from "./store";
 import { say, sayError } from "./ui";
 
 let generation = 0;
@@ -13,12 +15,13 @@ export const forgetAnalyses = () => {
   generation += 1;
 };
 
-export function analyse(assets: AudioAsset[]): void {
+/** Reads the length and waveform of each asset; resolves when all of them were tried. */
+export function analyse(assets: AudioAsset[]): Promise<void> {
   const current = generation;
-  if (assets.length === 0) return;
+  if (assets.length === 0) return Promise.resolve();
   say("status.analysing");
   let pending = assets.length;
-  for (const asset of assets) {
+  const reads = assets.map((asset) =>
     analyzeAudio(asset)
       .then((info) => {
         if (generation !== current) return;
@@ -35,6 +38,31 @@ export function analyse(assets: AudioAsset[]): void {
       .finally(() => {
         pending -= 1;
         if (pending === 0 && generation === current) say("status.analysed");
-      });
+      }),
+  );
+  return Promise.all(reads).then(() => undefined);
+}
+
+/**
+ * Finds the tempo of one asset and keeps it with the asset. Audio with no steady pulse gives
+ * `null` and leaves the asset as it was: the user can still type a tempo in the inspector. With
+ * `report`, the status line says what was found, for a detection the user asked for.
+ */
+export async function detectTempo(asset: AudioAsset, report = false): Promise<void> {
+  const current = generation;
+  try {
+    const bpm = await detectBpm(asset);
+    if (generation !== current) return;
+    if (bpm !== null) edit(setAssetBpm(useDoc.getState().project, asset.id, bpm));
+    if (report) {
+      if (bpm === null) say("status.tempoNone", { name: asset.name });
+      else say("status.tempoFound", { name: asset.name, bpm });
+    }
+  } catch (err) {
+    if (generation === current) sayError(`${asset.name}: ${errorMessage(err)}`);
   }
 }
+
+/** Detects the tempo of the assets that have none. Returns when every one was tried. */
+export const detectTempos = (assets: AudioAsset[]): Promise<void[]> =>
+  Promise.all(assets.filter((asset) => asset.bpm === undefined).map((asset) => detectTempo(asset)));

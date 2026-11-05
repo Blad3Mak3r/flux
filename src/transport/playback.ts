@@ -102,6 +102,8 @@ export function bindTransport(): () => void {
     if (sameTimeline && (current.tracks !== previous.tracks || now.project.assets !== before.project.assets)) {
       scheduleClips();
     }
+    // The metronome follows the tempo and its switch while the show runs; no reopening needed.
+    if (sameTimeline && current.tempo !== previous.tempo && useTransport.getState().info) sendTempo(current.tempo);
     if (signature(now) !== signature(before)) reconnect();
   });
   // A change that waited for playback to end is applied as soon as it does.
@@ -211,6 +213,9 @@ export const stop = () =>
   });
 
 export const toggle = () => (useTransport.getState().position?.state === "playing" ? pause() : play());
+
+/** Typing a tempo or spinning its field sends many values; the newest wins. */
+const sendTempo = latestOnly(api.setTempo, report);
 
 /** Dragging the playhead moves it faster than the backend needs: the newest target wins. */
 const sendSeek = latestOnly(api.seek, report);
