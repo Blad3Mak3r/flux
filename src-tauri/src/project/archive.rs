@@ -10,6 +10,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::error::{ProjectError, Result};
+use super::migrate;
 use super::model::{AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path};
 use super::preview::{AudioStamp, Preview, StoredPreview, preview_path};
 
@@ -51,7 +52,7 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
         }
     }
 
-    let value: serde_json::Value = match archive.by_name(PROJECT_JSON) {
+    let mut value: serde_json::Value = match archive.by_name(PROJECT_JSON) {
         Ok(entry) => serde_json::from_reader(entry)?,
         Err(ZipError::FileNotFound) => return Err(ProjectError::MissingProjectJson),
         Err(err) => return Err(err.into()),
@@ -70,6 +71,7 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
         });
     }
 
+    migrate::upgrade(&mut value, found);
     let project: Project = serde_json::from_value(value)?;
     project.validate()?;
     for asset in &project.assets {
@@ -447,6 +449,28 @@ mod tests {
             Err(ProjectError::UnsupportedVersion { found, supported })
                 if found == FORMAT_VERSION + 1 && supported == FORMAT_VERSION
         ));
+    }
+
+    #[test]
+    fn open_should_migrate_a_version_1_file_with_event_tracks_to_notes() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.fxtc");
+        let old = r##"{ "formatVersion": 1, "name": "Old", "timecode": { "frameRate": "fps25", "start": 0 },
+            "assets": [], "output": { "audio": null, "ltc": null, "mtc": null },
+            "tracks": [{ "id": "t", "name": "Cues", "muted": false, "kind": { "type": "events", "triggers": [
+                { "id": "e1", "at": 10, "label": "Go", "action": { "type": "marker" } },
+                { "id": "e2", "at": 20, "label": "PC", "action": { "type": "midi", "bytes": [192, 1] } }
+            ] } }] }"##;
+        zip_with(&path, &[(PROJECT_JSON, old.as_bytes())]);
+
+        let (project, _) = open(&path).unwrap();
+
+        assert_eq!(project.format_version, FORMAT_VERSION);
+        let crate::project::TrackKind::Notes { notes } = &project.tracks[0].kind else {
+            panic!("the events track becomes a notes track");
+        };
+        assert_eq!(notes.len(), 1);
+        assert_eq!((notes[0].at, notes[0].text.as_str()), (10, "Go"));
     }
 
     #[test]

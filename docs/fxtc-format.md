@@ -20,12 +20,12 @@ the positions of clips (`start`) and cues (`at`) are counted **from that origin*
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `1`. A file with a newer version is rejected before it is parsed further. |
+| `formatVersion` | number | `2`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
 | `timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
 | `assets[]` | `{ id, name, file }` | `file` is the archive path under `audio/`. |
-| `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, so `formatVersion` stays 1. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for events), also without a version bump. |
+| `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
 | `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
 | `output.ltc` | `{ deviceName, channel }` \| `null` | LTC out through an audio interface; `channel` is 1-based. May share a device with `output.audio` or name another one, which gets a stream of its own. |
 | `output.mtc` | `{ portName }` \| `null` | MTC out through a MIDI port. |
@@ -33,10 +33,12 @@ the positions of clips (`start`) and cues (`at`) are counted **from that origin*
 Track kinds:
 
 - `{ "type": "audio", "clips": [{ id, asset, start, gainDb }] }` — `asset` is the id of an entry in `assets`.
-- `{ "type": "events", "triggers": [{ id, at, label, action }] }` — `action` is `{ "type": "marker" }` or
-  `{ "type": "midi", "bytes": [...] }`.
+- `{ "type": "notes", "notes": [{ id, at, length?, text }] }` — text for the operator at frame `at` (counted from the
+  timeline origin). `text` may have several lines. A note is shown for `length` frames (at least 1) or, when `length` is
+  absent, until the next note of its track starts. Other kinds of track (video, Art-Net, MIDI keys, OSC) will be added as
+  new kinds.
 
-Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/trigger ids
+Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/note ids
 (the last two kinds share one namespace). Output channels must be at least 1, and `output.audio.channels` must not
 repeat a channel.
 
@@ -90,7 +92,13 @@ never fails because of hardware.
 ## Versioning
 
 `FORMAT_VERSION` is the highest version this build understands. Files with a higher version fail with
-`UnsupportedVersion`. When the format changes, bump the version and migrate older files while reading.
+`UnsupportedVersion`. When the format changes, bump the version and migrate older files while reading: `migrate.rs`
+rewrites the raw JSON before it is parsed, so the model only describes the current shape. Opening never rewrites the
+file; saving writes the current version, which older builds cannot open.
+
+- **2**: the `events` track kind was replaced by `notes`. A version 1 `marker` trigger becomes a note with its label as
+  text. `midi` triggers are dropped (nothing ever sent them; MIDI cues will return as a track kind of their own), and an
+  events track left with no marker stays as an empty notes track.
 
 ## Saving
 

@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use super::error::{ProjectError, Result};
 
-/// Version written to `project.json`. Readers reject anything newer.
-pub const FORMAT_VERSION: u32 = 1;
+/// Version written to `project.json`. Readers reject anything newer and migrate older ones
+/// (see `migrate.rs`).
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -67,8 +68,13 @@ pub struct Track {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum TrackKind {
-    Audio { clips: Vec<AudioClip> },
-    Events { triggers: Vec<Trigger> },
+    Audio {
+        clips: Vec<AudioClip>,
+    },
+    /// Text for the operator, shown on the timeline and in the Live view.
+    Notes {
+        notes: Vec<Note>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -81,20 +87,18 @@ pub struct AudioClip {
     pub gain_db: f32,
 }
 
+/// A note at a point of the timeline. It is shown from `at` for `length` frames, or until the next
+/// note of its track when it has none.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Trigger {
+pub struct Note {
     pub id: String,
     pub at: u64,
-    pub label: String,
-    pub action: TriggerAction,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum TriggerAction {
-    Marker,
-    Midi { bytes: Vec<u8> },
+    /// How many frames the note lasts; absent means until the next note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+    /// Free text, possibly several lines.
+    pub text: String,
 }
 
 /// Devices are machine-specific, so only a name hint is stored, never an OS identifier.
@@ -172,7 +176,7 @@ impl Project {
             match &track.kind {
                 TrackKind::Audio { clips } => {
                     for clip in clips {
-                        ensure_unique(&mut item_ids, "clip/trigger id", &clip.id)?;
+                        ensure_unique(&mut item_ids, "clip/note id", &clip.id)?;
                         if !asset_ids.contains(clip.asset.as_str()) {
                             return Err(ProjectError::Invalid(format!(
                                 "clip {} references unknown asset {}",
@@ -181,9 +185,15 @@ impl Project {
                         }
                     }
                 }
-                TrackKind::Events { triggers } => {
-                    for trigger in triggers {
-                        ensure_unique(&mut item_ids, "clip/trigger id", &trigger.id)?;
+                TrackKind::Notes { notes } => {
+                    for note in notes {
+                        ensure_unique(&mut item_ids, "clip/note id", &note.id)?;
+                        if note.length == Some(0) {
+                            return Err(ProjectError::Invalid(format!(
+                                "note {} lasts no time; leave the length out instead",
+                                note.id
+                            )));
+                        }
                     }
                 }
             }
@@ -289,25 +299,23 @@ pub(super) mod tests {
                 },
                 Track {
                     id: "t2".into(),
-                    name: "Cues".into(),
+                    name: "Notes".into(),
                     muted: true,
                     gain_db: None,
                     color: None,
-                    kind: TrackKind::Events {
-                        triggers: vec![
-                            Trigger {
-                                id: "e1".into(),
+                    kind: TrackKind::Notes {
+                        notes: vec![
+                            Note {
+                                id: "n1".into(),
                                 at: 300,
-                                label: "Lights up".into(),
-                                action: TriggerAction::Marker,
+                                length: None,
+                                text: "Lights up".into(),
                             },
-                            Trigger {
-                                id: "e2".into(),
+                            Note {
+                                id: "n2".into(),
                                 at: 450,
-                                label: "Program change".into(),
-                                action: TriggerAction::Midi {
-                                    bytes: vec![0xC0, 0x05],
-                                },
+                                length: Some(75),
+                                text: "Singer walks on\nstage left".into(),
                             },
                         ],
                     },
@@ -329,8 +337,9 @@ pub(super) mod tests {
         }
     }
 
-    const V1_FIXTURE: &str = r##"{
-        "formatVersion": 1,
+    /// The shape of the current format: what `sample_project` must serialise to and parse from.
+    const FIXTURE: &str = r##"{
+        "formatVersion": 2,
         "name": "Opening night",
         "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
         "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav" }],
@@ -342,11 +351,10 @@ pub(super) mod tests {
                 ] }
             },
             {
-                "id": "t2", "name": "Cues", "muted": true,
-                "kind": { "type": "events", "triggers": [
-                    { "id": "e1", "at": 300, "label": "Lights up", "action": { "type": "marker" } },
-                    { "id": "e2", "at": 450, "label": "Program change",
-                      "action": { "type": "midi", "bytes": [192, 5] } }
+                "id": "t2", "name": "Notes", "muted": true,
+                "kind": { "type": "notes", "notes": [
+                    { "id": "n1", "at": 300, "text": "Lights up" },
+                    { "id": "n2", "at": 450, "length": 75, "text": "Singer walks on\nstage left" }
                 ] }
             }
         ],
@@ -358,16 +366,49 @@ pub(super) mod tests {
     }"##;
 
     #[test]
-    fn v1_fixture_should_parse_into_the_sample_project() {
-        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+    fn fixture_should_parse_into_the_sample_project() {
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(parsed, sample_project());
     }
 
     #[test]
-    fn sample_project_should_serialize_to_the_v1_fixture_shape() {
-        let expected: serde_json::Value = serde_json::from_str(V1_FIXTURE).unwrap();
+    fn sample_project_should_serialize_to_the_fixture_shape() {
+        let expected: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         let actual = serde_json::to_value(sample_project()).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn note_without_a_length_should_parse_and_serialize_without_one() {
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
+        let TrackKind::Notes { notes } = &parsed.tracks[1].kind else {
+            panic!("the second track holds notes");
+        };
+        assert_eq!(notes[0].length, None);
+        let json = serde_json::to_value(&parsed).unwrap();
+        assert!(
+            json["tracks"][1]["kind"]["notes"][0]
+                .get("length")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn validate_should_reject_a_note_that_lasts_no_time() {
+        let mut project = sample_project();
+        if let TrackKind::Notes { notes } = &mut project.tracks[1].kind {
+            notes[0].length = Some(0);
+        }
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_note_id_that_a_clip_already_uses() {
+        let mut project = sample_project();
+        if let TrackKind::Notes { notes } = &mut project.tracks[1].kind {
+            notes[0].id = "c1".into();
+        }
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
     }
 
     #[test]
@@ -393,7 +434,7 @@ pub(super) mod tests {
 
     #[test]
     fn project_without_audio_output_should_still_parse() {
-        let mut json: serde_json::Value = serde_json::from_str(V1_FIXTURE).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         json["output"].as_object_mut().unwrap().remove("audio");
         let parsed: Project = serde_json::from_value(json).unwrap();
         assert_eq!(parsed.output.audio, None);
@@ -401,7 +442,7 @@ pub(super) mod tests {
 
     #[test]
     fn track_without_a_gain_should_parse_and_serialize_without_one() {
-        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(parsed.tracks[1].gain_db, None);
         let json = serde_json::to_value(&parsed).unwrap();
         assert!(json["tracks"][1].get("gainDb").is_none());
@@ -416,7 +457,7 @@ pub(super) mod tests {
 
     #[test]
     fn track_without_a_colour_should_parse_and_serialize_without_one() {
-        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(parsed.tracks[1].color, None);
         let json = serde_json::to_value(&parsed).unwrap();
         assert!(json["tracks"][1].get("color").is_none());
