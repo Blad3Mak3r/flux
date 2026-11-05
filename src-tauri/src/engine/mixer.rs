@@ -127,6 +127,8 @@ impl TrackLevels {
 pub struct ClipSet {
     clips: Vec<ClipPlayer>,
     levels: Arc<TrackLevels>,
+    /// Samples at which the show ends; `None` while it has no end (see [`ClipSet::with_end`]).
+    end: Option<u64>,
 }
 
 /// A clip set plus what could not be included in it.
@@ -143,7 +145,20 @@ impl ClipSet {
         Self {
             clips,
             levels: Arc::new(TrackLevels::new(tracks)),
+            end: None,
         }
+    }
+
+    /// Sets where the show ends, in samples since the timeline origin. The clip set holds only the
+    /// clips that sound, so the caller, who knows every clip and cue (muted ones too), supplies it.
+    pub fn with_end(mut self, end: Option<u64>) -> Self {
+        self.end = end;
+        self
+    }
+
+    /// Where the show ends, in samples since the timeline origin, if it has an end.
+    pub fn end(&self) -> Option<u64> {
+        self.end
     }
 
     pub fn len(&self) -> usize {

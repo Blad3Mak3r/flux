@@ -230,7 +230,7 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(
-        transport: Transport,
+        mut transport: Transport,
         messages: Receiver<Message>,
         clips: Arc<ClipSet>,
         programme: Vec<usize>,
@@ -238,6 +238,7 @@ impl Renderer {
         channels: usize,
         shared: Arc<SharedClock>,
     ) -> Self {
+        transport.set_end(clips.end());
         Self {
             seen_epoch: transport.epoch(),
             transport,
@@ -256,7 +257,10 @@ impl Renderer {
         while let Ok(message) = self.messages.try_recv() {
             match message {
                 Message::Transport(command) => self.transport.apply(command),
-                Message::Clips(clips) => self.clips = clips,
+                Message::Clips(clips) => {
+                    self.transport.set_end(clips.end());
+                    self.clips = clips;
+                }
             }
         }
         if self.transport.epoch() != self.seen_epoch {
@@ -1531,6 +1535,60 @@ mod tests {
         renderer.render(&mut buffer, 20);
 
         assert!(buffer.iter().all(|&s| s == 0.5));
+    }
+
+    #[test]
+    fn render_should_stop_the_transport_at_the_end_of_the_show() {
+        let (mut renderer, tx, shared) = programme_renderer(
+            1,
+            vec![0],
+            Some(0),
+            clip(8_192, 8_192, 100).with_end(Some(100)),
+        );
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 60];
+        renderer.render(&mut buffer, 10);
+        assert_eq!(shared.load().state, TransportState::Playing);
+
+        renderer.render(&mut buffer, 20);
+        let snapshot = shared.load();
+        assert_eq!(snapshot.state, TransportState::Stopped);
+        assert_eq!(snapshot.position, 0);
+
+        // Stopped for good: nothing sounds and the position stays at the start.
+        renderer.render(&mut buffer, 30);
+        assert!(buffer.iter().all(|&s| s == 0.0));
+        assert_eq!(shared.load().position, 0);
+    }
+
+    #[test]
+    fn render_should_follow_an_end_sent_while_playing() {
+        let (mut renderer, tx, shared) =
+            programme_renderer(1, vec![0], None, ClipSet::default().with_end(Some(100)));
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 60];
+        renderer.render(&mut buffer, 10);
+
+        // The clips were edited: the show now ends later, so the first end passes unnoticed.
+        tx.send(Message::Clips(Arc::new(
+            ClipSet::default().with_end(Some(1_000)),
+        )))
+        .unwrap();
+        renderer.render(&mut buffer, 20);
+        assert_eq!(shared.load().state, TransportState::Playing);
+        assert_eq!(shared.load().position, 120);
+    }
+
+    #[test]
+    fn render_should_not_stop_a_show_that_has_no_end() {
+        let (mut renderer, tx, shared) =
+            programme_renderer(1, vec![0], Some(0), ClipSet::default());
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 60];
+        for tick in 0..100 {
+            renderer.render(&mut buffer, tick);
+        }
+        assert_eq!(shared.load().state, TransportState::Playing);
     }
 
     #[test]

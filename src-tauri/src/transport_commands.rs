@@ -22,7 +22,7 @@ use tauri::ipc::Channel;
 use crate::audio::SharedAudio;
 use crate::audio_commands::load;
 use crate::commands::SharedSession;
-use crate::engine::cues::{LiveState, SharedCues};
+use crate::engine::cues::{CueList, LiveState, SharedCues};
 use crate::engine::mixer::{self, Programme, TrackPeak};
 use crate::engine::output::{Output, OutputError, OutputInfo, Position};
 use crate::engine::transport::Command;
@@ -181,9 +181,11 @@ pub async fn output_start(
         let previous = lock(&state).take();
         drop(previous);
 
-        let output = Output::start(&project, programme(&project, &session, &audio))?;
+        let list = cue_list(&project, &session, &audio);
+        let programme = programme(&project, &session, &audio, &list);
+        let output = Output::start(&project, programme)?;
         let info = output.info().clone();
-        let cues = SharedCues::new(cue_list(&project, &session, &audio));
+        let cues = SharedCues::new(list);
         *lock(&state) = Some(Running::new(output, cues, on_position, on_levels, on_live)?);
         Ok(info)
     })
@@ -191,10 +193,17 @@ pub async fn output_start(
     .map_err(|err| OutputError::Stream(err.to_string()))?
 }
 
-/// The audio of the project's clips, decoding what has not been decoded yet. A file that cannot be
-/// read is left out and reported, never an error.
-fn programme(project: &Project, session: &SharedSession, audio: &SharedAudio) -> Programme {
-    mixer::build(project, |asset| load(session, audio, asset))
+/// The audio of the project's clips, decoding what has not been decoded yet, and where the show
+/// ends according to `cues`. A file that cannot be read is left out and reported, never an error.
+fn programme(
+    project: &Project,
+    session: &SharedSession,
+    audio: &SharedAudio,
+    cues: &CueList,
+) -> Programme {
+    let mut programme = mixer::build(project, |asset| load(session, audio, asset));
+    programme.set = programme.set.with_end(Some(cues.end_samples()));
+    programme
 }
 
 /// Sends the project's current clips to the running output, after tracks were muted or clips
@@ -208,10 +217,11 @@ pub async fn output_set_clips(
 ) -> Result<Vec<String>, OutputError> {
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     tauri::async_runtime::spawn_blocking(move || {
-        let Programme { set, warnings } = programme(&project, &session, &audio);
+        let list = cue_list(&project, &session, &audio);
+        let Programme { set, warnings } = programme(&project, &session, &audio, &list);
         match lock(&state).as_ref() {
             Some(running) => {
-                running.cues.replace(cue_list(&project, &session, &audio));
+                running.cues.replace(list);
                 running.output.set_clips(set).map(|()| warnings)
             }
             None => Err(OutputError::NotRunning),
