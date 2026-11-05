@@ -106,10 +106,10 @@ pub struct OutputConfig {
     /// Where the project's audio clips are played.
     pub audio: Option<AudioOutput>,
     /// Every LTC signal to send; each one names its own device and channel.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "list_or_one")]
     pub ltc: Vec<LtcOutput>,
     /// Every MIDI port that receives MTC.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "list_or_one")]
     pub mtc: Vec<MtcOutput>,
 }
 
@@ -217,6 +217,28 @@ impl OutputConfig {
         }
         Ok(())
     }
+}
+
+/// Reads a list that older files wrote as a single object or as `null`. Files carrying version 2
+/// with that shape exist (written while the format was changing), so this does not look at the
+/// version.
+fn list_or_one<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Shape<T> {
+        Many(Vec<T>),
+        One(T),
+        Nothing(()),
+    }
+    Ok(match Shape::deserialize(deserializer)? {
+        Shape::Many(items) => items,
+        Shape::One(item) => vec![item],
+        Shape::Nothing(()) => Vec::new(),
+    })
 }
 
 /// Brings a `project.json` of an older version up to `FORMAT_VERSION`, in place.
@@ -429,6 +451,39 @@ pub(super) mod tests {
         assert!(parsed.output.ltc.is_empty());
         assert!(parsed.output.mtc.is_empty());
         assert_eq!(parsed.format_version, FORMAT_VERSION);
+    }
+
+    #[test]
+    fn a_v2_file_with_the_old_output_shape_should_still_open() {
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        json["output"]["ltc"] = serde_json::Value::Null;
+        json["output"]["mtc"] = serde_json::json!({ "portName": "loopMIDI Port" });
+        migrate(&mut json);
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert!(parsed.output.ltc.is_empty());
+        assert_eq!(
+            parsed.output.mtc,
+            vec![MtcOutput {
+                port_name: "loopMIDI Port".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn outputs_should_parse_from_null_one_object_or_a_list_without_migrating() {
+        for (ltc, expected) in [
+            (serde_json::Value::Null, 0),
+            (serde_json::json!({ "deviceName": "A", "channel": 1 }), 1),
+            (
+                serde_json::json!([{ "deviceName": "A", "channel": 1 }, { "deviceName": "B", "channel": 2 }]),
+                2,
+            ),
+        ] {
+            let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+            json["output"]["ltc"] = ltc;
+            let parsed: Project = serde_json::from_value(json).unwrap();
+            assert_eq!(parsed.output.ltc.len(), expected);
+        }
     }
 
     #[test]
