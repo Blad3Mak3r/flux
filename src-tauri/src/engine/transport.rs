@@ -154,14 +154,18 @@ impl Transport {
 
     /// Called by the output callback with the number of samples it just produced. Reaching the end
     /// of the show stops the transport like [`Command::Stop`]: it goes back to the start, ready to
-    /// run again, and the epoch changes so the generators resync.
-    pub fn advance(&mut self, samples: u64) {
-        if self.state == TransportState::Playing {
-            self.position += samples;
-            if self.end.is_some_and(|end| self.position >= end) {
-                self.apply(Command::Stop);
-            }
+    /// run again, and the epoch changes so the generators resync. Returns whether this call was the
+    /// one that ended the show, which a stop from the user is not.
+    pub fn advance(&mut self, samples: u64) -> bool {
+        if self.state != TransportState::Playing {
+            return false;
         }
+        self.position += samples;
+        let ended = self.end.is_some_and(|end| self.position >= end);
+        if ended {
+            self.apply(Command::Stop);
+        }
+        ended
     }
 
     pub fn state(&self) -> TransportState {
@@ -416,5 +420,25 @@ mod tests {
         assert!(changed(&t));
         t.apply(Command::Stop);
         assert!(changed(&t));
+    }
+
+    #[test]
+    fn advance_should_say_so_when_it_ends_the_show() {
+        let mut t = transport(0);
+        t.set_end(Some(1_000));
+        t.apply(Command::Play);
+
+        assert!(!t.advance(999));
+        assert!(t.advance(1));
+    }
+
+    #[test]
+    fn advance_should_not_say_it_ended_a_show_that_was_stopped_by_hand() {
+        let mut t = transport(0);
+        t.set_end(Some(1_000));
+        t.apply(Command::Play);
+        t.apply(Command::Stop);
+
+        assert!(!t.advance(5_000));
     }
 }
