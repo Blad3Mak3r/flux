@@ -8,6 +8,7 @@ import type { AudioClip, Note, Track } from "../project/types";
 import { deleteSelection, deleteTrack, muteTrack, reorderTrack, setGain } from "../state/actions";
 import { findItem } from "../state/edit";
 import { dispatch, useDoc } from "../state/store";
+import { isPlaying } from "../transport/store";
 import { openSetup, select, setView, toggleFollow, toggleInspector, useUi, zoomBy } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import {
@@ -106,9 +107,10 @@ function trackMenu(t: Translate): MenuItem[] {
 
 function viewMenu(t: Translate): MenuItem[] {
   const { view, collapsed, follow, detached } = state().ui;
+  const locked = isPlaying();
   return [
-    { label: t("view.edit"), shortcut: mod("1"), checked: view === "edit", run: () => setView("edit") },
-    { label: t("view.live"), shortcut: mod("2"), checked: view === "live", run: () => setView("live") },
+    { label: t("view.edit"), shortcut: mod("1"), checked: view === "edit", disabled: locked && view !== "edit", run: () => setView("edit") },
+    { label: t("view.live"), shortcut: mod("2"), checked: view === "live", disabled: locked && view !== "live", run: () => setView("live") },
     "-",
     { label: t("timeline.zoomIn"), shortcut: mod("="), run: () => zoomBy(ZOOM_STEP) },
     { label: t("timeline.zoomOut"), shortcut: mod("-"), run: () => zoomBy(1 / ZOOM_STEP) },

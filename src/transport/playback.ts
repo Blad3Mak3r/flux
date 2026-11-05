@@ -12,10 +12,11 @@ import { errorMessage } from "../project/api";
 import type { Project } from "../project/types";
 import { useDoc } from "../state/store";
 import { hasNativeWindow } from "../components/WindowControls";
-import { sayError } from "../state/ui";
+import { sayError, useUi } from "../state/ui";
 import { realFps } from "../timecode";
 import * as api from "./api";
 import type { OutputLanes } from "./api";
+import { effectiveOutput } from "./effective";
 import { latestOnly } from "./latest";
 import { displayClock } from "./smooth";
 import { stoppedAt } from "./stopped";
@@ -27,8 +28,14 @@ const CLIPS_DEBOUNCE_MS = 200;
 /** Choosing a device fires several edits in a row (a select, then a channel); one reconnect follows. */
 const RECONNECT_DEBOUNCE_MS = 300;
 
+/** What the output is opened with: the project, with the outputs the current view plays through. */
+const forView = (project: Project): Project => ({
+  ...project,
+  output: effectiveOutput(project.output, useUi.getState().view),
+});
+
 /** What the output was opened for; when it changes, the devices are reopened. */
-const signature = (project: Project) => JSON.stringify([project.timecode, project.output]);
+const signature = (project: Project) => JSON.stringify([project.timecode, forView(project).output]);
 
 const project = () => useDoc.getState().project;
 const report = (error: unknown) => sayError(errorMessage(error));
@@ -86,10 +93,15 @@ export function bindTransport(): () => void {
   const unsubscribeTransport = useTransport.subscribe((state) => {
     if (state.pendingReconfigure && state.position?.state !== "playing") reconnect();
   });
+  // The Edit and Live views may play through different devices.
+  const unsubscribeView = useUi.subscribe((now, before) => {
+    if (now.view !== before.view) reconnect();
+  });
   reconnect();
   return () => {
     unsubscribeDoc();
     unsubscribeTransport();
+    unsubscribeView();
     clearTimeout(clipsTimer);
     clearTimeout(reconnectTimer);
   };
@@ -129,7 +141,7 @@ async function open(force = false): Promise<void> {
   const { position } = useTransport.getState();
   // Reopening from a pause or a stop keeps the playhead where it was, unless the start moved.
   if (position && openedStart === current.timecode.start) useTransport.setState({ parked: position.frame });
-  const info = await api.startOutput(current, lanes(++run));
+  const info = await api.startOutput(forView(current), lanes(++run));
   openedFor = signature(current);
   openedStart = current.timecode.start;
   useTransport.setState({ info, clipWarnings: [], position: null });
