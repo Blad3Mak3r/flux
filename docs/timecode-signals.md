@@ -75,10 +75,11 @@ A project can hold several timelines, each with its own frame rate, start and tr
 output, the transport and every LTC and MTC signal run the **active** timeline, which the backend's `Session` keeps.
 `live_cues`, `live_state`, `output_start` and `output_set_clips` take the project but not a timeline: the backend picks
 the active one. The `timeline_*` commands (`timeline_add`, `timeline_rename`, `timeline_remove`, `timeline_select`,
-`timeline_set_timecode`) take the project the window shows, make it the document, do the work and answer with
+`timeline_set_timecode`, `timeline_move`) take the project the window shows, make it the document, do the work and answer with
 `{ project, active }`. Changing the active timeline, removing one or changing its timecode is refused while the
 transport plays, and it closes the running output (the rate and the start are fixed when the output opens), so the
-window opens it again: the transport then stands at the start of the new timeline.
+window opens it again: the transport then stands at the start of the new timeline. `timeline_move` (reordering)
+changes neither the active timeline nor a timecode, so it is allowed while the show plays and leaves the output alone.
 
 **In Live, the next timeline is made ready when one ends.** The window opens the output with `advance` set when the
 Live view is showing. When the show then runs to its end by itself (a stop from the user does not count: the transport
