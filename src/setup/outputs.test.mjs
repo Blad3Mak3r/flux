@@ -4,11 +4,15 @@ import { test } from "node:test";
 import {
   addLtc,
   addMtc,
+  clearMetronome,
   clearPreview,
   freeChannel,
   isAvailable,
   removeLtc,
   removeMtc,
+  setMetronomeChannels,
+  setMetronomeDevice,
+  setMetronomeGain,
   setPreviewDevice,
   setProgrammeDevice,
   stepSection,
@@ -96,4 +100,34 @@ test("clearPreview drops the preview and keeps the rest", () => {
   const withPreview = setPreviewDevice(output(), "Phones", 2);
   assert.deepEqual(clearPreview(withPreview), output());
   assert.ok(!("preview" in clearPreview(withPreview)));
+});
+
+test("the metronome gets its own device, on its first pair, without touching the programme", () => {
+  const before = output();
+  const after = setMetronomeDevice(before, "Band", 8);
+  assert.deepEqual(after.metronome, { deviceName: "Band", channels: [1, 2] });
+  assert.deepEqual(after.audio, before.audio);
+  assert.deepEqual(after.ltc, before.ltc);
+  assert.equal(before.metronome, undefined);
+  assert.deepEqual(setMetronomeDevice(before, "Mono", 1).metronome.channels, [1]);
+});
+
+test("changing the metronome device keeps its level", () => {
+  const loud = setMetronomeGain(setMetronomeDevice(output(), "Band", 4), -6);
+  assert.equal(setMetronomeDevice(loud, "Other", 4).metronome.gainDb, -6);
+});
+
+test("the metronome channels and level only change a metronome that exists", () => {
+  const none = output();
+  assert.equal(setMetronomeChannels(none, [3, 4]), none);
+  assert.equal(setMetronomeGain(none, -3), none);
+  const set = setMetronomeDevice(none, "Band", 8);
+  assert.deepEqual(setMetronomeChannels(set, [3, 4]).metronome.channels, [3, 4]);
+  assert.equal(setMetronomeGain(set, -3).metronome.gainDb, -3);
+});
+
+test("0 dB on the metronome is stored as no value, and no metronome output leaves the key out", () => {
+  const set = setMetronomeGain(setMetronomeDevice(output(), "Band", 4), -3);
+  assert.ok(!("gainDb" in setMetronomeGain(set, 0).metronome));
+  assert.ok(!("metronome" in clearMetronome(set)));
 });

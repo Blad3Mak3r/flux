@@ -38,6 +38,8 @@ export type DocAction =
   /** The backend says which timeline is active, e.g. after an undo took one away. */
   | { type: "active"; id: string }
   | { type: "audio"; id: string; info: AssetAudio }
+  /** A tempo read from the audio of a file opened with none: derived data, so it is no edit (no history, not unsaved work). */
+  | { type: "derivedBpm"; id: string; bpm: number }
   | { type: "edit"; project: Project }
   | { type: "undo" }
   | { type: "redo" }
@@ -83,6 +85,17 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
       };
     case "audio":
       return { ...doc, audio: { ...doc.audio, [action.id]: action.info } };
+    case "derivedBpm": {
+      const withBpm = (project: Project): Project => ({
+        ...project,
+        assets: project.assets.map((asset) => (asset.id === action.id ? { ...asset, bpm: action.bpm } : asset)),
+      });
+      const target = doc.project.assets.find((asset) => asset.id === action.id);
+      if (!target || target.bpm !== undefined) return doc;
+      const project = withBpm(doc.project);
+      // The saved copy gets it too, so finding it does not make the document look edited.
+      return { ...doc, project, saved: doc.saved === doc.project ? project : doc.saved && withBpm(doc.saved) };
+    }
     case "edit":
       if (action.project === doc.project) return doc;
       return {

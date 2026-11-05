@@ -12,7 +12,9 @@ import {
   moveTrack,
   removeItem,
   removeTrack,
+  setAssetBpm,
   setNoteLength,
+  setTempo,
   setTrackColor,
   setTrackGain,
   toggleMute,
@@ -388,4 +390,54 @@ test("the active timeline falls back to the first while the backend names one th
 test("active with the same id returns the same document", () => {
   const doc = initialDoc(twoTimelines());
   assert.equal(docReducer(doc, { type: "active", id: doc.active }), doc);
+});
+
+test("a new project starts at 120 BPM in 4, with the click off", () => {
+  assert.deepEqual(emptyProject("Show", "fps25").timelines[0].tempo, { bpm: 120, beatsPerBar: 4, click: false });
+});
+
+test("setTempo changes the tempo of one timeline and leaves the input alone", () => {
+  const before = project();
+  const after = setTempo(before, TL, { bpm: 128.456, beatsPerBar: 3, click: true });
+  assert.deepEqual(after.timelines[0].tempo, { bpm: 128.46, beatsPerBar: 3, click: true });
+  assert.equal(before.timelines[0].tempo.bpm, 120);
+});
+
+test("setTempo keeps the tempo in the range the backend accepts", () => {
+  assert.equal(setTempo(project(), TL, { bpm: 5 }).timelines[0].tempo.bpm, 20);
+  assert.equal(setTempo(project(), TL, { bpm: 9000 }).timelines[0].tempo.bpm, 400);
+  assert.equal(setTempo(project(), TL, { bpm: Number.NaN }).timelines[0].tempo.bpm, 120);
+  assert.equal(setTempo(project(), TL, { beatsPerBar: 0 }).timelines[0].tempo.beatsPerBar, 1);
+  assert.equal(setTempo(project(), TL, { beatsPerBar: 40 }).timelines[0].tempo.beatsPerBar, 16);
+  assert.equal(setTempo(project(), TL, { beatsPerBar: 5.6 }).timelines[0].tempo.beatsPerBar, 6);
+});
+
+test("setTempo with nothing new returns the same project, so no history entry is made", () => {
+  const before = project();
+  assert.equal(setTempo(before, TL, { bpm: 120 }), before);
+  assert.equal(setTempo(before, "missing", { bpm: 90 }), before);
+});
+
+test("setAssetBpm stores the tempo of an audio file and forgets it on null", () => {
+  const base = { ...project(), assets: [{ id: "a1", name: "Song", file: "audio/song.wav" }] };
+  const set = setAssetBpm(base, "a1", 127.456);
+  assert.equal(set.assets[0].bpm, 127.46);
+  assert.equal(base.assets[0].bpm, undefined);
+  const cleared = setAssetBpm(set, "a1", null);
+  assert.ok(!("bpm" in cleared.assets[0]));
+  assert.equal(setAssetBpm(base, "a1", null), base);
+  assert.equal(setAssetBpm(set, "missing", 100), set);
+  assert.equal(setAssetBpm(set, "a1", 127.46), set);
+});
+
+test("a tempo found for an opened file is no edit: no history, and the document stays saved", () => {
+  const opened = { ...project(), assets: [{ id: "a1", name: "Song", file: "audio/song.wav" }] };
+  const doc = docReducer(initialDoc(opened), { type: "load", project: opened, path: "/shows/a.fxtc", active: TL });
+  const after = docReducer(doc, { type: "derivedBpm", id: "a1", bpm: 126.5 });
+  assert.equal(after.project.assets[0].bpm, 126.5);
+  assert.equal(after.past.length, 0);
+  assert.equal(isDirty(after), false);
+  // A tempo the file already has is not replaced, and an unknown asset changes nothing.
+  assert.equal(docReducer(after, { type: "derivedBpm", id: "a1", bpm: 90 }), after);
+  assert.equal(docReducer(after, { type: "derivedBpm", id: "zzz", bpm: 90 }), after);
 });

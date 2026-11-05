@@ -27,7 +27,7 @@ use crate::engine::mixer::{self, Programme, TrackPeak};
 use crate::engine::output::{Output, OutputError, OutputInfo, Position};
 use crate::engine::transport::{Command, TransportState};
 use crate::live_commands::{active_timeline, cue_list};
-use crate::project::{Project, Timeline};
+use crate::project::{Project, Tempo, Timeline};
 
 const LANE_INTERVAL: Duration = Duration::from_millis(33);
 
@@ -323,6 +323,16 @@ pub fn output_set_track_gain(
             Ok(())
         }
         None => Err(OutputError::NotRunning),
+    }
+}
+
+/// Moves the metronome to the active timeline's tempo or click switch on the running output, so an
+/// edit is heard at once. No output, or none with a metronome, is not an error: the next output
+/// reads the tempo from the project.
+#[tauri::command(async)]
+pub fn output_set_tempo(state: State<'_, SharedOutput>, tempo: Tempo) {
+    if let Some(running) = lock(&state).as_ref() {
+        running.output.set_tempo(tempo);
     }
 }
 

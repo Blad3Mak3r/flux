@@ -10,6 +10,9 @@ import { isPlaying } from "../transport/store";
 /** The timeline is edited in `edit` and run on stage in `live`. */
 export type View = "edit" | "live";
 
+/** What the ruler counts: timecode, or bars and beats from the timeline's tempo. */
+export type RulerMode = "time" | "bars";
+
 export interface Selected {
   kind: "clip" | "note";
   id: string;
@@ -45,6 +48,9 @@ interface UiState {
   selection: Selected | null;
   collapsed: boolean;
   view: View;
+  ruler: RulerMode;
+  /** Clips, notes and the playhead snap onto the vertical lines of the grid when dragged near one. */
+  snap: boolean;
   /** The timeline scrolls to keep the playhead in view while the show plays. */
   follow: boolean;
   /** The user scrolled by hand while following: it stays put until they say otherwise. */
@@ -73,6 +79,24 @@ function readCollapsed(): boolean {
 
 const VIEW_KEY = "flux.view";
 const FOLLOW_KEY = "flux.follow";
+const RULER_KEY = "flux.ruler";
+const SNAP_KEY = "flux.snap";
+
+function readSnap(): boolean {
+  try {
+    return localStorage.getItem(SNAP_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function readRuler(): RulerMode {
+  try {
+    return localStorage.getItem(RULER_KEY) === "bars" ? "bars" : "time";
+  } catch {
+    return "time";
+  }
+}
 
 function readFollow(): boolean {
   try {
@@ -94,6 +118,8 @@ export const useUi = create<UiState>()(() => ({
   selection: null,
   collapsed: readCollapsed(),
   view: readView(),
+  ruler: readRuler(),
+  snap: readSnap(),
   follow: readFollow(),
   detached: false,
   zoom: DEFAULT_PX_PER_FRAME,
@@ -128,6 +154,26 @@ export function setView(view: View): void {
   set({ view });
   try {
     localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+export function setRulerMode(ruler: RulerMode): void {
+  set({ ruler });
+  try {
+    localStorage.setItem(RULER_KEY, ruler);
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+/** The magnet: items and the playhead land on the grid lines when dragged near one. */
+export function toggleSnap(): void {
+  const snap = !get().snap;
+  set({ snap });
+  try {
+    localStorage.setItem(SNAP_KEY, snap ? "1" : "0");
   } catch {
     // Not remembered, still works.
   }

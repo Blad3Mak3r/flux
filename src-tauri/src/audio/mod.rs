@@ -8,8 +8,10 @@ mod cache;
 mod decode;
 mod error;
 mod peaks;
+mod tempo;
 
 pub use cache::{AudioCache, SharedAudio};
 pub use decode::{Decoded, ENGINE_RATE, decode};
 pub use error::AudioError;
 pub use peaks::{PEAKS_PER_SECOND, peaks};
+pub use tempo::detect_bpm;

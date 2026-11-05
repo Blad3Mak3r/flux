@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
 import { TimelineStrip } from "./TimelineStrip";
 import { FollowToggle } from "./FollowToggle";
+import { TempoBar } from "./TempoBar";
 import type { Timeline as TimelineData } from "../project/types";
 import { menuAtPointer, select, setZoom, useUi, zoomBy } from "../state/ui";
 import { activeTimeline } from "../state/doc";
@@ -13,7 +14,9 @@ import { nominalFps, realFps } from "../timecode";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
 import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
+import type { BeatGrid } from "../timeline/scale";
 import { reorderTrack } from "../state/actions";
+import { snapFrame } from "../state/snap";
 import { addNoteAt, importAudioFiles } from "../state/workflows";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
@@ -81,7 +84,15 @@ export function Timeline() {
   const timeline = useTimeline();
   const audio = useDoc((doc) => doc.audio);
   const pxPerFrame = useUi((ui) => ui.zoom);
+  const bars = useUi((ui) => ui.ruler === "bars");
   const { frameRate, start } = timeline.timecode;
+  const { bpm, beatsPerBar } = timeline.tempo;
+  const exactFps = realFps(frameRate);
+  // Kept by identity while nothing it is made of changes, so the ticks are not redrawn for nothing.
+  const grid = useMemo<BeatGrid | null>(
+    () => (bars ? { bpm, beatsPerBar, fps: exactFps } : null),
+    [bars, bpm, beatsPerBar, exactFps],
+  );
   const fps = nominalFps(frameRate);
   const guessLength = GUESS_SECONDS * fps;
   const zoomPercent = Math.round((pxPerFrame / DEFAULT_PX_PER_FRAME) * 100);
@@ -180,7 +191,7 @@ export function Timeline() {
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
-    patchReadout({ hover: Math.max(0, Math.round((event.clientX - left) / pxPerFrame)) });
+    patchReadout({ hover: Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame))) });
   };
 
   return (
@@ -190,6 +201,7 @@ export function Timeline() {
           {t("tracks.legend")}
         </h2>
         <TimelineStrip />
+        <TempoBar />
         <FollowToggle />
         <ViewSwitch />
       </div>
@@ -269,7 +281,7 @@ export function Timeline() {
             onPointerMove={onPointerMove}
             onPointerLeave={() => patchReadout({ hover: null })}
           >
-            <Graticule width={laneWidth} pxPerFrame={pxPerFrame} rate={frameRate} />
+            <Graticule width={laneWidth} pxPerFrame={pxPerFrame} rate={frameRate} grid={grid} />
 
             <div className="ruler-row" style={{ height: RULER_H }}>
               <Ruler
@@ -277,6 +289,7 @@ export function Timeline() {
                 pxPerFrame={pxPerFrame}
                 rate={frameRate}
                 start={start}
+                grid={grid}
                 onSeek={(relative) => seek(start + relative)}
               />
             </div>

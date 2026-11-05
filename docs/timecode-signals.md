@@ -117,6 +117,44 @@ kinds.
 With an output running, the `flux-live` lane sends the same `LiveState` over its channel; the output keeps a cue list
 that `output_start` and `output_set_clips` rebuild, which the lane swaps in whole like the meters' state.
 
+## Metronome (`engine/metronome.rs`)
+
+The metronome clicks on every beat of the active timeline's `tempo`, counted from the timeline origin; beat 0 of each
+bar is the accent (higher pitch). A click is a pure function of the transport position (a 30 ms decaying sine placed at
+`round(beat * 60 / bpm * rate)`), so it keeps no state: any buffer holds the clicks the grid puts in it, and a seek lands
+on the grid at once. It sounds only while the transport plays.
+
+- **Own output.** `output.metronome` names a device, channels and level apart from the programme's (see
+  [fxtc-format.md](fxtc-format.md)). The tempo and the click switch live in atomics (`SharedMetronome`) that
+  `output_set_tempo(tempo)` writes while the show runs, so an edit of the BPM, the beats per bar or the click switch is
+  heard at once; the level and the device are fixed when the output opens (changing them reopens it).
+- **Which stream plays it.** No device is opened twice: on the programme's device the click is mixed in by the
+  `Renderer` (a metronome channel the programme also uses gets the click added; one it does not use carries the click
+  alone); on the device of an own LTC stream it is written by that stream's `LtcFollower`; on any other device a stream
+  of its own (`flux-click`) is a follower with no LTC outputs. If the device cannot be opened, the output still starts
+  and `warnings` says so; `OutputInfo.metronome` reports `{ device, ok }`. A click stream that fails while running is
+  only logged, there is no lamp for it yet.
+- **Following the master.** A follower reads the master's published position like LTC does, but starts the click over
+  from it only when 10 ms or more away (an LTC frame, 40 ms, would be too coarse for a click). The two devices have
+  independent clocks and no latency compensation, so the click can sit a few milliseconds off the music.
+- A click and LTC on the same channel of one device: LTC wins.
+
+## Tempo detection (`audio/tempo.rs`)
+
+`audio_detect_bpm(asset)` returns the BPM of an asset, or `null` when it is too short (under 4 s), silent, or shows no
+steady pulse. It uses the decoded audio when the cache already holds it, and otherwise decodes the file without keeping
+it, so asking for every song of a big show does not fill the memory. The UI asks for it after importing audio, and
+in the background, one song at a time, for the assets of an opened project that have none; the result is stored on the
+asset (`assets[].bpm`), so a project that was saved with it decodes nothing. A tempo found for an opened file is not
+an edit: it does not enter the undo history nor mark the document unsaved, and is written with the next save. The inspector can detect
+again, type another value, or copy it to the timeline's tempo.
+
+The method: loudness every 512 samples, its rises (onset strength), a blur, the autocorrelation over 55 to 210 BPM
+weighted towards 120 BPM, and a refinement that slides a comb of beats over the onsets at 0.1 % steps. It reads at most
+120 s from the middle of the audio. It finds the pulse of music that has one; the choice between a tempo and its double
+is made by the weighting towards 120 BPM, so an evenly spaced pulse at 174 BPM reads as 87. It was checked on synthetic
+drum patterns, not on a library of real recordings.
+
 ## Defaults and open decisions
 
 `LtcConfig::default()` is 48 kHz, level 0.5 (-6 dBFS) and a one-sample edge. These can become project settings later.
@@ -154,14 +192,15 @@ message that belongs to an output it has closed since.
 ### Threads
 
 No command runs on the main thread, which belongs to the window and its event loop. Tauri runs a command without
-`async` inline on that thread, so the small ones (`transport_*`, `output_set_track_gain`) are
+`async` inline on that thread, so the small ones (`transport_*`, `output_set_track_gain`, `output_set_tempo`) are
 `#[tauri::command(async)]` and use the command thread pool; the heavy ones (`output_start`, `output_stop`,
 `output_set_clips`, `project_*`, `devices_*`, `audio_analyze`) use the blocking pool. The rest:
 
 | Thread | Work |
 | --- | --- |
 | `flux-audio` | The audio callback: programme, LTC when it shares the device, position. Never allocates or waits. |
-| `flux-ltc` | The LTC callback, when LTC plays on a device other than the programme's. Never allocates or waits. |
+| `flux-ltc` | The LTC callback, when LTC plays on a device other than the programme's (it carries the metronome too when that device is the metronome's). Never allocates or waits. |
+| `flux-click` | The metronome callback, when the metronome plays on a device nothing else uses. Never allocates or waits. |
 | `flux-mtc` | MIDI Timecode quarter frames. |
 | `flux-position`, `flux-live`, `flux-levels` | The three lanes above. |
 

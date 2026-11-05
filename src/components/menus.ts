@@ -24,6 +24,7 @@ import {
   setView,
   toggleFollow,
   toggleInspector,
+  toggleSnap,
   useUi,
   zoomBy,
 } from "../state/ui";
@@ -52,6 +53,13 @@ function selectedTrack(): Track | null {
   const { doc, ui } = state();
   return (ui.selection && findItem(doc.project, ui.selection.id)?.track) || null;
 }
+
+/** The magnet, ticked while it is on. Every menu of the timeline offers it. */
+const snapItem = (t: Translate): MenuItem => ({
+  label: t("context.snap"),
+  checked: useUi.getState().snap,
+  run: toggleSnap,
+});
 
 const muteItem = (t: Translate, track: Track): MenuItem => ({
   label: t(track.muted ? "menu.unmuteTrack" : "menu.muteTrack"),
@@ -186,6 +194,7 @@ function viewMenu(t: Translate): MenuItem[] {
     "-",
     { label: t("inspector.legend"), shortcut: mod("B"), checked: !collapsed, run: toggleInspector },
     { label: t("timeline.follow"), checked: follow && !detached, run: toggleFollow },
+    snapItem(t),
   ];
 }
 
@@ -228,6 +237,8 @@ export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuIte
     { label: t("context.resetVolume"), disabled: (track.gainDb ?? 0) === 0, run: () => setGain(track.id, 0) },
     "-",
     { label: t("context.deleteSong"), run: () => deleteTrack(track.id) },
+    "-",
+    snapItem(t),
   ];
 }
 
@@ -238,6 +249,8 @@ export function noteMenu(t: Translate, track: Track, note: Note): MenuItem[] {
     muteItem(t, track),
     "-",
     { label: t("context.deleteNote"), run: deleteNote(note.id) },
+    "-",
+    snapItem(t),
   ];
 }
 
@@ -247,6 +260,8 @@ export function notesTrackMenu(t: Translate, track: Track): MenuItem[] {
     muteItem(t, track),
     "-",
     { label: t("menu.deleteTrack"), run: () => deleteTrack(track.id) },
+    "-",
+    snapItem(t),
   ];
 }
 
@@ -257,6 +272,8 @@ export function emptyMenu(t: Translate, here?: { frame: number; trackId: string 
       ? { label: t("context.addNoteHere"), run: () => addNoteAt(t, here.frame, here.trackId) }
       : { label: t("menu.addNote"), run: () => addNoteAt(t) },
     { label: t("menu.importAudio"), run: () => void importAudioFiles() },
+    "-",
+    snapItem(t),
   ];
 }
 

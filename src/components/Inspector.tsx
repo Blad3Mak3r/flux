@@ -1,13 +1,16 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { Project, Timeline, Track } from "../project/types";
-import { deleteSelection, edit } from "../state/actions";
+import { deleteSelection, edit, setTimelineTempo } from "../state/actions";
+import { detectTempo } from "../state/audio";
 import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
 import { toggleInspector, useUi } from "../state/ui";
 import type { Selected } from "../state/ui";
+import { MAX_BPM, MIN_BPM } from "../project/types";
 import {
   findItem,
+  setAssetBpm,
   setNoteLength,
   setTrackColor,
   updateClip,
@@ -113,6 +116,42 @@ function SelectionPanel({
           onCommit={(text) => onEdit(updateClip(project, timeline.id, clip.id, { gainDb: Number(text) }))}
         />
         {!audio[clip.asset]?.peaks && <p className="field-note">{t("clip.lengthGuess")}</p>}
+        {asset && (
+          <>
+            <TextField
+              // Another file starts the field over, so a half-typed value never lands on it.
+              key={asset.id}
+              label={t("clip.bpm")}
+              hint={t("clip.bpm.hint")}
+              value={asset.bpm === undefined ? "" : String(asset.bpm)}
+              inputMode="decimal"
+              monospace
+              validate={(text) => {
+                if (text.trim() === "") return null;
+                const bpm = Number(text.replace(",", "."));
+                return Number.isFinite(bpm) && bpm >= MIN_BPM && bpm <= MAX_BPM
+                  ? null
+                  : t("tempo.bpm.invalid", { min: MIN_BPM, max: MAX_BPM });
+              }}
+              onCommit={(text) =>
+                onEdit(setAssetBpm(project, asset.id, text.trim() === "" ? null : Number(text.replace(",", "."))))
+              }
+            />
+            <div className="button-row">
+              <button type="button" className="button" onClick={() => void detectTempo(asset, true)}>
+                {t("clip.bpm.detect")}
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={asset.bpm === undefined}
+                onClick={() => asset.bpm !== undefined && setTimelineTempo({ bpm: asset.bpm })}
+              >
+                {t("clip.bpm.use")}
+              </button>
+            </div>
+          </>
+        )}
         <TrackColorField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
         <button type="button" className="button danger" onClick={onDelete}>
           <TrashIcon />

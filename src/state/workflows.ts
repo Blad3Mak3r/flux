@@ -15,7 +15,7 @@ import type { BackendDocument } from "../project/api";
 import type { Project, ProjectState } from "../project/types";
 import { currentFrame } from "../transport/store";
 import { reconnect, seek } from "../transport/playback";
-import { analyse, forgetAnalyses } from "./audio";
+import { analyse, detectTempos, forgetAnalyses } from "./audio";
 import { activeTimeline, isDirty } from "./doc";
 import { addAudioClip, addNote, emptyProject } from "./edit";
 import { edit } from "./actions";
@@ -51,7 +51,7 @@ function restore({ project, path, baseline, active }: BackendDocument): void {
   resetView();
   seek(activeTimeline(useDoc.getState()).timecode.start);
   say("status.restored", { name: project.name });
-  analyse(project.assets);
+  void analyse(project.assets).then(() => detectTempos(project.assets, true));
   // A reload leaves what was playing running in the backend, with nothing left to show or stop it:
   // opening the output again replaces it.
   reconnect(true);
@@ -96,7 +96,7 @@ async function openAt(path: string): Promise<void> {
     const opened = await openProjectAt(path);
     load(opened, path);
     say("status.opened", { name: basename(path) });
-    analyse(opened.project.assets);
+    void analyse(opened.project.assets).then(() => detectTempos(opened.project.assets, true));
   } catch (err) {
     fail(err);
   }
@@ -141,7 +141,8 @@ export async function importAudioFiles(): Promise<void> {
       say("status.imported", { name: asset.name });
     }
     edit(next);
-    analyse(assets);
+    // The tempo is read from the decoded audio, which the analysis leaves in the backend's cache.
+    void analyse(assets).then(() => detectTempos(assets));
     select({ kind: "clip", id: last });
   } catch (err) {
     fail(err);
