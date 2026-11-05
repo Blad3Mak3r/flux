@@ -192,6 +192,21 @@ impl Session {
         })
     }
 
+    /// Makes the timeline after the active one the active one, as when a show ends and the next
+    /// is made ready. `None` when the active one is the last: the show stays where it is.
+    pub fn next_timeline(&mut self) -> Result<Option<ProjectState>> {
+        let Some(document) = &self.document else {
+            return Err(ProjectError::Invalid("no project is open".into()));
+        };
+        let timelines = &document.project.timelines;
+        let next = timelines
+            .iter()
+            .position(|timeline| timeline.id == document.active)
+            .and_then(|at| timelines.get(at + 1))
+            .map(|timeline| timeline.id.clone());
+        next.map(|id| self.select_timeline(&id)).transpose()
+    }
+
     pub fn select_timeline(&mut self, id: &str) -> Result<ProjectState> {
         self.change(|project, active| {
             timeline_mut(project, id)?;
@@ -945,5 +960,28 @@ mod tests {
         project.timelines.retain(|timeline| timeline.id == first);
 
         assert_eq!(session.active_timeline(&project).unwrap().id, first);
+    }
+
+    #[test]
+    fn next_timeline_should_activate_the_one_after_the_active_one() {
+        let (mut session, _, second) = with_two_timelines();
+
+        let state = session.next_timeline().unwrap().unwrap();
+
+        assert_eq!(state.active, second);
+    }
+
+    #[test]
+    fn next_timeline_should_stay_on_the_last_one() {
+        let (mut session, _, second) = with_two_timelines();
+        session.select_timeline(&second).unwrap();
+
+        assert_eq!(session.next_timeline().unwrap(), None);
+        assert_eq!(session.active(), second);
+    }
+
+    #[test]
+    fn next_timeline_should_fail_without_a_document() {
+        assert!(Session::default().next_timeline().is_err());
     }
 }

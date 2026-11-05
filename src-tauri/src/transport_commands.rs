@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::SharedAudio;
 use crate::audio_commands::load;
@@ -30,6 +30,10 @@ use crate::live_commands::{active_timeline, cue_list};
 use crate::project::{Project, Timeline};
 
 const LANE_INTERVAL: Duration = Duration::from_millis(33);
+
+/// The event the window hears when the show ended and the next timeline was made active. Its
+/// payload is the [`ProjectState`] after the change.
+pub const TIMELINE_ADVANCED: &str = "timeline-advanced";
 
 /// The position lane: a position that did not move is not sent again.
 #[derive(Default)]
@@ -56,6 +60,42 @@ impl LiveLane {
         }
         self.last = Some(state.clone());
         Some(state)
+    }
+}
+
+/// The end lane: tells when the show ran to its end, from the count the output keeps.
+struct EndLane {
+    seen: u64,
+}
+
+impl EndLane {
+    fn new(seen: u64) -> Self {
+        Self { seen }
+    }
+
+    /// Whether the show ended since the last call.
+    fn ended(&mut self, count: u64) -> bool {
+        std::mem::replace(&mut self.seen, count) != count
+    }
+}
+
+/// What the end lane does when the show ends: the next timeline becomes the active one, stopped at
+/// its start, and the window is told.
+struct Advance {
+    app: AppHandle,
+    session: SharedSession,
+}
+
+impl Advance {
+    fn run(&self) {
+        let next = self
+            .session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_timeline();
+        if let Ok(Some(state)) = next {
+            let _ = self.app.emit(TIMELINE_ADVANCED, state);
+        }
     }
 }
 
@@ -90,6 +130,7 @@ impl Running {
     fn new(
         output: Output,
         cues: SharedCues,
+        advance: Option<Advance>,
         on_position: Channel<Position>,
         on_levels: Channel<Vec<TrackPeak>>,
         on_live: Channel<LiveState>,
@@ -118,6 +159,16 @@ impl Running {
                 let _ = on_live.send(state);
             }
         })?;
+
+        if let Some(advance) = advance {
+            let reader = running.output.reader();
+            let mut end = EndLane::new(reader.shows_ended());
+            running.spawn_lane("flux-advance", move || {
+                if end.ended(reader.shows_ended()) {
+                    advance.run();
+                }
+            })?;
+        }
 
         let levels = running.output.levels();
         let mut lane = LevelsLane::new();
@@ -166,12 +217,20 @@ fn lock(state: &SharedOutput) -> MutexGuard<'_, Option<Running>> {
 
 /// Opening devices and joining threads can block, so both run off the main thread. The previous
 /// output is dropped outside the lock, because stopping it waits for threads that read the state.
+// A Tauri command takes the managed state it uses and each channel the window gives it as an
+// argument of its own, so it cannot be narrower.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "injected state and channels of a command"
+)]
 #[tauri::command]
 pub async fn output_start(
+    app: AppHandle,
     state: State<'_, SharedOutput>,
     session: State<'_, SharedSession>,
     audio: State<'_, SharedAudio>,
     project: Project,
+    advance: bool,
     on_position: Channel<Position>,
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
@@ -187,7 +246,19 @@ pub async fn output_start(
         let output = Output::start(&project, timeline, programme)?;
         let info = output.info().clone();
         let cues = SharedCues::new(list);
-        *lock(&state) = Some(Running::new(output, cues, on_position, on_levels, on_live)?);
+        // With `advance`, the show running to its end makes the next timeline the active one.
+        let advance = advance.then(|| Advance {
+            app,
+            session: Arc::clone(&session),
+        });
+        *lock(&state) = Some(Running::new(
+            output,
+            cues,
+            advance,
+            on_position,
+            on_levels,
+            on_live,
+        )?);
         Ok(info)
     })
     .await
@@ -385,6 +456,23 @@ mod tests {
         let mut lane = LevelsLane::new();
         assert_eq!(lane.next(peak(0.5)), Some(peak(0.5)));
         assert_eq!(lane.next(peak(0.25)), Some(peak(0.25)));
+    }
+
+    #[test]
+    fn end_lane_should_say_so_once_per_end() {
+        let mut lane = EndLane::new(0);
+
+        assert!(!lane.ended(0));
+        assert!(lane.ended(1));
+        assert!(!lane.ended(1));
+        assert!(lane.ended(2));
+    }
+
+    #[test]
+    fn end_lane_should_ignore_the_ends_before_the_output_opened() {
+        let mut lane = EndLane::new(3);
+
+        assert!(!lane.ended(3));
     }
 
     #[test]
