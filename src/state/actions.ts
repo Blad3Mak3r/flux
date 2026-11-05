@@ -3,7 +3,7 @@
 
 import type { Project } from "../project/types";
 import { dispatch, useDoc } from "./store";
-import { moveItem, removeItem, removeTrack, setTrackGain, toggleMute } from "./edit";
+import { moveItem, moveTrack, removeItem, removeTrack, setTrackGain, toggleMute } from "./edit";
 import { select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
@@ -11,6 +11,7 @@ export const edit = (project: Project) => dispatch({ type: "edit", project });
 const editWith = (change: (project: Project) => Project) => edit(change(useDoc.getState().project));
 
 export const moveTo = (id: string, position: number) => editWith((p) => moveItem(p, id, position));
+export const reorderTrack = (trackId: string, to: number) => editWith((p) => moveTrack(p, trackId, to));
 export const muteTrack = (trackId: string) => editWith((p) => toggleMute(p, trackId));
 export const setGain = (trackId: string, gainDb: number) => editWith((p) => setTrackGain(p, trackId, gainDb));
 

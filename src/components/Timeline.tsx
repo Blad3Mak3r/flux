@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
@@ -9,13 +9,15 @@ import type { AssetAudio } from "../state/doc";
 import { useDoc } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
+import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
+import { reorderTrack } from "../state/actions";
 import { addNoteAt, importAudioFiles } from "../state/workflows";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
-import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength } from "./TrackRow";
+import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength, laneHeight } from "./TrackRow";
 import { PlusIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 import { emptyMenu } from "./menus";
 
@@ -80,6 +82,9 @@ export function Timeline() {
   const fps = nominalFps(frameRate);
   const guessLength = GUESS_SECONDS * fps;
   const zoomPercent = Math.round((pxPerFrame / DEFAULT_PX_PER_FRAME) * 100);
+  // The track being dragged by its header, and the index it would take if dropped now. The header
+  // itself follows the pointer through its own style (`dy` changes every move; this state only on a new slot).
+  const [drag, setDrag] = useState<{ id: string; to: number } | null>(null);
 
   useEffect(() => {
     const box = scroller.current;
@@ -126,6 +131,49 @@ export function Timeline() {
     // Never narrower than the window, so the graticule fills the screen.
   );
   const laneWidth = Math.max(contentWidth, viewWidth);
+
+  const grabTrack = useCallback((event: PointerEvent<HTMLElement>, id: string) => {
+    if (event.button !== 0 || (event.target as Element).closest("button")) return;
+    const header = event.currentTarget.closest<HTMLElement>(".track-header");
+    const { tracks } = useDoc.getState().project;
+    const from = tracks.findIndex((track) => track.id === id);
+    if (!header || from === -1) return;
+    const heights = tracks.map(laneHeight);
+    const above = heights.slice(0, from).reduce((sum, height) => sum + height, 0);
+    const below = heights.slice(from + 1).reduce((sum, height) => sum + height, 0);
+    const startY = event.clientY;
+    let to = from;
+    setDrag({ id, to });
+
+    const onMove = (move: globalThis.PointerEvent) => {
+      const dy = Math.min(Math.max(move.clientY - startY, -above), below);
+      header.style.transform = `translateY(${dy}px)`;
+      const next = dropIndex(heights, from, dy);
+      if (next !== to) {
+        to = next;
+        setDrag({ id, to });
+      }
+    };
+    const onKey = (key: KeyboardEvent) => key.key === "Escape" && finish(false);
+    const finish = (drop: boolean) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey);
+      header.style.transform = "";
+      setDrag(null);
+      if (drop) reorderTrack(id, to);
+    };
+    const onUp = () => finish(true);
+    const onCancel = () => finish(false);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey);
+  }, []);
+
+  const dragFrom = drag ? project.tracks.findIndex((track) => track.id === drag.id) : -1;
+  const dropY = drag && drag.to !== dragFrom ? dropLineY(project.tracks.map(laneHeight), dragFrom, drag.to) : null;
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
@@ -181,8 +229,9 @@ export function Timeline() {
           >
             <div className="headers-inner">
               {project.tracks.map((track) => (
-                <TrackHeader key={track.id} track={track} />
+                <TrackHeader key={track.id} track={track} dragging={drag?.id === track.id} onGrab={grabTrack} />
               ))}
+              {dropY !== null && <div className="drop-line" style={{ top: dropY }} />}
               <div className="filler">
                 <p className="hint">{t("tracks.hint")}</p>
               </div>
@@ -236,8 +285,10 @@ export function Timeline() {
                 guessLength={guessLength}
                 fps={realFps(frameRate)}
                 pxPerFrame={pxPerFrame}
+                dragging={drag?.id === track.id}
               />
             ))}
+            {dropY !== null && <div className="drop-line" style={{ top: RULER_H + dropY }} />}
 
             {project.tracks.length === 0 && (
               <div className="empty-state">

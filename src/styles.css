@@ -603,6 +603,7 @@ input:disabled {
 
 /* The bottom padding is the lanes' scrollbar, so both columns reach the same last scroll position. */
 .headers-inner {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 100%;
@@ -748,6 +749,33 @@ input:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: grab;
+}
+
+/* Reordering: the header follows the pointer, its lane dims, and a line marks where it will land. */
+.track-header[data-dragging="true"] {
+  position: relative;
+  z-index: 3;
+  cursor: grabbing;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
+}
+
+.track-header[data-dragging="true"] .track-head-row {
+  cursor: grabbing;
+}
+
+.lane[data-dragging="true"] {
+  opacity: 0.45;
+}
+
+.drop-line {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 4;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--phosphor);
+  pointer-events: none;
 }
 
 .track-kind {
