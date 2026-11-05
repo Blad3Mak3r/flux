@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import type { LiveState } from "../live/api";
 import type { Project } from "../project/types";
 
 // Mirrors src-tauri/src/engine/output.rs and src-tauri/src/transport_commands.rs.
@@ -57,19 +58,28 @@ export interface OutputLanes {
   onPosition: (position: Position) => void;
   /** The peak of each track; silence once after the sound stops, then nothing. */
   onLevels: (tracks: TrackPeak[]) => void;
+  /** Where the show stands among its cues, when that changed. */
+  onLive: (state: LiveState) => void;
 }
 
 /**
- * Opens the devices the project's `output` names; replaces a running output. Position and levels
- * come over one channel each, which live as long as this output does, so the meters can never hold
- * up the timecode.
+ * Opens the devices the project's `output` names; replaces a running output. Position, levels and
+ * the state of the show come over one channel each, which live as long as this output does, so the
+ * meters can never hold up the timecode.
  */
 export function startOutput(project: Project, lanes: OutputLanes): Promise<OutputInfo> {
   const position = new Channel<Position>();
   position.onmessage = lanes.onPosition;
   const levels = new Channel<TrackPeak[]>();
   levels.onmessage = lanes.onLevels;
-  return invoke<OutputInfo>("output_start", { project, onPosition: position, onLevels: levels });
+  const live = new Channel<LiveState>();
+  live.onmessage = lanes.onLive;
+  return invoke<OutputInfo>("output_start", {
+    project,
+    onPosition: position,
+    onLevels: levels,
+    onLive: live,
+  });
 }
 
 /**

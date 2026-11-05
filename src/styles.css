@@ -1772,3 +1772,450 @@ input:disabled {
     transition: none !important;
   }
 }
+
+/* ---- Live: the timeline as it is run on stage ---- */
+
+.work[data-view="live"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The switch ends the bar of each view; the pressed view reads like a selected tab. */
+.view-switch {
+  display: flex;
+  align-self: stretch;
+  margin-right: -10px;
+}
+
+.view-switch button {
+  height: 100%;
+  padding: 0 16px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.view-switch button:hover {
+  background: var(--panel-hi);
+}
+
+.view-switch button[aria-pressed="true"] {
+  background: var(--panel-lo);
+  border-bottom-color: var(--phosphor);
+  color: var(--ink);
+}
+
+.live {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--screen);
+}
+
+.live-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.live-panel {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 120px;
+  padding: 10px 16px 12px;
+}
+
+.live-next {
+  border-right: 1px solid var(--rule-strong);
+}
+
+.live-quiet {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-dim);
+  font-size: 18px;
+}
+
+.live-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+/* A cue is drawn in its track's colour, or in amber (events) or phosphor (audio). */
+.live-next-body,
+.live-run,
+.cue-row {
+  --cue-c: var(--trace, var(--phosphor));
+  --cue-c-dim: var(--trace-dim, var(--phosphor-dim));
+}
+
+.cue-row[data-kind="marker"],
+.cue-row[data-kind="midi"] {
+  --cue-c: var(--trace, var(--amber));
+  --cue-c-dim: var(--trace-dim, var(--amber-dim));
+}
+
+.live-next-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+}
+
+.live-next-cue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.live-next-cue .live-number {
+  grid-row: span 2;
+}
+
+.live-number {
+  min-width: 2.2em;
+  padding: 4px 6px;
+  border: 1px solid var(--amber-dim);
+  color: var(--amber);
+  font-family: var(--font-measure);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.live-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.live-countdown {
+  display: grid;
+  flex: none;
+  justify-items: end;
+  gap: 2px;
+  color: var(--amber);
+}
+
+.live-countdown-label {
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.live-countdown .measure {
+  font-size: clamp(36px, 4.6vw, 56px);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.live-running-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 11.5em;
+  overflow-y: auto;
+}
+
+.live-run {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 6px;
+}
+
+.live-run .live-number {
+  border-color: var(--cue-c-dim);
+  color: var(--cue-c);
+  font-size: 14px;
+}
+
+.live-left {
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.live-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: var(--ghost);
+  border: 1px solid var(--grat-major);
+}
+
+.live-bar div {
+  height: 100%;
+  background: var(--cue-c);
+}
+
+.live-cues {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.live-cues-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 32px;
+  padding: 0 16px;
+}
+
+.live-cues-bar .legend {
+  flex: 1;
+}
+
+.live-hint {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+/* Header and rows share one set of columns, so the legends sit over what they name. */
+.cue-head,
+.cue-row {
+  display: grid;
+  grid-template-columns: 44px 124px 26px minmax(0, 1fr) minmax(0, 180px) 116px 116px;
+  align-items: center;
+  column-gap: 12px;
+  padding: 0 16px;
+}
+
+.cue-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-padding-top: 24px;
+}
+
+/* Inside the scroller, so a scrollbar narrows header and rows alike and the legends stay over their columns. */
+.cue-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 24px;
+  background: var(--panel-lo);
+  border-block: 1px solid var(--rule);
+  color: var(--ink-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cue-head .cue-cue {
+  grid-column: span 2;
+}
+
+.cue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cue-row {
+  width: 100%;
+  height: 38px;
+  background-color: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--grat-minor);
+  border-radius: 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.cue-row:hover {
+  background-color: var(--ghost);
+}
+
+.cue-row .cue-number {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.cue-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cue-name,
+.cue-track {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cue-row .cue-track {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+.cue-row .cue-time,
+.cue-row .cue-length {
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+
+.cue-row .cue-time {
+  color: var(--ink);
+}
+
+/* The kind is told by the fill, as on the timeline: solid audio, hatched marker, dotted MIDI. */
+.cue-kind {
+  height: 14px;
+  border: 1px solid var(--cue-c-dim);
+  background-color: color-mix(in oklch, var(--cue-c) 40%, var(--screen));
+}
+
+.cue-kind[data-kind="marker"] {
+  background-color: var(--screen);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--cue-c) 55%, transparent) 0 2px,
+    transparent 2px 5px
+  );
+}
+
+.cue-kind[data-kind="midi"] {
+  background-color: var(--screen);
+  background-image: radial-gradient(color-mix(in oklch, var(--cue-c) 80%, transparent) 1px, transparent 1.4px);
+  background-size: 5px 5px;
+}
+
+/* Lamps say the state by shape as well as colour: filled, hollow or dashed, beside a printed word. */
+.cue-state .lamp {
+  flex: none;
+}
+
+.lamp[data-status="next"] {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
+.lamp[data-status="running"] {
+  background: var(--phosphor);
+  border-color: var(--phosphor);
+}
+
+.live[data-playing="true"] .lamp[data-status="running"] {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+.lamp[data-status="done"] {
+  background: transparent;
+  border-color: var(--ink-faint);
+}
+
+.lamp[data-status="muted"] {
+  background: transparent;
+  border: 1px dashed var(--ink-faint);
+}
+
+.cue-row[data-status="next"] {
+  outline: 1px solid var(--amber);
+  outline-offset: -1px;
+}
+
+.cue-row[data-status="next"] .cue-state {
+  color: var(--amber);
+}
+
+.cue-row[data-status="next"] .cue-name,
+.cue-row[data-status="running"] .cue-name {
+  font-weight: 700;
+}
+
+.cue-row[data-status="running"] {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--cue-c) 22%, transparent) var(--progress, 0%),
+    transparent var(--progress, 0%)
+  );
+}
+
+.cue-row[data-status="done"],
+.cue-row[data-status="done"] .cue-time,
+.cue-row[data-status="muted"],
+.cue-row[data-status="muted"] .cue-time {
+  color: var(--ink-faint);
+}
+
+.cue-row[data-status="muted"] {
+  outline: 1px dashed var(--rule-strong);
+  outline-offset: -1px;
+}
+
+.cue-row[data-status="muted"] .cue-name {
+  text-decoration: line-through;
+}
+
+.cue-row[data-status="done"] .cue-kind,
+.cue-row[data-status="muted"] .cue-kind {
+  opacity: 0.55;
+}
+
+/* A short window gives the list the room: the panels and the countdown shrink first. */
+@media (max-height: 700px) {
+  .live-panel {
+    min-height: 0;
+    gap: 6px;
+  }
+
+  .live-countdown .measure {
+    font-size: clamp(32px, 4vw, 44px);
+  }
+
+  .live-name {
+    font-size: 18px;
+  }
+
+  .cue-row {
+    height: 34px;
+  }
+}
+
+@media (max-width: 1179px) {
+  .live-panel {
+    padding-inline: 12px;
+  }
+
+  .cue-head,
+  .cue-row {
+    column-gap: 10px;
+    padding-inline: 12px;
+  }
+}

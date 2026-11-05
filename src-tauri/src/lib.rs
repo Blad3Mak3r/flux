@@ -3,6 +3,7 @@ mod audio_commands;
 mod commands;
 pub mod devices;
 pub mod engine;
+mod live_commands;
 pub mod project;
 mod recents;
 mod startup;
@@ -50,6 +51,8 @@ pub fn run() {
             devices::devices_list_midi,
             devices::devices_find_audio,
             devices::devices_find_midi,
+            live_commands::live_cues,
+            live_commands::live_state,
             transport_commands::output_start,
             transport_commands::output_set_clips,
             transport_commands::output_set_track_gain,
