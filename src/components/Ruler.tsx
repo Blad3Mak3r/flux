@@ -1,6 +1,7 @@
 import { memo, useRef } from "react";
 import type { PointerEvent } from "react";
 import { useT } from "../i18n";
+import { snapFrame } from "../state/snap";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
 import { barTickPositions, frameX, pickTicks, tickPositions } from "../timeline/scale";
@@ -118,7 +119,7 @@ export function Ruler({
 
   const frameAt = (event: PointerEvent<SVGSVGElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
-    return Math.max(0, Math.round((event.clientX - left) / pxPerFrame));
+    return Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame)));
   };
 
   const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {

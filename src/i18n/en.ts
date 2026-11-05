@@ -45,6 +45,7 @@ export const en = {
   "context.resetVolume": "Reset volume to 0 dB",
   "context.deleteSong": "Delete song",
   "context.deleteNote": "Delete note",
+  "context.snap": "Snap to grid",
   "context.addNoteHere": "Add note here",
   "context.cut": "Cut",
   "context.copy": "Copy",

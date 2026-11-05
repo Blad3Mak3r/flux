@@ -46,6 +46,7 @@ export const es: Record<MessageKey, string> = {
   "context.resetVolume": "Volumen a 0 dB",
   "context.deleteSong": "Eliminar canción",
   "context.deleteNote": "Eliminar nota",
+  "context.snap": "Imán (ajustar a la rejilla)",
   "context.addNoteHere": "Añadir nota aquí",
   "context.cut": "Cortar",
   "context.copy": "Copiar",

@@ -89,19 +89,13 @@ export interface BarTickPositions {
   minor: number[];
 }
 
-/** Frames one beat lasts; not a whole number, which is why positions here are never rounded. */
-export const beatFrames = (grid: BeatGrid): number => (60 / grid.bpm) * grid.fps;
-
 /**
- * Every bar line and beat up to `width` pixels, from the origin, spaced like `tickPositions` so
- * labels never crowd. Positions are exact (a beat is rarely a whole frame); `frameX` rounds them
- * to the pixel, so the ruler and the graticule agree.
+ * Beats between labelled ticks (`step`) and between unlabelled ones (`minorStep`, `null` for none):
+ * every beat when there is room, else whole bars, doubling until labels cannot crowd.
  */
-export function barTickPositions(pxPerFrame: number, grid: BeatGrid, width: number): BarTickPositions {
-  const beat = beatFrames(grid);
-  const beatPx = beat * pxPerFrame;
+function barSteps(pxPerFrame: number, grid: BeatGrid): { step: number; minorStep: number | null } {
+  const beatPx = beatFrames(grid) * pxPerFrame;
   const perBar = grid.beatsPerBar;
-  // How many beats between labelled ticks: every beat when there is room, else whole bars, doubling.
   let step = 1;
   if (beatPx < MIN_MAJOR_PX) {
     step = perBar;
@@ -112,6 +106,35 @@ export function barTickPositions(pxPerFrame: number, grid: BeatGrid, width: numb
     if (beatPx >= MIN_MINOR_PX) minorStep = 1;
     else if (step > perBar && perBar * beatPx >= MIN_MINOR_PX) minorStep = perBar;
   }
+  return { step, minorStep };
+}
+
+/**
+ * Frames between the closest vertical lines the ruler and graticule draw at this zoom, in the time
+ * view (`grid` is `null`) or the bars view. Every drawn line is a multiple of it, so it is what a
+ * snap has to land on.
+ */
+export function lineSpacing(pxPerFrame: number, rate: FrameRate, grid: BeatGrid | null): number {
+  if (grid) {
+    const { step, minorStep } = barSteps(pxPerFrame, grid);
+    return beatFrames(grid) * (minorStep ?? step);
+  }
+  const ticks = pickTicks(pxPerFrame, rate);
+  return ticks.minor ?? ticks.major;
+}
+
+/** Frames one beat lasts; not a whole number, which is why positions here are never rounded. */
+export const beatFrames = (grid: BeatGrid): number => (60 / grid.bpm) * grid.fps;
+
+/**
+ * Every bar line and beat up to `width` pixels, from the origin, spaced like `tickPositions` so
+ * labels never crowd. Positions are exact (a beat is rarely a whole frame); `frameX` rounds them
+ * to the pixel, so the ruler and the graticule agree.
+ */
+export function barTickPositions(pxPerFrame: number, grid: BeatGrid, width: number): BarTickPositions {
+  const beat = beatFrames(grid);
+  const perBar = grid.beatsPerBar;
+  const { step, minorStep } = barSteps(pxPerFrame, grid);
 
   const beats = Math.ceil(width / pxPerFrame / beat);
   const major: BarTick[] = [];

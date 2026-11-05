@@ -16,6 +16,7 @@ import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
 import { reorderTrack } from "../state/actions";
+import { snapFrame } from "../state/snap";
 import { addNoteAt, importAudioFiles } from "../state/workflows";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
@@ -190,7 +191,7 @@ export function Timeline() {
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
-    patchReadout({ hover: Math.max(0, Math.round((event.clientX - left) / pxPerFrame)) });
+    patchReadout({ hover: Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame))) });
   };
 
   return (

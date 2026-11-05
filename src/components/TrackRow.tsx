@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import type { AudioClip, Note, Track } from "../project/types";
 import { moveTo, muteTrack, setGain } from "../state/actions";
 import { activeTimeline } from "../state/doc";
+import { snapFrame } from "../state/snap";
 import { useDoc } from "../state/store";
 import { menuAtPointer, select, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
@@ -97,7 +98,9 @@ function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFram
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (!origin.current) return;
       const frames = Math.round((event.clientX - origin.current.x) / pxPerFrame);
-      setDelta(Math.max(frames, -origin.current.position));
+      // With the magnet on, the item's start lands on the closest grid line when it is near one.
+      const target = Math.max(0, snapFrame(origin.current.position + frames));
+      setDelta(target - origin.current.position);
     },
     onPointerUp() {
       if (origin.current && delta !== 0) moveTo(id, origin.current.position + delta);
@@ -246,7 +249,7 @@ export const TrackLane = memo(function TrackLane({
   const addHere = (event: MouseEvent<HTMLDivElement>) => {
     if (track.kind.type !== "notes" || event.target !== event.currentTarget) return;
     const { start } = activeTimeline(useDoc.getState()).timecode;
-    addNoteAt(t, start + Math.round(event.nativeEvent.offsetX / pxPerFrame), track.id);
+    addNoteAt(t, start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame)), track.id);
   };
   return (
     <div
