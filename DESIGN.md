@@ -217,13 +217,13 @@ The native title bar is off (`decorations: false`), so the menubar is the title 
 32px, screen-coloured ground, strong rule border, 2px radius. Numeric fields use the measure face. Invalid: vermilion border and a bold vermilion note. Checkboxes are 16px with phosphor accent.
 
 ### Tabs
-Inspector tabs: 34px, uppercase 11px bold. Selected = ink on recessed fill with a 2px phosphor underline.
+The Setup dialog's page list is a vertical tab list: 34px rows, 600 weight, each page led by a 6px square lamp that lights phosphor on the selected one, which also takes the recessed fill, ink text and bold weight (a second cue besides colour). Up and Down move between pages. A page that is planned but not built (Video) is dimmed like a disabled control, stays in the list, and prints a square 1px-ruled "Coming soon" tag, so the reason is words and not colour; it cannot be selected and is skipped by the arrow keys.
 
 ### Inspector Toggle and Rail
-A 34px square icon button on the inspector's left edge, at the start of the tab row, collapses the sidebar; Ctrl+B (⌘B on macOS) does the same and the tooltip says so. It carries `aria-expanded` and a translated label ("Collapse the inspector" / "Expand the inspector"), and the chevron points the way the edge will move. Collapsed, the inspector is a 40px rail with a 1px rule on its left: the toggle on top, then one 28px icon button per tab (selection cursor, project sliders, output waveform), each labelled with the tab name. Choosing one opens the sidebar on that tab. The screen takes the freed width, so the ruler, lanes and playhead reflow with no page scroll at the 960px minimum. The state is remembered between sessions (`localStorage`, failing soft to expanded).
+A 34px square icon button on the inspector's left edge, at the start of its title row, collapses the sidebar; Ctrl+B (⌘B on macOS) does the same and the tooltip says so. It carries `aria-expanded` and a translated label ("Collapse the inspector" / "Expand the inspector"), and the chevron points the way the edge will move. The inspector holds one page, the selection (project and output settings live in Setup). Collapsed, it is a 40px rail with a 1px rule on its left, holding only the toggle. The screen takes the freed width, so the ruler, lanes and playhead reflow with no page scroll at the 960px minimum. The state is remembered between sessions (`localStorage`, failing soft to expanded).
 
 ### Output Lamps
-Rows of a 10px square lamp, uppercase name, status word and a truncating detail. Off = `lamp-off`; on = phosphor; fault = vermilion. The status word is always printed.
+Rows of a 10px square lamp, uppercase name, status word and a truncating detail. Off = `lamp-off`; on = phosphor; fault = vermilion. The status word is always printed. With several outputs of a kind the row summarises them ("2 outputs", the full list in the tooltip) and shows the worst state, so one missing device reads as Missing. Each row is a button that opens its page of Setup (Clock opens Audio, LTC and MTC their own list): the lamps are the live state, Setup is where it changes. Hover raises the row to `panel-hi` with a 1px rule.
 
 ### Timecode Readout (signature)
 A recessed screen window holding a 5x7 dot-matrix face drawn as SVG squares; lit pixels `phosphor`, unlit `ghost`. The cell is a whole number of device pixels (9 CSS px wide, 7 narrow, at least 4 device px, gap at least 1 device px) so no pixel blends. A readout line beneath carries the state word (PLAYING vermilion, PAUSED amber, otherwise ink) in measure type.
@@ -239,6 +239,9 @@ Both sit in an audio track's header under the name row, which is why an audio la
 
 ### Status Bar and Dialog
 30px recessed bar: message left (vermilion bold on error), tabular measurements right. The unsaved dialog is a square panel, max 420px, with a flat backdrop.
+
+### Setup Dialog
+Everything that is set up rather than played lives in one modal opened from the menubar's Setup button, Ctrl+, (⌘, on macOS) or a faceplate lamp. A native `<dialog>`, 760x520 (92vw / 88vh at most), square, on the dialog's flat backdrop: a 44px recessed title row with a close button, a 200px page list on the left (Project, Audio, LTC outputs, MTC outputs, General, Video), the page on the right, and a recessed footer that prints what the output is doing (running device and rate, "Changes apply when playback stops", and any warnings in amber). It is modal because setup is rare, holds lists that would crowd the 300px inspector, and the transport keys must not fire behind it; the faceplate keeps the live state in view. Output lists are rows between 1px rules, not cards: a name (LTC 1), a lamp with its status word, a remove button, and below them the device or port select and, for LTC, the channel select. Outputs connect by themselves when a choice is made; a change made while playing waits for stop or pause.
 
 ## Do's and Don'ts
 
