@@ -15,6 +15,8 @@ export interface TransportState {
   info: OutputInfo | null;
   /** Files the output could not use (missing or unreadable audio), from starting or from edits. */
   clipWarnings: string[];
+  /** The output settings changed while playing; they are applied when playback stops or pauses. */
+  pendingReconfigure: boolean;
 }
 
 export const useTransport = create<TransportState>()(() => ({
@@ -23,6 +25,7 @@ export const useTransport = create<TransportState>()(() => ({
   parked: 0,
   info: null,
   clipWarnings: [],
+  pendingReconfigure: false,
 }));
 
 export const selectFrame = (s: TransportState): number => s.position?.frame ?? s.parked;

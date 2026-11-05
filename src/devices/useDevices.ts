@@ -20,6 +20,23 @@ export interface Devices {
   refresh: () => void;
 }
 
+async function presenceOf(hint: string, find: (name: string) => Promise<unknown>): Promise<Presence> {
+  // An empty name is the system's default output: there is nothing to look for.
+  if (hint === "") return "found";
+  try {
+    return (await find(hint)) ? "found" : "missing";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** Several outputs read as one: a single missing device is what the user needs to hear about. */
+export function worst(all: Presence[]): Presence {
+  if (all.length === 0) return "unset";
+  for (const state of ["missing", "unknown"] as const) if (all.includes(state)) return state;
+  return "found";
+}
+
 /** Lists devices and checks whether the ones a project names are connected. */
 export function useDevices(output: OutputConfig): Devices {
   const [audio, setAudio] = useState<AudioDevice[]>([]);
@@ -32,9 +49,10 @@ export function useDevices(output: OutputConfig): Devices {
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((n) => n + 1), []);
 
-  const audioHint = output.audio?.deviceName ?? output.ltc?.deviceName ?? null;
-  const ltcHint = output.ltc?.deviceName ?? null;
-  const midiHint = output.mtc?.portName ?? null;
+  const audioHint = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? null;
+  // The effect depends on the names, not on the lists, which are new objects after every edit.
+  const ltcHints = JSON.stringify(output.ltc.map((ltc) => ltc.deviceName));
+  const midiHints = JSON.stringify(output.mtc.map((mtc) => mtc.portName));
 
   useEffect(() => {
     let cancelled = false;
@@ -51,21 +69,17 @@ export function useDevices(output: OutputConfig): Devices {
 
   useEffect(() => {
     let cancelled = false;
-    const resolve = (hint: string | null, find: (name: string) => Promise<unknown>, set: (p: Presence) => void) => {
-      if (hint === null) return set("unset");
-      // An empty name is the system's default output: there is nothing to look for.
-      if (hint === "") return set("found");
-      find(hint)
-        .then((found) => !cancelled && set(found ? "found" : "missing"))
-        .catch(() => !cancelled && set("unknown"));
+    const resolveAll = (hints: (string | null)[], find: (name: string) => Promise<unknown>, set: (p: Presence) => void) => {
+      if (hints.length === 0 || hints[0] === null) return set("unset");
+      Promise.all(hints.map((hint) => presenceOf(hint as string, find))).then((all) => !cancelled && set(worst(all)));
     };
-    resolve(audioHint, findAudioDevice, setAudioPresence);
-    resolve(ltcHint, findAudioDevice, setLtcPresence);
-    resolve(midiHint, findMidiPort, setMtcPresence);
+    resolveAll([audioHint], findAudioDevice, setAudioPresence);
+    resolveAll(JSON.parse(ltcHints) as string[], findAudioDevice, setLtcPresence);
+    resolveAll(JSON.parse(midiHints) as string[], findMidiPort, setMtcPresence);
     return () => {
       cancelled = true;
     };
-  }, [audioHint, ltcHint, midiHint, tick]);
+  }, [audioHint, ltcHints, midiHints, tick]);
 
   return { audio, midi, midiError, available, audioPresence, ltcPresence, mtcPresence, refresh };
 }

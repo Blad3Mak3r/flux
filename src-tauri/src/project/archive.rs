@@ -10,7 +10,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::error::{ProjectError, Result};
-use super::model::{AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path};
+use super::model::{AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path, migrate};
 use super::preview::{AudioStamp, Preview, StoredPreview, preview_path};
 
 const PROJECT_JSON: &str = "project.json";
@@ -70,6 +70,8 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
         });
     }
 
+    let mut value = value;
+    migrate(&mut value);
     let project: Project = serde_json::from_value(value)?;
     project.validate()?;
     for asset in &project.assets {

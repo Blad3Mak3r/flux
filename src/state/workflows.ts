@@ -14,7 +14,7 @@ import {
 import type { BackendDocument } from "../project/api";
 import type { Project } from "../project/types";
 import { currentFrame } from "../transport/store";
-import { seek, stopOutput } from "../transport/playback";
+import { reconnect, seek } from "../transport/playback";
 import { analyse, forgetAnalyses } from "./audio";
 import { isDirty } from "./doc";
 import { addAudioClip, addMarker, emptyProject } from "./edit";
@@ -46,8 +46,9 @@ function restore({ project, path, baseline }: BackendDocument): void {
   seek(project.timecode.start);
   say("status.restored", { name: project.name });
   analyse(project.assets);
-  // A reload leaves what was playing running in the backend, with nothing left to show or stop it.
-  void stopOutput();
+  // A reload leaves what was playing running in the backend, with nothing left to show or stop it:
+  // opening the output again replaces it.
+  reconnect(true);
 }
 
 let started: Promise<void> | null = null;

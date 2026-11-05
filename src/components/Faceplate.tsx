@@ -1,7 +1,9 @@
 import type { Devices, Presence } from "../devices/useDevices";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
+import type { SetupSection } from "../setup/outputs";
 import { useDoc } from "../state/store";
+import { openSetup } from "../state/ui";
 import { formatFrames } from "../timecode";
 import { pause, play, stop } from "../transport/playback";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
@@ -16,14 +18,24 @@ function Lamp({ state }: { state: LampState }) {
 
 interface OutputRow {
   legend: MessageKey;
+  /** The page of Setup that changes what this row shows. */
+  section: SetupSection;
   state: LampState;
   status: MessageKey;
   detail: string;
+  /** The whole detail, when it is summarised in the row. */
+  title?: string;
 }
 
-function rowState(configured: boolean, presence: Presence, running: boolean, lost = false): { state: LampState; status: MessageKey } {
+function rowState(
+  configured: boolean,
+  presence: Presence,
+  running: boolean,
+  lost = false,
+  failed = false,
+): { state: LampState; status: MessageKey } {
   if (!configured) return { state: "off", status: "output.state.off" };
-  if (presence === "missing") return { state: "fault", status: "output.state.missing" };
+  if (presence === "missing" || failed) return { state: "fault", status: "output.state.missing" };
   if (lost) return { state: "fault", status: "output.state.lost" };
   if (running) return { state: "on", status: "output.state.running" };
   return presence === "unknown"
@@ -107,32 +119,58 @@ function Lamps({ devices }: { devices: Devices }) {
   const ltcLost = useTransport((transport) => transport.position?.ltcLost);
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced);
   const running = info !== null;
-  const { ltc, mtc } = output;
+  const { ltc } = output;
   // An empty name is the system's default output, which is what plays when nothing was chosen.
-  const deviceName = output.audio?.deviceName ?? ltc?.deviceName ?? "";
-  // LTC has a stream of its own when it names another device than the one that plays the programme.
-  const ltcDevice = ltc && ltc.deviceName !== deviceName ? ltc.deviceName || t("output.default") : null;
+  const deviceName = output.audio?.deviceName ?? ltc[0]?.deviceName ?? "";
   const clockRow = clockUnpaced
     ? { state: "fault" as LampState, status: "output.state.fast" as MessageKey }
     : rowState(true, devices.audioPresence === "unset" ? "found" : devices.audioPresence, running, deviceLost);
 
+  // What the output reported belongs to the outputs only while it has an entry for each.
+  const ltcInfo = info && info.ltc.length === ltc.length ? info.ltc : null;
+  // A row with no port chosen is not an output yet.
+  const ports = output.mtc.map((mtc, index) => ({ mtc, reported: info?.mtc.length === output.mtc.length ? info.mtc[index] : undefined })).filter(({ mtc }) => mtc.portName !== "");
+
+  const ltcDetails = ltc.map((one) =>
+    [t("output.channel", { channel: one.channel }), one.deviceName !== deviceName ? one.deviceName || t("output.default") : null]
+      .filter(Boolean)
+      .join(" · "),
+  );
+  const mtcDetails = ports.map(({ mtc }) => mtc.portName);
+  const summary = (details: string[]) => (details.length > 1 ? t("output.count", { count: details.length }) : (details[0] ?? t("output.notSet")));
+
   const rows: OutputRow[] = [
     {
       legend: "output.clock",
+      section: "audio",
       ...clockRow,
       detail: deviceName || t("output.default"),
     },
     {
       legend: "output.ltc",
-      ...rowState(ltc !== null, devices.ltcPresence, running && info?.ltcChannel != null, deviceLost || ltcLost),
-      detail: ltc
-        ? [t("output.channel", { channel: ltc.channel }), ltcDevice].filter(Boolean).join(" · ")
-        : t("output.notSet"),
+      section: "ltc",
+      ...rowState(
+        ltc.length > 0,
+        devices.ltcPresence,
+        ltcInfo !== null && ltcInfo.every((one) => one.ok),
+        deviceLost || ltcLost,
+        ltcInfo?.some((one) => !one.ok),
+      ),
+      detail: summary(ltcDetails),
+      title: ltcDetails.length > 1 ? ltcDetails.join("\n") : undefined,
     },
     {
       legend: "output.mtc",
-      ...rowState(mtc !== null, devices.mtcPresence, running && info?.mtcPort != null),
-      detail: mtc?.portName ?? t("output.notSet"),
+      section: "mtc",
+      ...rowState(
+        ports.length > 0,
+        devices.mtcPresence,
+        ports.every(({ reported }) => reported?.ok === true),
+        false,
+        ports.some(({ reported }) => reported?.ok === false),
+      ),
+      detail: summary(mtcDetails),
+      title: mtcDetails.length > 1 ? mtcDetails.join("\n") : undefined,
     },
   ];
 
@@ -144,12 +182,12 @@ function Lamps({ devices }: { devices: Devices }) {
       <ul>
         {rows.map((row) => (
           <li key={row.legend}>
-            <Lamp state={row.state} />
-            <span className="lamp-name">{t(row.legend)}</span>
-            <span className="lamp-status">{t(row.status)}</span>
-            <span className="lamp-detail" title={row.detail}>
-              {row.detail}
-            </span>
+            <button type="button" className="lamp-row" title={row.title ?? t("setup.title")} onClick={() => openSetup(row.section)}>
+              <Lamp state={row.state} />
+              <span className="lamp-name">{t(row.legend)}</span>
+              <span className="lamp-status">{t(row.status)}</span>
+              <span className="lamp-detail">{row.detail}</span>
+            </button>
           </li>
         ))}
       </ul>

@@ -9,12 +9,13 @@ import { Live } from "./live/Live";
 import { UnsavedDialog } from "./components/UnsavedDialog";
 import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
+import { SetupDialog } from "./setup/SetupDialog";
 import { I18nProvider, useT } from "./i18n";
 import { deleteSelection } from "./state/actions";
 import { isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
+import { ask, openSetup, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
 import {
   addMarkerAtPlayhead,
   importAudioFiles,
@@ -93,7 +94,8 @@ function Shell() {
   // Keyboard first: the keys a show operator reaches for without looking.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (useUi.getState().pending || isTyping(event.target)) return;
+      // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
+      if (useUi.getState().pending || useUi.getState().setup || isTyping(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       const fps = nominalFps(useDoc.getState().project.timecode.frameRate);
@@ -107,6 +109,7 @@ function Shell() {
           : key === "o" ? "open"
           : key === "n" ? "new"
           : key === "b" ? "toggleInspector"
+          : key === "," ? "setup"
           : key === "1" ? "viewEdit"
           : key === "2" ? "viewLive"
           : key === "=" || key === "+" ? "zoomIn"
@@ -120,6 +123,7 @@ function Shell() {
         else if (action === "open") openDocument();
         else if (action === "new") newDocument(t);
         else if (action === "toggleInspector") toggleInspector();
+        else if (action === "setup") openSetup();
         else if (action === "viewEdit" || action === "viewLive") setView(action === "viewEdit" ? "edit" : "live");
         else zoomBy(action === "zoomIn" ? ZOOM_STEP : 1 / ZOOM_STEP);
         return;
@@ -167,11 +171,12 @@ function Shell() {
         ) : (
           <>
             <Timeline key={docKey} />
-            <Inspector devices={devices} />
+            <Inspector />
           </>
         )}
       </main>
       <StatusBar />
+      <SetupDialog devices={devices} />
       <UnsavedDialog
         name={name}
         open={asking}

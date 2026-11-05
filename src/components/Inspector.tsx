@@ -1,22 +1,16 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { FrameRate, Project, Track, TriggerAction } from "../project/types";
+import type { Project, Track, TriggerAction } from "../project/types";
 import { deleteSelection, edit } from "../state/actions";
 import type { AssetAudio } from "../state/doc";
 import { useDoc } from "../state/store";
-import { openTab, toggleInspector, useUi } from "../state/ui";
-import type { InspectorTab, Selected } from "../state/ui";
-import { findItem, setFrameRate, setName, setStart, setTrackColor, updateClip, updateTrigger } from "../state/edit";
+import { toggleInspector, useUi } from "../state/ui";
+import type { Selected } from "../state/ui";
+import { findItem, setTrackColor, updateClip, updateTrigger } from "../state/edit";
 import { TRACK_COLORS } from "../timeline/palette";
 import { SelectField, TextField, TimecodeField } from "./fields";
-import { ChevronLeftIcon, ChevronRightIcon, OutputIcon, ProjectIcon, SelectionIcon, TrashIcon } from "./icons";
+import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
 import { MOD_KEY } from "./MenuBar";
-import { OutputPanel } from "./OutputPanel";
-import type { Devices } from "../devices/useDevices";
-
-const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
-const TABS: InspectorTab[] = ["selection", "project", "output"];
-const TAB_ICONS = { selection: SelectionIcon, project: ProjectIcon, output: OutputIcon };
 
 const hex = (bytes: number[]) => bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
 
@@ -174,36 +168,7 @@ function SelectionPanel({
   );
 }
 
-function ProjectPanel({ project, onEdit }: { project: Project; onEdit: (project: Project) => void }) {
-  const t = useT();
-  const { frameRate, start } = project.timecode;
-  return (
-    <div className="panel-body">
-      <TextField label={t("project.name")} value={project.name} onCommit={(name) => onEdit(setName(project, name))} />
-      <SelectField
-        label={t("project.frameRate")}
-        value={frameRate}
-        hint={t("project.frameRateNote")}
-        onChange={(rate) => onEdit(setFrameRate(project, rate as FrameRate))}
-      >
-        {FRAME_RATES.map((rate) => (
-          <option key={rate} value={rate}>
-            {t(`frameRate.${rate}` as MessageKey)}
-          </option>
-        ))}
-      </SelectField>
-      <TimecodeField
-        label={t("project.start")}
-        frame={start}
-        rate={frameRate}
-        onCommit={(frame) => onEdit(setStart(project, frame))}
-      />
-    </div>
-  );
-}
-
-export function Inspector({ devices }: { devices: Devices }) {
-  const tab = useUi((ui) => ui.tab);
+export function Inspector() {
   const collapsed = useUi((ui) => ui.collapsed);
   const selection = useUi((ui) => ui.selection);
   const project = useDoc((doc) => doc.project);
@@ -228,17 +193,6 @@ export function Inspector({ devices }: { devices: Devices }) {
     return (
       <aside className="inspector" id="inspector-body" data-collapsed="true" aria-label={t("inspector.legend")}>
         {toggle}
-        <div className="rail">
-          {TABS.map((id) => {
-            const TabIcon = TAB_ICONS[id];
-            const label = t(`inspector.tab.${id}` as MessageKey);
-            return (
-              <button key={id} type="button" className="icon-button" aria-label={label} title={label} onClick={() => openTab(id)}>
-                <TabIcon />
-              </button>
-            );
-          })}
-        </div>
       </aside>
     );
   }
@@ -247,36 +201,10 @@ export function Inspector({ devices }: { devices: Devices }) {
     <aside className="inspector" id="inspector-body" aria-label={t("inspector.legend")}>
       <div className="tab-row">
         {toggle}
-        <div className="tabs" role="tablist">
-          {TABS.map((id) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              id={`tab-${id}`}
-              aria-selected={tab === id}
-              aria-controls={`panel-${id}`}
-              tabIndex={tab === id ? 0 : -1}
-              onClick={() => openTab(id)}
-              onKeyDown={(event) => {
-                const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-                if (step === 0) return;
-                const next = TABS[(TABS.indexOf(id) + step + TABS.length) % TABS.length];
-                openTab(next);
-                document.getElementById(`tab-${next}`)?.focus();
-              }}
-            >
-              {t(`inspector.tab.${id}` as MessageKey)}
-            </button>
-          ))}
-        </div>
+        <h2 className="inspector-title">{t("inspector.tab.selection")}</h2>
       </div>
-      <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="panel">
-        {tab === "selection" && (
-          <SelectionPanel project={project} selection={selection} audio={audio} onEdit={edit} onDelete={deleteSelection} />
-        )}
-        {tab === "project" && <ProjectPanel project={project} onEdit={edit} />}
-        {tab === "output" && <OutputPanel project={project} devices={devices} onEdit={edit} />}
+      <div className="panel">
+        <SelectionPanel project={project} selection={selection} audio={audio} onEdit={edit} onDelete={deleteSelection} />
       </div>
     </aside>
   );

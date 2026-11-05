@@ -7,6 +7,7 @@
 //! [`Snapshot`] turns the last published position into a current one. [`Output`] only wires them to
 //! cpal and midir.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -24,7 +25,7 @@ use super::mtc::MtcScheduler;
 use super::transport::{Clock, Command, Transport, TransportState};
 use crate::audio::ENGINE_RATE;
 use crate::devices;
-use crate::project::{FrameRate, Project};
+use crate::project::{FrameRate, LtcOutput, Project};
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
 /// The longest the MTC thread sleeps before it looks at the transport again.
@@ -202,12 +203,13 @@ impl Default for SharedClock {
     }
 }
 
-/// The LTC generator and the interface channel it goes to.
+/// The LTC generator and the interface channels it goes to. One signal feeds every channel, so
+/// two LTC outputs on one device cost a single generator.
 #[derive(Debug)]
 pub struct LtcChannel {
     pub stream: LtcStream,
-    /// Zero-based index into each frame of the interleaved buffer.
-    pub channel: usize,
+    /// Zero-based indexes into each frame of the interleaved buffer.
+    pub channels: Vec<usize>,
 }
 
 /// Fills audio buffers from the transport. Owned by the audio callback, so it must not allocate
@@ -308,7 +310,10 @@ impl Renderer {
                     }
                 }
                 if let Some(ltc) = &mut self.ltc {
-                    frame[ltc.channel] = T::from_sample(ltc.stream.next_sample());
+                    let sample = T::from_sample(ltc.stream.next_sample());
+                    for &channel in &ltc.channels {
+                        frame[channel] = sample;
+                    }
                 }
             }
         }
@@ -333,8 +338,8 @@ impl Fill for Renderer {
 #[derive(Debug)]
 pub struct LtcFollower {
     stream: LtcStream,
-    /// Zero-based index into each frame of the interleaved buffer.
-    channel: usize,
+    /// Zero-based indexes into each frame of the interleaved buffer.
+    outputs: Vec<usize>,
     channels: usize,
     clock: Clock,
     shared: Arc<SharedClock>,
@@ -349,7 +354,7 @@ pub struct LtcFollower {
 impl LtcFollower {
     pub fn new(
         stream: LtcStream,
-        channel: usize,
+        outputs: Vec<usize>,
         channels: usize,
         clock: Clock,
         shared: Arc<SharedClock>,
@@ -357,7 +362,7 @@ impl LtcFollower {
         let snapshot = shared.load();
         Self {
             stream,
-            channel,
+            outputs,
             channels,
             clock,
             shared,
@@ -393,7 +398,10 @@ impl LtcFollower {
         }
 
         for frame in data.chunks_exact_mut(self.channels) {
-            frame[self.channel] = T::from_sample(self.stream.next_sample());
+            let sample = T::from_sample(self.stream.next_sample());
+            for &channel in &self.outputs {
+                frame[channel] = sample;
+            }
         }
         let written = (data.len() / self.channels) as u64;
         self.next = self.next.map(|next| next + written);
@@ -441,13 +449,30 @@ pub struct OutputInfo {
     pub device: String,
     pub sample_rate: u32,
     pub channels: u16,
-    /// 1-based interface channel carrying LTC.
-    pub ltc_channel: Option<u16>,
-    /// The device LTC plays on when it is not `device`; `None` when LTC is off or shares it.
-    pub ltc_device: Option<String>,
-    pub mtc_port: Option<String>,
+    /// One entry per LTC output the project asks for, in the project's order.
+    pub ltc: Vec<LtcInfo>,
+    /// One entry per MIDI port the project asks for MTC on, in the project's order.
+    pub mtc: Vec<MtcInfo>,
     /// Things that did not stop the output but the user should know, e.g. a missing MIDI port.
     pub warnings: Vec<String>,
+}
+
+/// How one LTC output ended up. When it did not open, `device` is the name the project holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LtcInfo {
+    pub device: String,
+    /// 1-based interface channel.
+    pub channel: u16,
+    pub ok: bool,
+}
+
+/// How one MTC output ended up. When it did not open, `port` is the name the project holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MtcInfo {
+    pub port: String,
+    pub ok: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -510,8 +535,8 @@ impl Output {
         let output = &project.output;
         // An empty device name is the system's default output, so a project without any device
         // chosen still plays. A project written before `output.audio` existed carries the
-        // programme on the LTC device.
-        let device_hint = match (&output.audio, &output.ltc) {
+        // programme on the first LTC device.
+        let device_hint = match (&output.audio, output.ltc.first()) {
             (Some(audio), _) => audio.device_name.clone(),
             (None, Some(ltc)) => ltc.device_name.clone(),
             (None, None) => String::new(),
@@ -524,13 +549,13 @@ impl Output {
             .unwrap_or_else(|| vec![1, 2]);
         // LTC shares the programme's stream unless it names another device, which then gets a
         // stream of its own.
-        let (shared_ltc, own_ltc) = match &output.ltc {
-            Some(ltc) if same_device(&ltc.device_name, &device_hint) => (Some(ltc.channel), None),
-            Some(ltc) => (None, Some(ltc)),
-            None => (None, None),
-        };
+        let LtcPlan {
+            shared: shared_ltc,
+            own: own_ltc,
+        } = plan_ltc(&output.ltc, &device_hint, same_device);
         let needed = shared_ltc
-            .into_iter()
+            .iter()
+            .map(|slot| slot.channel)
             .chain(programme_channels.iter().copied())
             .max()
             .unwrap_or(2);
@@ -551,7 +576,7 @@ impl Output {
             needed,
             programme: programme_channels,
             clips: Arc::clone(&clips),
-            ltc_channel: shared_ltc,
+            ltc_channels: channels_of(&shared_ltc),
             ltc_config,
             rate,
             start,
@@ -564,12 +589,24 @@ impl Output {
 
         let mut threads = vec![audio_thread];
         let mut warnings = warnings;
-        let mut ltc_channel = shared_ltc;
-        let mut ltc_device = None;
-        if let Some(ltc) = own_ltc {
+        // One entry per project output, in the project's order, whatever stream it landed on.
+        let mut ltc_info: Vec<Option<LtcInfo>> = vec![None; output.ltc.len()];
+        let mut place = |slots: &[LtcSlot], device: &str, ok: bool| {
+            for slot in slots {
+                for &index in &slot.outputs {
+                    ltc_info[index] = Some(LtcInfo {
+                        device: device.to_owned(),
+                        channel: slot.channel,
+                        ok,
+                    });
+                }
+            }
+        };
+        place(&shared_ltc, &audio.device, true);
+        for group in own_ltc {
             let spec = LtcSpec {
-                device_hint: ltc.device_name.clone(),
-                channel: ltc.channel,
+                device_hint: group.device.clone(),
+                channels: channels_of(&group.slots),
                 config: ltc_config,
                 rate,
                 start,
@@ -582,38 +619,72 @@ impl Output {
             match opened {
                 Ok((handle, device)) => {
                     threads.push(handle);
-                    ltc_channel = Some(ltc.channel);
-                    ltc_device = Some(device);
+                    place(&group.slots, &device, true);
                 }
-                Err(err) => warnings.push(format!("LTC is off, {err}")),
+                Err(err) => {
+                    warnings.push(format!("LTC is off on {}, {err}", group.device));
+                    place(&group.slots, &group.device, false);
+                }
             }
         }
-        let mut mtc_port = None;
-        if let Some(mtc) = &output.mtc {
-            match connect_midi(&mtc.port_name) {
+        let ltc_info: Vec<LtcInfo> = ltc_info.into_iter().flatten().collect();
+
+        // Likewise for MTC: one thread per port, and a port listed twice (or named two ways)
+        // shares the first one's result.
+        let mut mtc_info: Vec<MtcInfo> = Vec::with_capacity(output.mtc.len());
+        let mut by_hint: HashMap<&str, usize> = HashMap::new();
+        let mut by_port: HashMap<String, usize> = HashMap::new();
+        for mtc in &output.mtc {
+            let hint = mtc.port_name.as_str();
+            if let Some(&first) = by_hint.get(hint) {
+                mtc_info.push(mtc_info[first].clone());
+                continue;
+            }
+            let here = mtc_info.len();
+            by_hint.insert(hint, here);
+            let result = match connect_midi(hint) {
+                Ok((name, _)) if by_port.contains_key(&name) => mtc_info[by_port[&name]].clone(),
                 Ok((name, connection)) => {
-                    mtc_port = Some(name);
+                    by_port.insert(name.clone(), here);
                     let scheduler = MtcScheduler::new(clock, rate, start);
                     let (shared, stop) = (Arc::clone(&shared), Arc::clone(&stop));
                     let spawned = thread::Builder::new()
                         .name("flux-mtc".into())
                         .spawn(move || run_mtc(scheduler, clock, connection, shared, stop));
                     match spawned {
-                        Ok(handle) => threads.push(handle),
-                        Err(err) => warnings.push(format!("MTC is off: {err}")),
+                        Ok(handle) => {
+                            threads.push(handle);
+                            MtcInfo {
+                                port: name,
+                                ok: true,
+                            }
+                        }
+                        Err(err) => {
+                            warnings.push(format!("MTC is off on {name}: {err}"));
+                            MtcInfo {
+                                port: name,
+                                ok: false,
+                            }
+                        }
                     }
                 }
-                Err(warning) => warnings.push(warning),
-            }
+                Err(warning) => {
+                    warnings.push(warning);
+                    MtcInfo {
+                        port: hint.to_owned(),
+                        ok: false,
+                    }
+                }
+            };
+            mtc_info.push(result);
         }
 
         let info = OutputInfo {
             device: audio.device,
             sample_rate: ltc_config.sample_rate,
             channels: audio.channels,
-            ltc_channel,
-            ltc_device,
-            mtc_port,
+            ltc: ltc_info,
+            mtc: mtc_info,
             warnings,
         };
         Ok(Self {
@@ -690,8 +761,8 @@ struct AudioSpec {
     /// 1-based interface channels of the programme.
     programme: Vec<u16>,
     clips: Arc<ClipSet>,
-    /// 1-based. `None` when LTC is off or plays on a device of its own.
-    ltc_channel: Option<u16>,
+    /// 1-based. Empty when LTC is off or plays on devices of its own.
+    ltc_channels: Vec<u16>,
     ltc_config: LtcConfig,
     rate: FrameRate,
     start: u64,
@@ -706,7 +777,7 @@ struct AudioInfo {
 struct LtcSpec {
     device_hint: String,
     /// 1-based.
-    channel: u16,
+    channels: Vec<u16>,
     config: LtcConfig,
     rate: FrameRate,
     start: u64,
@@ -719,6 +790,75 @@ fn same_device(a: &str, b: &str) -> bool {
     let name =
         |hint: &str| devices::open_audio(hint).and_then(|device| devices::device_name(&device));
     a == b || matches!((name(a), name(b)), (Some(a), Some(b)) if a == b)
+}
+
+/// One LTC signal on one interface channel, and the project outputs that asked for it.
+#[derive(Debug, PartialEq, Eq)]
+struct LtcSlot {
+    /// 1-based.
+    channel: u16,
+    /// Positions in the project's `output.ltc`. More than one when the same device and channel is
+    /// listed twice, which plays once.
+    outputs: Vec<usize>,
+}
+
+/// Where each LTC output of a project plays.
+#[derive(Debug, PartialEq, Eq)]
+struct LtcPlan {
+    /// Channels written into the programme's own stream.
+    shared: Vec<LtcSlot>,
+    /// The other devices, each with the channels it carries.
+    own: Vec<LtcGroup>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct LtcGroup {
+    /// The name hint of the first output that named the device.
+    device: String,
+    slots: Vec<LtcSlot>,
+}
+
+fn channels_of(slots: &[LtcSlot]) -> Vec<u16> {
+    slots.iter().map(|slot| slot.channel).collect()
+}
+
+/// Splits the project's LTC outputs between the programme's stream and one stream per other
+/// device, so no device is opened twice.
+fn plan_ltc(
+    outputs: &[LtcOutput],
+    programme_device: &str,
+    same: impl Fn(&str, &str) -> bool,
+) -> LtcPlan {
+    let mut plan = LtcPlan {
+        shared: Vec::new(),
+        own: Vec::new(),
+    };
+    for (index, output) in outputs.iter().enumerate() {
+        let slots = if same(&output.device_name, programme_device) {
+            &mut plan.shared
+        } else {
+            let at = plan
+                .own
+                .iter()
+                .position(|group| same(&group.device, &output.device_name));
+            let at = at.unwrap_or_else(|| {
+                plan.own.push(LtcGroup {
+                    device: output.device_name.clone(),
+                    slots: Vec::new(),
+                });
+                plan.own.len() - 1
+            });
+            &mut plan.own[at].slots
+        };
+        match slots.iter_mut().find(|slot| slot.channel == output.channel) {
+            Some(slot) => slot.outputs.push(index),
+            None => slots.push(LtcSlot {
+                channel: output.channel,
+                outputs: vec![index],
+            }),
+        }
+    }
+    plan
 }
 
 /// Runs `open` on a thread of its own, which keeps the stream it returns for as long as the output
@@ -815,9 +955,13 @@ fn open_stream(
     let opened = open_device(&spec.device_hint, spec.needed, rate)?;
     let channels = opened.channels;
 
-    let ltc = spec.ltc_channel.map(|channel| LtcChannel {
+    let ltc = (!spec.ltc_channels.is_empty()).then(|| LtcChannel {
         stream: LtcStream::new(spec.ltc_config, spec.rate, spec.start, 0),
-        channel: usize::from(channel) - 1,
+        channels: spec
+            .ltc_channels
+            .iter()
+            .map(|&channel| usize::from(channel) - 1)
+            .collect(),
     });
     // Channels beyond what the device opened cannot be written to.
     let programme = spec
@@ -856,10 +1000,14 @@ fn open_ltc_stream(
     shared: Arc<SharedClock>,
 ) -> Result<(cpal::Stream, String), OutputError> {
     let rate = spec.config.sample_rate;
-    let opened = open_device(&spec.device_hint, spec.channel, rate)?;
+    let needed = spec.channels.iter().copied().max().unwrap_or(1);
+    let opened = open_device(&spec.device_hint, needed, rate)?;
     let follower = LtcFollower::new(
         LtcStream::new(spec.config, spec.rate, spec.start, 0),
-        usize::from(spec.channel) - 1,
+        spec.channels
+            .iter()
+            .map(|&channel| usize::from(channel) - 1)
+            .collect(),
         usize::from(opened.channels),
         spec.clock,
         Arc::clone(&shared),
@@ -1032,7 +1180,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let ltc = LtcChannel {
             stream: LtcStream::new(config(), RATE, 0, 0),
-            channel: ltc_channel,
+            channels: vec![ltc_channel],
         };
         let renderer = Renderer::new(
             Transport::new(clock(), 0),
@@ -1275,7 +1423,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let ltc = ltc.map(|channel| LtcChannel {
             stream: LtcStream::new(config(), RATE, 0, 0),
-            channel,
+            channels: vec![channel],
         });
         let renderer = Renderer::new(
             Transport::new(clock(), 0),
@@ -1447,7 +1595,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let follower = LtcFollower::new(
             LtcStream::new(config(), RATE, 0, 0),
-            0,
+            vec![0],
             1,
             clock(),
             Arc::clone(&shared),
@@ -1490,7 +1638,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let mut follower = LtcFollower::new(
             LtcStream::new(config(), RATE, 0, 0),
-            2,
+            vec![2],
             4,
             clock(),
             Arc::clone(&shared),
@@ -1617,5 +1765,143 @@ mod tests {
         follower.render(&mut buffer, 10_000_000);
 
         assert_eq!(buffer, ltc_from(480, 1_000)[..]);
+    }
+
+    #[test]
+    fn render_should_put_one_ltc_signal_on_every_channel_it_is_given() {
+        let (tx, rx) = mpsc::channel();
+        let shared = Arc::new(SharedClock::new());
+        let ltc = LtcChannel {
+            stream: LtcStream::new(config(), RATE, 0, 0),
+            channels: vec![1, 3],
+        };
+        let mut renderer = Renderer::new(
+            Transport::new(clock(), 0),
+            rx,
+            Arc::new(ClipSet::default()),
+            Vec::new(),
+            Some(ltc),
+            4,
+            shared,
+        );
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 4 * 400];
+        renderer.render(&mut buffer, 10);
+
+        let first = channel_of(&buffer, 4, 1);
+        assert!(first.iter().any(|&s| s != 0.0));
+        assert_eq!(first, channel_of(&buffer, 4, 3));
+        for other in [0, 2] {
+            assert!(channel_of(&buffer, 4, other).iter().all(|&s| s == 0.0));
+        }
+    }
+
+    #[test]
+    fn follower_should_put_one_ltc_signal_on_every_channel_it_is_given() {
+        let shared = Arc::new(SharedClock::new());
+        let mut follower = LtcFollower::new(
+            LtcStream::new(config(), RATE, 0, 0),
+            vec![0, 2],
+            3,
+            clock(),
+            Arc::clone(&shared),
+        );
+        master_at(&shared, TransportState::Playing, 1, 5_000);
+        let mut buffer = [0.0f32; 3 * 4_000];
+        follower.render(&mut buffer, 0);
+
+        assert_eq!(channel_of(&buffer, 3, 0), ltc_from(5_000, 4_000));
+        assert_eq!(channel_of(&buffer, 3, 2), ltc_from(5_000, 4_000));
+        assert!(channel_of(&buffer, 3, 1).iter().all(|&s| s == 0.0));
+    }
+
+    fn ltc_out(device: &str, channel: u16) -> LtcOutput {
+        LtcOutput {
+            device_name: device.into(),
+            channel,
+        }
+    }
+
+    /// Hints that differ only in case name the same device.
+    fn loosely(a: &str, b: &str) -> bool {
+        a.eq_ignore_ascii_case(b)
+    }
+
+    fn slot(channel: u16, outputs: &[usize]) -> LtcSlot {
+        LtcSlot {
+            channel,
+            outputs: outputs.to_vec(),
+        }
+    }
+
+    #[test]
+    fn plan_ltc_should_split_outputs_between_the_programme_stream_and_other_devices() {
+        let outputs = [
+            ltc_out("Main", 3),
+            ltc_out("Booth", 1),
+            ltc_out("MAIN", 4),
+            ltc_out("booth", 2),
+            ltc_out("Stage", 1),
+        ];
+        let plan = plan_ltc(&outputs, "main", loosely);
+        assert_eq!(plan.shared, vec![slot(3, &[0]), slot(4, &[2])]);
+        assert_eq!(
+            plan.own,
+            vec![
+                LtcGroup {
+                    device: "Booth".into(),
+                    slots: vec![slot(1, &[1]), slot(2, &[3])],
+                },
+                LtcGroup {
+                    device: "Stage".into(),
+                    slots: vec![slot(1, &[4])],
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn plan_ltc_should_play_a_repeated_device_and_channel_once_for_all_its_outputs() {
+        let outputs = [
+            ltc_out("Main", 3),
+            ltc_out("Main", 3),
+            ltc_out("Booth", 1),
+            ltc_out("Booth", 1),
+        ];
+        let plan = plan_ltc(&outputs, "Main", loosely);
+        assert_eq!(plan.shared, vec![slot(3, &[0, 1])]);
+        assert_eq!(plan.own.len(), 1);
+        assert_eq!(plan.own[0].slots, vec![slot(1, &[2, 3])]);
+        assert_eq!(channels_of(&plan.shared), vec![3]);
+    }
+
+    #[test]
+    fn plan_ltc_should_be_empty_without_outputs() {
+        let plan = plan_ltc(&[], "Main", loosely);
+        assert!(plan.shared.is_empty() && plan.own.is_empty());
+    }
+
+    #[test]
+    fn output_info_should_serialise_the_outputs_as_lists() {
+        let info = OutputInfo {
+            device: "Main".into(),
+            sample_rate: 48_000,
+            channels: 4,
+            ltc: vec![LtcInfo {
+                device: "Main".into(),
+                channel: 3,
+                ok: true,
+            }],
+            mtc: vec![MtcInfo {
+                port: "IAC".into(),
+                ok: false,
+            }],
+            warnings: Vec::new(),
+        };
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["ltc"][0]["channel"], 3);
+        assert_eq!(json["ltc"][0]["ok"], true);
+        assert_eq!(json["mtc"][0]["port"], "IAC");
+        assert_eq!(json["mtc"][0]["ok"], false);
     }
 }

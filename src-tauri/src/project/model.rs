@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use super::error::{ProjectError, Result};
 
 /// Version written to `project.json`. Readers reject anything newer.
-pub const FORMAT_VERSION: u32 = 1;
+///
+/// Version 2 turned `output.ltc` and `output.mtc` into lists; `migrate` reads version 1 files.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -103,8 +105,12 @@ pub enum TriggerAction {
 pub struct OutputConfig {
     /// Where the project's audio clips are played.
     pub audio: Option<AudioOutput>,
-    pub ltc: Option<LtcOutput>,
-    pub mtc: Option<MtcOutput>,
+    /// Every LTC signal to send; each one names its own device and channel.
+    #[serde(default, deserialize_with = "list_or_one")]
+    pub ltc: Vec<LtcOutput>,
+    /// Every MIDI port that receives MTC.
+    #[serde(default, deserialize_with = "list_or_one")]
+    pub mtc: Vec<MtcOutput>,
 }
 
 /// Channel numbers are 1-based, as an audio interface labels them.
@@ -195,7 +201,7 @@ impl Project {
 impl OutputConfig {
     /// Channels are 1-based and a programme channel may be listed only once.
     fn validate(&self) -> Result<()> {
-        if let Some(ltc) = &self.ltc {
+        for ltc in &self.ltc {
             check_channel(ltc.channel)?;
         }
         if let Some(audio) = &self.audio {
@@ -211,6 +217,54 @@ impl OutputConfig {
         }
         Ok(())
     }
+}
+
+/// Reads a list that older files wrote as a single object or as `null`. Files carrying version 2
+/// with that shape exist (written while the format was changing), so this does not look at the
+/// version.
+fn list_or_one<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Shape<T> {
+        Many(Vec<T>),
+        One(T),
+        Nothing(()),
+    }
+    Ok(match Shape::deserialize(deserializer)? {
+        Shape::Many(items) => items,
+        Shape::One(item) => vec![item],
+        Shape::Nothing(()) => Vec::new(),
+    })
+}
+
+/// Brings a `project.json` of an older version up to `FORMAT_VERSION`, in place.
+///
+/// Version 1 held at most one LTC and one MTC output as an object or `null`; version 2 holds lists.
+pub(super) fn migrate(value: &mut serde_json::Value) {
+    use serde_json::Value;
+
+    let version = value
+        .get("formatVersion")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    if version >= 2 {
+        return;
+    }
+    if let Some(output) = value.get_mut("output").and_then(Value::as_object_mut) {
+        for key in ["ltc", "mtc"] {
+            let list = match output.remove(key) {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(items)) => items,
+                Some(single) => vec![single],
+            };
+            output.insert(key.into(), Value::Array(list));
+        }
+    }
+    value["formatVersion"] = Value::from(FORMAT_VERSION);
 }
 
 /// `#rrggbb`, so it can go into a stylesheet as it is.
@@ -318,19 +372,19 @@ pub(super) mod tests {
                     device_name: "Main Interface".into(),
                     channels: vec![1, 2],
                 }),
-                ltc: Some(LtcOutput {
+                ltc: vec![LtcOutput {
                     device_name: "Main Interface".into(),
                     channel: 3,
-                }),
-                mtc: Some(MtcOutput {
+                }],
+                mtc: vec![MtcOutput {
                     port_name: "IAC Driver Bus 1".into(),
-                }),
+                }],
             },
         }
     }
 
-    const V1_FIXTURE: &str = r##"{
-        "formatVersion": 1,
+    const FIXTURE: &str = r##"{
+        "formatVersion": 2,
         "name": "Opening night",
         "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
         "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav" }],
@@ -352,22 +406,100 @@ pub(super) mod tests {
         ],
         "output": {
             "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
-            "ltc": { "deviceName": "Main Interface", "channel": 3 },
-            "mtc": { "portName": "IAC Driver Bus 1" }
+            "ltc": [{ "deviceName": "Main Interface", "channel": 3 }],
+            "mtc": [{ "portName": "IAC Driver Bus 1" }]
         }
     }"##;
 
+    /// The same show as `FIXTURE`, written by a build that held one LTC and one MTC output.
+    fn v1_fixture() -> serde_json::Value {
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        json["formatVersion"] = 1.into();
+        json["output"]["ltc"] = serde_json::json!({ "deviceName": "Main Interface", "channel": 3 });
+        json["output"]["mtc"] = serde_json::json!({ "portName": "IAC Driver Bus 1" });
+        json
+    }
+
     #[test]
-    fn v1_fixture_should_parse_into_the_sample_project() {
-        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+    fn fixture_should_parse_into_the_sample_project() {
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(parsed, sample_project());
     }
 
     #[test]
-    fn sample_project_should_serialize_to_the_v1_fixture_shape() {
-        let expected: serde_json::Value = serde_json::from_str(V1_FIXTURE).unwrap();
+    fn sample_project_should_serialize_to_the_fixture_shape() {
+        let expected: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         let actual = serde_json::to_value(sample_project()).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn migrate_should_turn_the_v1_outputs_into_lists() {
+        let mut json = v1_fixture();
+        migrate(&mut json);
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed, sample_project());
+    }
+
+    #[test]
+    fn migrate_should_turn_a_missing_or_null_output_into_an_empty_list() {
+        let mut json = v1_fixture();
+        json["output"]["ltc"] = serde_json::Value::Null;
+        json["output"].as_object_mut().unwrap().remove("mtc");
+        migrate(&mut json);
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert!(parsed.output.ltc.is_empty());
+        assert!(parsed.output.mtc.is_empty());
+        assert_eq!(parsed.format_version, FORMAT_VERSION);
+    }
+
+    #[test]
+    fn a_v2_file_with_the_old_output_shape_should_still_open() {
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        json["output"]["ltc"] = serde_json::Value::Null;
+        json["output"]["mtc"] = serde_json::json!({ "portName": "loopMIDI Port" });
+        migrate(&mut json);
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert!(parsed.output.ltc.is_empty());
+        assert_eq!(
+            parsed.output.mtc,
+            vec![MtcOutput {
+                port_name: "loopMIDI Port".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn outputs_should_parse_from_null_one_object_or_a_list_without_migrating() {
+        for (ltc, expected) in [
+            (serde_json::Value::Null, 0),
+            (serde_json::json!({ "deviceName": "A", "channel": 1 }), 1),
+            (
+                serde_json::json!([{ "deviceName": "A", "channel": 1 }, { "deviceName": "B", "channel": 2 }]),
+                2,
+            ),
+        ] {
+            let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+            json["output"]["ltc"] = ltc;
+            let parsed: Project = serde_json::from_value(json).unwrap();
+            assert_eq!(parsed.output.ltc.len(), expected);
+        }
+    }
+
+    #[test]
+    fn migrate_should_leave_a_current_file_alone() {
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        let before = json.clone();
+        migrate(&mut json);
+        assert_eq!(json, before);
+    }
+
+    #[test]
+    fn output_lists_should_default_to_empty_when_absent() {
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        json["output"] = serde_json::json!({});
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert!(parsed.output.ltc.is_empty() && parsed.output.mtc.is_empty());
     }
 
     #[test]
@@ -393,7 +525,7 @@ pub(super) mod tests {
 
     #[test]
     fn project_without_audio_output_should_still_parse() {
-        let mut json: serde_json::Value = serde_json::from_str(V1_FIXTURE).unwrap();
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         json["output"].as_object_mut().unwrap().remove("audio");
         let parsed: Project = serde_json::from_value(json).unwrap();
         assert_eq!(parsed.output.audio, None);
@@ -401,7 +533,7 @@ pub(super) mod tests {
 
     #[test]
     fn track_without_a_gain_should_parse_and_serialize_without_one() {
-        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(parsed.tracks[1].gain_db, None);
         let json = serde_json::to_value(&parsed).unwrap();
         assert!(json["tracks"][1].get("gainDb").is_none());
@@ -416,7 +548,7 @@ pub(super) mod tests {
 
     #[test]
     fn track_without_a_colour_should_parse_and_serialize_without_one() {
-        let parsed: Project = serde_json::from_str(V1_FIXTURE).unwrap();
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(parsed.tracks[1].color, None);
         let json = serde_json::to_value(&parsed).unwrap();
         assert!(json["tracks"][1].get("color").is_none());
@@ -438,7 +570,7 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_channel_zero() {
         let mut project = sample_project();
-        project.output.ltc.as_mut().unwrap().channel = 0;
+        project.output.ltc[0].channel = 0;
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
 
         let mut project = sample_project();
