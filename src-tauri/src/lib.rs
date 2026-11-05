@@ -64,6 +64,7 @@ pub fn run() {
             transport_commands::output_start,
             transport_commands::output_set_clips,
             transport_commands::output_set_track_gain,
+            transport_commands::output_set_tempo,
             transport_commands::output_stop,
             transport_commands::transport_play,
             transport_commands::transport_pause,

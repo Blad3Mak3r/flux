@@ -20,12 +20,13 @@ use serde::{Serialize, Serializer};
 use thiserror::Error;
 
 use super::ltc::{LtcConfig, LtcStream};
+use super::metronome::{ClickOut, SharedMetronome};
 use super::mixer::{ClipSet, MIX_CHUNK, Programme, SharedLevels};
 use super::mtc::MtcScheduler;
 use super::transport::{Clock, Command, Transport, TransportState};
 use crate::audio::ENGINE_RATE;
 use crate::devices;
-use crate::project::{FrameRate, LtcOutput, Project, ProjectError, Timeline};
+use crate::project::{FrameRate, LtcOutput, Project, ProjectError, Tempo, Timeline};
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
 /// The longest the MTC thread sleeps before it looks at the transport again.
@@ -38,6 +39,10 @@ const AUDIO_PARK: Duration = Duration::from_millis(50);
 /// The published position is one buffer old at most; extrapolating further than this would only
 /// hide a stalled stream.
 const MAX_EXTRAPOLATION: Duration = Duration::from_millis(100);
+/// A metronome on a device of its own starts over from the master's position only when it is this
+/// far away (10 ms): a click is a short sound, so it must follow the master closely, but the
+/// extrapolated position jitters by a millisecond or two and each start-over is a jump in the click.
+const CLICK_SYNC_SAMPLES: u64 = ENGINE_RATE as u64 / 100;
 
 #[derive(Debug, Error)]
 pub enum OutputError {
@@ -232,6 +237,8 @@ pub struct Renderer {
     /// Zero-based interface channels the programme goes to: left then right, or one for both.
     programme: Vec<usize>,
     ltc: Option<LtcChannel>,
+    /// The metronome, when it plays on the programme's device.
+    click: Option<ClickOut>,
     channels: usize,
     shared: Arc<SharedClock>,
     seen_epoch: u64,
@@ -256,10 +263,17 @@ impl Renderer {
             clips,
             programme,
             ltc,
+            click: None,
             channels,
             shared,
             pace: PaceWatch::default(),
         }
+    }
+
+    /// Plays the metronome on this stream too, on its own channels.
+    pub fn with_click(mut self, click: Option<ClickOut>) -> Self {
+        self.click = click;
+        self
     }
 
     /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
@@ -300,29 +314,56 @@ impl Renderer {
         });
     }
 
-    /// Writes the programme and LTC into `data`, which holds the buffer's frames.
+    /// Writes the programme, the metronome and LTC into `data`, which holds the buffer's frames.
+    /// A metronome channel the programme also uses gets the click added to the programme; one it
+    /// does not use carries the click alone.
     fn mix<T: Sample + FromSample<f32>>(&mut self, data: &mut [T]) {
         let channels = self.channels;
         let position = self.transport.position_samples();
+        let grid = self
+            .click
+            .as_ref()
+            .and_then(|click| click.shared.grid(ENGINE_RATE));
+        let click_channels: &[usize] = self.click.as_ref().map_or(&[], |click| &click.channels);
         for (index, chunk) in data.chunks_mut(channels * MIX_CHUNK).enumerate() {
             let frames = chunk.len() / channels;
+            let at_chunk = position + (index * MIX_CHUNK) as u64;
             let mut left = [0.0f32; MIX_CHUNK];
             let mut right = [0.0f32; MIX_CHUNK];
-            self.clips.mix(
-                position + (index * MIX_CHUNK) as u64,
-                &mut left[..frames],
-                &mut right[..frames],
-            );
+            self.clips
+                .mix(at_chunk, &mut left[..frames], &mut right[..frames]);
+            let mut click = [0.0f32; MIX_CHUNK];
+            if let Some(grid) = &grid {
+                grid.add(at_chunk, &mut click[..frames]);
+            }
             for (at, frame) in chunk.chunks_exact_mut(channels).enumerate() {
+                let beat = click[at];
+                let click_on = |channel: usize| {
+                    if click_channels.contains(&channel) {
+                        beat
+                    } else {
+                        0.0
+                    }
+                };
                 match self.programme.as_slice() {
                     [] => {}
                     [only] => {
-                        frame[*only] =
-                            T::from_sample(((left[at] + right[at]) * 0.5).clamp(-1.0, 1.0))
+                        frame[*only] = T::from_sample(
+                            ((left[at] + right[at]) * 0.5 + click_on(*only)).clamp(-1.0, 1.0),
+                        )
                     }
                     [first, second, ..] => {
-                        frame[*first] = T::from_sample(left[at].clamp(-1.0, 1.0));
-                        frame[*second] = T::from_sample(right[at].clamp(-1.0, 1.0));
+                        frame[*first] =
+                            T::from_sample((left[at] + click_on(*first)).clamp(-1.0, 1.0));
+                        frame[*second] =
+                            T::from_sample((right[at] + click_on(*second)).clamp(-1.0, 1.0));
+                    }
+                }
+                if beat != 0.0 {
+                    for &channel in click_channels {
+                        if !self.programme.contains(&channel) {
+                            frame[channel] = T::from_sample(beat.clamp(-1.0, 1.0));
+                        }
                     }
                 }
                 if let Some(ltc) = &mut self.ltc {
@@ -365,6 +406,12 @@ pub struct LtcFollower {
     /// after the transport stops playing.
     next: Option<u64>,
     seen_epoch: u64,
+    /// The metronome, when it plays on this device. A follower with no LTC `outputs` plays only
+    /// the click.
+    click: Option<ClickOut>,
+    /// The transport position of the next click sample; kept apart from `next` because it follows
+    /// the master far more closely than an LTC frame needs.
+    click_next: Option<u64>,
 }
 
 impl LtcFollower {
@@ -385,7 +432,15 @@ impl LtcFollower {
             seen_epoch: snapshot.epoch,
             snapshot,
             next: None,
+            click: None,
+            click_next: None,
         }
+    }
+
+    /// Plays the metronome on this stream too, on its own channels.
+    pub fn with_click(mut self, click: Option<ClickOut>) -> Self {
+        self.click = click;
+        self
     }
 
     /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
@@ -397,6 +452,7 @@ impl LtcFollower {
         let snapshot = self.snapshot;
         if snapshot.state != TransportState::Playing {
             self.next = None;
+            self.click_next = None;
             self.seen_epoch = snapshot.epoch;
             return;
         }
@@ -413,12 +469,36 @@ impl LtcFollower {
             self.next = Some(target);
         }
 
-        for frame in data.chunks_exact_mut(self.channels) {
-            let sample = T::from_sample(self.stream.next_sample());
-            for &channel in &self.outputs {
-                frame[channel] = sample;
+        let grid = self
+            .click
+            .as_ref()
+            .and_then(|click| click.shared.grid(ENGINE_RATE));
+        let mut click_at = match self.click_next {
+            Some(next) if grid.is_some() && next.abs_diff(target) < CLICK_SYNC_SAMPLES => next,
+            _ => target,
+        };
+        let click_channels: &[usize] = self.click.as_ref().map_or(&[], |click| &click.channels);
+        for chunk in data.chunks_mut(self.channels * MIX_CHUNK) {
+            let frames = chunk.len() / self.channels;
+            let mut click = [0.0f32; MIX_CHUNK];
+            if let Some(grid) = &grid {
+                grid.add(click_at, &mut click[..frames]);
+            }
+            click_at += frames as u64;
+            for (at, frame) in chunk.chunks_exact_mut(self.channels).enumerate() {
+                // LTC is written after the click, so it wins a channel both ask for.
+                if click[at] != 0.0 {
+                    for &channel in click_channels {
+                        frame[channel] = T::from_sample(click[at].clamp(-1.0, 1.0));
+                    }
+                }
+                let sample = T::from_sample(self.stream.next_sample());
+                for &channel in &self.outputs {
+                    frame[channel] = sample;
+                }
             }
         }
+        self.click_next = grid.map(|_| click_at);
         let written = (data.len() / self.channels) as u64;
         self.next = self.next.map(|next| next + written);
     }
@@ -469,6 +549,8 @@ pub struct OutputInfo {
     pub ltc: Vec<LtcInfo>,
     /// One entry per MIDI port the project asks for MTC on, in the project's order.
     pub mtc: Vec<MtcInfo>,
+    /// Where the metronome plays; `None` when the project has no metronome output.
+    pub metronome: Option<MetronomeInfo>,
     /// Things that did not stop the output but the user should know, e.g. a missing MIDI port.
     pub warnings: Vec<String>,
 }
@@ -480,6 +562,14 @@ pub struct LtcInfo {
     pub device: String,
     /// 1-based interface channel.
     pub channel: u16,
+    pub ok: bool,
+}
+
+/// How the metronome ended up. When it did not open, `device` is the name the project holds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetronomeInfo {
+    pub device: String,
     pub ok: bool,
 }
 
@@ -544,6 +634,8 @@ pub struct Output {
     /// The faders and peak meters of the clip set being played.
     levels: SharedLevels,
     reader: PositionReader,
+    /// The tempo the metronome clicks to, when the project has a metronome output.
+    metronome: Option<Arc<SharedMetronome>>,
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
     info: OutputInfo,
@@ -579,10 +671,46 @@ impl Output {
             shared: shared_ltc,
             own: own_ltc,
         } = plan_ltc(&output.ltc, &device_hint, same_device);
+        // The metronome has an output of its own. It plays on the programme's stream when it names
+        // the programme's device, on the stream of an LTC device it shares, or else on a stream
+        // of its own: no device is opened twice.
+        let click = output.metronome.as_ref().map(|metronome| {
+            let channels = if metronome.channels.is_empty() {
+                vec![1, 2]
+            } else {
+                metronome.channels.clone()
+            };
+            let place = if same_device(&metronome.device_name, &device_hint) {
+                ClickPlace::Programme
+            } else if let Some(group) = own_ltc
+                .iter()
+                .position(|group| same_device(&group.device, &metronome.device_name))
+            {
+                ClickPlace::Group(group)
+            } else {
+                ClickPlace::Own
+            };
+            let spec = ClickSpec {
+                shared: Arc::new(SharedMetronome::new(timeline.tempo, metronome.gain_db)),
+                channels,
+            };
+            (metronome.device_name.clone(), place, spec)
+        });
+        let click_for = |wanted: ClickPlace| {
+            click
+                .as_ref()
+                .filter(|(_, place, _)| *place == wanted)
+                .map(|(_, _, spec)| spec.clone())
+        };
         let needed = shared_ltc
             .iter()
             .map(|slot| slot.channel)
             .chain(programme_channels.iter().copied())
+            .chain(
+                click_for(ClickPlace::Programme)
+                    .into_iter()
+                    .flat_map(|spec| spec.channels),
+            )
             .max()
             .unwrap_or(2);
 
@@ -603,6 +731,7 @@ impl Output {
             programme: programme_channels,
             clips: Arc::clone(&clips),
             ltc_channels: channels_of(&shared_ltc),
+            click: click_for(ClickPlace::Programme),
             ltc_config,
             rate,
             start,
@@ -629,15 +758,25 @@ impl Output {
             }
         };
         place(&shared_ltc, &audio.device, true);
-        for group in own_ltc {
+        let mut metronome_info = click.as_ref().map(|(device, place, _)| MetronomeInfo {
+            device: if *place == ClickPlace::Programme {
+                audio.device.clone()
+            } else {
+                device.clone()
+            },
+            ok: *place == ClickPlace::Programme,
+        });
+        for (index, group) in own_ltc.into_iter().enumerate() {
             let spec = LtcSpec {
                 device_hint: group.device.clone(),
                 channels: channels_of(&group.slots),
+                click: click_for(ClickPlace::Group(index)),
                 config: ltc_config,
                 rate,
                 start,
                 clock,
             };
+            let with_click = spec.click.is_some();
             let opened = spawn_stream("flux-ltc", Arc::clone(&stop), {
                 let shared = Arc::clone(&shared);
                 move || open_ltc_stream(spec, shared)
@@ -646,11 +785,45 @@ impl Output {
                 Ok((handle, device)) => {
                     threads.push(handle);
                     place(&group.slots, &device, true);
+                    if let (true, Some(info)) = (with_click, &mut metronome_info) {
+                        *info = MetronomeInfo { device, ok: true };
+                    }
                 }
                 Err(err) => {
                     warnings.push(format!("LTC is off on {}, {err}", group.device));
                     place(&group.slots, &group.device, false);
+                    if with_click {
+                        warnings.push(format!("The metronome is off on {}, {err}", group.device));
+                    }
                 }
+            }
+        }
+        // A device that carries nothing but the metronome gets a stream that plays only the click.
+        if let Some(spec) = click_for(ClickPlace::Own) {
+            let device = click.as_ref().map(|(device, _, _)| device.clone());
+            let device = device.unwrap_or_default();
+            let spec = LtcSpec {
+                device_hint: device.clone(),
+                channels: Vec::new(),
+                click: Some(spec),
+                config: ltc_config,
+                rate,
+                start,
+                clock,
+            };
+            let opened = spawn_stream("flux-click", Arc::clone(&stop), {
+                let shared = Arc::clone(&shared);
+                move || open_ltc_stream(spec, shared)
+            });
+            match opened {
+                Ok((handle, name)) => {
+                    threads.push(handle);
+                    metronome_info = Some(MetronomeInfo {
+                        device: name,
+                        ok: true,
+                    });
+                }
+                Err(err) => warnings.push(format!("The metronome is off on {device}, {err}")),
             }
         }
         let ltc_info: Vec<LtcInfo> = ltc_info.into_iter().flatten().collect();
@@ -711,6 +884,7 @@ impl Output {
             channels: audio.channels,
             ltc: ltc_info,
             mtc: mtc_info,
+            metronome: metronome_info,
             warnings,
         };
         Ok(Self {
@@ -722,10 +896,19 @@ impl Output {
                 clock,
                 start,
             },
+            metronome: click.map(|(_, _, spec)| spec.shared),
             stop,
             threads,
             info,
         })
+    }
+
+    /// Follows an edit of the active timeline's tempo or click switch while the show runs.
+    /// Does nothing when the project has no metronome output.
+    pub fn set_tempo(&self, tempo: Tempo) {
+        if let Some(metronome) = &self.metronome {
+            metronome.set(tempo);
+        }
     }
 
     pub fn info(&self) -> &OutputInfo {
@@ -789,6 +972,8 @@ struct AudioSpec {
     clips: Arc<ClipSet>,
     /// 1-based. Empty when LTC is off or plays on devices of its own.
     ltc_channels: Vec<u16>,
+    /// The metronome, when it plays on this stream.
+    click: Option<ClickSpec>,
     ltc_config: LtcConfig,
     rate: FrameRate,
     start: u64,
@@ -802,12 +987,47 @@ struct AudioInfo {
 
 struct LtcSpec {
     device_hint: String,
-    /// 1-based.
+    /// 1-based. Empty when the stream plays only the metronome.
     channels: Vec<u16>,
+    /// The metronome, when it plays on this device.
+    click: Option<ClickSpec>,
     config: LtcConfig,
     rate: FrameRate,
     start: u64,
     clock: Clock,
+}
+
+/// Which stream the metronome plays on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClickPlace {
+    /// The programme's stream.
+    Programme,
+    /// The stream of the LTC device at this position of the plan.
+    Group(usize),
+    /// A stream of its own, for a device that carries nothing else.
+    Own,
+}
+
+/// The metronome and the 1-based channels it plays on, before the device says how many it has.
+#[derive(Debug, Clone)]
+struct ClickSpec {
+    shared: Arc<SharedMetronome>,
+    channels: Vec<u16>,
+}
+
+impl ClickSpec {
+    /// The click as a stream with `opened` channels plays it: channels the device lacks are left out.
+    fn out(&self, opened: u16) -> ClickOut {
+        ClickOut {
+            shared: Arc::clone(&self.shared),
+            channels: self
+                .channels
+                .iter()
+                .map(|&channel| usize::from(channel) - 1)
+                .filter(|&channel| channel < usize::from(opened))
+                .collect(),
+        }
+    }
 }
 
 /// Whether two device name hints open the same audio device. Different hints can: an empty one is
@@ -1004,7 +1224,8 @@ fn open_stream(
         ltc,
         usize::from(channels),
         Arc::clone(&shared),
-    );
+    )
+    .with_click(spec.click.as_ref().map(|click| click.out(channels)));
     let lost = Arc::clone(&shared);
     let stream = start_stream(&opened, rate, renderer, shared, move |err| {
         eprintln!("flux: audio stream error: {err}");
@@ -1026,7 +1247,17 @@ fn open_ltc_stream(
     shared: Arc<SharedClock>,
 ) -> Result<(cpal::Stream, String), OutputError> {
     let rate = spec.config.sample_rate;
-    let needed = spec.channels.iter().copied().max().unwrap_or(1);
+    let needed = spec
+        .channels
+        .iter()
+        .copied()
+        .chain(
+            spec.click
+                .iter()
+                .flat_map(|click| click.channels.iter().copied()),
+        )
+        .max()
+        .unwrap_or(1);
     let opened = open_device(&spec.device_hint, needed, rate)?;
     let follower = LtcFollower::new(
         LtcStream::new(spec.config, spec.rate, spec.start, 0),
@@ -1037,7 +1268,8 @@ fn open_ltc_stream(
         usize::from(opened.channels),
         spec.clock,
         Arc::clone(&shared),
-    );
+    )
+    .with_click(spec.click.as_ref().map(|click| click.out(opened.channels)));
     let lost = Arc::clone(&shared);
     let stream = start_stream(&opened, rate, follower, shared, move |err| {
         eprintln!("flux: LTC stream error: {err}");
@@ -1976,6 +2208,10 @@ mod tests {
                 port: "IAC".into(),
                 ok: false,
             }],
+            metronome: Some(MetronomeInfo {
+                device: "Band".into(),
+                ok: true,
+            }),
             warnings: Vec::new(),
         };
         let json = serde_json::to_value(&info).unwrap();
@@ -1983,5 +2219,189 @@ mod tests {
         assert_eq!(json["ltc"][0]["ok"], true);
         assert_eq!(json["mtc"][0]["port"], "IAC");
         assert_eq!(json["mtc"][0]["ok"], false);
+        assert_eq!(json["metronome"]["device"], "Band");
+    }
+
+    fn click_out(bpm: f64, click: bool, channels: Vec<usize>) -> ClickOut {
+        ClickOut {
+            shared: Arc::new(SharedMetronome::new(
+                Tempo {
+                    bpm,
+                    beats_per_bar: 4,
+                    click,
+                },
+                0.0,
+            )),
+            channels,
+        }
+    }
+
+    /// A programme renderer that also plays a metronome, over `clips`.
+    fn clicking_renderer(
+        channels: usize,
+        programme: Vec<usize>,
+        click: ClickOut,
+        clips: ClipSet,
+    ) -> (Renderer, Sender<Message>) {
+        let (renderer, tx, _) = programme_renderer(channels, programme, None, clips);
+        (renderer.with_click(Some(click)), tx)
+    }
+
+    #[test]
+    fn render_should_click_on_its_own_channel_beside_the_programme() {
+        let (mut renderer, tx) = clicking_renderer(
+            4,
+            vec![0, 1],
+            click_out(120.0, true, vec![2]),
+            clip(16_384, -16_384, 24_000),
+        );
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = vec![0.0f32; 4 * 4_000];
+
+        renderer.render(&mut buffer, 10);
+
+        assert!(channel_of(&buffer, 4, 0).iter().all(|&s| s == 0.5));
+        assert!(channel_of(&buffer, 4, 2).iter().any(|&s| s.abs() > 0.1));
+        assert!(channel_of(&buffer, 4, 3).iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn render_should_add_the_click_to_a_programme_channel_it_shares() {
+        let (mut renderer, tx) = clicking_renderer(
+            2,
+            vec![0, 1],
+            click_out(120.0, true, vec![0]),
+            clip(8_192, 8_192, 24_000),
+        );
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = vec![0.0f32; 2 * 2_000];
+
+        renderer.render(&mut buffer, 10);
+
+        let shared = channel_of(&buffer, 2, 0);
+        assert!(
+            shared.iter().any(|&s| (s - 0.25).abs() > 0.05),
+            "no click on it"
+        );
+        assert!(channel_of(&buffer, 2, 1).iter().all(|&s| s == 0.25));
+    }
+
+    #[test]
+    fn render_should_not_click_while_the_click_is_off_or_the_show_is_not_playing() {
+        let click = click_out(120.0, false, vec![1]);
+        let shared = Arc::clone(&click.shared);
+        let (mut renderer, tx) = clicking_renderer(2, vec![0], click, ClipSet::default());
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = vec![0.0f32; 2 * 2_000];
+        renderer.render(&mut buffer, 10);
+        assert!(channel_of(&buffer, 2, 1).iter().all(|&s| s == 0.0));
+
+        // Switching it on while the show runs makes it sound without rebuilding anything.
+        shared.set(Tempo {
+            bpm: 120.0,
+            beats_per_bar: 4,
+            click: true,
+        });
+        tx.send(Message::Transport(Command::Seek(0))).unwrap();
+        renderer.render(&mut buffer, 20);
+        assert!(channel_of(&buffer, 2, 1).iter().any(|&s| s.abs() > 0.1));
+
+        tx.send(Message::Transport(Command::Pause)).unwrap();
+        renderer.render(&mut buffer, 30);
+        assert!(buffer.iter().all(|&s| s == 0.0));
+    }
+
+    /// A follower on a 2-channel device with LTC on channel 0 (or none) and the click on channel 1.
+    fn clicking_follower(ltc: bool) -> (LtcFollower, Arc<SharedClock>) {
+        let shared = Arc::new(SharedClock::new());
+        let follower = LtcFollower::new(
+            LtcStream::new(config(), RATE, 0, 0),
+            if ltc { vec![0] } else { Vec::new() },
+            2,
+            clock(),
+            Arc::clone(&shared),
+        )
+        .with_click(Some(click_out(120.0, true, vec![1])));
+        (follower, shared)
+    }
+
+    #[test]
+    fn follower_should_click_in_step_with_the_masters_position() {
+        let (mut follower, shared) = clicking_follower(true);
+        // The master is exactly on beat 1 of 120 BPM (24 000 samples).
+        master_at(&shared, TransportState::Playing, 1, 24_000);
+        let mut buffer = vec![0.0f32; 2 * 2_000];
+
+        follower.render(&mut buffer, 0);
+
+        let click = channel_of(&buffer, 2, 1);
+        assert!(
+            click[..200].iter().any(|&s| s.abs() > 0.1),
+            "no click on the beat"
+        );
+        assert!(
+            channel_of(&buffer, 2, 0).iter().any(|&s| s != 0.0),
+            "no LTC beside it"
+        );
+    }
+
+    #[test]
+    fn follower_with_no_ltc_should_play_only_the_click() {
+        let (mut follower, shared) = clicking_follower(false);
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut buffer = vec![0.0f32; 2 * 2_000];
+
+        follower.render(&mut buffer, 0);
+
+        assert!(channel_of(&buffer, 2, 0).iter().all(|&s| s == 0.0));
+        assert!(channel_of(&buffer, 2, 1).iter().any(|&s| s.abs() > 0.1));
+    }
+
+    #[test]
+    fn follower_should_keep_its_own_count_across_buffers_while_in_step() {
+        let (mut follower, shared) = clicking_follower(false);
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut first = vec![0.0f32; 2 * 4_000];
+        follower.render(&mut first, 0);
+        // The master has not published again, but 4 000 samples of time (83.3 ms) have gone by: the
+        // follower is where it expects to be, so it carries on instead of starting over.
+        let mut second = vec![0.0f32; 2 * 4_000];
+        follower.render(&mut second, 83_333_333);
+
+        let expected = SharedMetronome::new(
+            Tempo {
+                bpm: 120.0,
+                beats_per_bar: 4,
+                click: true,
+            },
+            0.0,
+        )
+        .grid(ENGINE_RATE)
+        .unwrap();
+        let mut whole = vec![0.0f32; 8_000];
+        expected.add(0, &mut whole);
+        let mut heard = channel_of(&first, 2, 1);
+        heard.extend(channel_of(&second, 2, 1));
+        assert_eq!(heard, whole);
+    }
+
+    #[test]
+    fn follower_should_be_silent_when_the_master_stops() {
+        let (mut follower, shared) = clicking_follower(false);
+        master_at(&shared, TransportState::Playing, 1, 0);
+        let mut buffer = vec![0.0f32; 2 * 2_000];
+        follower.render(&mut buffer, 0);
+        master_at(&shared, TransportState::Stopped, 2, 0);
+        follower.render(&mut buffer, 0);
+        assert!(buffer.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn click_spec_should_leave_out_the_channels_a_device_does_not_have() {
+        let spec = ClickSpec {
+            shared: click_out(120.0, true, Vec::new()).shared,
+            channels: vec![1, 3, 9],
+        };
+        assert_eq!(spec.out(4).channels, vec![0, 2]);
     }
 }

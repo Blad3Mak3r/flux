@@ -2,6 +2,7 @@
 
 pub mod cues;
 pub mod ltc;
+pub mod metronome;
 pub mod mixer;
 pub mod mtc;
 pub mod output;
