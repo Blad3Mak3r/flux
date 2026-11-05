@@ -8,6 +8,7 @@ import { NextCue } from "./NextCue";
 import { Notes } from "./Notes";
 import { Running } from "./Running";
 import { useLive } from "./store";
+import { TimelineStrip } from "../components/TimelineStrip";
 import { ViewSwitch } from "./ViewSwitch";
 
 /**
@@ -29,6 +30,7 @@ export function Live() {
         <h2 id="live-legend" className="legend">
           {t("live.legend")}
         </h2>
+        <TimelineStrip />
         <ViewSwitch />
       </div>
       {empty && !ready ? (

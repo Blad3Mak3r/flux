@@ -10,6 +10,8 @@
 import { useLive } from "../live/store";
 import { errorMessage } from "../project/api";
 import type { Project } from "../project/types";
+import { activeTimeline } from "../state/doc";
+import type { Doc } from "../state/doc";
 import { useDoc } from "../state/store";
 import { hasNativeWindow } from "../components/WindowControls";
 import { sayError, useUi } from "../state/ui";
@@ -35,14 +37,20 @@ const forView = (project: Project): Project => ({
 });
 
 /** What the output was opened for; when it changes, the devices are reopened. */
-const signature = (project: Project) => JSON.stringify([project.timecode, forView(project).output]);
+const signature = (doc: Doc) => {
+  const { id, timecode } = activeTimeline(doc);
+  return JSON.stringify([id, timecode, forView(doc.project).output]);
+};
 
 const project = () => useDoc.getState().project;
+const timeline = () => activeTimeline(useDoc.getState());
 const report = (error: unknown) => sayError(errorMessage(error));
 
 let openedFor: string | null = null;
 /** The start offset the open output counts from; a parked playhead is absolute, so it is only carried over while this holds. */
 let openedStart: number | null = null;
+/** The timeline the open output plays; its parked playhead belongs to no other. */
+let openedTimeline: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 /** Counts the outputs opened; a tick that comes from one closed since is dropped. */
 let run = 0;
@@ -60,7 +68,7 @@ async function guard(action: () => Promise<void>): Promise<void> {
 const lanes = (id: number): OutputLanes => ({
   onPosition: (position) => {
     if (id !== run) return;
-    const { timecode } = project();
+    const { timecode } = timeline();
     displayClock.feed(position, performance.now(), realFps(timecode.frameRate), timecode.start);
     useTransport.setState({ position });
   },
@@ -84,9 +92,16 @@ function scheduleClips(): void {
  * to the tracks reach a running output. Call once from the root; call the result to stop.
  */
 export function bindTransport(): () => void {
-  const unsubscribeDoc = useDoc.subscribe(({ project: now }, { project: before }) => {
-    if (now.timecode.start !== before.timecode.start) useTransport.setState({ parked: now.timecode.start });
-    if (now.tracks !== before.tracks || now.assets !== before.assets) scheduleClips();
+  const unsubscribeDoc = useDoc.subscribe((now, before) => {
+    const [current, previous] = [activeTimeline(now), activeTimeline(before)];
+    if (current.id !== previous.id || current.timecode.start !== previous.timecode.start) {
+      useTransport.setState({ parked: current.timecode.start });
+    }
+    // Another timeline is played by reopening the output, which builds its clips.
+    const sameTimeline = current.id === previous.id;
+    if (sameTimeline && (current.tracks !== previous.tracks || now.project.assets !== before.project.assets)) {
+      scheduleClips();
+    }
     if (signature(now) !== signature(before)) reconnect();
   });
   // A change that waited for playback to end is applied as soon as it does.
@@ -125,7 +140,7 @@ async function connect(force: boolean): Promise<void> {
     return;
   }
   useTransport.setState({ pendingReconfigure: false });
-  if (!force && info && openedFor === signature(project())) return;
+  if (!force && info && openedFor === signature(useDoc.getState())) return;
   try {
     await open(true);
   } catch (error) {
@@ -136,14 +151,19 @@ async function connect(force: boolean): Promise<void> {
 }
 
 async function open(force = false): Promise<void> {
-  const current = project();
-  if (!force && useTransport.getState().info && openedFor === signature(current)) return;
+  const doc = useDoc.getState();
+  const { id, timecode } = activeTimeline(doc);
+  if (!force && useTransport.getState().info && openedFor === signature(doc)) return;
   const { position } = useTransport.getState();
-  // Reopening from a pause or a stop keeps the playhead where it was, unless the start moved.
-  if (position && openedStart === current.timecode.start) useTransport.setState({ parked: position.frame });
-  const info = await api.startOutput(forView(current), lanes(++run));
-  openedFor = signature(current);
-  openedStart = current.timecode.start;
+  // Reopening from a pause or a stop keeps the playhead where it was, unless the start moved or
+  // it is another timeline.
+  if (position && openedStart === timecode.start && openedTimeline === id) {
+    useTransport.setState({ parked: position.frame });
+  }
+  const info = await api.startOutput(forView(doc.project), lanes(++run));
+  openedFor = signature(doc);
+  openedStart = timecode.start;
+  openedTimeline = id;
   useTransport.setState({ info, clipWarnings: [], position: null });
   scheduleClips();
   await api.seek(useTransport.getState().parked);
@@ -155,6 +175,7 @@ async function closeOutput(): Promise<void> {
   await api.stopOutput();
   openedFor = null;
   openedStart = null;
+  openedTimeline = null;
   useTransport.setState({ info: null, position: null });
 }
 
@@ -175,14 +196,14 @@ export const pause = () => guard(api.pause);
 
 export const stop = () =>
   guard(async () => {
-    const current = project();
-    const { start } = current.timecode;
+    const doc = useDoc.getState();
+    const { start } = activeTimeline(doc).timecode;
     useTransport.setState({ parked: start });
     displayClock.jump();
     const { info, position } = useTransport.getState();
     if (!info) return;
     // An output opened for another start counts from the old one, so its position is wrong.
-    if (openedFor !== signature(current)) return closeOutput();
+    if (openedFor !== signature(doc)) return closeOutput();
     if (position) useTransport.setState({ position: stoppedAt(position, start) });
     await api.stop();
   });
@@ -193,7 +214,7 @@ export const toggle = () => (useTransport.getState().position?.state === "playin
 const sendSeek = latestOnly(api.seek, report);
 
 export function seek(frame: number): void {
-  const target = Math.max(project().timecode.start, Math.round(frame));
+  const target = Math.max(timeline().timecode.start, Math.round(frame));
   const { position, info } = useTransport.getState();
   displayClock.jump();
   useTransport.setState({ parked: target, ...(position && { position: { ...position, frame: target } }) });

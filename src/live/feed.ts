@@ -3,7 +3,8 @@
 // changes and for the state when no output runs, because then the playhead is parked in the window.
 
 import { errorMessage } from "../project/api";
-import type { Project } from "../project/types";
+import { activeTimeline } from "../state/doc";
+import type { Doc } from "../state/doc";
 import { useDoc } from "../state/store";
 import { sayError } from "../state/ui";
 import { useTransport } from "../transport/store";
@@ -22,14 +23,19 @@ const report = (error: unknown) => sayError(errorMessage(error));
 let cuesTicket = 0;
 let stateTicket = 0;
 
-const sourceOf = ({ tracks, assets, timecode }: Project) => ({ tracks, assets, timecode });
+/** What the cues of the active timeline are derived from. */
+const sourceOf = (doc: Doc) => {
+  const { id, tracks, timecode } = activeTimeline(doc);
+  return { id, tracks, assets: doc.project.assets, timecode };
+};
 
-/** Whether the cues in the store were derived from what the open project holds now. */
-function current(): boolean {
-  const { source } = useLive.getState();
-  const { project } = useDoc.getState();
-  return source !== null && source.tracks === project.tracks && source.assets === project.assets && source.timecode === project.timecode;
-}
+type Source = ReturnType<typeof sourceOf>;
+
+const sameSource = (a: Source | null, b: Source) =>
+  a !== null && a.id === b.id && a.tracks === b.tracks && a.assets === b.assets && a.timecode === b.timecode;
+
+/** Whether the cues in the store were derived from what the open timeline holds now. */
+const current = () => sameSource(useLive.getState().source, sourceOf(useDoc.getState()));
 
 async function refreshState(): Promise<void> {
   const { info, parked } = useTransport.getState();
@@ -41,11 +47,11 @@ async function refreshState(): Promise<void> {
 
 async function refresh(): Promise<void> {
   const ticket = ++cuesTicket;
-  const project = useDoc.getState().project;
+  const doc = useDoc.getState();
   try {
-    const cues = await api.liveCues(project);
+    const cues = await api.liveCues(doc.project);
     if (ticket !== cuesTicket) return;
-    useLive.setState({ cues, ready: true, source: sourceOf(project) });
+    useLive.setState({ cues, ready: true, source: sourceOf(doc) });
     await refreshState();
   } catch (error) {
     // Say what went wrong, and show the (empty) list rather than wait for ever.
@@ -66,8 +72,8 @@ export function bindLive(): () => void {
   if (!current()) useLive.setState({ cues: [], state: null, ready: false, source: null });
   void refresh();
 
-  const unDoc = useDoc.subscribe(({ project: now }, { project: before }) => {
-    if (now.tracks !== before.tracks || now.assets !== before.assets || now.timecode !== before.timecode) later();
+  const unDoc = useDoc.subscribe((now, before) => {
+    if (!sameSource(sourceOf(before), sourceOf(now))) later();
   });
   const unTransport = useTransport.subscribe((now, before) => {
     // A parked playhead that moved, or an output that closed and left the playhead where it was.

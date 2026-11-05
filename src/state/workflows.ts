@@ -12,15 +12,21 @@ import {
   saveProject,
 } from "../project/api";
 import type { BackendDocument } from "../project/api";
-import type { Project } from "../project/types";
+import type { Project, ProjectState } from "../project/types";
 import { currentFrame } from "../transport/store";
 import { reconnect, seek } from "../transport/playback";
 import { analyse, forgetAnalyses } from "./audio";
-import { isDirty } from "./doc";
+import { activeTimeline, isDirty } from "./doc";
 import { addAudioClip, addNote, emptyProject } from "./edit";
 import { edit } from "./actions";
 import { dispatch, useDoc } from "./store";
 import { ask, resetView, say, sayError, select } from "./ui";
+
+/** The project of a window with no backend to ask (outside the desktop app). */
+const offlineProject = (t: Translate): ProjectState => {
+  const project = emptyProject(t("project.untitled"), "fps25");
+  return { project, active: project.timelines[0].id };
+};
 
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -29,21 +35,21 @@ const fail = (err: unknown) => sayError(errorMessage(err));
 const replaceDoc = (action: () => Promise<void> | void) =>
   isDirty(useDoc.getState()) ? ask(action) : void action();
 
-function load(next: Project, path: string | null): void {
+function load({ project, active }: ProjectState, path: string | null): void {
   forgetAnalyses();
-  dispatch({ type: "load", project: next, path });
+  dispatch({ type: "load", project, path, active });
   resetView();
-  seek(next.timecode.start);
+  seek(activeTimeline(useDoc.getState()).timecode.start);
 }
 
 /** The same content, whether or not it is the same object: what unsaved work is told by identity. */
 const sameProject = (a: Project, b: Project) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
-function restore({ project, path, baseline }: BackendDocument): void {
+function restore({ project, path, baseline, active }: BackendDocument): void {
   forgetAnalyses();
-  dispatch({ type: "restore", project, path, saved: sameProject(project, baseline) ? project : baseline });
+  dispatch({ type: "restore", project, path, active, saved: sameProject(project, baseline) ? project : baseline });
   resetView();
-  seek(project.timecode.start);
+  seek(activeTimeline(useDoc.getState()).timecode.start);
   say("status.restored", { name: project.name });
   analyse(project.assets);
   // A reload leaves what was playing running in the backend, with nothing left to show or stop it:
@@ -80,9 +86,7 @@ export function startDocument(t: Translate): Promise<void> {
 
 export const newDocument = (t: Translate) =>
   replaceDoc(async () => {
-    const fresh = await newProject(t("project.untitled"), "fps25").catch(() =>
-      emptyProject(t("project.untitled"), "fps25"),
-    );
+    const fresh = await newProject(t("project.untitled"), "fps25").catch(() => offlineProject(t));
     load(fresh, null);
     say("status.ready");
   });
@@ -92,7 +96,7 @@ async function openAt(path: string): Promise<void> {
     const opened = await openProjectAt(path);
     load(opened, path);
     say("status.opened", { name: basename(path) });
-    analyse(opened.assets);
+    analyse(opened.project.assets);
   } catch (err) {
     fail(err);
   }
@@ -126,11 +130,12 @@ export async function importAudioFiles(): Promise<void> {
   try {
     const assets = await importAudio();
     if (assets.length === 0) return;
-    let next = useDoc.getState().project;
-    const { start } = next.timecode;
+    const doc = useDoc.getState();
+    let next = doc.project;
+    const { id: timeline, timecode } = activeTimeline(doc);
     let last = "";
     for (const asset of assets) {
-      const added = addAudioClip(next, asset, currentFrame() - start);
+      const added = addAudioClip(next, timeline, asset, currentFrame() - timecode.start);
       next = added.project;
       last = added.id;
       say("status.imported", { name: asset.name });
@@ -145,8 +150,9 @@ export async function importAudioFiles(): Promise<void> {
 
 /** Adds an empty note at the playhead, or at `frame` (absolute) when given, and selects it to be written. */
 export function addNoteAt(t: Translate, frame = currentFrame(), trackId?: string): void {
-  const { project } = useDoc.getState();
-  const added = addNote(project, frame - project.timecode.start, t("track.kind.notes"), trackId);
+  const doc = useDoc.getState();
+  const { id: timeline, timecode } = activeTimeline(doc);
+  const added = addNote(doc.project, timeline, frame - timecode.start, t("track.kind.notes"), trackId);
   edit(added.project);
   select({ kind: "note", id: added.id });
   say("status.noteAdded");

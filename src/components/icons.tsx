@@ -155,6 +155,12 @@ export const ChevronRightIcon = () => (
   </Icon>
 );
 
+export const ChevronDownIcon = () => (
+  <Icon>
+    <path d="M3.5 6 L8 10.5 L12.5 6" />
+  </Icon>
+);
+
 export const CheckIcon = () => (
   <Icon>
     <path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" />

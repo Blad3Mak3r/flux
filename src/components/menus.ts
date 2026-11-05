@@ -6,10 +6,26 @@ import type { MessageKey, Translate } from "../i18n/messages";
 import type { Cue } from "../live/api";
 import type { AudioClip, Note, Track } from "../project/types";
 import { deleteSelection, deleteTrack, muteTrack, reorderTrack, setGain } from "../state/actions";
+import { activeTimeline } from "../state/doc";
 import { findItem } from "../state/edit";
 import { dispatch, useDoc } from "../state/store";
 import { isPlaying } from "../transport/store";
-import { openSetup, select, setView, toggleFollow, toggleInspector, useUi, zoomBy } from "../state/ui";
+import {
+  addTimeline,
+  openTimelineSettings,
+  selectTimeline,
+  stepTimeline,
+} from "../state/timelines";
+import {
+  askRemoveTimeline,
+  openSetup,
+  select,
+  setView,
+  toggleFollow,
+  toggleInspector,
+  useUi,
+  zoomBy,
+} from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import {
   addNoteAt,
@@ -80,8 +96,8 @@ function editMenu(t: Translate): MenuItem[] {
 function trackMenu(t: Translate): MenuItem[] {
   const track = selectedTrack();
   const editing = state().ui.view === "edit";
-  const index = track ? state().doc.project.tracks.indexOf(track) : -1;
-  const last = state().doc.project.tracks.length - 1;
+  const index = track ? activeTimeline(state().doc).tracks.indexOf(track) : -1;
+  const last = activeTimeline(state().doc).tracks.length - 1;
   return [
     { label: t("menu.addSong"), shortcut: "I", run: () => void importAudioFiles() },
     { label: t("menu.addNote"), shortcut: "N", disabled: !editing, run: () => addNoteAt(t) },
@@ -105,6 +121,40 @@ function trackMenu(t: Translate): MenuItem[] {
   ];
 }
 
+/** What the Timeline menu of the bar offers, for the active timeline. */
+function timelineBarMenu(t: Translate): MenuItem[] {
+  const { project } = state().doc;
+  const active = activeTimeline(state().doc).id;
+  return [
+    { label: t("menu.timeline.new"), run: () => void addTimeline(t) },
+    { label: t("menu.timeline.rename"), run: () => void openTimelineSettings(active) },
+    { label: t("menu.timeline.delete"), disabled: project.timelines.length === 1, run: () => askRemoveTimeline(active) },
+    "-",
+    { label: t("menu.timeline.previous"), shortcut: mod("PgUp"), run: () => void stepTimeline(-1) },
+    { label: t("menu.timeline.next"), shortcut: mod("PgDn"), run: () => void stepTimeline(1) },
+  ];
+}
+
+/** Every timeline with the active one ticked: the way to reach one that scrolled out of the strip. */
+export function allTimelinesMenu(t: Translate): MenuItem[] {
+  const doc = state().doc;
+  const active = activeTimeline(doc).id;
+  return doc.project.timelines.map((timeline) => ({
+    label: timeline.name || t("timeline.default"),
+    checked: timeline.id === active,
+    run: () => void selectTimeline(timeline.id),
+  }));
+}
+
+/** The right-click menu of a timeline tab. */
+export function timelineMenu(t: Translate, id: string): MenuItem[] {
+  return [
+    { label: t("timeline.rename"), run: () => void openTimelineSettings(id) },
+    "-",
+    { label: t("timeline.delete"), disabled: state().doc.project.timelines.length === 1, run: () => askRemoveTimeline(id) },
+  ];
+}
+
 function viewMenu(t: Translate): MenuItem[] {
   const { view, collapsed, follow, detached } = state().ui;
   const locked = isPlaying();
@@ -121,7 +171,7 @@ function viewMenu(t: Translate): MenuItem[] {
 }
 
 function transportMenu(t: Translate): MenuItem[] {
-  const second = () => nominalFps(useDoc.getState().project.timecode.frameRate);
+  const second = () => nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
   const by = (frames: () => number) => () => seek(currentFrame() + frames());
   return [
     { label: t("menu.playPause"), shortcut: "Space", run: () => void toggle() },
@@ -138,6 +188,7 @@ export const BAR_MENUS: { id: string; label: MessageKey; items: (t: Translate) =
   { id: "file", label: "menu.file", items: fileMenu },
   { id: "edit", label: "menu.edit", items: editMenu },
   { id: "track", label: "menu.track", items: trackMenu },
+  { id: "timeline", label: "menu.timeline", items: timelineBarMenu },
   { id: "view", label: "menu.view", items: viewMenu },
   { id: "transport", label: "menu.transport", items: transportMenu },
 ];
@@ -151,7 +202,7 @@ const deleteNote = (id: string) => () => {
 
 /** An audio track: its clip and its header offer the same, the clip with a way to its start. */
 export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuItem[] {
-  const { start } = useDoc.getState().project.timecode;
+  const { start } = activeTimeline(useDoc.getState()).timecode;
   return [
     ...(clip ? [{ label: t("context.goToStart"), run: () => seek(start + clip.start) }] : []),
     muteItem(t, track),
@@ -162,7 +213,7 @@ export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuIte
 }
 
 export function noteMenu(t: Translate, track: Track, note: Note): MenuItem[] {
-  const { start } = useDoc.getState().project.timecode;
+  const { start } = activeTimeline(useDoc.getState()).timecode;
   return [
     { label: t("context.goToNote"), run: () => seek(start + note.at) },
     muteItem(t, track),

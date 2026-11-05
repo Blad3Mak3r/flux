@@ -1,9 +1,9 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { Project, Track } from "../project/types";
+import type { Project, Timeline, Track } from "../project/types";
 import { deleteSelection, edit } from "../state/actions";
 import type { AssetAudio } from "../state/doc";
-import { useDoc } from "../state/store";
+import { useDoc, useTimeline } from "../state/store";
 import { toggleInspector, useUi } from "../state/ui";
 import type { Selected } from "../state/ui";
 import {
@@ -21,15 +21,17 @@ import { MOD_KEY } from "./menus";
 /** The colour of the track an item sits on. Each swatch is named, so colour is never the only cue. */
 function TrackColorField({
   project,
+  timeline,
   track,
   onEdit,
 }: {
   project: Project;
+  timeline: string;
   track: Track;
   onEdit: (project: Project) => void;
 }) {
   const t = useT();
-  const pick = (color: string | null) => onEdit(setTrackColor(project, track.id, color));
+  const pick = (color: string | null) => onEdit(setTrackColor(project, timeline, track.id, color));
   return (
     <fieldset className="color-field">
       <legend>{t("track.color")}</legend>
@@ -65,12 +67,14 @@ function TrackColorField({
 
 function SelectionPanel({
   project,
+  timeline,
   selection,
   audio,
   onEdit,
   onDelete,
 }: {
   project: Project;
+  timeline: Timeline;
   selection: Selected | null;
   audio: Record<string, AssetAudio>;
   onEdit: (project: Project) => void;
@@ -78,7 +82,7 @@ function SelectionPanel({
 }) {
   const t = useT();
   const found = selection ? findItem(project, selection.id) : null;
-  const { frameRate, start } = project.timecode;
+  const { frameRate, start } = timeline.timecode;
 
   if (!found) return <p className="empty-note">{t("inspector.nothing")}</p>;
 
@@ -98,7 +102,7 @@ function SelectionPanel({
           label={t("clip.start")}
           frame={start + clip.start}
           rate={frameRate}
-          onCommit={(frame) => onEdit(updateClip(project, clip.id, { start: Math.max(0, frame - start) }))}
+          onCommit={(frame) => onEdit(updateClip(project, timeline.id, clip.id, { start: Math.max(0, frame - start) }))}
         />
         <TextField
           label={t("clip.gain")}
@@ -106,10 +110,10 @@ function SelectionPanel({
           inputMode="decimal"
           monospace
           validate={(text) => (Number.isFinite(Number(text)) && text.trim() !== "" ? null : t("field.numberInvalid"))}
-          onCommit={(text) => onEdit(updateClip(project, clip.id, { gainDb: Number(text) }))}
+          onCommit={(text) => onEdit(updateClip(project, timeline.id, clip.id, { gainDb: Number(text) }))}
         />
         {!audio[clip.asset]?.peaks && <p className="field-note">{t("clip.lengthGuess")}</p>}
-        <TrackColorField project={project} track={track} onEdit={onEdit} />
+        <TrackColorField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
         <button type="button" className="button danger" onClick={onDelete}>
           <TrashIcon />
           {t("inspector.delete")}
@@ -128,22 +132,22 @@ function SelectionPanel({
         label={t("note.text")}
         value={note.text}
         autoFocus={note.text === ""}
-        onCommit={(text) => onEdit(updateNote(project, note.id, { text }))}
+        onCommit={(text) => onEdit(updateNote(project, timeline.id, note.id, { text }))}
       />
       <TimecodeField
         label={t("note.at")}
         frame={start + note.at}
         rate={frameRate}
-        onCommit={(frame) => onEdit(updateNote(project, note.id, { at: Math.max(0, frame - start) }))}
+        onCommit={(frame) => onEdit(updateNote(project, timeline.id, note.id, { at: Math.max(0, frame - start) }))}
       />
       <TimecodeField
         label={t("note.length")}
         hint={t("note.length.hint")}
         frame={note.length ?? 0}
         rate={frameRate}
-        onCommit={(frames) => onEdit(setNoteLength(project, note.id, frames))}
+        onCommit={(frames) => onEdit(setNoteLength(project, timeline.id, note.id, frames))}
       />
-      <TrackColorField project={project} track={found.track} onEdit={onEdit} />
+      <TrackColorField project={project} timeline={timeline.id} track={found.track} onEdit={onEdit} />
       <button type="button" className="button danger" onClick={onDelete}>
         <TrashIcon />
         {t("inspector.delete")}
@@ -156,6 +160,7 @@ export function Inspector() {
   const collapsed = useUi((ui) => ui.collapsed);
   const selection = useUi((ui) => ui.selection);
   const project = useDoc((doc) => doc.project);
+  const timeline = useTimeline();
   const audio = useDoc((doc) => doc.audio);
   const t = useT();
   const toggleLabel = `${t(collapsed ? "inspector.expand" : "inspector.collapse")} (${MOD_KEY}+B)`;
@@ -188,7 +193,7 @@ export function Inspector() {
         <h2 className="inspector-title">{t("inspector.tab.selection")}</h2>
       </div>
       <div className="panel">
-        <SelectionPanel project={project} selection={selection} audio={audio} onEdit={edit} onDelete={deleteSelection} />
+        <SelectionPanel project={project} timeline={timeline} selection={selection} audio={audio} onEdit={edit} onDelete={deleteSelection} />
       </div>
     </aside>
   );

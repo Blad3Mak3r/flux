@@ -79,8 +79,9 @@ test("setProgrammeDevice moves the LTC outputs that shared the old device, and o
 test("stepSection wraps round and skips the section that is not available", () => {
   assert.equal(isAvailable("video"), false);
   assert.equal(stepSection("project", 1), "audio");
-  assert.equal(stepSection("general", 1), "project");
-  assert.equal(stepSection("project", -1), "general");
+  assert.equal(stepSection("general", 1), "timeline");
+  assert.equal(stepSection("timeline", -1), "general");
+  assert.equal(stepSection("project", -1), "timeline");
 });
 
 test("setPreviewDevice sets only the preview and leaves the programme and timecode alone", () => {

@@ -57,6 +57,8 @@ interface UiState {
   /** The page of the Setup dialog that is open, or `null` while it is closed. */
   setup: SetupSection | null;
   menu: OpenMenu | null;
+  /** The timeline waiting for the user to confirm that it is removed. */
+  removing: string | null;
 }
 
 const INSPECTOR_KEY = "flux.inspector.collapsed";
@@ -100,6 +102,7 @@ export const useUi = create<UiState>()(() => ({
   pending: null,
   setup: null,
   menu: null,
+  removing: null,
 }));
 
 const set = useUi.setState;
@@ -185,5 +188,8 @@ export function menuAtPointer(
   event.stopPropagation();
   openMenu({ x: event.clientX, y: event.clientY, items });
 }
+
+export const askRemoveTimeline = (id: string) => set({ removing: id });
+export const clearRemoving = () => set({ removing: null });
 
 export const ask = (pending: Pending | null) => set({ pending });

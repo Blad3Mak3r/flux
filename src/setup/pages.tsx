@@ -6,8 +6,9 @@ import { LOCALES, useI18n, useT } from "../i18n";
 import type { Locale, MessageKey } from "../i18n";
 import type { FrameRate, OutputConfig } from "../project/types";
 import { edit } from "../state/actions";
-import { setFrameRate, setName, setOutput, setStart } from "../state/edit";
-import { useDoc } from "../state/store";
+import { setName, setOutput } from "../state/edit";
+import { useDoc, useTimeline } from "../state/store";
+import { renameTimeline, setTimecode } from "../state/timelines";
 import { reconnect } from "../transport/playback";
 import { useTransport } from "../transport/store";
 import {
@@ -91,15 +92,31 @@ function rowState(
 export function ProjectPage() {
   const t = useT();
   const project = useDoc((doc) => doc.project);
-  const { frameRate, start } = project.timecode;
   return (
     <div className="setup-fields">
       <TextField label={t("project.name")} value={project.name} onCommit={(name) => edit(setName(project, name))} />
+    </div>
+  );
+}
+
+/** The name, frame rate and start of the active timeline. The backend applies them and answers. */
+export function TimelinePage() {
+  const t = useT();
+  const timeline = useTimeline();
+  const { frameRate, start } = timeline.timecode;
+  return (
+    // Another timeline starts the fields over, so a half-typed value never lands on it.
+    <div className="setup-fields" key={timeline.id}>
+      <TextField
+        label={t("timeline.name")}
+        value={timeline.name}
+        onCommit={(name) => void renameTimeline(timeline.id, name)}
+      />
       <SelectField
         label={t("project.frameRate")}
         value={frameRate}
         hint={t("project.frameRateNote")}
-        onChange={(rate) => edit(setFrameRate(project, rate as FrameRate))}
+        onChange={(rate) => void setTimecode(rate as FrameRate, start)}
       >
         {FRAME_RATES.map((rate) => (
           <option key={rate} value={rate}>
@@ -111,7 +128,7 @@ export function ProjectPage() {
         label={t("project.start")}
         frame={start}
         rate={frameRate}
-        onCommit={(frame) => edit(setStart(project, frame))}
+        onCommit={(frame) => void setTimecode(frameRate, frame)}
       />
     </div>
   );
