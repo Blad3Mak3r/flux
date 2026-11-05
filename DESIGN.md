@@ -147,7 +147,7 @@ A restrained, near-monochrome faceplate with three signal hues used sparingly an
 - **Dim Phosphor** (`phosphor-dim`): clip borders, muted clip text, span-shade edges.
 
 ### Secondary
-- **Cue Amber** (`amber`): cues (flag line), the paused hold word, run-info warnings. **Dim Amber** (`amber-dim`) outlines cue chips.
+- **Cue Amber** (`amber`): notes (their start line), the standby cue, the paused hold word, run-info warnings. **Dim Amber** (`amber-dim`) outlines note boxes.
 
 ### Tertiary
 - **Live Vermilion** (`signal`): live and fault state only: the PLAYING word, the playhead while playing, a live key lamp, fault lamps (including the clock lamp reading "Not real time" when the audio device does not keep time), invalid fields and error messages.
@@ -160,7 +160,7 @@ A restrained, near-monochrome faceplate with three signal hues used sparingly an
 ### Named Rules
 **The Live-Only Vermilion Rule.** Vermilion appears only when something is live or faulted. The playhead is ink while stopped and turns vermilion only while playing.
 
-**The Second Cue Rule.** No state is carried by colour alone: audio is a solid waveform, a marker is a hatched chip, a MIDI cue is a dotted chip; selection is a 2px ink outline; mute is dashed and hollow with a struck name; lamps also print a status word.
+**The Second Cue Rule.** No state is carried by colour alone: audio is a solid waveform and a note is a hatched box; selection is a 2px ink outline; mute is dashed and hollow with a struck name; lamps also print a status word.
 
 ## Typography
 
@@ -200,7 +200,7 @@ Flat and tonal. Depth is conveyed by faceplate tone (recessed `panel-lo`, base `
 
 ## Shapes
 
-Square and engraved. Controls use a 2px radius; keys, lamps, clips, cue chips, the readout window and the dialog are square. Lamps are 10px squares (key lamps 6px). The playhead has a small downward triangle head. Clip, flag and chip edges are 1px lines; the readout window is a 2px recessed border with a 1px outer outline. Icons are drawn for the app on a 16px grid, 1.5px stroke, square caps and mitred joins, as SVG.
+Square and engraved. Controls use a 2px radius; keys, lamps, clips, note boxes, the readout window and the dialog are square. Lamps are 10px squares (key lamps 6px). The playhead has a small downward triangle head. Clip and note edges are 1px lines; the readout window is a 2px recessed border with a 1px outer outline. Icons are drawn for the app on a 16px grid, 1.5px stroke, square caps and mitred joins, as SVG.
 
 ## Components
 
@@ -229,10 +229,10 @@ Rows of a 10px square lamp, uppercase name, status word and a truncating detail.
 A recessed screen window holding a 5x7 dot-matrix face drawn as SVG squares; lit pixels `phosphor`, unlit `ghost`. The cell is a whole number of device pixels (9 CSS px wide, 7 narrow, at least 4 device px, gap at least 1 device px) so no pixel blends. A readout line beneath carries the state word (PLAYING vermilion, PAUSED amber, otherwise ink) in measure type.
 
 ### Ruler, Lanes, Clips and Cues (signature)
-The ruler is SVG ticks and labels over the graticule with a phosphor cursor and span. Lanes have a centre line and a major-grid bottom rule. An audio clip is a solid phosphor waveform in a dim-phosphor bordered box with a label plate. A cue is a 1px amber flag line with a chip: hatched for marker, dotted for MIDI. Selected = 2px ink outline. A muted track draws clips hollow and dashed, flags dashed and 70% opaque, with the name struck through and a MUTED tag. The playhead is a 2px ink line (vermilion when playing) with a triangle head.
+The ruler is SVG ticks and labels over the graticule with a phosphor cursor and span. Lanes have a centre line and a major-grid bottom rule. An audio clip is a solid phosphor waveform in a dim-phosphor bordered box with a label plate. A note is a 1px amber line at its start with a hatched box beside it holding its first two lines of text; a note with a length is a box as long as it lasts. Selected = 2px ink outline. A muted track draws clips hollow and dashed, notes dashed and 70% opaque, with the name struck through and a MUTED tag. The playhead is a 2px ink line (vermilion when playing) with a triangle head.
 
 ### Track Colour
-A track may carry its own colour so many tracks can be told apart. It is picked in the Selection inspector, for the track of the selected clip or cue: eight square 24px swatches (teal, cyan, blue, violet, magenta, rose, lime, steel) and a Default button that returns the track to phosphor (audio) or amber (events). The chosen swatch takes a 2px ink outline and a dark tick, and every swatch has a spoken name, so the choice never rides on colour alone. All eight sit at oklch lightness 0.8, which gives 9.6:1 or more against `screen`, and none is near vermilion. The colour is stored in `project.json` as `#rrggbb`, changes through the undo history, and is applied through `--trace` and `--trace-dim` on the track's header and lane: clip border, tint and waveform, the cue line, chip border and hatch or dots, and the kind icon in the header. Kind still reads from the fill (solid waveform, hatched or dotted chip), and a muted track is drawn hollow and dashed in the dim version of its colour.
+A track may carry its own colour so many tracks can be told apart. It is picked in the Selection inspector, for the track of the selected clip or note: eight square 24px swatches (teal, cyan, blue, violet, magenta, rose, lime, steel) and a Default button that returns the track to phosphor (audio) or amber (notes). The chosen swatch takes a 2px ink outline and a dark tick, and every swatch has a spoken name, so the choice never rides on colour alone. All eight sit at oklch lightness 0.8, which gives 9.6:1 or more against `screen`, and none is near vermilion. The colour is stored in `project.json` as `#rrggbb`, changes through the undo history, and is applied through `--trace` and `--trace-dim` on the track's header and lane: clip border, tint and waveform, the note line, box border and hatch, and the kind icon in the header. Kind still reads from the fill (solid waveform, hatched box), and a muted track is drawn hollow and dashed in the dim version of its colour.
 
 ### Fader and Level Meter
 Both sit in an audio track's header under the name row, which is why an audio lane is 96px tall. The fader is a recessed rail with a 1px notch at 0 dB and a square ink thumb (phosphor on hover), the value in measure type to its right; range -inf to +6 dB, 1 dB per arrow key, 0.1 with Shift, 6 per Page key, double-click returns to 0 dB. The meter is 24 square segments of 2.5 dB on the screen ground, off = `lamp-off`, lit = phosphor up to -12 dBFS, amber to -3, vermilion above. Flat fills only, no glow, no gradient. The peak-hold marker is one lone lit segment above the bar. A printed scale (-48, -24, -12, 0 with ticks between) sits below, and the accessible value says the level in words, so colour never carries the reading alone. The CLIP lamp is printed text that fills vermilion when the peak reached 0 dBFS and stays until pressed. The bar rises at once and falls at 24 dB/s, the marker holds 1.5 s then falls at 12 dB/s; with reduced motion the bar follows the signal and the marker jumps instead of sliding.
