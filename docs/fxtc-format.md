@@ -112,6 +112,9 @@ Defined in `src-tauri/src/commands.rs`, typed wrappers (with the file dialogs) i
 | `project_import_audio` | `path` | An `AudioAsset` (generated id, file `audio/<id>_<name>`) to add to the project. |
 | `project_save` | `project`, `path` | Writes the archive; afterwards all assets are read from `path`. |
 
+The Live view's commands (`live_cues`, `live_state`) read the project but write nothing, and cues are derived, not
+stored, so they add nothing to `project.json`; they are described in [timecode-signals.md](timecode-signals.md).
+
 The frontend edits the `Project` and sends each state of it with `project_sync` (the newest wins while one is being
 written). The backend keeps the latest as the `Document`, so that a window that is reloaded asks `project_document` and
 picks the project up where it was left, instead of starting over: `baseline` is the project as it was last opened or
