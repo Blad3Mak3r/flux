@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
+import { FollowToggle } from "./FollowToggle";
 import type { Project } from "../project/types";
 import { select, setZoom, useUi, zoomBy } from "../state/ui";
 import type { AssetAudio } from "../state/doc";
@@ -9,12 +10,13 @@ import { useDoc } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
+import { addNoteAt, importAudioFiles } from "../state/workflows";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength } from "./TrackRow";
-import { ZoomInIcon, ZoomOutIcon } from "./icons";
+import { PlusIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 
 const ZOOM_STEP = 1.25;
 /** Room past the last item, so there is always somewhere to drop the next one. */
@@ -27,7 +29,7 @@ function contentEnd(project: Project, audio: Record<string, AssetAudio>, fps: nu
     if (track.kind.type === "audio") {
       for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(audio[clip.asset], fps, guess));
     } else {
-      for (const trigger of track.kind.triggers) end = Math.max(end, trigger.at + 25);
+      for (const note of track.kind.notes) end = Math.max(end, note.at + (note.length ?? 25));
     }
   }
   return end;
@@ -135,6 +137,7 @@ export function Timeline() {
         <h2 id="tracks-legend" className="legend">
           {t("tracks.legend")}
         </h2>
+        <FollowToggle />
         <ViewSwitch />
       </div>
 
@@ -183,6 +186,17 @@ export function Timeline() {
                 <p className="hint">{t("tracks.hint")}</p>
               </div>
             </div>
+          </div>
+
+          <div className="side-add">
+            <button type="button" className="add-song" onClick={() => void importAudioFiles()} title={`${t("tracks.addSong")} (I)`}>
+              <PlusIcon />
+              {t("tracks.addSong")}
+            </button>
+            <button type="button" className="add-note" onClick={() => addNoteAt(t)} title={`${t("tracks.addNote")} (N)`}>
+              <PlusIcon />
+              {t("tracks.addNote")}
+            </button>
           </div>
         </div>
 

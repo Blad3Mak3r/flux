@@ -17,7 +17,7 @@ import { currentFrame } from "../transport/store";
 import { reconnect, seek } from "../transport/playback";
 import { analyse, forgetAnalyses } from "./audio";
 import { isDirty } from "./doc";
-import { addAudioClip, addMarker, emptyProject } from "./edit";
+import { addAudioClip, addNote, emptyProject } from "./edit";
 import { edit } from "./actions";
 import { dispatch, useDoc } from "./store";
 import { ask, resetView, say, sayError, select } from "./ui";
@@ -111,10 +111,10 @@ export const openDocument = () =>
 export async function saveDocument(asNew: boolean): Promise<boolean> {
   try {
     const { project, path: current } = useDoc.getState();
-    const path = await saveProject(project, asNew ? null : current);
-    if (path === null) return false;
-    dispatch({ type: "saved", path });
-    say("status.saved", { name: basename(path) });
+    const saved = await saveProject(project, asNew ? null : current);
+    if (saved === null) return false;
+    dispatch({ type: "saved", path: saved.path, meta: saved.meta });
+    say("status.saved", { name: basename(saved.path) });
     return true;
   } catch (err) {
     fail(err);
@@ -143,10 +143,11 @@ export async function importAudioFiles(): Promise<void> {
   }
 }
 
-export function addMarkerAtPlayhead(t: Translate): void {
+/** Adds an empty note at the playhead, or at `frame` (absolute) when given, and selects it to be written. */
+export function addNoteAt(t: Translate, frame = currentFrame(), trackId?: string): void {
   const { project } = useDoc.getState();
-  const added = addMarker(project, currentFrame() - project.timecode.start, (n) => `Marker ${n}`, t("track.kind.events"));
+  const added = addNote(project, frame - project.timecode.start, t("track.kind.notes"), trackId);
   edit(added.project);
-  select({ kind: "trigger", id: added.id });
-  say("status.markerAdded");
+  select({ kind: "note", id: added.id });
+  say("status.noteAdded");
 }

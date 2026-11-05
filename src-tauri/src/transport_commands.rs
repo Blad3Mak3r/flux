@@ -339,6 +339,7 @@ mod tests {
                 text: String::new(),
             }),
             running: Vec::new(),
+            notes: Vec::new(),
         }
     }
 

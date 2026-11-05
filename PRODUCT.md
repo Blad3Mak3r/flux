@@ -12,7 +12,7 @@ The UI is React rendered in a Tauri v2 webview on Windows, macOS and Linux. It i
 
 - **Live show technicians** (lighting, video, sound) who sync equipment to timecode during an event, often in a dark booth or on stage, under pressure, reading the screen from a distance.
 - **Musicians running backing tracks** who need their tracks and the show's lighting or video cues locked together.
-- **Show designers working in a studio** who build the show ahead of time, placing audio, cues and events on a timeline with time to think.
+- **Show designers working in a studio** who build the show ahead of time, placing audio and notes on a timeline with time to think.
 
 The same project moves between the studio and the booth, so one interface serves both a calm editing session and a tense live one.
 
@@ -34,10 +34,10 @@ QLab's cue and show-control model combined with a REAPER-style timeline and trac
 ## Capabilities and Constraints
 
 - Today the backend can: open, save and import audio into `.fxtc` projects; list audio devices and MIDI ports and resolve stored name hints; encode LTC and MTC; run a transport (play, pause, stop, seek) with a position stream to the UI.
-- Not built yet: clip playback and mixing, trigger firing (`marker`, `midi`), waveform peaks, and any real UI. `src/App.tsx` is still the Tauri template demo.
+- Not built yet: clip playback and mixing, firing cues other than audio (video, Art-Net, MIDI keys, OSC are planned as new track kinds), waveform peaks, and any real UI. `src/App.tsx` is still the Tauri template demo.
 - Internationalisation is a requirement from the start. English is the default and Spanish is the second language. No user-facing string is hard-coded.
 - The UI must be legible in the dark and from a distance: the current timecode has to read at a glance.
-- Undecided: LTC level and edge defaults beyond the shipped defaults, supported audio formats beyond wav, aiff, flac, mp3 and ogg, a non-drop 29.97 rate, trigger actions beyond `marker` and `midi`, and release and packaging.
+- Undecided: LTC level and edge defaults beyond the shipped defaults, supported audio formats beyond wav, aiff, flac, mp3 and ogg, a non-drop 29.97 rate, which further track kinds come after audio and notes, and release and packaging.
 
 ## Brand Commitments
 

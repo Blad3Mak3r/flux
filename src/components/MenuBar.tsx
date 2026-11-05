@@ -2,8 +2,8 @@ import { useI18n } from "../i18n";
 import { BrandMark } from "./BrandMark";
 import { isDirty } from "../state/doc";
 import { dispatch, useDoc } from "../state/store";
-import { openSetup } from "../state/ui";
-import { importAudioFiles, newDocument, openDocument, saveDocument } from "../state/workflows";
+import { openSetup, useUi } from "../state/ui";
+import { addNoteAt, importAudioFiles, newDocument, openDocument, saveDocument } from "../state/workflows";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
 /** The modifier key as this platform prints it, for shortcut hints. */
@@ -14,6 +14,7 @@ export function MenuBar() {
   const dirty = useDoc(isDirty);
   const canUndo = useDoc((doc) => doc.past.length > 0);
   const canRedo = useDoc((doc) => doc.future.length > 0);
+  const editing = useUi((ui) => ui.view === "edit");
   const { t } = useI18n();
   const mod = MOD_KEY;
   // Shortcuts live in the tooltip: printed on every button they crowd a bar this narrow.
@@ -37,6 +38,7 @@ export function MenuBar() {
         <button type="button" onClick={() => void saveDocument(false)} title={hint(t("menu.save"), `${mod}+S`)}>{t("menu.save")}</button>
         <button type="button" onClick={() => void saveDocument(true)} title={hint(t("menu.saveAs"), `${mod}+⇧+S`)}>{t("menu.saveAs")}</button>
         <button type="button" onClick={() => void importAudioFiles()} title={hint(t("menu.importAudio"), "I")}>{t("menu.importAudio")}</button>
+        <button type="button" onClick={() => addNoteAt(t)} disabled={!editing} title={hint(t("menu.addNote"), "N")}>{t("menu.addNote")}</button>
       </div>
       <div className="menu-group" role="group" aria-label={t("menu.edit")}>
         <button type="button" onClick={() => dispatch({ type: "undo" })} disabled={!canUndo} title={hint(t("menu.undo"), `${mod}+Z`)}>{t("menu.undo")}</button>

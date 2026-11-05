@@ -62,7 +62,7 @@ one clock and cannot drift apart. Nothing in it allocates or locks.
 ## Cues and the Live view (`engine/cues.rs`, `live_commands.rs`)
 
 The Live view runs the timeline on stage, and the backend does all of its thinking; the UI only draws what it is
-sent. A **cue** is not stored in the project: every clip of an audio track and every trigger of an events track is one,
+sent. A **cue** is not stored in the project: every clip of an audio track and every note of a notes track is one,
 so the `.fxtc` format does not change. `CueList::build` derives the list, ordered by frame (cues at the same frame keep
 the order of their tracks) and numbered from 1. A clip's length comes from its decoded audio; a file that cannot be read
 gives a cue without length, never an error. `Cue.frame` is the absolute timecode frame, so the UI seeks to it as it is.
@@ -71,8 +71,14 @@ gives a cue without length, never an error. `Cue.frame` is the absolute timecode
 come, the one on standby), `running` (a clip from its first frame to the one before its end), `done` or `muted` (its
 track is muted, so it never plays or queues). The state also carries `current` (the sounding clip that started last, or
 else the last cue done), the countdown to the next cue and, for each running clip, the time elapsed, the time left and
-the progress. Every time is already written as timecode (`;` before the frames in drop-frame). Triggers are listed and
-counted down but not fired: sending a MIDI trigger is not built.
+the progress. Every time is already written as timecode (`;` before the frames in drop-frame).
+
+**Notes** are cues of kind `note` that carry their text (`Cue.text`; `Cue.name` is its first line). A note is on show from
+its frame for its `length`, or, without one, until the next note of its track that starts later, or to the end of the
+show. `LiveState.notes` lists those on show, with the time left of one that has a length, so the Live view can write
+them large for the operator. A note with a length also counts as `running` while it is on show. Notes of a muted track
+are neither shown nor queued. Nothing is fired by a cue yet: starting video, Art-Net, MIDI or OSC will be new track
+kinds.
 
 | Command | Arguments | Result |
 | --- | --- | --- |

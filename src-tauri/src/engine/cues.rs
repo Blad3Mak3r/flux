@@ -1,7 +1,7 @@
 //! The cues of the Live view and where the transport stands among them.
 //!
-//! A cue is not stored in the project: every clip of an audio track and every trigger of an events
-//! track is one, in the order the show reaches it. [`CueList::build`] derives the list and
+//! A cue is not stored in the project: every clip of an audio track and every note of a notes track
+//! is one, in the order the show reaches it. [`CueList::build`] derives the list and
 //! [`CueList::state_at`] says, for a position, which cue is next, which are sounding and which are
 //! done. The UI only draws what comes out, so every time is already written as timecode here. Nothing
 //! in this module touches a device or waits, which keeps it testable and cheap enough to run about
@@ -14,26 +14,27 @@ use serde::Serialize;
 use crate::audio::ENGINE_RATE;
 use crate::engine::timecode::Timecode;
 use crate::engine::transport::Clock;
-use crate::project::{AudioAsset, FrameRate, Project, TrackKind, TriggerAction};
+use crate::project::{AudioAsset, FrameRate, Project, TrackKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CueKind {
     Audio,
-    Marker,
-    Midi,
+    Note,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cue {
-    /// Id of the clip or trigger.
+    /// Id of the clip or note.
     pub id: String,
     /// Place in the show, from 1.
     pub number: u32,
     pub kind: CueKind,
-    /// The audio file's name or the trigger's label; a trigger can have none.
+    /// The audio file's name or the first line of a note; a note can have none.
     pub name: String,
+    /// The whole text of a note.
+    pub text: Option<String>,
     pub track_id: String,
     pub track_name: String,
     pub color: Option<String>,
@@ -44,6 +45,9 @@ pub struct Cue {
     /// Frames the cue lasts, for a clip whose audio could be read.
     pub length: Option<u64>,
     pub duration: Option<String>,
+    /// Where a note stops being shown: its length, or else the next note of its track, or never.
+    #[serde(skip)]
+    shown_until: Option<u64>,
 }
 
 impl Cue {
@@ -85,6 +89,16 @@ pub struct RunningCue {
     pub progress: f32,
 }
 
+/// A note that is on show now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteNow {
+    pub cue_id: String,
+    pub text: String,
+    /// Time left of a note with a length.
+    pub remaining: Option<String>,
+}
+
 /// Where the transport stands among the cues.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -95,6 +109,8 @@ pub struct LiveState {
     pub current: Option<String>,
     pub next: Option<Countdown>,
     pub running: Vec<RunningCue>,
+    /// The notes on show now, in the order of the list.
+    pub notes: Vec<NoteNow>,
 }
 
 /// The cues of a project, in the order the show reaches them.
@@ -121,6 +137,7 @@ impl CueList {
                 number: 0,
                 kind,
                 name: name.to_owned(),
+                text: None,
                 track_id: track.id.clone(),
                 track_name: track.name.clone(),
                 color: track.color.clone(),
@@ -129,6 +146,7 @@ impl CueList {
                 timecode: text(start + at),
                 length,
                 duration: length.map(text),
+                shown_until: None,
             };
             match &track.kind {
                 TrackKind::Audio { clips } => {
@@ -147,13 +165,13 @@ impl CueList {
                         ));
                     }
                 }
-                TrackKind::Events { triggers } => {
-                    for trigger in triggers {
-                        let kind = match trigger.action {
-                            TriggerAction::Marker => CueKind::Marker,
-                            TriggerAction::Midi { .. } => CueKind::Midi,
-                        };
-                        cues.push(cue(&trigger.id, kind, &trigger.label, trigger.at, None));
+                TrackKind::Notes { notes } => {
+                    for note in notes {
+                        let first_line = note.text.lines().next().unwrap_or_default().trim();
+                        let mut item =
+                            cue(&note.id, CueKind::Note, first_line, note.at, note.length);
+                        item.text = Some(note.text.clone());
+                        cues.push(item);
                     }
                 }
             }
@@ -163,6 +181,10 @@ impl CueList {
         cues.sort_by_key(|cue| cue.frame);
         for (cue, number) in cues.iter_mut().zip(1..) {
             cue.number = number;
+        }
+        let ends: Vec<Option<u64>> = (0..cues.len()).map(|i| shown_until(&cues, i)).collect();
+        for (cue, end) in cues.iter_mut().zip(ends) {
+            cue.shown_until = end;
         }
         Self { rate, cues }
     }
@@ -177,6 +199,7 @@ impl CueList {
         let mut statuses = Vec::with_capacity(self.cues.len());
         let mut next = None;
         let mut running = Vec::new();
+        let mut notes = Vec::new();
         let (mut last_running, mut last_done) = (None, None);
 
         for cue in &self.cues {
@@ -206,6 +229,17 @@ impl CueList {
             } else {
                 CueStatus::Done
             };
+            if cue.kind == CueKind::Note
+                && !cue.muted
+                && cue.frame <= frame
+                && cue.shown_until.is_none_or(|end| frame < end)
+            {
+                notes.push(NoteNow {
+                    cue_id: cue.id.clone(),
+                    text: cue.text.clone().unwrap_or_default(),
+                    remaining: cue.length.map(|length| text(cue.frame + length - frame)),
+                });
+            }
             // Cues come in order, so the last of each kind is the one that started latest.
             match status {
                 CueStatus::Running => last_running = Some(&cue.id),
@@ -220,8 +254,28 @@ impl CueList {
             current: last_running.or(last_done).cloned(),
             next,
             running,
+            notes,
         }
     }
+}
+
+/// Where cue `index` stops being shown. Only notes are shown over time: one with a length for that
+/// long, one without until the next note of its track that starts later, or for the rest of the show.
+fn shown_until(cues: &[Cue], index: usize) -> Option<u64> {
+    let cue = &cues[index];
+    if cue.kind != CueKind::Note {
+        return None;
+    }
+    cue.length.map(|length| cue.frame + length).or_else(|| {
+        cues[index + 1..]
+            .iter()
+            .find(|other| {
+                other.kind == CueKind::Note
+                    && other.track_id == cue.track_id
+                    && other.frame > cue.frame
+            })
+            .map(|other| other.frame)
+    })
 }
 
 /// The cue list the live lane reads, replaced whole when the project's tracks change, so the lane
@@ -246,7 +300,7 @@ impl SharedCues {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{AudioClip, Track, Trigger};
+    use crate::project::{AudioClip, Note, Track};
 
     /// One second of 25 fps video at the engine rate.
     const SECOND: u64 = ENGINE_RATE as u64;
@@ -271,17 +325,17 @@ mod tests {
         }
     }
 
-    fn trigger(id: &str, at: u64, action: TriggerAction) -> Trigger {
-        Trigger {
+    fn note(id: &str, at: u64, length: Option<u64>, text: &str) -> Note {
+        Note {
             id: id.into(),
             at,
-            label: id.to_uppercase(),
-            action,
+            length,
+            text: text.into(),
         }
     }
 
     /// A 25 fps project starting at frame 100 with a two-second asset `a1`, a muted-able audio
-    /// track `t1` (clips `c1` at 0 and `c2` at 100) and an events track `t2` (marker `m1` at 50).
+    /// track `t1` (clips `c1` at 0 and `c2` at 100) and a notes track `t2` (note `m1` at 50, with no length).
     fn project(muted: bool) -> Project {
         let mut project = Project::new("Show", FrameRate::Fps25);
         project.timecode.start = 100;
@@ -300,8 +354,8 @@ mod tests {
         project.tracks.push(track(
             "t2",
             false,
-            TrackKind::Events {
-                triggers: vec![trigger("m1", 50, TriggerAction::Marker)],
+            TrackKind::Notes {
+                notes: vec![note("m1", 50, None, "M1")],
             },
         ));
         project
@@ -309,6 +363,14 @@ mod tests {
 
     fn list(project: &Project) -> CueList {
         CueList::build(project, |_| Some(2 * SECOND))
+    }
+
+    fn cue_named(list: &CueList, id: &str) -> Cue {
+        list.cues()
+            .iter()
+            .find(|cue| cue.id == id)
+            .cloned()
+            .unwrap()
     }
 
     fn ids(list: &CueList) -> Vec<&str> {
@@ -326,8 +388,8 @@ mod tests {
     #[test]
     fn build_should_keep_the_track_order_for_cues_at_the_same_frame() {
         let mut project = project(false);
-        project.tracks[1].kind = TrackKind::Events {
-            triggers: vec![trigger("m1", 0, TriggerAction::Marker)],
+        project.tracks[1].kind = TrackKind::Notes {
+            notes: vec![note("m1", 0, None, "M1")],
         };
         assert_eq!(ids(&list(&project))[..2], ["c1", "m1"]);
     }
@@ -353,20 +415,24 @@ mod tests {
     }
 
     #[test]
-    fn build_should_tell_markers_from_midi_triggers() {
+    fn build_should_name_a_note_after_its_first_line_and_keep_all_of_its_text() {
         let mut project = project(false);
-        project.tracks[1].kind = TrackKind::Events {
-            triggers: vec![trigger(
-                "x1",
-                0,
-                TriggerAction::Midi {
-                    bytes: vec![0xC0, 1],
-                },
-            )],
+        project.tracks[1].kind = TrackKind::Notes {
+            notes: vec![note("n1", 0, None, "  Singer on\nstage left ")],
         };
-        let kinds: Vec<CueKind> = list(&project).cues().iter().map(|cue| cue.kind).collect();
-        assert!(kinds.contains(&CueKind::Midi));
-        assert!(!kinds.contains(&CueKind::Marker));
+        let cue = cue_named(&list(&project), "n1");
+        assert_eq!(cue.kind, CueKind::Note);
+        assert_eq!(cue.name, "Singer on");
+        assert_eq!(cue.text.as_deref(), Some("  Singer on\nstage left "));
+    }
+
+    #[test]
+    fn build_should_give_a_note_its_own_length() {
+        let mut project = project(false);
+        project.tracks[1].kind = TrackKind::Notes {
+            notes: vec![note("n1", 0, Some(30), "Hold")],
+        };
+        assert_eq!(cue_named(&list(&project), "n1").length, Some(30));
     }
 
     #[test]
@@ -413,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn state_at_should_finish_a_trigger_once_its_frame_is_reached() {
+    fn state_at_should_finish_a_note_without_length_once_its_frame_is_reached() {
         let list = list(&project(false));
         assert_eq!(list.state_at(149).statuses[1], CueStatus::Next);
         assert_eq!(list.state_at(150).statuses[1], CueStatus::Done);
@@ -428,7 +494,7 @@ mod tests {
 
     #[test]
     fn state_at_should_prefer_a_sounding_clip_as_the_current_cue() {
-        // The marker at 150 is done, but the clip that started at 200 sounds.
+        // The note at 150 is done, but the clip that started at 200 sounds.
         let state = list(&project(false)).state_at(210);
         assert_eq!(state.current.as_deref(), Some("c2"));
         let state = list(&project(false)).state_at(160);
@@ -455,6 +521,86 @@ mod tests {
         let mut project = project(false);
         project.timecode.frame_rate = FrameRate::Fps2997Drop;
         assert!(list(&project).cues()[0].timecode.contains(';'));
+    }
+
+    /// A project with only the notes track `t2` holding `notes`.
+    fn with_notes(notes: Vec<Note>) -> Project {
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        project
+            .tracks
+            .push(track("t2", false, TrackKind::Notes { notes }));
+        project
+    }
+
+    fn shown(list: &CueList, frame: u64) -> Vec<String> {
+        list.state_at(frame)
+            .notes
+            .into_iter()
+            .map(|note| note.cue_id)
+            .collect()
+    }
+
+    #[test]
+    fn state_at_should_show_a_note_until_the_next_note_of_its_track_when_it_has_no_length() {
+        let list = list(&with_notes(vec![
+            note("a", 10, None, "A"),
+            note("b", 20, None, "B"),
+        ]));
+        assert_eq!(shown(&list, 9), Vec::<String>::new());
+        assert_eq!(shown(&list, 10), ["a"]);
+        assert_eq!(shown(&list, 19), ["a"]);
+        assert_eq!(shown(&list, 20), ["b"]);
+    }
+
+    #[test]
+    fn state_at_should_keep_showing_the_last_note_until_the_end_of_the_show() {
+        let list = list(&with_notes(vec![note("a", 10, None, "A")]));
+        assert_eq!(shown(&list, 100_000), ["a"]);
+    }
+
+    #[test]
+    fn state_at_should_show_a_note_with_a_length_for_that_long_only() {
+        let list = list(&with_notes(vec![
+            note("a", 10, Some(5), "A"),
+            note("b", 100, None, "B"),
+        ]));
+        assert_eq!(shown(&list, 14), ["a"]);
+        assert_eq!(shown(&list, 15), Vec::<String>::new());
+    }
+
+    #[test]
+    fn state_at_should_say_how_long_a_note_with_a_length_has_left() {
+        let list = list(&with_notes(vec![note("a", 0, Some(50), "A")]));
+        let now = list.state_at(25).notes;
+        assert_eq!(now[0].remaining.as_deref(), Some("00:00:01:00"));
+        assert_eq!(now[0].text, "A");
+    }
+
+    #[test]
+    fn state_at_should_show_notes_of_different_tracks_together() {
+        let mut project = with_notes(vec![note("a", 0, None, "A")]);
+        project.tracks.push(track(
+            "t3",
+            false,
+            TrackKind::Notes {
+                notes: vec![note("b", 5, None, "B")],
+            },
+        ));
+        assert_eq!(shown(&list(&project), 10), ["a", "b"]);
+    }
+
+    #[test]
+    fn state_at_should_not_show_the_notes_of_a_muted_track() {
+        let mut project = with_notes(vec![note("a", 0, None, "A")]);
+        project.tracks[0].muted = true;
+        assert_eq!(shown(&list(&project), 10), Vec::<String>::new());
+    }
+
+    #[test]
+    fn state_at_should_run_a_note_with_a_length_like_a_clip() {
+        let list = list(&with_notes(vec![note("a", 10, Some(5), "A")]));
+        assert_eq!(list.state_at(12).statuses[0], CueStatus::Running);
+        assert_eq!(list.state_at(15).statuses[0], CueStatus::Done);
     }
 
     #[test]

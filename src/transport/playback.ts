@@ -13,9 +13,11 @@ import type { Project } from "../project/types";
 import { useDoc } from "../state/store";
 import { hasNativeWindow } from "../components/WindowControls";
 import { sayError } from "../state/ui";
+import { realFps } from "../timecode";
 import * as api from "./api";
 import type { OutputLanes } from "./api";
 import { latestOnly } from "./latest";
+import { displayClock } from "./smooth";
 import { stoppedAt } from "./stopped";
 import { useTransport } from "./store";
 
@@ -49,7 +51,12 @@ async function guard(action: () => Promise<void>): Promise<void> {
 
 /** Each lane writes only its own field, so the meters never wait for the timecode or the other way round. */
 const lanes = (id: number): OutputLanes => ({
-  onPosition: (position) => id === run && useTransport.setState({ position }),
+  onPosition: (position) => {
+    if (id !== run) return;
+    const { timecode } = project();
+    displayClock.feed(position, performance.now(), realFps(timecode.frameRate), timecode.start);
+    useTransport.setState({ position });
+  },
   onLevels: (tracks) =>
     id === run && useTransport.setState({ levels: Object.fromEntries(tracks.map((track) => [track.id, track.peak])) }),
   onLive: (state) => id === run && useLive.setState({ state }),
@@ -159,6 +166,7 @@ export const stop = () =>
     const current = project();
     const { start } = current.timecode;
     useTransport.setState({ parked: start });
+    displayClock.jump();
     const { info, position } = useTransport.getState();
     if (!info) return;
     // An output opened for another start counts from the old one, so its position is wrong.
@@ -175,6 +183,7 @@ const sendSeek = latestOnly(api.seek, report);
 export function seek(frame: number): void {
   const target = Math.max(project().timecode.start, Math.round(frame));
   const { position, info } = useTransport.getState();
+  displayClock.jump();
   useTransport.setState({ parked: target, ...(position && { position: { ...position, frame: target } }) });
   if (info) sendSeek(target);
 }

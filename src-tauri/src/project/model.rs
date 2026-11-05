@@ -3,11 +3,15 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::error::{ProjectError, Result};
+pub use super::meta::Meta;
 
-/// Version written to `project.json`. Readers reject anything newer.
+/// Version written to `project.json`. Readers reject anything newer and migrate older ones
+/// (see `migrate.rs`).
 ///
-/// Version 2 turned `output.ltc` and `output.mtc` into lists; `migrate` reads version 1 files.
-pub const FORMAT_VERSION: u32 = 2;
+/// Version 2 turned event tracks into notes and `output.ltc` / `output.mtc` into lists; version 3
+/// added `meta`. Files of version 2 written while the format was changing can hold either shape,
+/// so the migration looks at the shape, not at the number.
+pub const FORMAT_VERSION: u32 = 3;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -18,6 +22,7 @@ pub const AUDIO_DIR: &str = "audio/";
 pub struct Project {
     pub format_version: u32,
     pub name: String,
+    pub meta: Meta,
     pub timecode: TimecodeSettings,
     pub assets: Vec<AudioAsset>,
     pub tracks: Vec<Track>,
@@ -69,8 +74,13 @@ pub struct Track {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum TrackKind {
-    Audio { clips: Vec<AudioClip> },
-    Events { triggers: Vec<Trigger> },
+    Audio {
+        clips: Vec<AudioClip>,
+    },
+    /// Text for the operator, shown on the timeline and in the Live view.
+    Notes {
+        notes: Vec<Note>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -83,20 +93,18 @@ pub struct AudioClip {
     pub gain_db: f32,
 }
 
+/// A note at a point of the timeline. It is shown from `at` for `length` frames, or until the next
+/// note of its track when it has none.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Trigger {
+pub struct Note {
     pub id: String,
     pub at: u64,
-    pub label: String,
-    pub action: TriggerAction,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-pub enum TriggerAction {
-    Marker,
-    Midi { bytes: Vec<u8> },
+    /// How many frames the note lasts; absent means until the next note.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+    /// Free text, possibly several lines.
+    pub text: String,
 }
 
 /// Devices are machine-specific, so only a name hint is stored, never an OS identifier.
@@ -141,6 +149,7 @@ impl Project {
         Self {
             format_version: FORMAT_VERSION,
             name: name.into(),
+            meta: Meta::new(),
             timecode: TimecodeSettings {
                 frame_rate,
                 start: 0,
@@ -154,6 +163,7 @@ impl Project {
     /// Checks the invariants the archive format relies on: unique ids, clips pointing at known
     /// assets, and asset files living directly under `audio/`.
     pub fn validate(&self) -> Result<()> {
+        self.meta.validate()?;
         let mut asset_ids = HashSet::new();
         let mut asset_files = HashSet::new();
         for asset in &self.assets {
@@ -178,7 +188,7 @@ impl Project {
             match &track.kind {
                 TrackKind::Audio { clips } => {
                     for clip in clips {
-                        ensure_unique(&mut item_ids, "clip/trigger id", &clip.id)?;
+                        ensure_unique(&mut item_ids, "clip/note id", &clip.id)?;
                         if !asset_ids.contains(clip.asset.as_str()) {
                             return Err(ProjectError::Invalid(format!(
                                 "clip {} references unknown asset {}",
@@ -187,9 +197,15 @@ impl Project {
                         }
                     }
                 }
-                TrackKind::Events { triggers } => {
-                    for trigger in triggers {
-                        ensure_unique(&mut item_ids, "clip/trigger id", &trigger.id)?;
+                TrackKind::Notes { notes } => {
+                    for note in notes {
+                        ensure_unique(&mut item_ids, "clip/note id", &note.id)?;
+                        if note.length == Some(0) {
+                            return Err(ProjectError::Invalid(format!(
+                                "note {} lasts no time; leave the length out instead",
+                                note.id
+                            )));
+                        }
                     }
                 }
             }
@@ -241,32 +257,6 @@ where
     })
 }
 
-/// Brings a `project.json` of an older version up to `FORMAT_VERSION`, in place.
-///
-/// Version 1 held at most one LTC and one MTC output as an object or `null`; version 2 holds lists.
-pub(super) fn migrate(value: &mut serde_json::Value) {
-    use serde_json::Value;
-
-    let version = value
-        .get("formatVersion")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    if version >= 2 {
-        return;
-    }
-    if let Some(output) = value.get_mut("output").and_then(Value::as_object_mut) {
-        for key in ["ltc", "mtc"] {
-            let list = match output.remove(key) {
-                None | Some(Value::Null) => Vec::new(),
-                Some(Value::Array(items)) => items,
-                Some(single) => vec![single],
-            };
-            output.insert(key.into(), Value::Array(list));
-        }
-    }
-    value["formatVersion"] = Value::from(FORMAT_VERSION);
-}
-
 /// `#rrggbb`, so it can go into a stylesheet as it is.
 fn check_color(color: &str) -> Result<()> {
     match color.strip_prefix('#') {
@@ -316,6 +306,15 @@ pub(super) mod tests {
         Project {
             format_version: FORMAT_VERSION,
             name: "Opening night".into(),
+            meta: Meta {
+                id: "6f0c1d52-7a0e-4a52-9c3b-2d6a5f1b8e10".into(),
+                created_at: "2026-11-01T09:30:00Z".into(),
+                modified_at: "2026-11-05T14:29:03Z".into(),
+                created_with: "0.1.0".into(),
+                saved_with: "0.1.0".into(),
+                author: "Ana".into(),
+                description: String::new(),
+            },
             timecode: TimecodeSettings {
                 frame_rate: FrameRate::Fps2997Drop,
                 start: 107_892,
@@ -343,25 +342,23 @@ pub(super) mod tests {
                 },
                 Track {
                     id: "t2".into(),
-                    name: "Cues".into(),
+                    name: "Notes".into(),
                     muted: true,
                     gain_db: None,
                     color: None,
-                    kind: TrackKind::Events {
-                        triggers: vec![
-                            Trigger {
-                                id: "e1".into(),
+                    kind: TrackKind::Notes {
+                        notes: vec![
+                            Note {
+                                id: "n1".into(),
                                 at: 300,
-                                label: "Lights up".into(),
-                                action: TriggerAction::Marker,
+                                length: None,
+                                text: "Lights up".into(),
                             },
-                            Trigger {
-                                id: "e2".into(),
+                            Note {
+                                id: "n2".into(),
                                 at: 450,
-                                label: "Program change".into(),
-                                action: TriggerAction::Midi {
-                                    bytes: vec![0xC0, 0x05],
-                                },
+                                length: Some(75),
+                                text: "Singer walks on\nstage left".into(),
                             },
                         ],
                     },
@@ -383,9 +380,18 @@ pub(super) mod tests {
         }
     }
 
+    /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 2,
+        "formatVersion": 3,
         "name": "Opening night",
+        "meta": {
+            "id": "6f0c1d52-7a0e-4a52-9c3b-2d6a5f1b8e10",
+            "createdAt": "2026-11-01T09:30:00Z",
+            "modifiedAt": "2026-11-05T14:29:03Z",
+            "createdWith": "0.1.0",
+            "savedWith": "0.1.0",
+            "author": "Ana"
+        },
         "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
         "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav" }],
         "tracks": [
@@ -396,11 +402,10 @@ pub(super) mod tests {
                 ] }
             },
             {
-                "id": "t2", "name": "Cues", "muted": true,
-                "kind": { "type": "events", "triggers": [
-                    { "id": "e1", "at": 300, "label": "Lights up", "action": { "type": "marker" } },
-                    { "id": "e2", "at": 450, "label": "Program change",
-                      "action": { "type": "midi", "bytes": [192, 5] } }
+                "id": "t2", "name": "Notes", "muted": true,
+                "kind": { "type": "notes", "notes": [
+                    { "id": "n1", "at": 300, "text": "Lights up" },
+                    { "id": "n2", "at": 450, "length": 75, "text": "Singer walks on\nstage left" }
                 ] }
             }
         ],
@@ -410,15 +415,6 @@ pub(super) mod tests {
             "mtc": [{ "portName": "IAC Driver Bus 1" }]
         }
     }"##;
-
-    /// The same show as `FIXTURE`, written by a build that held one LTC and one MTC output.
-    fn v1_fixture() -> serde_json::Value {
-        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
-        json["formatVersion"] = 1.into();
-        json["output"]["ltc"] = serde_json::json!({ "deviceName": "Main Interface", "channel": 3 });
-        json["output"]["mtc"] = serde_json::json!({ "portName": "IAC Driver Bus 1" });
-        json
-    }
 
     #[test]
     fn fixture_should_parse_into_the_sample_project() {
@@ -434,43 +430,22 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn migrate_should_turn_the_v1_outputs_into_lists() {
-        let mut json = v1_fixture();
-        migrate(&mut json);
-        let parsed: Project = serde_json::from_value(json).unwrap();
-        assert_eq!(parsed, sample_project());
-    }
-
-    #[test]
-    fn migrate_should_turn_a_missing_or_null_output_into_an_empty_list() {
-        let mut json = v1_fixture();
-        json["output"]["ltc"] = serde_json::Value::Null;
-        json["output"].as_object_mut().unwrap().remove("mtc");
-        migrate(&mut json);
-        let parsed: Project = serde_json::from_value(json).unwrap();
-        assert!(parsed.output.ltc.is_empty());
-        assert!(parsed.output.mtc.is_empty());
-        assert_eq!(parsed.format_version, FORMAT_VERSION);
-    }
-
-    #[test]
-    fn a_v2_file_with_the_old_output_shape_should_still_open() {
-        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
-        json["output"]["ltc"] = serde_json::Value::Null;
-        json["output"]["mtc"] = serde_json::json!({ "portName": "loopMIDI Port" });
-        migrate(&mut json);
-        let parsed: Project = serde_json::from_value(json).unwrap();
-        assert!(parsed.output.ltc.is_empty());
-        assert_eq!(
-            parsed.output.mtc,
-            vec![MtcOutput {
-                port_name: "loopMIDI Port".into()
-            }]
+    fn note_without_a_length_should_parse_and_serialize_without_one() {
+        let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
+        let TrackKind::Notes { notes } = &parsed.tracks[1].kind else {
+            panic!("the second track holds notes");
+        };
+        assert_eq!(notes[0].length, None);
+        let json = serde_json::to_value(&parsed).unwrap();
+        assert!(
+            json["tracks"][1]["kind"]["notes"][0]
+                .get("length")
+                .is_none()
         );
     }
 
     #[test]
-    fn outputs_should_parse_from_null_one_object_or_a_list_without_migrating() {
+    fn outputs_should_parse_from_null_one_object_or_a_list() {
         for (ltc, expected) in [
             (serde_json::Value::Null, 0),
             (serde_json::json!({ "deviceName": "A", "channel": 1 }), 1),
@@ -487,19 +462,36 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn migrate_should_leave_a_current_file_alone() {
-        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
-        let before = json.clone();
-        migrate(&mut json);
-        assert_eq!(json, before);
-    }
-
-    #[test]
     fn output_lists_should_default_to_empty_when_absent() {
         let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         json["output"] = serde_json::json!({});
         let parsed: Project = serde_json::from_value(json).unwrap();
         assert!(parsed.output.ltc.is_empty() && parsed.output.mtc.is_empty());
+    }
+
+    #[test]
+    fn validate_should_reject_a_note_that_lasts_no_time() {
+        let mut project = sample_project();
+        if let TrackKind::Notes { notes } = &mut project.tracks[1].kind {
+            notes[0].length = Some(0);
+        }
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_note_id_that_a_clip_already_uses() {
+        let mut project = sample_project();
+        if let TrackKind::Notes { notes } = &mut project.tracks[1].kind {
+            notes[0].id = "c1".into();
+        }
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_project_id_that_is_not_a_uuid() {
+        let mut project = sample_project();
+        project.meta.id = "not-a-uuid".into();
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
     }
 
     #[test]

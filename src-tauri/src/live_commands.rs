@@ -7,22 +7,42 @@
 //! is parked in the window and no output reports it.
 
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use tauri::State;
 
-use crate::audio::{AudioError, SharedAudio};
+use crate::audio::{AudioError, ENGINE_RATE, SharedAudio};
 use crate::audio_commands::load;
 use crate::commands::SharedSession;
 use crate::engine::cues::{Cue, CueList, LiveState};
-use crate::project::Project;
+use crate::project::{AudioAsset, Project};
+
+/// The samples (at the engine rate) of an asset's audio, found the cheapest way: the audio already
+/// decoded, else the length stored with its waveform, and only then by decoding it, which for a song
+/// takes seconds.
+fn samples_of(session: &SharedSession, audio: &SharedAudio, asset: &AudioAsset) -> Option<u64> {
+    if let Some(decoded) = audio.get(&asset.id) {
+        return u64::try_from(decoded.frames()).ok();
+    }
+    let stored = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .preview(asset);
+    if let Ok(Some(preview)) = stored {
+        return Some(samples_of_seconds(preview.duration_seconds));
+    }
+    let decoded = load(session, audio, asset).ok()?;
+    u64::try_from(decoded.frames()).ok()
+}
+
+fn samples_of_seconds(seconds: f64) -> u64 {
+    // Never negative or NaN: a stored length is only a number from a file.
+    (seconds.max(0.0) * f64::from(ENGINE_RATE)).round() as u64
+}
 
 /// The cues of `project`. A clip whose audio cannot be read is a cue without length, never an error.
 pub fn cue_list(project: &Project, session: &SharedSession, audio: &SharedAudio) -> CueList {
-    CueList::build(project, |asset| {
-        let decoded = load(session, audio, asset).ok()?;
-        u64::try_from(decoded.frames()).ok()
-    })
+    CueList::build(project, |asset| samples_of(session, audio, asset))
 }
 
 async fn blocking<T: Send + 'static>(
@@ -54,4 +74,25 @@ pub async fn live_state(
 ) -> Result<LiveState, AudioError> {
     let (session, audio) = (Arc::clone(&session), Arc::clone(&audio));
     blocking(move || cue_list(&project, &session, &audio).state_at(frame)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn samples_of_seconds_should_convert_a_length_at_the_engine_rate() {
+        assert_eq!(samples_of_seconds(2.0), 2 * u64::from(ENGINE_RATE));
+    }
+
+    #[test]
+    fn samples_of_seconds_should_round_to_the_nearest_sample() {
+        assert_eq!(samples_of_seconds(1.0 / 48_000.0 * 2.4), 2);
+    }
+
+    #[test]
+    fn samples_of_seconds_should_not_go_negative_or_nan() {
+        assert_eq!(samples_of_seconds(-3.0), 0);
+        assert_eq!(samples_of_seconds(f64::NAN), 0);
+    }
 }

@@ -6,10 +6,26 @@ export type FrameRate = "fps24" | "fps25" | "fps2997Drop" | "fps30";
 export interface Project {
   formatVersion: number;
   name: string;
+  meta: ProjectMeta;
   timecode: { frameRate: FrameRate; start: number };
   assets: AudioAsset[];
   tracks: Track[];
   output: OutputConfig;
+}
+
+/** Identity and history of the project; `modifiedAt` and `savedWith` are set by the backend on save. */
+export interface ProjectMeta {
+  /** A UUID that stays with the project through renames and copies of the file. */
+  id: string;
+  /** RFC 3339 UTC. */
+  createdAt: string;
+  modifiedAt: string;
+  /** FluxTimecode version that created it; empty when unknown. */
+  createdWith: string;
+  /** FluxTimecode version of the last save. */
+  savedWith: string;
+  author?: string;
+  description?: string;
 }
 
 export interface AudioAsset {
@@ -32,7 +48,7 @@ export interface Track {
 
 export type TrackKind =
   | { type: "audio"; clips: AudioClip[] }
-  | { type: "events"; triggers: Trigger[] };
+  | { type: "notes"; notes: Note[] };
 
 export interface AudioClip {
   id: string;
@@ -42,14 +58,18 @@ export interface AudioClip {
   gainDb: number;
 }
 
-export interface Trigger {
+/**
+ * Text for the operator at a point of the timeline. It is shown from `at` for `length` frames, or
+ * until the next note of its track when it has no length.
+ */
+export interface Note {
   id: string;
   at: number;
-  label: string;
-  action: TriggerAction;
+  /** Frames the note lasts; absent means until the next note. */
+  length?: number;
+  /** Free text, possibly several lines. */
+  text: string;
 }
-
-export type TriggerAction = { type: "marker" } | { type: "midi"; bytes: number[] };
 
 /** Devices are stored by name hint only, never by OS identifier. */
 export interface OutputConfig {

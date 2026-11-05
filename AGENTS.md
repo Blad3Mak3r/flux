@@ -21,7 +21,7 @@ the cues from the project and computes their state and countdowns (`src-tauri/sr
 
 Projects use the `.fxtc` extension. A `.fxtc` is a **zip container** holding:
 
-- `project.json` — the full project description: tracks, timecode positions, triggers/cues/events, and
+- `project.json` — the full project description: tracks (audio and notes), timecode positions, and
   configuration (timecode format, frame rate, start offset, MTC/LTC settings, device preferences).
 - The **audio files** used by the project's tracks, bundled in the archive so a project is self-contained and portable.
 

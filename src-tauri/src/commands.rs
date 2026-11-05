@@ -86,11 +86,11 @@ pub async fn project_save(
     session: State<'_, SharedSession>,
     project: Project,
     path: PathBuf,
-) -> Result<()> {
+) -> Result<Project> {
     let saved = path.clone();
-    run(&session, move |s| s.save(&project, &path)).await?;
+    let project = run(&session, move |s| s.save(&project, &path)).await?;
     recents::remember(&app, &saved);
-    Ok(())
+    Ok(project)
 }
 
 /// Permanently deletes a `.fxtc` from disk. The frontend must have the user's confirmation first.
