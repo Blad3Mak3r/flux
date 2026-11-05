@@ -360,6 +360,7 @@ mod tests {
             id: "a1".into(),
             name: "Intro".into(),
             file: "audio/intro.wav".into(),
+            bpm: None,
         });
         project.timelines[0].tracks.push(track(
             "t1",

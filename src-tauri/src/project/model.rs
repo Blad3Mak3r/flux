@@ -40,7 +40,56 @@ pub struct Timeline {
     pub id: String,
     pub name: String,
     pub timecode: TimecodeSettings,
+    /// The beat grid of the timeline and its metronome. Absent in files written before it existed,
+    /// read as the default tempo with the click off.
+    #[serde(default)]
+    pub tempo: Tempo,
     pub tracks: Vec<Track>,
+}
+
+/// Slowest and fastest tempo a timeline can hold.
+pub const MIN_BPM: f64 = 20.0;
+pub const MAX_BPM: f64 = 400.0;
+/// Most beats a bar can hold.
+pub const MAX_BEATS_PER_BAR: u8 = 16;
+
+/// The beat grid of a timeline: beats are counted from its origin. `click` says whether the
+/// metronome plays while this timeline runs; where it plays is `output.metronome`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tempo {
+    pub bpm: f64,
+    pub beats_per_bar: u8,
+    #[serde(default)]
+    pub click: bool,
+}
+
+impl Default for Tempo {
+    fn default() -> Self {
+        Self {
+            bpm: 120.0,
+            beats_per_bar: 4,
+            click: false,
+        }
+    }
+}
+
+impl Tempo {
+    fn validate(&self) -> Result<()> {
+        if !(MIN_BPM..=MAX_BPM).contains(&self.bpm) {
+            return Err(ProjectError::Invalid(format!(
+                "tempo must be between {MIN_BPM} and {MAX_BPM} BPM: {}",
+                self.bpm
+            )));
+        }
+        if !(1..=MAX_BEATS_PER_BAR).contains(&self.beats_per_bar) {
+            return Err(ProjectError::Invalid(format!(
+                "a bar holds 1 to {MAX_BEATS_PER_BAR} beats: {}",
+                self.beats_per_bar
+            )));
+        }
+        Ok(())
+    }
 }
 
 impl Timeline {
@@ -52,6 +101,7 @@ impl Timeline {
                 frame_rate,
                 start: 0,
             },
+            tempo: Tempo::default(),
             tracks: Vec::new(),
         }
     }
@@ -82,6 +132,9 @@ pub struct AudioAsset {
     pub name: String,
     /// Archive path, `audio/<file name>`.
     pub file: String,
+    /// The tempo found in the audio, or set by the user; absent when it was never detected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bpm: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -145,6 +198,9 @@ pub struct OutputConfig {
     /// no timecode. Absent means Edit plays like Live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<AudioOutput>,
+    /// Where the metronome clicks, on a device and level of its own. Absent means no click plays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metronome: Option<MetronomeOutput>,
     /// Every LTC signal to send; each one names its own device and channel.
     #[serde(default, deserialize_with = "list_or_one")]
     pub ltc: Vec<LtcOutput>,
@@ -160,6 +216,18 @@ pub struct AudioOutput {
     pub device_name: String,
     /// Interface channels that receive the programme: `[1, 2]` for a stereo pair.
     pub channels: Vec<u16>,
+}
+
+/// The audio interface and channels the metronome plays on, apart from the programme's.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetronomeOutput {
+    pub device_name: String,
+    /// 1-based interface channels: a pair plays the click on both, a single one on that channel.
+    pub channels: Vec<u16>,
+    /// Level of the click in dB; absent is 0 dB.
+    #[serde(default)]
+    pub gain_db: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -219,6 +287,15 @@ impl Project {
             check_asset_path(&asset.file)?;
             ensure_unique(&mut asset_ids, "asset id", &asset.id)?;
             ensure_unique(&mut asset_files, "asset file", &asset.file)?;
+            if asset
+                .bpm
+                .is_some_and(|bpm| !(MIN_BPM..=MAX_BPM).contains(&bpm))
+            {
+                return Err(ProjectError::Invalid(format!(
+                    "asset {} has a tempo outside {MIN_BPM} to {MAX_BPM} BPM",
+                    asset.id
+                )));
+            }
         }
 
         if self.timelines.is_empty() {
@@ -229,6 +306,7 @@ impl Project {
         let mut item_ids = HashSet::new();
         for timeline in &self.timelines {
             ensure_unique(&mut timeline_ids, "timeline id", &timeline.id)?;
+            timeline.tempo.validate()?;
             for track in &timeline.tracks {
                 validate_track(track, &asset_ids, &mut track_ids, &mut item_ids)?;
             }
@@ -286,19 +364,33 @@ impl OutputConfig {
         for ltc in &self.ltc {
             check_channel(ltc.channel)?;
         }
-        for audio in [&self.audio, &self.preview].into_iter().flatten() {
-            let mut seen = HashSet::new();
-            for &channel in &audio.channels {
-                check_channel(channel)?;
-                if !seen.insert(channel) {
-                    return Err(ProjectError::Invalid(format!(
-                        "duplicate audio output channel: {channel}"
-                    )));
-                }
+        if let Some(metronome) = &self.metronome {
+            if !metronome.gain_db.is_finite() {
+                return Err(ProjectError::Invalid(
+                    "the metronome level is not a number".into(),
+                ));
             }
+            validate_channels(&metronome.channels)?;
+        }
+        for audio in [&self.audio, &self.preview].into_iter().flatten() {
+            validate_channels(&audio.channels)?;
         }
         Ok(())
     }
+}
+
+/// Channels are 1-based and may be listed only once.
+fn validate_channels(channels: &[u16]) -> Result<()> {
+    let mut seen = HashSet::new();
+    for &channel in channels {
+        check_channel(channel)?;
+        if !seen.insert(channel) {
+            return Err(ProjectError::Invalid(format!(
+                "duplicate audio output channel: {channel}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Reads a list that older files wrote as a single object or as `null`. Files carrying version 2
@@ -385,6 +477,7 @@ pub(super) mod tests {
                 id: "a1".into(),
                 name: "Click".into(),
                 file: "audio/click.wav".into(),
+                bpm: Some(128.5),
             }],
             timelines: vec![Timeline {
                 id: "l1".into(),
@@ -392,6 +485,11 @@ pub(super) mod tests {
                 timecode: TimecodeSettings {
                     frame_rate: FrameRate::Fps2997Drop,
                     start: 107_892,
+                },
+                tempo: Tempo {
+                    bpm: 128.0,
+                    beats_per_bar: 3,
+                    click: true,
                 },
                 tracks: vec![
                     Track {
@@ -447,6 +545,11 @@ pub(super) mod tests {
                     port_name: "IAC Driver Bus 1".into(),
                 }],
                 preview: None,
+                metronome: Some(MetronomeOutput {
+                    device_name: "Band Monitor".into(),
+                    channels: vec![3, 4],
+                    gain_db: -6.0,
+                }),
             },
         }
     }
@@ -463,10 +566,11 @@ pub(super) mod tests {
             "savedWith": "0.1.0",
             "author": "Ana"
         },
-        "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav" }],
+        "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav", "bpm": 128.5 }],
         "timelines": [{
             "id": "l1", "name": "Opening night",
             "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
+            "tempo": { "bpm": 128.0, "beatsPerBar": 3, "click": true },
             "tracks": [
             {
                 "id": "t1", "name": "Backing", "muted": false, "gainDb": -6.0, "color": "#5cd0ea",
@@ -484,6 +588,7 @@ pub(super) mod tests {
         ] }],
         "output": {
             "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
+            "metronome": { "deviceName": "Band Monitor", "channels": [3, 4], "gainDb": -6.0 },
             "ltc": [{ "deviceName": "Main Interface", "channel": 3 }],
             "mtc": [{ "portName": "IAC Driver Bus 1" }]
         }
@@ -730,6 +835,72 @@ pub(super) mod tests {
     fn new_should_give_the_first_timeline_the_name_of_the_project() {
         let project = Project::new("Show", FrameRate::Fps30);
         assert_eq!(project.timelines[0].name, "Show");
+    }
+
+    #[test]
+    fn a_file_without_tempo_should_read_the_default_with_the_click_off() {
+        let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        json["timelines"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("tempo");
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert_eq!(parsed.timelines[0].tempo, Tempo::default());
+        assert!(!parsed.timelines[0].tempo.click);
+    }
+
+    #[test]
+    fn metronome_and_asset_bpm_should_stay_out_of_the_file_when_unset() {
+        let mut project = sample_project();
+        project.output.metronome = None;
+        project.assets[0].bpm = None;
+        let written = serde_json::to_value(&project).unwrap();
+        assert!(written["output"].get("metronome").is_none());
+        assert!(written["assets"][0].get("bpm").is_none());
+        let parsed: Project = serde_json::from_value(written).unwrap();
+        assert_eq!(parsed, project);
+    }
+
+    #[test]
+    fn validate_should_reject_a_tempo_out_of_range() {
+        for (bpm, beats) in [
+            (0.0, 4),
+            (19.9, 4),
+            (400.1, 4),
+            (f64::NAN, 4),
+            (120.0, 0),
+            (120.0, 17),
+        ] {
+            let mut project = sample_project();
+            project.timelines[0].tempo.bpm = bpm;
+            project.timelines[0].tempo.beats_per_bar = beats;
+            assert!(
+                matches!(project.validate(), Err(ProjectError::Invalid(_))),
+                "{bpm} BPM, {beats} beats should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_should_reject_an_asset_tempo_out_of_range() {
+        for bpm in [0.0, 5.0, 1_000.0, f64::INFINITY] {
+            let mut project = sample_project();
+            project.assets[0].bpm = Some(bpm);
+            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        }
+    }
+
+    #[test]
+    fn validate_should_reject_bad_metronome_outputs() {
+        for (channels, gain) in [(vec![0], 0.0), (vec![1, 1], 0.0), (vec![1], f32::NAN)] {
+            let mut project = sample_project();
+            project.output.metronome = Some(MetronomeOutput {
+                device_name: "Band Monitor".into(),
+                channels,
+                gain_db: gain,
+            });
+            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        }
     }
 
     #[test]

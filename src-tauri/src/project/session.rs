@@ -286,6 +286,7 @@ impl Session {
             ),
             file: format!("{AUDIO_DIR}{id}_{file_name}"),
             id,
+            bpm: None,
         };
         check_asset_path(&asset.file)?;
         self.sources

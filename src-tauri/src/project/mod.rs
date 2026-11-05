@@ -11,8 +11,9 @@ mod session;
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
 pub use error::{ProjectError, Result};
 pub use model::{
-    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, FORMAT_VERSION, FrameRate, LtcOutput, Meta,
-    MtcOutput, Note, OutputConfig, Project, TimecodeSettings, Timeline, Track, TrackKind,
+    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, FORMAT_VERSION, FrameRate, LtcOutput, MAX_BPM,
+    MIN_BPM, Meta, MetronomeOutput, MtcOutput, Note, OutputConfig, Project, Tempo,
+    TimecodeSettings, Timeline, Track, TrackKind,
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, ProjectState, Session};

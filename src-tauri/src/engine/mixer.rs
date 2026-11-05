@@ -406,6 +406,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             file: format!("audio/{id}.wav"),
+            bpm: None,
         }
     }
 
