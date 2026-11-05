@@ -54,6 +54,16 @@ one clock and cannot drift apart. Nothing in it allocates or locks.
   exactly 1 601 600 samples and errors never accumulate.
 - `Command`: `Play`, `Pause`, `Stop` (back to the start), `Seek(frame)`. A seek takes a frame count, like every
   position in the project; positions before `project.timecode.start` go to the start.
+- **End of the show.** `set_end(samples)` gives the transport the latest end among all clips and cues. When playing
+  reaches it, the transport stops by itself exactly like `Stop`: state `stopped`, back at the start (so the next Play
+  runs the show again), epoch changed so LTC and MTC resync; the `transport-position` lane reports it as a state
+  change, not as an error. The check runs once per audio buffer, so LTC can run on for less than one buffer past the
+  end; there is no extra tail after the last item (the end is exact, and a later configurable tail can be added
+  on top). A show with no end (no clips and no cues, or everything at the origin) never stops by itself, so the
+  generators can run without a programme. A seek past the end goes to the end (playing from there stops at once).
+  The end can change while playing: `output_set_clips` sends a new one with the clips, and an end that moved away
+  is simply not reached. A clip's end uses its exact decoded length; muted tracks count, so muting does not move
+  the end of the show. The end comes from `CueList::end_samples` and travels in `ClipSet::with_end`.
 - `epoch()` changes whenever playback starts or the position jumps (start, stop, seek) but not on pause. Generators
   compare it with the last epoch they saw and call `resync`.
 - `LtcStream` plays LTC in step with the transport: silence until the next frame boundary, then one frame after
