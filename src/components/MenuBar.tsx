@@ -28,6 +28,10 @@ export function MenuBar() {
     if (!owner) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      // A submenu takes the arrow first: Right opens it, Left leaves it.
+      const active = document.activeElement;
+      if (event.defaultPrevented || active?.closest(".menu-sub")) return;
+      if (event.key === "ArrowRight" && active?.getAttribute("aria-haspopup") === "menu" && active.closest(".menu")) return;
       event.preventDefault();
       const at = BAR_MENUS.findIndex((menu) => menu.id === owner);
       show((at + (event.key === "ArrowLeft" ? -1 : 1) + BAR_MENUS.length) % BAR_MENUS.length);

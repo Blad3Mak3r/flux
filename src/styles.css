@@ -326,6 +326,35 @@ input:disabled {
   color: var(--ink-faint);
 }
 
+.menu-host {
+  position: relative;
+}
+
+.menu-arrow {
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: 24px;
+}
+
+/* A submenu hangs off its row: it shows while the row is pointed at or, by keyboard, marked open. */
+.menu-sub {
+  position: absolute;
+  top: -5px;
+  left: 100%;
+  display: none;
+}
+
+.menu-flip .menu-sub {
+  left: auto;
+  right: 100%;
+}
+
+.menu-host:hover > .menu-sub,
+.menu-host[data-open] > .menu-sub {
+  display: grid;
+}
+
 .menu-rule {
   height: 1px;
   margin: 4px 0;

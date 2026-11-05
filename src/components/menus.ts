@@ -50,7 +50,13 @@ function fileMenu(t: Translate): MenuItem[] {
     { label: t("menu.save"), shortcut: mod("S"), run: () => void saveDocument(false) },
     { label: t("menu.saveAs"), shortcut: mod("⇧+S"), run: () => void saveDocument(true) },
     "-",
-    { label: t("menu.importAudio"), shortcut: "I", run: () => void importAudioFiles() },
+    {
+      label: t("menu.import"),
+      submenu: [
+        { label: t("menu.audio"), shortcut: "I", run: () => void importAudioFiles() },
+        { label: t("menu.video"), disabled: true, run: () => {} },
+      ],
+    },
     "-",
     { label: t("menu.setup"), shortcut: mod(","), run: () => openSetup() },
     ...(hasNativeWindow()

@@ -22,16 +22,15 @@ export type Message =
 /** What waits for the user to decide about unsaved work. */
 export type Pending = () => Promise<void> | void;
 
-/** One row of a menu: a context menu or a menu of the menu bar. `"-"` is a separator. */
-export type MenuItem =
-  | "-"
-  | {
-      label: string;
-      shortcut?: string;
-      checked?: boolean;
-      disabled?: boolean;
-      run: () => void;
-    };
+interface MenuRow {
+  label: string;
+  shortcut?: string;
+  checked?: boolean;
+  disabled?: boolean;
+}
+
+/** One row of a menu: a context menu or a menu of the menu bar. `"-"` is a separator; a row with a `submenu` opens it beside it. */
+export type MenuItem = "-" | (MenuRow & { run: () => void }) | (MenuRow & { submenu: MenuItem[] });
 
 /** The menu on show, at a point of the window; `owner` is the menu bar title it hangs from. */
 export interface OpenMenu {
