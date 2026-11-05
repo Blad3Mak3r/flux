@@ -24,7 +24,16 @@ export function laneHeight(track: Track): number {
   return track.kind.type === "audio" ? AUDIO_LANE_H : NOTES_LANE_H;
 }
 
-export const TrackHeader = memo(function TrackHeader({ track }: { track: Track }) {
+export const TrackHeader = memo(function TrackHeader({
+  track,
+  dragging,
+  onGrab,
+}: {
+  track: Track;
+  dragging: boolean;
+  /** Starts dragging the track to another place in the order. */
+  onGrab: (event: PointerEvent<HTMLElement>, id: string) => void;
+}) {
   const t = useT();
   const audio = track.kind.type === "audio";
   return (
@@ -34,9 +43,10 @@ export const TrackHeader = memo(function TrackHeader({ track }: { track: Track }
       data-muted={track.muted}
       data-audio={audio}
       data-colored={track.color !== undefined}
+      data-dragging={dragging}
       onContextMenu={(event) => menuAtPointer(event, audio ? audioMenu(t, track) : notesTrackMenu(t, track))}
     >
-      <div className="track-head-row">
+      <div className="track-head-row" onPointerDown={(event) => onGrab(event, track.id)}>
         <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.notes")}>
           {audio ? <WaveIcon /> : <NoteIcon />}
           <span className="visually-hidden">{t(audio ? "track.kind.audio" : "track.kind.notes")}</span>
@@ -218,12 +228,14 @@ export const TrackLane = memo(function TrackLane({
   guessLength,
   fps,
   pxPerFrame,
+  dragging,
 }: {
   track: Track;
   assetNames: Record<string, string>;
   guessLength: number;
   fps: number;
   pxPerFrame: number;
+  dragging: boolean;
 }) {
   const t = useT();
   const height = laneHeight(track);
@@ -239,6 +251,7 @@ export const TrackLane = memo(function TrackLane({
       style={{ height, ...traceStyle(track.color) }}
       data-muted={track.muted}
       data-kind={track.kind.type}
+      data-dragging={dragging}
       onDoubleClick={addHere}
       onContextMenu={(event) => {
         const { start } = useDoc.getState().project.timecode;
