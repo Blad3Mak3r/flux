@@ -141,9 +141,12 @@ on the grid at once. It sounds only while the transport plays.
 
 ## Tempo detection (`audio/tempo.rs`)
 
-`audio_detect_bpm(asset)` decodes the asset if needed (it uses the same cache as playback) and returns its BPM, or `null`
-when it is too short (under 4 s), silent, or shows no steady pulse. The UI asks for it after importing audio and the
-result is stored on the asset (`assets[].bpm`), so opening a project decodes nothing for it. The inspector can detect
+`audio_detect_bpm(asset)` returns the BPM of an asset, or `null` when it is too short (under 4 s), silent, or shows no
+steady pulse. It uses the decoded audio when the cache already holds it, and otherwise decodes the file without keeping
+it, so asking for every song of a big show does not fill the memory. The UI asks for it after importing audio, and
+in the background, one song at a time, for the assets of an opened project that have none; the result is stored on the
+asset (`assets[].bpm`), so a project that was saved with it decodes nothing. A tempo found for an opened file is not
+an edit: it does not enter the undo history nor mark the document unsaved, and is written with the next save. The inspector can detect
 again, type another value, or copy it to the timeline's tempo.
 
 The method: loudness every 512 samples, its rises (onset strength), a blur, the autocorrelation over 55 to 210 BPM

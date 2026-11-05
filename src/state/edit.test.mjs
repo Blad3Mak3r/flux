@@ -429,3 +429,15 @@ test("setAssetBpm stores the tempo of an audio file and forgets it on null", () 
   assert.equal(setAssetBpm(set, "missing", 100), set);
   assert.equal(setAssetBpm(set, "a1", 127.46), set);
 });
+
+test("a tempo found for an opened file is no edit: no history, and the document stays saved", () => {
+  const opened = { ...project(), assets: [{ id: "a1", name: "Song", file: "audio/song.wav" }] };
+  const doc = docReducer(initialDoc(opened), { type: "load", project: opened, path: "/shows/a.fxtc", active: TL });
+  const after = docReducer(doc, { type: "derivedBpm", id: "a1", bpm: 126.5 });
+  assert.equal(after.project.assets[0].bpm, 126.5);
+  assert.equal(after.past.length, 0);
+  assert.equal(isDirty(after), false);
+  // A tempo the file already has is not replaced, and an unknown asset changes nothing.
+  assert.equal(docReducer(after, { type: "derivedBpm", id: "a1", bpm: 90 }), after);
+  assert.equal(docReducer(after, { type: "derivedBpm", id: "zzz", bpm: 90 }), after);
+});

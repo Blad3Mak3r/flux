@@ -80,9 +80,10 @@ pub async fn audio_analyze(
         .map_err(|err| AudioError::Worker(io::Error::other(err).to_string()))?
 }
 
-/// The tempo of an asset in BPM, or `null` when it shows no steady pulse. It decodes the asset when
-/// that was not done yet (and keeps it for playback), so it is asked for when the user wants it
-/// rather than on every open: a project stores the answer with the asset.
+/// The tempo of an asset in BPM, or `null` when it shows no steady pulse. It uses the decoded audio
+/// when playback or the analysis already has it, and otherwise decodes the file just for this,
+/// without keeping it: asking for the tempo of every song of a big show must not fill the memory
+/// the way playing them does. A project stores the answer with the asset.
 #[tauri::command]
 pub async fn audio_detect_bpm(
     session: State<'_, SharedSession>,
@@ -91,7 +92,11 @@ pub async fn audio_detect_bpm(
 ) -> Result<Option<f64>, AudioError> {
     let (session, cache) = (Arc::clone(&session), Arc::clone(&cache));
     tauri::async_runtime::spawn_blocking(move || {
-        load(&session, &cache, &asset).map(|decoded| detect_bpm(&decoded))
+        let decoded = match cache.get(&asset.id) {
+            Some(decoded) => decoded,
+            None => Arc::new(decode_asset(&session, &asset)?.1),
+        };
+        Ok(detect_bpm(&decoded))
     })
     .await
     .map_err(|err| AudioError::Worker(io::Error::other(err).to_string()))?

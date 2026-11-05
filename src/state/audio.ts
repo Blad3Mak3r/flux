@@ -48,12 +48,15 @@ export function analyse(assets: AudioAsset[]): Promise<void> {
  * `null` and leaves the asset as it was: the user can still type a tempo in the inspector. With
  * `report`, the status line says what was found, for a detection the user asked for.
  */
-export async function detectTempo(asset: AudioAsset, report = false): Promise<void> {
+export async function detectTempo(asset: AudioAsset, report = false, derived = false): Promise<void> {
   const current = generation;
   try {
     const bpm = await detectBpm(asset);
     if (generation !== current) return;
-    if (bpm !== null) edit(setAssetBpm(useDoc.getState().project, asset.id, bpm));
+    // A tempo found for a file that was opened is not the user's edit: it neither enters the undo
+    // history nor makes the document unsaved.
+    if (bpm !== null && derived) dispatch({ type: "derivedBpm", id: asset.id, bpm });
+    else if (bpm !== null) edit(setAssetBpm(useDoc.getState().project, asset.id, bpm));
     if (report) {
       if (bpm === null) say("status.tempoNone", { name: asset.name });
       else say("status.tempoFound", { name: asset.name, bpm });
@@ -63,6 +66,16 @@ export async function detectTempo(asset: AudioAsset, report = false): Promise<vo
   }
 }
 
-/** Detects the tempo of the assets that have none. Returns when every one was tried. */
-export const detectTempos = (assets: AudioAsset[]): Promise<void[]> =>
-  Promise.all(assets.filter((asset) => asset.bpm === undefined).map((asset) => detectTempo(asset)));
+/**
+ * Detects the tempo of the assets that have none. Returns when every one was tried. With
+ * `derived` (a project that was just opened) they go one at a time, so a show of many songs does
+ * not decode them all at once.
+ */
+export async function detectTempos(assets: AudioAsset[], derived = false): Promise<void> {
+  const missing = assets.filter((asset) => asset.bpm === undefined);
+  if (derived) {
+    for (const asset of missing) await detectTempo(asset, false, true);
+  } else {
+    await Promise.all(missing.map((asset) => detectTempo(asset)));
+  }
+}
