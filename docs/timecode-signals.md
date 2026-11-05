@@ -80,6 +80,13 @@ the active one. The `timeline_*` commands (`timeline_add`, `timeline_rename`, `t
 transport plays, and it closes the running output (the rate and the start are fixed when the output opens), so the
 window opens it again: the transport then stands at the start of the new timeline.
 
+**In Live, the next timeline is made ready when one ends.** The window opens the output with `advance` set when the
+Live view is showing. When the show then runs to its end by itself (a stop from the user does not count: the transport
+counts those ends, see `PositionReader::shows_ended`), a lane of the output makes the following timeline the active one
+(`Session::next_timeline`) and emits the `timeline-advanced` event with the `{ project, active }` it left. The window
+shows it and opens the output again for the new timeline, which is stopped at its start: it is never started for the
+user. After the last timeline nothing changes and the show stays where it ended.
+
 ## Cues and the Live view (`engine/cues.rs`, `live_commands.rs`)
 
 The Live view runs the timeline on stage, and the backend does all of its thinking; the UI only draws what it is
@@ -124,7 +131,7 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project` (its active timeline plays), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
+| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
