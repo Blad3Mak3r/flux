@@ -59,6 +59,29 @@ one clock and cannot drift apart. Nothing in it allocates or locks.
 - `LtcStream` plays LTC in step with the transport: silence until the next frame boundary, then one frame after
   another from a preallocated buffer, so `fill` is safe in the audio callback.
 
+## Cues and the Live view (`engine/cues.rs`, `live_commands.rs`)
+
+The Live view runs the timeline on stage, and the backend does all of its thinking; the UI only draws what it is
+sent. A **cue** is not stored in the project: every clip of an audio track and every trigger of an events track is one,
+so the `.fxtc` format does not change. `CueList::build` derives the list, ordered by frame (cues at the same frame keep
+the order of their tracks) and numbered from 1. A clip's length comes from its decoded audio; a file that cannot be read
+gives a cue without length, never an error. `Cue.frame` is the absolute timecode frame, so the UI seeks to it as it is.
+
+`CueList::state_at(frame)` gives the `LiveState` for a position. Each cue is `pending`, `next` (the first cue still to
+come, the one on standby), `running` (a clip from its first frame to the one before its end), `done` or `muted` (its
+track is muted, so it never plays or queues). The state also carries `current` (the sounding clip that started last, or
+else the last cue done), the countdown to the next cue and, for each running clip, the time elapsed, the time left and
+the progress. Every time is already written as timecode (`;` before the frames in drop-frame). Triggers are listed and
+counted down but not fired: sending a MIDI trigger is not built.
+
+| Command | Arguments | Result |
+| --- | --- | --- |
+| `live_cues` | `project` | The `Cue` list. |
+| `live_state` | `project`, `frame` | The `LiveState` at that frame, for when no output runs and the playhead is parked in the window. |
+
+With an output running, the `flux-live` lane sends the same `LiveState` over its channel; the output keeps a cue list
+that `output_start` and `output_set_clips` rebuild, which the lane swaps in whole like the meters' state.
+
 ## Defaults and open decisions
 
 `LtcConfig::default()` is 48 kHz, level 0.5 (-6 dBFS) and a one-sample edge. These can become project settings later.
@@ -67,23 +90,24 @@ the transport reaches frame N.
 
 ## Output and transport commands (`output.rs`, `transport_commands.rs`)
 
-`output_start(project, onPosition, onLevels)` opens the devices `project.output` names and starts a stopped transport at
+`output_start(project, onPosition, onLevels, onLive)` opens the devices `project.output` names and starts a stopped transport at
 `project.timecode.start`; it replaces a running output. TS wrappers are in `src/transport/api.ts`.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project`, `onPosition`, `onLevels` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
+| `output_start` | `project`, `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
 | `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`, `ltcLost`, `clockUnpaced`) or `null` when no output runs. |
 
-While an output runs it reports over two lanes, each with a thread of its own and the `Channel` that
+While an output runs it reports over three lanes, each with a thread of its own and the `Channel` that
 `output_start` was given for it, about 30 times a second each:
 
 | Lane | Thread | Channel (`output_start` argument) | Sends |
 | --- | --- | --- | --- |
 | Position | `flux-position` | `onPosition`: `Channel<Position>` | The `Position`, only when it moved. |
+| Live | `flux-live` | `onLive`: `Channel<LiveState>` | Where the show stands among its cues (see Cues and the Live view), only when it changed. |
 | Levels | `flux-levels` | `onLevels`: `Channel<[{ id, peak }]>` | The peak of each track since the previous message; silence once after the sound stops, then nothing. |
 
 The lanes are independent, so a slow consumer of the meters never delays the timecode. A channel is ordered,
@@ -102,7 +126,7 @@ No command runs on the main thread, which belongs to the window and its event lo
 | `flux-audio` | The audio callback: programme, LTC when it shares the device, position. Never allocates or waits. |
 | `flux-ltc` | The LTC callback, when LTC plays on a device other than the programme's. Never allocates or waits. |
 | `flux-mtc` | MIDI Timecode quarter frames. |
-| `flux-position`, `flux-levels` | The two lanes above. |
+| `flux-position`, `flux-live`, `flux-levels` | The three lanes above. |
 
 Commands that set the transport only enqueue a message for the audio callback, so two of them issued back to back
 from the UI are not guaranteed to run in order; the UI awaits the ones that depend on each other (Play waits for the

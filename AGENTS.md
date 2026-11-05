@@ -10,6 +10,13 @@ model with a REAPER-style timeline and track interface, in a modern look.
 - Flux is the **master clock and only generates** timecode (LTC out through audio, MTC out through MIDI). Chasing an
   external timecode (input) is out of scope for now.
 
+## Views
+
+The timeline has two views, switched with the EDIT | LIVE control (Ctrl+1 / Ctrl+2): **Edit** is the editor, and
+**Live** runs the show on stage, read-only apart from going to a cue. The backend owns everything Live shows: it derives
+the cues from the project and computes their state and countdowns (`src-tauri/src/engine/cues.rs`), and the UI
+(`src/live/`) only draws it. See [docs/timecode-signals.md](docs/timecode-signals.md).
+
 ## Project file format
 
 Projects use the `.fxtc` extension. A `.fxtc` is a **zip container** holding:
