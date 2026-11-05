@@ -12,7 +12,7 @@ const editWith = (change: (project: Project) => Project) => edit(change(useDoc.g
 
 export const moveTo = (id: string, position: number) => editWith((p) => moveItem(p, id, position));
 export const reorderTrack = (trackId: string, to: number) => editWith((p) => moveTrack(p, trackId, to));
-export const muteTrack =(trackId: string) => editWith((p) => toggleMute(p, trackId));
+export const muteTrack = (trackId: string) => editWith((p) => toggleMute(p, trackId));
 export const setGain = (trackId: string, gainDb: number) => editWith((p) => setTrackGain(p, trackId, gainDb));
 
 export function deleteTrack(trackId: string): void {
