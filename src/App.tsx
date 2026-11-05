@@ -27,7 +27,7 @@ import {
   saveDocument,
   startDocument,
 } from "./state/workflows";
-import { stepTimeline } from "./state/timelines";
+import { bindTimelineAdvance, stepTimeline } from "./state/timelines";
 import { nominalFps } from "./timecode";
 import { patchReadout } from "./timeline/layout";
 import { bindTransport, seek, stop, toggle } from "./transport/playback";
@@ -60,6 +60,7 @@ function Shell() {
 
   useEffect(bindTransport, []);
   useEffect(bindDocumentSync, []);
+  useEffect(bindTimelineAdvance, []);
 
   // The clock of the audio device is the master; one that does not keep real time ruins the timecode.
   useEffect(() => {

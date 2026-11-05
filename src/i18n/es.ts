@@ -201,6 +201,7 @@ export const es: Record<MessageKey, string> = {
   "timeline.all": "Todas las líneas de tiempo",
   "timeline.rename": "Renombrar…",
   "timeline.delete": "Eliminar línea de tiempo",
+  "timeline.advanced": "El show terminó. Siguiente línea de tiempo: {name}",
   "timeline.lockedPlaying": "Detén el show para cambiar de línea de tiempo.",
   "timeline.confirm.title": "¿Eliminar «{name}»?",
   "timeline.confirm.body": "Se quitan sus pistas del proyecto, y el audio que no use ninguna otra línea de tiempo. Se puede deshacer.",

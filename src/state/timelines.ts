@@ -2,6 +2,7 @@
 // timelines exist, which one is active and its timecode, and refuses what cannot be done (changing
 // them while the show plays). It answers with the project as it is now, and this only shows it.
 
+import { listen } from "@tauri-apps/api/event";
 import type { Translate } from "../i18n/messages";
 import {
   errorMessage,
@@ -19,17 +20,21 @@ import { dispatch, useDoc } from "./store";
 import { openSetup, resetView, say, sayError } from "./ui";
 
 /**
- * Asks the backend for a change and shows its answer. A change of the active timeline or of its
- * timecode (`retimes`) closes the output in the backend, so it is opened again for the new one.
+ * Shows the project as the backend answered. A change of the active timeline or of its timecode
+ * (`retimes`) leaves the output open for the old one, so it is opened again for the new one.
  */
+function show({ project, active }: ProjectState, retimes: boolean): void {
+  const before = activeTimeline(useDoc.getState()).id;
+  dispatch({ type: "apply", project, active });
+  if (active !== before) resetView();
+  if (retimes) reconnect(true);
+}
+
+/** Asks the backend for a change and shows its answer. */
 async function change(ask: (project: Project) => Promise<ProjectState>, retimes: boolean): Promise<void> {
   if (retimes && isPlaying()) return say("timeline.lockedPlaying");
-  const before = activeTimeline(useDoc.getState()).id;
   try {
-    const { project, active } = await ask(useDoc.getState().project);
-    dispatch({ type: "apply", project, active });
-    if (active !== before) resetView();
-    if (retimes) reconnect(true);
+    show(await ask(useDoc.getState().project), retimes);
   } catch (error) {
     sayError(errorMessage(error));
   }
@@ -52,6 +57,20 @@ export const setTimecode = (frameRate: FrameRate, start: number) =>
 export async function openTimelineSettings(id: string): Promise<void> {
   await selectTimeline(id);
   if (activeTimeline(useDoc.getState()).id === id) openSetup("timeline");
+}
+
+/**
+ * In Live, when the show runs to its end the backend makes the next timeline the active one,
+ * stopped at its start, and says so with this event. Call once from the root; call the result to
+ * stop. Outside the desktop app there is no backend to hear from.
+ */
+export function bindTimelineAdvance(): () => void {
+  const listening = listen<ProjectState>("timeline-advanced", ({ payload }) => {
+    show(payload, true);
+    const name = payload.project.timelines.find((timeline) => timeline.id === payload.active)?.name ?? "";
+    say("timeline.advanced", { name });
+  }).catch(() => undefined);
+  return () => void listening.then((unlisten) => unlisten?.());
 }
 
 /** The next timeline (or the previous one, for a negative `step`), wrapping round. */

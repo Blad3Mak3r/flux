@@ -196,6 +196,7 @@ export const en = {
   "timeline.all": "All timelines",
   "timeline.rename": "Rename…",
   "timeline.delete": "Delete timeline",
+  "timeline.advanced": "The show ended. Next timeline: {name}",
   "timeline.lockedPlaying": "Stop the show to change the timeline.",
   "timeline.confirm.title": "Delete “{name}”?",
   "timeline.confirm.body": "Its tracks are removed from the project, and the audio no other timeline uses. You can undo this.",
