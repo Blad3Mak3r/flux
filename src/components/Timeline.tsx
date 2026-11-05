@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
+import { FollowToggle } from "./FollowToggle";
 import type { Project } from "../project/types";
 import { select, setZoom, useUi, zoomBy } from "../state/ui";
 import type { AssetAudio } from "../state/doc";
@@ -135,6 +136,7 @@ export function Timeline() {
         <h2 id="tracks-legend" className="legend">
           {t("tracks.legend")}
         </h2>
+        <FollowToggle />
         <ViewSwitch />
       </div>
 

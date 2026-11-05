@@ -86,6 +86,8 @@ export const es: Record<MessageKey, string> = {
   "live.empty.body": "Importa audio o añade marcadores en la vista de edición y aparecerán aquí como cues.",
   "live.empty.action": "Ir a edición",
 
+  "timeline.follow": "Seguir",
+  "timeline.follow.hint": "Desplaza el timeline con el cabezal al reproducir. Al desplazarte a mano se desactiva; púlsalo para volver a seguir.",
   "tracks.legend": "Pistas",
   "track.kind.audio": "Audio",
   "track.kind.events": "Eventos",

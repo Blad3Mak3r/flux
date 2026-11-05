@@ -85,6 +85,8 @@ export const en = {
   "live.empty.body": "Import audio or add markers in the Edit view and they appear here as cues.",
   "live.empty.action": "Go to Edit",
 
+  "timeline.follow": "Follow",
+  "timeline.follow.hint": "Scrolls the timeline with the playhead while playing. Scrolling by hand turns it off; press it to follow again.",
   "tracks.legend": "Tracks",
   "track.kind.audio": "Audio",
   "track.kind.events": "Events",

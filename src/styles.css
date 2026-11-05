@@ -1004,6 +1004,8 @@ input:disabled {
   margin-left: -1px;
   background: var(--ink);
   pointer-events: none;
+  /* Its own layer: it moves every frame while playing and must not repaint the lanes under it. */
+  will-change: transform;
 }
 
 .playhead[data-playing="true"] {
@@ -1589,6 +1591,32 @@ input:disabled {
   * {
     transition: none !important;
   }
+}
+
+/* ---- Follow ---- */
+
+.follow-toggle {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 8px;
+  padding: 0 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.follow-toggle:hover {
+  background: var(--panel-hi);
+}
+
+.follow-toggle[aria-pressed="true"] {
+  color: var(--ink);
 }
 
 /* ---- Live: the timeline as it is run on stage ---- */
