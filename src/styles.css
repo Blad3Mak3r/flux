@@ -65,9 +65,10 @@ body {
   color: var(--panel-lo);
 }
 
+/* Keyboard focus is a thin inset ink line: it stays inside the control, so it never fights its border or a selection outline. */
 :focus-visible {
-  outline: 2px solid var(--phosphor);
-  outline-offset: 2px;
+  outline: 1px solid var(--ink-dim);
+  outline-offset: -1px;
 }
 
 h1,
@@ -250,10 +251,6 @@ input:disabled {
 .menubar .window-button[data-role="close"]:hover:not(:disabled) {
   background: var(--ink);
   color: var(--panel-lo);
-}
-
-.menubar .window-button:focus-visible {
-  outline-offset: -2px;
 }
 
 .menubar button {

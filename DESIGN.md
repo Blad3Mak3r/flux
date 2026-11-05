@@ -143,7 +143,7 @@ The system refuses the web-dashboard card layout and the grey DAW slab. There is
 A restrained, near-monochrome faceplate with three signal hues used sparingly and by meaning.
 
 ### Primary
-- **Phosphor Green** (`phosphor`): the reading colour. Dot-matrix lit pixels, audio clip traces, the ruler cursor and span, focus ring, selection, caret, active tab underline, primary button fill, "on" lamps.
+- **Phosphor Green** (`phosphor`): the reading colour. Dot-matrix lit pixels, audio clip traces, the ruler cursor and span, selection, caret, active tab underline, primary button fill, "on" lamps.
 - **Dim Phosphor** (`phosphor-dim`): clip borders, muted clip text, span-shade edges.
 
 ### Secondary
@@ -210,6 +210,12 @@ Square, raised keys (84x70px, 4px bottom edge) with an icon above an uppercase 1
 ### Buttons
 32px, 2px radius, raised fill. **Primary** is solid phosphor with recessed-dark text. **Danger** is a transparent ground with an ink outline (outlined where neutral buttons are filled). Menubar and icon buttons are transparent until hover (raised fill, rule border); a pressed icon button takes the recessed fill and a dim-ink border. Disabled: 45% opacity, not-allowed cursor.
 
+### Menus
+The menubar holds five titles (File, Edit, Track, View, Transport), a centred document name and a gear button that opens Setup. A title opens a dropdown; once one is open, pointing at another opens it, and Left/Right move along the bar. Right click opens a context menu for what is under the pointer (audio clip or track, note, notes track, empty timeline, Live cue, text field); the webview's own menu is never shown. Both are the same flat panel: `panel-hi` ground, 1px strong rule, 2px radius, 28px rows, a 16px check column (a drawn tick marks an "on" item, so state is never colour alone), the shortcut right-aligned in the measure face. The focused or hovered row is recessed (`panel-lo`). Disabled rows dim to 45%. Up, Down, Home, End, Enter, Space and Esc work, and while a menu is open it takes the keyboard from the transport shortcuts.
+
+### Focus
+Keyboard focus is a 1px inset line in `ink-dim` (`outline-offset: -1px`) on every control, so it never spills past a border or fights a selection outline. It is not phosphor: phosphor is for reading.
+
 ### Window Controls
 The native title bar is off (`decorations: false`), so the menubar is the title bar: its text and empty space drag the window (`data-tauri-drag-region`, double-click toggles maximize) and three flat 46px-wide buttons end it, full menubar height and square: minimize, maximize or restore, close. They are transparent in ink-dim until hover (raised fill); close inverts to ink on recessed-dark, never vermilion, because vermilion means live or fault. They exist only inside the desktop app. Closing with unsaved changes asks first, through the same dialog as New and Open.
 
@@ -241,7 +247,7 @@ Both sit in an audio track's header under the name row, which is why an audio la
 30px recessed bar: message left (vermilion bold on error), tabular measurements right. The unsaved dialog is a square panel, max 420px, with a flat backdrop.
 
 ### Setup Dialog
-Everything that is set up rather than played lives in one modal opened from the menubar's Setup button, Ctrl+, (⌘, on macOS) or a faceplate lamp. A native `<dialog>`, 760x520 (92vw / 88vh at most), square, on the dialog's flat backdrop: a 44px recessed title row with a close button, a 200px page list on the left (Project, Audio, LTC outputs, MTC outputs, General, Video), the page on the right, and a recessed footer that prints what the output is doing (running device and rate, "Changes apply when playback stops", and any warnings in amber). It is modal because setup is rare, holds lists that would crowd the 300px inspector, and the transport keys must not fire behind it; the faceplate keeps the live state in view. Output lists are rows between 1px rules, not cards: a name (LTC 1), a lamp with its status word, a remove button, and below them the device or port select and, for LTC, the channel select. Outputs connect by themselves when a choice is made; a change made while playing waits for stop or pause.
+Everything that is set up rather than played lives in one modal opened from the menubar's gear button, Ctrl+, (⌘, on macOS) or a faceplate lamp. A native `<dialog>`, 760x520 (92vw / 88vh at most), square, on the dialog's flat backdrop: a 44px recessed title row with a close button, a 200px page list on the left (Project, Audio, LTC outputs, MTC outputs, General, Video), the page on the right, and a recessed footer that prints what the output is doing (running device and rate, "Changes apply when playback stops", and any warnings in amber). It is modal because setup is rare, holds lists that would crowd the 300px inspector, and the transport keys must not fire behind it; the faceplate keeps the live state in view. Output lists are rows between 1px rules, not cards: a name (LTC 1), a lamp with its status word, a remove button, and below them the device or port select and, for LTC, the channel select. Outputs connect by themselves when a choice is made; a change made while playing waits for stop or pause.
 
 ## Do's and Don'ts
 
@@ -253,7 +259,7 @@ Everything that is set up rather than played lives in one modal opened from the 
 - **Do** keep the dot-matrix cell on whole device pixels.
 - **Do** put every user-facing string through i18n (English and Spanish) and test layouts with the longer Spanish text.
 - **Do** keep monospace to measurement and tabular numerals on all time values.
-- **Do** keep the existing themed selection, caret, 2px phosphor focus ring, scrollbars and reduced-motion handling on new surfaces.
+- **Do** keep the existing themed selection, caret, neutral focus line, scrollbars and reduced-motion handling on new surfaces.
 
 ### Don't:
 - **Don't** use rounded cards, soft shadows, blur or glow.
