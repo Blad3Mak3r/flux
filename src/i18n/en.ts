@@ -195,6 +195,8 @@ export const en = {
   "timeline.add": "Add a timeline",
   "timeline.all": "All timelines",
   "timeline.rename": "Rename…",
+  "timeline.moveLeft": "Move left",
+  "timeline.moveRight": "Move right",
   "timeline.delete": "Delete timeline",
   "timeline.advanced": "The show ended. Next timeline: {name}",
   "timeline.lockedPlaying": "Stop the show to change the timeline.",

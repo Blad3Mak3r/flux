@@ -66,6 +66,10 @@ export const timelineRemove = (project: Project, id: string) =>
 export const timelineSelect = (project: Project, id: string) =>
   invoke<ProjectState>("timeline_select", { project, id });
 
+/** Puts a timeline at index `to` of the order; the backend clamps it. */
+export const timelineMove = (project: Project, id: string, to: number) =>
+  invoke<ProjectState>("timeline_move", { project, id, to });
+
 /** Sets the frame rate and the start of the active timeline. */
 export const timelineSetTimecode = (project: Project, frameRate: FrameRate, start: number) =>
   invoke<ProjectState>("timeline_set_timecode", { project, frameRate, start });

@@ -200,6 +200,8 @@ export const es: Record<MessageKey, string> = {
   "timeline.add": "Añadir una línea de tiempo",
   "timeline.all": "Todas las líneas de tiempo",
   "timeline.rename": "Renombrar…",
+  "timeline.moveLeft": "Mover a la izquierda",
+  "timeline.moveRight": "Mover a la derecha",
   "timeline.delete": "Eliminar línea de tiempo",
   "timeline.advanced": "El show terminó. Siguiente línea de tiempo: {name}",
   "timeline.lockedPlaying": "Detén el show para cambiar de línea de tiempo.",

@@ -12,6 +12,7 @@ import { dispatch, useDoc } from "../state/store";
 import { isPlaying } from "../transport/store";
 import {
   addTimeline,
+  nudgeTimeline,
   openTimelineSettings,
   selectTimeline,
   stepTimeline,
@@ -130,6 +131,8 @@ function timelineBarMenu(t: Translate): MenuItem[] {
     { label: t("menu.timeline.rename"), run: () => void openTimelineSettings(active) },
     { label: t("menu.timeline.delete"), disabled: project.timelines.length === 1, run: () => askRemoveTimeline(active) },
     "-",
+    ...moveItems(t, active),
+    "-",
     { label: t("menu.timeline.previous"), shortcut: mod("PgUp"), run: () => void stepTimeline(-1) },
     { label: t("menu.timeline.next"), shortcut: mod("PgDn"), run: () => void stepTimeline(1) },
   ];
@@ -146,10 +149,21 @@ export function allTimelinesMenu(t: Translate): MenuItem[] {
   }));
 }
 
+/** Move left and right, for whoever does not drag: disabled at the ends. */
+function moveItems(t: Translate, id: string): MenuItem[] {
+  const { timelines } = state().doc.project;
+  const index = timelines.findIndex((timeline) => timeline.id === id);
+  return [
+    { label: t("timeline.moveLeft"), disabled: index < 1, run: () => void nudgeTimeline(id, -1) },
+    { label: t("timeline.moveRight"), disabled: index === -1 || index === timelines.length - 1, run: () => void nudgeTimeline(id, 1) },
+  ];
+}
+
 /** The right-click menu of a timeline tab. */
 export function timelineMenu(t: Translate, id: string): MenuItem[] {
   return [
     { label: t("timeline.rename"), run: () => void openTimelineSettings(id) },
+    ...moveItems(t, id),
     "-",
     { label: t("timeline.delete"), disabled: state().doc.project.timelines.length === 1, run: () => askRemoveTimeline(id) },
   ];

@@ -7,6 +7,7 @@ import type { Translate } from "../i18n/messages";
 import {
   errorMessage,
   timelineAdd,
+  timelineMove,
   timelineRemove,
   timelineRename,
   timelineSelect,
@@ -49,6 +50,15 @@ export const selectTimeline = (id: string) => {
 export const removeTimeline = (id: string) => change((p) => timelineRemove(p, id), true);
 
 export const renameTimeline = (id: string, name: string) => change((p) => timelineRename(p, id, name), false);
+
+/** Reordering changes neither the active timeline nor a timecode, so it is allowed while playing. */
+export const moveTimeline = (id: string, to: number) => change((p) => timelineMove(p, id, to), false);
+
+/** Moves a timeline one place left (`-1`) or right (`1`). */
+export function nudgeTimeline(id: string, step: 1 | -1) {
+  const index = useDoc.getState().project.timelines.findIndex((timeline) => timeline.id === id);
+  if (index !== -1) return moveTimeline(id, index + step);
+}
 
 export const setTimecode = (frameRate: FrameRate, start: number) =>
   change((p) => timelineSetTimecode(p, frameRate, start), true);

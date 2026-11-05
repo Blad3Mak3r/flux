@@ -1,7 +1,9 @@
 /**
- * Where a dragged track lands: its index in the track order once dropped.
- * `heights` are the rows' heights in the current order, `from` the dragged row and `dy` how far the
- * pointer has moved vertically. The row goes after every other row whose middle its own middle has passed.
+ * Where a dragged track lands: its index in the track order once dropped. The same goes for the
+ * timeline tabs, along the other axis.
+ * `heights` are the rows' sizes (heights, or widths for tabs) in the current order, `from` the
+ * dragged row and `dy` how far the pointer has moved along that axis. The row goes after every
+ * other row whose middle its own middle has passed.
  */
 export function dropIndex(heights: readonly number[], from: number, dy: number): number {
   let top = 0;
