@@ -2,9 +2,9 @@
 //!
 //! `output_start` opens the devices a project names and `output_stop` closes them; the
 //! `transport_*` commands only send a message to the running audio callback. While an output runs
-//! it reports to the UI over two lanes, each with a thread and a [`Channel`] of its own that
-//! `output_start` was given: the position of the transport, and the peak level of every track,
-//! about 30 times a second each. A slow consumer of the meters never holds up the timecode, and a
+//! it reports to the UI over three lanes, each with a thread and a [`Channel`] of its own that
+//! `output_start` was given: the position of the transport, where the show stands among its cues,
+//! and the peak level of every track, about 30 times a second each. A slow consumer of the meters never holds up the timecode, and a
 //! channel, unlike a broadcast event, is ordered, goes to the caller alone and ends with the output.
 //!
 //! No command runs on the main thread, which belongs to the window: the heavy ones (opening
@@ -22,9 +22,11 @@ use tauri::ipc::Channel;
 use crate::audio::SharedAudio;
 use crate::audio_commands::load;
 use crate::commands::SharedSession;
+use crate::engine::cues::{LiveState, SharedCues};
 use crate::engine::mixer::{self, Programme, TrackPeak};
 use crate::engine::output::{Output, OutputError, OutputInfo, Position};
 use crate::engine::transport::Command;
+use crate::live_commands::cue_list;
 use crate::project::Project;
 
 const LANE_INTERVAL: Duration = Duration::from_millis(33);
@@ -38,6 +40,22 @@ struct PositionLane {
 impl PositionLane {
     fn next(&mut self, position: Position) -> Option<Position> {
         (self.last.replace(position) != Some(position)).then_some(position)
+    }
+}
+
+/// The live lane: a state of the show that did not change is not sent again.
+#[derive(Default)]
+struct LiveLane {
+    last: Option<LiveState>,
+}
+
+impl LiveLane {
+    fn next(&mut self, state: LiveState) -> Option<LiveState> {
+        if self.last.as_ref() == Some(&state) {
+            return None;
+        }
+        self.last = Some(state.clone());
+        Some(state)
     }
 }
 
@@ -63,6 +81,7 @@ impl LevelsLane {
 /// A running output and the threads that report it to the UI.
 pub struct Running {
     output: Output,
+    cues: SharedCues,
     stop_lanes: Arc<AtomicBool>,
     lanes: Vec<JoinHandle<()>>,
 }
@@ -70,12 +89,15 @@ pub struct Running {
 impl Running {
     fn new(
         output: Output,
+        cues: SharedCues,
         on_position: Channel<Position>,
         on_levels: Channel<Vec<TrackPeak>>,
+        on_live: Channel<LiveState>,
     ) -> Result<Self, OutputError> {
         // Built before the lanes, so that failing to start one stops the other: `Drop` joins them.
         let mut running = Self {
             output,
+            cues,
             stop_lanes: Arc::new(AtomicBool::new(false)),
             lanes: Vec::new(),
         };
@@ -86,6 +108,14 @@ impl Running {
             if let Some(position) = position.next(reader.position()) {
                 // A page that went away (a reload) cannot take it; the next output starts over.
                 let _ = on_position.send(position);
+            }
+        })?;
+
+        let (reader, cues) = (running.output.reader(), running.cues.clone());
+        let mut live = LiveLane::default();
+        running.spawn_lane("flux-live", move || {
+            if let Some(state) = live.next(cues.current().state_at(reader.position().frame)) {
+                let _ = on_live.send(state);
             }
         })?;
 
@@ -144,6 +174,7 @@ pub async fn output_start(
     project: Project,
     on_position: Channel<Position>,
     on_levels: Channel<Vec<TrackPeak>>,
+    on_live: Channel<LiveState>,
 ) -> Result<OutputInfo, OutputError> {
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     tauri::async_runtime::spawn_blocking(move || {
@@ -152,7 +183,8 @@ pub async fn output_start(
 
         let output = Output::start(&project, programme(&project, &session, &audio))?;
         let info = output.info().clone();
-        *lock(&state) = Some(Running::new(output, on_position, on_levels)?);
+        let cues = SharedCues::new(cue_list(&project, &session, &audio));
+        *lock(&state) = Some(Running::new(output, cues, on_position, on_levels, on_live)?);
         Ok(info)
     })
     .await
@@ -178,7 +210,10 @@ pub async fn output_set_clips(
     tauri::async_runtime::spawn_blocking(move || {
         let Programme { set, warnings } = programme(&project, &session, &audio);
         match lock(&state).as_ref() {
-            Some(running) => running.output.set_clips(set).map(|()| warnings),
+            Some(running) => {
+                running.cues.replace(cue_list(&project, &session, &audio));
+                running.output.set_clips(set).map(|()| warnings)
+            }
             None => Err(OutputError::NotRunning),
         }
     })
@@ -260,6 +295,7 @@ pub fn transport_position(state: State<'_, SharedOutput>) -> Option<Position> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::cues::Countdown;
     use crate::engine::transport::TransportState;
 
     fn at(frame: u64) -> Position {
@@ -291,6 +327,32 @@ mod tests {
         lane.next(at(1));
         assert_eq!(lane.next(at(1)), None);
         assert_eq!(lane.next(at(2)), Some(at(2)));
+    }
+
+    fn state(next: &str) -> LiveState {
+        LiveState {
+            statuses: Vec::new(),
+            current: None,
+            next: Some(Countdown {
+                cue_id: next.into(),
+                remaining: 1,
+                text: String::new(),
+            }),
+            running: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn live_lane_should_send_the_first_state() {
+        assert_eq!(LiveLane::default().next(state("a")), Some(state("a")));
+    }
+
+    #[test]
+    fn live_lane_should_not_repeat_a_state_that_did_not_change() {
+        let mut lane = LiveLane::default();
+        lane.next(state("a"));
+        assert_eq!(lane.next(state("a")), None);
+        assert_eq!(lane.next(state("b")), Some(state("b")));
     }
 
     #[test]
