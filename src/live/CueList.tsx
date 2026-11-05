@@ -1,7 +1,9 @@
 import { memo, useEffect, useRef } from "react";
 import { useT } from "../i18n";
 import { seek } from "../transport/playback";
+import { menuAtPointer } from "../state/ui";
 import { traceStyle } from "../timeline/palette";
+import { cueMenu } from "../components/menus";
 import type { Cue, CueStatus } from "./api";
 import { cueName } from "./names";
 import { useLive } from "./store";
@@ -38,6 +40,7 @@ const CueRow = memo(function CueRow({ cue, status, progress }: RowProps) {
         // Going to a cue is a deliberate act in a show: a single click only focuses, a double
         // click or Enter (a click with no pointer) moves the transport.
         onClick={(event) => event.detail !== 1 && seek(cue.frame)}
+        onContextMenu={(event) => menuAtPointer(event, cueMenu(t, cue))}
       >
         <span className="cue-number measure">{cue.number}</span>
         <span className="cue-state">

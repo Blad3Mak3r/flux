@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
 import { FollowToggle } from "./FollowToggle";
 import type { Project } from "../project/types";
-import { select, setZoom, useUi, zoomBy } from "../state/ui";
+import { menuAtPointer, select, setZoom, useUi, zoomBy } from "../state/ui";
 import type { AssetAudio } from "../state/doc";
 import { useDoc } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
@@ -17,6 +17,7 @@ import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength } from "./TrackRow";
 import { PlusIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
+import { emptyMenu } from "./menus";
 
 const ZOOM_STEP = 1.25;
 /** Room past the last item, so there is always somewhere to drop the next one. */
@@ -207,6 +208,7 @@ export function Timeline() {
             if (headers.current) headers.current.scrollTop = event.currentTarget.scrollTop;
           }}
           onPointerDown={(event) => event.target === event.currentTarget && select(null)}
+          onContextMenu={(event) => menuAtPointer(event, emptyMenu(t))}
         >
           <div
             className="screen-inner"

@@ -4,7 +4,7 @@ import { useT } from "../i18n";
 import type { AudioClip, Note, Track } from "../project/types";
 import { moveTo, muteTrack, setGain } from "../state/actions";
 import { useDoc } from "../state/store";
-import { select, useUi } from "../state/ui";
+import { menuAtPointer, select, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
@@ -15,6 +15,7 @@ import { ClipWave } from "./ClipWave";
 import { Fader } from "./Fader";
 import { LevelMeter } from "./LevelMeter";
 import { MuteIcon, NoteIcon, WaveIcon } from "./icons";
+import { audioMenu, emptyMenu, noteMenu, notesTrackMenu } from "./menus";
 
 /** Length shown for a clip whose audio length is not known yet (10 s at the project rate). */
 const GUESS_SECONDS = 10;
@@ -33,6 +34,7 @@ export const TrackHeader = memo(function TrackHeader({ track }: { track: Track }
       data-muted={track.muted}
       data-audio={audio}
       data-colored={track.color !== undefined}
+      onContextMenu={(event) => menuAtPointer(event, audio ? audioMenu(t, track) : notesTrackMenu(t, track))}
     >
       <div className="track-head-row">
         <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.notes")}>
@@ -109,6 +111,7 @@ export function clipLength(audio: { seconds: number } | undefined, fps: number, 
 }
 
 function ClipBlock({
+  track,
   clip,
   name,
   guessLength,
@@ -118,6 +121,7 @@ function ClipBlock({
   tint,
   pxPerFrame,
 }: {
+  track: Track;
   clip: AudioClip;
   name: string;
   /** Length shown while the audio has not been read. */
@@ -130,6 +134,7 @@ function ClipBlock({
   tint: string;
   pxPerFrame: number;
 }) {
+  const t = useT();
   const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, pxPerFrame);
   // Each clip asks the stores for its own slice: a selection or a decoded waveform elsewhere
   // does not re-render it.
@@ -145,6 +150,10 @@ function ClipBlock({
       data-selected={selected}
       data-muted={muted}
       style={{ left: frameX(shown, pxPerFrame), width, height: rowHeight - 12 }}
+      onContextMenu={(event) => {
+        select({ kind: "clip", id: clip.id });
+        menuAtPointer(event, audioMenu(t, track, clip));
+      }}
       {...pointer}
     >
       <ClipWave
@@ -168,7 +177,7 @@ function ClipBlock({
  * A note on its lane: a line at its start with the text beside it. One with a length is drawn as a
  * box as long as it lasts, so what is on show at a point of the timeline can be read off the ruler.
  */
-function NoteBlock({ note, muted, pxPerFrame }: { note: Note; muted: boolean; pxPerFrame: number }) {
+function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPerFrame: number }) {
   const t = useT();
   const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, pxPerFrame);
   const selected = useUi((ui) => ui.selection?.id === note.id);
@@ -183,9 +192,13 @@ function NoteBlock({ note, muted, pxPerFrame }: { note: Note; muted: boolean; px
       tabIndex={0}
       aria-pressed={selected}
       data-selected={selected}
-      data-muted={muted}
+      data-muted={track.muted}
       data-timed={timed}
       style={{ left: frameX(shown, pxPerFrame) }}
+      onContextMenu={(event) => {
+        select({ kind: "note", id: note.id });
+        menuAtPointer(event, noteMenu(t, track, note));
+      }}
       {...pointer}
     >
       <span
@@ -227,11 +240,17 @@ export const TrackLane = memo(function TrackLane({
       data-muted={track.muted}
       data-kind={track.kind.type}
       onDoubleClick={addHere}
+      onContextMenu={(event) => {
+        const { start } = useDoc.getState().project.timecode;
+        const frame = start + Math.max(0, Math.round((event.clientX - event.currentTarget.getBoundingClientRect().left) / pxPerFrame));
+        menuAtPointer(event, emptyMenu(t, track.kind.type === "notes" ? { frame, trackId: track.id } : undefined));
+      }}
     >
       {track.kind.type === "audio"
         ? track.kind.clips.map((clip) => (
             <ClipBlock
               key={clip.id}
+              track={track}
               clip={clip}
               name={assetNames[clip.asset] ?? clip.asset}
               guessLength={guessLength}
@@ -243,7 +262,7 @@ export const TrackLane = memo(function TrackLane({
             />
           ))
         : track.kind.notes.map((note) => (
-            <NoteBlock key={note.id} note={note} muted={track.muted} pxPerFrame={pxPerFrame} />
+            <NoteBlock key={note.id} track={track} note={note} pxPerFrame={pxPerFrame} />
           ))}
     </div>
   );
