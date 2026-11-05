@@ -1,4 +1,4 @@
-# `.fxtc` project format (v1)
+# `.fxtc` project format (v4)
 
 A `.fxtc` file is a zip archive. Implementation: `src-tauri/src/project/`.
 
@@ -13,20 +13,25 @@ peaks/<file name>.bin stored, optional: the waveform preview of that audio (see 
 
 ## `project.json`
 
-camelCase JSON. Every position is a **frame count** at the project frame rate: cues and LTC/MTC are
-frame-aligned, and frame counts avoid rounding at 29.97 fps. `timecode.start` is the timecode of the timeline origin;
-the positions of clips (`start`) and cues (`at`) are counted **from that origin**, so a clip at `start: 0` begins at
-`timecode.start`. The transport's `seek` takes a timecode, `timecode.start` included.
+camelCase JSON. A project holds one or more **timelines** (a song, a block of the show), each with its own timecode and
+tracks; the audio files and the output devices belong to the project and are shared. Only one timeline plays at a time:
+the backend keeps which one is active, and it is not stored in the file.
+
+Every position is a **frame count** at the frame rate of its timeline: cues and LTC/MTC are frame-aligned, and frame
+counts avoid rounding at 29.97 fps. `timecode.start` is the timecode of the timeline origin; the positions of clips
+(`start`) and cues (`at`) are counted **from that origin**, so a clip at `start: 0` begins at `timecode.start`. The
+transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `3`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `4`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
-| `timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
-| `timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
-| `assets[]` | `{ id, name, file }` | `file` is the archive path under `audio/`. |
-| `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
+| `assets[]` | `{ id, name, file }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. |
+| `timelines[]` | `{ id, name, timecode, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
+| `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
+| `timelines[].timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
+| `timelines[].tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | Track, clip and note ids are unique in the **whole project**, not per timeline. `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
 | `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
 | `output.preview` | `{ deviceName, channels }` | Optional. Interface the Edit view auditions the clips on, with its own 1-based `channels`. While it is set, Edit plays only the audio there and sends no LTC or MTC; Live always uses `output.audio`, `output.ltc` and `output.mtc`. Absent (the file leaves it out) means Edit plays like Live. Added without a version bump. |
 | `output.ltc` | `[{ deviceName, channel }]` | LTC outputs, any number, each through an audio interface; `channel` is 1-based. An entry may share a device with `output.audio` (its channel is written into the programme's stream) or name another one, which gets a stream of its own, shared by every entry that names it. A repeated device and channel plays once. Absent is an empty list. |
@@ -124,6 +129,9 @@ is the one it keeps. Saving writes the current version, which older builds canno
   becomes a one-item list, and `null` or absent an empty list (the model reads all three shapes).
 - **3**: added `meta`. A file without it gets a new `id` and a creation and modification date taken from the file's own
   modification time.
+- **4**: `timecode` and `tracks` moved from the top level into `timelines`. An older file becomes a project with one
+  timeline, named like the project, with a new `id`. The listing of recent projects reads the frame rate of the first
+  timeline and the tracks of all of them (it also reads the older top-level shape).
 
 ## Saving
 

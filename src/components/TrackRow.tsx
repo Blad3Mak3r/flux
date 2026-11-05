@@ -3,6 +3,7 @@ import type { KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { AudioClip, Note, Track } from "../project/types";
 import { moveTo, muteTrack, setGain } from "../state/actions";
+import { activeTimeline } from "../state/doc";
 import { useDoc } from "../state/store";
 import { menuAtPointer, select, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
@@ -242,7 +243,7 @@ export const TrackLane = memo(function TrackLane({
   // A double click on the empty part of a notes lane writes a note there.
   const addHere = (event: MouseEvent<HTMLDivElement>) => {
     if (track.kind.type !== "notes" || event.target !== event.currentTarget) return;
-    const { start } = useDoc.getState().project.timecode;
+    const { start } = activeTimeline(useDoc.getState()).timecode;
     addNoteAt(t, start + Math.round(event.nativeEvent.offsetX / pxPerFrame), track.id);
   };
   return (
@@ -254,7 +255,7 @@ export const TrackLane = memo(function TrackLane({
       data-dragging={dragging}
       onDoubleClick={addHere}
       onContextMenu={(event) => {
-        const { start } = useDoc.getState().project.timecode;
+        const { start } = activeTimeline(useDoc.getState()).timecode;
         const frame = start + Math.max(0, Math.round((event.clientX - event.currentTarget.getBoundingClientRect().left) / pxPerFrame));
         menuAtPointer(event, emptyMenu(t, track.kind.type === "notes" ? { frame, trackId: track.id } : undefined));
       }}

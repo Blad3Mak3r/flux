@@ -8,7 +8,7 @@
 //! cpal and midir.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
@@ -25,7 +25,7 @@ use super::mtc::MtcScheduler;
 use super::transport::{Clock, Command, Transport, TransportState};
 use crate::audio::ENGINE_RATE;
 use crate::devices;
-use crate::project::{FrameRate, LtcOutput, Project};
+use crate::project::{FrameRate, LtcOutput, Project, ProjectError, Timeline};
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
 /// The longest the MTC thread sleeps before it looks at the transport again.
@@ -55,6 +55,8 @@ pub enum OutputError {
     Stream(String),
     #[error("the output is not running")]
     NotRunning,
+    #[error(transparent)]
+    Project(#[from] ProjectError),
 }
 
 /// Tauri sends command errors to the frontend as serialized values: use the message.
@@ -138,6 +140,8 @@ pub struct SharedClock {
     /// The LTC stream, when it runs on a device of its own, failed or went away.
     ltc_lost: AtomicBool,
     unpaced: AtomicBool,
+    /// How many times the show ran to its end by itself (not stopped by the user).
+    shows_ended: AtomicU64,
 }
 
 impl SharedClock {
@@ -153,6 +157,7 @@ impl SharedClock {
             lost: AtomicBool::new(false),
             ltc_lost: AtomicBool::new(false),
             unpaced: AtomicBool::new(false),
+            shows_ended: AtomicU64::new(0),
         }
     }
 
@@ -194,6 +199,11 @@ impl SharedClock {
     /// Whether the device renders audio faster than real time, so the position cannot be trusted.
     pub fn is_unpaced(&self) -> bool {
         self.unpaced.load(Ordering::Relaxed)
+    }
+
+    /// How many times the show ran to its end by itself since this clock was created.
+    pub fn shows_ended(&self) -> u64 {
+        self.shows_ended.load(Ordering::Relaxed)
     }
 }
 
@@ -276,7 +286,9 @@ impl Renderer {
         }
 
         let frames = (data.len() / self.channels) as u64;
-        self.transport.advance(frames);
+        if self.transport.advance(frames) {
+            self.shared.shows_ended.fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(unpaced) = self.pace.observe(now, frames) {
             self.shared.unpaced.store(unpaced, Ordering::Relaxed);
         }
@@ -503,6 +515,12 @@ pub struct PositionReader {
 }
 
 impl PositionReader {
+    /// How many times the show has run to its end by itself: a change says it just ended, which
+    /// the position alone cannot (a stop from the user looks the same).
+    pub fn shows_ended(&self) -> u64 {
+        self.shared.shows_ended()
+    }
+
     pub fn position(&self) -> Position {
         let snapshot = self.shared.load();
         let position = snapshot.estimated_position(self.shared.now(), self.clock);
@@ -535,7 +553,11 @@ impl Output {
     /// Opens the devices a project's `output` section names and starts the stream, stopped at
     /// the timeline start. The audio device is required because its clock drives everything; a
     /// missing MIDI port only produces a warning.
-    pub fn start(project: &Project, programme: Programme) -> Result<Self, OutputError> {
+    pub fn start(
+        project: &Project,
+        timeline: &Timeline,
+        programme: Programme,
+    ) -> Result<Self, OutputError> {
         let output = &project.output;
         // An empty device name is the system's default output, so a project without any device
         // chosen still plays. A project written before `output.audio` existed carries the
@@ -565,8 +587,8 @@ impl Output {
             .unwrap_or(2);
 
         let ltc_config = LtcConfig::default();
-        let rate = project.timecode.frame_rate;
-        let start = project.timecode.start;
+        let rate = timeline.timecode.frame_rate;
+        let start = timeline.timecode.start;
         let clock = Clock::new(ltc_config.sample_rate, rate);
         let shared = Arc::new(SharedClock::new());
         let stop = Arc::new(AtomicBool::new(false));

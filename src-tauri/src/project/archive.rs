@@ -99,16 +99,26 @@ pub struct ProjectMeta {
     pub track_count: usize,
 }
 
-/// Reads the summary of a `.fxtc` without validating the project or looking at its audio.
+/// Reads the summary of a `.fxtc` without validating the project or looking at its audio. It shows
+/// the frame rate of the first timeline and the tracks of all of them.
 ///
-/// Unknown fields are ignored, so a file from a newer version still lists as long as these three
-/// fields keep their shape.
+/// Unknown fields are ignored, so a file from a newer version still lists as long as these fields
+/// keep their shape. Files from before version 4 have their one timeline at the top level.
 pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct Raw {
         name: String,
+        #[serde(default)]
+        timelines: Vec<RawTimeline>,
+        timecode: Option<RawTimecode>,
+        #[serde(default)]
+        tracks: Vec<serde::de::IgnoredAny>,
+    }
+    #[derive(Deserialize)]
+    struct RawTimeline {
         timecode: RawTimecode,
+        #[serde(default)]
         tracks: Vec<serde::de::IgnoredAny>,
     }
     #[derive(Deserialize)]
@@ -123,10 +133,21 @@ pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
         Err(ZipError::FileNotFound) => return Err(ProjectError::MissingProjectJson),
         Err(err) => return Err(err.into()),
     };
+    let (frame_rate, track_count) = match (raw.timelines.first(), raw.timecode) {
+        (Some(first), _) => (
+            first.timecode.frame_rate,
+            raw.timelines
+                .iter()
+                .map(|timeline| timeline.tracks.len())
+                .sum(),
+        ),
+        (None, Some(timecode)) => (timecode.frame_rate, raw.tracks.len()),
+        (None, None) => return Err(ProjectError::Invalid("project.json has no timeline".into())),
+    };
     Ok(ProjectMeta {
         name: raw.name,
-        frame_rate: raw.timecode.frame_rate,
-        track_count: raw.tracks.len(),
+        frame_rate,
+        track_count,
     })
 }
 
@@ -399,8 +420,8 @@ mod tests {
         let meta = read_meta(&path).unwrap();
 
         assert_eq!(meta.name, project.name);
-        assert_eq!(meta.frame_rate, project.timecode.frame_rate);
-        assert_eq!(meta.track_count, project.tracks.len());
+        assert_eq!(meta.frame_rate, project.timelines[0].timecode.frame_rate);
+        assert_eq!(meta.track_count, project.timelines[0].tracks.len());
     }
 
     #[test]
@@ -409,8 +430,12 @@ mod tests {
         let path = dir.path().join("show.fxtc");
         let newer = format!(
             r#"{{ "formatVersion": {}, "name": "Later", "somethingNew": true,
-                 "timecode": {{ "frameRate": "fps25", "start": 0, "dropped": 1 }},
-                 "tracks": [{{ "future": 1 }}, {{ "future": 2 }}] }}"#,
+                 "timelines": [
+                     {{ "timecode": {{ "frameRate": "fps25", "start": 0, "dropped": 1 }},
+                        "tracks": [{{ "future": 1 }}] }},
+                     {{ "timecode": {{ "frameRate": "fps30", "start": 0 }},
+                        "tracks": [{{ "future": 2 }}] }}
+                 ] }}"#,
             FORMAT_VERSION + 1
         );
         zip_with(&path, &[(PROJECT_JSON, newer.as_bytes())]);
@@ -420,6 +445,19 @@ mod tests {
         assert_eq!(meta.name, "Later");
         assert_eq!(meta.frame_rate, FrameRate::Fps25);
         assert_eq!(meta.track_count, 2);
+    }
+
+    #[test]
+    fn read_meta_should_read_a_file_from_before_timelines() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.fxtc");
+        let old = r#"{ "formatVersion": 3, "name": "Old",
+            "timecode": { "frameRate": "fps30", "start": 0 }, "tracks": [{ "x": 1 }] }"#;
+        zip_with(&path, &[(PROJECT_JSON, old.as_bytes())]);
+
+        let meta = read_meta(&path).unwrap();
+
+        assert_eq!((meta.frame_rate, meta.track_count), (FrameRate::Fps30, 1));
     }
 
     #[test]
@@ -475,7 +513,8 @@ mod tests {
         let (project, _) = open(&path).unwrap();
 
         assert_eq!(project.format_version, FORMAT_VERSION);
-        let crate::project::TrackKind::Notes { notes } = &project.tracks[0].kind else {
+        let crate::project::TrackKind::Notes { notes } = &project.timelines[0].tracks[0].kind
+        else {
             panic!("the events track becomes a notes track");
         };
         assert_eq!(notes.len(), 1);

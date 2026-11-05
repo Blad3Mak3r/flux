@@ -2,6 +2,7 @@ import type { Devices, Presence } from "../devices/useDevices";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { SetupSection } from "../setup/outputs";
+import { activeTimeline } from "../state/doc";
 import { useDoc } from "../state/store";
 import { openSetup } from "../state/ui";
 import { formatFrames } from "../timecode";
@@ -46,7 +47,7 @@ function rowState(
 /** The timecode, at the pace the frames change. */
 function Readout() {
   const t = useT();
-  const { frameRate, start } = useDoc((doc) => doc.project.timecode);
+  const { frameRate, start } = useDoc((doc) => activeTimeline(doc).timecode);
   const frame = useTransport(selectFrame);
   const state = useTransport(selectMode);
   const timecode = formatFrames(frame, frameRate);

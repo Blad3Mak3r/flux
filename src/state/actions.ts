@@ -2,27 +2,33 @@
 // stable function, so it can be handed to any component without a closure over a stale project.
 
 import type { Project } from "../project/types";
+import { activeTimeline } from "./doc";
 import { dispatch, useDoc } from "./store";
 import { moveItem, moveTrack, removeItem, removeTrack, setTrackGain, toggleMute } from "./edit";
 import { select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
 
-const editWith = (change: (project: Project) => Project) => edit(change(useDoc.getState().project));
+/** Edits the project, given the id of the active timeline at the moment it runs. */
+export const editWith = (change: (project: Project, timeline: string) => Project) => {
+  const doc = useDoc.getState();
+  edit(change(doc.project, activeTimeline(doc).id));
+};
 
-export const moveTo = (id: string, position: number) => editWith((p) => moveItem(p, id, position));
-export const reorderTrack = (trackId: string, to: number) => editWith((p) => moveTrack(p, trackId, to));
-export const muteTrack = (trackId: string) => editWith((p) => toggleMute(p, trackId));
-export const setGain = (trackId: string, gainDb: number) => editWith((p) => setTrackGain(p, trackId, gainDb));
+export const moveTo = (id: string, position: number) => editWith((p, tl) => moveItem(p, tl, id, position));
+export const reorderTrack = (trackId: string, to: number) => editWith((p, tl) => moveTrack(p, tl, trackId, to));
+export const muteTrack = (trackId: string) => editWith((p, tl) => toggleMute(p, tl, trackId));
+export const setGain = (trackId: string, gainDb: number) =>
+  editWith((p, tl) => setTrackGain(p, tl, trackId, gainDb));
 
 export function deleteTrack(trackId: string): void {
-  editWith((p) => removeTrack(p, trackId));
+  editWith((p, tl) => removeTrack(p, tl, trackId));
   select(null);
 }
 
 export function deleteSelection(): void {
   const { selection } = useUi.getState();
   if (!selection) return;
-  editWith((p) => removeItem(p, selection.id));
+  editWith((p, tl) => removeItem(p, tl, selection.id));
   select(null);
 }

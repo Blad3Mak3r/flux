@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AudioAsset, FrameRate, Project } from "./types";
+import type { AudioAsset, FrameRate, Project, ProjectState } from "./types";
 
 /** The document the backend holds for the window: the project, where it lives and how it started. */
 export interface BackendDocument {
@@ -9,6 +9,8 @@ export interface BackendDocument {
   path: string | null;
   /** The project as last opened or saved, or as it started: the document is unsaved when it differs. */
   baseline: Project;
+  /** Id of the active timeline. */
+  active: string;
 }
 
 const PROJECT_FILTER = { name: "Flux Timecode project", extensions: ["fxtc"] };
@@ -27,13 +29,16 @@ export function projectDocument(): Promise<BackendDocument | null> {
   return invoke<BackendDocument | null>("project_document");
 }
 
-/** Gives the backend the latest state of the project, so a reloaded window gets it back. */
-export function syncProject(project: Project): Promise<void> {
-  return invoke("project_sync", { project });
+/**
+ * Gives the backend the latest state of the project, so a reloaded window gets it back. It answers
+ * with the active timeline, which an undo may have changed.
+ */
+export function syncProject(project: Project): Promise<string> {
+  return invoke<string>("project_sync", { project });
 }
 
-export function newProject(name: string, frameRate: FrameRate): Promise<Project> {
-  return invoke<Project>("project_new", { name, frameRate });
+export function newProject(name: string, frameRate: FrameRate): Promise<ProjectState> {
+  return invoke<ProjectState>("project_new", { name, frameRate });
 }
 
 /** Asks for a `.fxtc`. Resolves to `null` when the dialog is cancelled. */
@@ -41,9 +46,33 @@ export function pickProjectPath(): Promise<string | null> {
   return open({ filters: [PROJECT_FILTER] });
 }
 
-export function openProjectAt(path: string): Promise<Project> {
-  return invoke<Project>("project_open", { path });
+export function openProjectAt(path: string): Promise<ProjectState> {
+  return invoke<ProjectState>("project_open", { path });
 }
+
+// The timeline commands do the work in the backend and answer with the project as it is now. They
+// take the project the window shows, which the backend makes its document first.
+
+/** Adds a timeline named `"{label} N"` and activates it. */
+export const timelineAdd = (project: Project, label: string) =>
+  invoke<ProjectState>("timeline_add", { project, label });
+
+export const timelineRename = (project: Project, id: string, name: string) =>
+  invoke<ProjectState>("timeline_rename", { project, id, name });
+
+export const timelineRemove = (project: Project, id: string) =>
+  invoke<ProjectState>("timeline_remove", { project, id });
+
+export const timelineSelect = (project: Project, id: string) =>
+  invoke<ProjectState>("timeline_select", { project, id });
+
+/** Puts a timeline at index `to` of the order; the backend clamps it. */
+export const timelineMove = (project: Project, id: string, to: number) =>
+  invoke<ProjectState>("timeline_move", { project, id, to });
+
+/** Sets the frame rate and the start of the active timeline. */
+export const timelineSetTimecode = (project: Project, frameRate: FrameRate, start: number) =>
+  invoke<ProjectState>("timeline_set_timecode", { project, frameRate, start });
 
 /**
  * Saves to `path`, or asks for one when it is `null` (first save, or "Save as").

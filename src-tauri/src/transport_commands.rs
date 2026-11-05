@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::audio::SharedAudio;
 use crate::audio_commands::load;
@@ -25,11 +25,15 @@ use crate::commands::SharedSession;
 use crate::engine::cues::{CueList, LiveState, SharedCues};
 use crate::engine::mixer::{self, Programme, TrackPeak};
 use crate::engine::output::{Output, OutputError, OutputInfo, Position};
-use crate::engine::transport::Command;
-use crate::live_commands::cue_list;
-use crate::project::Project;
+use crate::engine::transport::{Command, TransportState};
+use crate::live_commands::{active_timeline, cue_list};
+use crate::project::{Project, Timeline};
 
 const LANE_INTERVAL: Duration = Duration::from_millis(33);
+
+/// The event the window hears when the show ended and the next timeline was made active. Its
+/// payload is the [`ProjectState`] after the change.
+pub const TIMELINE_ADVANCED: &str = "timeline-advanced";
 
 /// The position lane: a position that did not move is not sent again.
 #[derive(Default)]
@@ -56,6 +60,42 @@ impl LiveLane {
         }
         self.last = Some(state.clone());
         Some(state)
+    }
+}
+
+/// The end lane: tells when the show ran to its end, from the count the output keeps.
+struct EndLane {
+    seen: u64,
+}
+
+impl EndLane {
+    fn new(seen: u64) -> Self {
+        Self { seen }
+    }
+
+    /// Whether the show ended since the last call.
+    fn ended(&mut self, count: u64) -> bool {
+        std::mem::replace(&mut self.seen, count) != count
+    }
+}
+
+/// What the end lane does when the show ends: the next timeline becomes the active one, stopped at
+/// its start, and the window is told.
+struct Advance {
+    app: AppHandle,
+    session: SharedSession,
+}
+
+impl Advance {
+    fn run(&self) {
+        let next = self
+            .session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_timeline();
+        if let Ok(Some(state)) = next {
+            let _ = self.app.emit(TIMELINE_ADVANCED, state);
+        }
     }
 }
 
@@ -90,6 +130,7 @@ impl Running {
     fn new(
         output: Output,
         cues: SharedCues,
+        advance: Option<Advance>,
         on_position: Channel<Position>,
         on_levels: Channel<Vec<TrackPeak>>,
         on_live: Channel<LiveState>,
@@ -118,6 +159,16 @@ impl Running {
                 let _ = on_live.send(state);
             }
         })?;
+
+        if let Some(advance) = advance {
+            let reader = running.output.reader();
+            let mut end = EndLane::new(reader.shows_ended());
+            running.spawn_lane("flux-advance", move || {
+                if end.ended(reader.shows_ended()) {
+                    advance.run();
+                }
+            })?;
+        }
 
         let levels = running.output.levels();
         let mut lane = LevelsLane::new();
@@ -166,12 +217,20 @@ fn lock(state: &SharedOutput) -> MutexGuard<'_, Option<Running>> {
 
 /// Opening devices and joining threads can block, so both run off the main thread. The previous
 /// output is dropped outside the lock, because stopping it waits for threads that read the state.
+// A Tauri command takes the managed state it uses and each channel the window gives it as an
+// argument of its own, so it cannot be narrower.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "injected state and channels of a command"
+)]
 #[tauri::command]
 pub async fn output_start(
+    app: AppHandle,
     state: State<'_, SharedOutput>,
     session: State<'_, SharedSession>,
     audio: State<'_, SharedAudio>,
     project: Project,
+    advance: bool,
     on_position: Channel<Position>,
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
@@ -181,27 +240,41 @@ pub async fn output_start(
         let previous = lock(&state).take();
         drop(previous);
 
-        let list = cue_list(&project, &session, &audio);
-        let programme = programme(&project, &session, &audio, &list);
-        let output = Output::start(&project, programme)?;
+        let timeline = active_timeline(&session, &project)?;
+        let list = cue_list(&project, timeline, &session, &audio);
+        let programme = programme(&project, timeline, &session, &audio, &list);
+        let output = Output::start(&project, timeline, programme)?;
         let info = output.info().clone();
         let cues = SharedCues::new(list);
-        *lock(&state) = Some(Running::new(output, cues, on_position, on_levels, on_live)?);
+        // With `advance`, the show running to its end makes the next timeline the active one.
+        let advance = advance.then(|| Advance {
+            app,
+            session: Arc::clone(&session),
+        });
+        *lock(&state) = Some(Running::new(
+            output,
+            cues,
+            advance,
+            on_position,
+            on_levels,
+            on_live,
+        )?);
         Ok(info)
     })
     .await
     .map_err(|err| OutputError::Stream(err.to_string()))?
 }
 
-/// The audio of the project's clips, decoding what has not been decoded yet, and where the show
+/// The audio of the timeline's clips, decoding what has not been decoded yet, and where the show
 /// ends according to `cues`. A file that cannot be read is left out and reported, never an error.
 fn programme(
     project: &Project,
+    timeline: &Timeline,
     session: &SharedSession,
     audio: &SharedAudio,
     cues: &CueList,
 ) -> Programme {
-    let mut programme = mixer::build(project, |asset| load(session, audio, asset));
+    let mut programme = mixer::build(project, timeline, |asset| load(session, audio, asset));
     programme.set = programme.set.with_end(Some(cues.end_samples()));
     programme
 }
@@ -217,8 +290,9 @@ pub async fn output_set_clips(
 ) -> Result<Vec<String>, OutputError> {
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     tauri::async_runtime::spawn_blocking(move || {
-        let list = cue_list(&project, &session, &audio);
-        let Programme { set, warnings } = programme(&project, &session, &audio, &list);
+        let timeline = active_timeline(&session, &project)?;
+        let list = cue_list(&project, timeline, &session, &audio);
+        let Programme { set, warnings } = programme(&project, timeline, &session, &audio, &list);
         match lock(&state).as_ref() {
             Some(running) => {
                 running.cues.replace(list);
@@ -252,17 +326,29 @@ pub fn output_set_track_gain(
     }
 }
 
-#[tauri::command]
-pub async fn output_stop(state: State<'_, SharedOutput>) -> Result<(), OutputError> {
-    let state = Arc::clone(&state);
-    // Taken first and dropped after: stopping waits for threads, and the lock must be free for the
-    // `transport_*` commands, which run on the main thread, in the meantime.
-    tauri::async_runtime::spawn_blocking(move || {
+/// Whether the transport of the running output is playing.
+pub fn is_playing(state: &SharedOutput) -> bool {
+    lock(state)
+        .as_ref()
+        .is_some_and(|running| running.output.reader().position().state == TransportState::Playing)
+}
+
+/// Closes the running output, if any. Taken first and dropped after: stopping waits for threads,
+/// and the lock must be free for the `transport_*` commands, which run on the main thread, in the
+/// meantime.
+pub async fn release(state: &SharedOutput) {
+    let state = Arc::clone(state);
+    let _ = tauri::async_runtime::spawn_blocking(move || {
         let previous = lock(&state).take();
         drop(previous);
     })
-    .await
-    .map_err(|err| OutputError::Stream(err.to_string()))
+    .await;
+}
+
+#[tauri::command]
+pub async fn output_stop(state: State<'_, SharedOutput>) -> Result<(), OutputError> {
+    release(&state).await;
+    Ok(())
 }
 
 fn send(state: &SharedOutput, command: Command) -> Result<(), OutputError> {
@@ -306,7 +392,6 @@ pub fn transport_position(state: State<'_, SharedOutput>) -> Option<Position> {
 mod tests {
     use super::*;
     use crate::engine::cues::Countdown;
-    use crate::engine::transport::TransportState;
 
     fn at(frame: u64) -> Position {
         Position {
@@ -371,6 +456,23 @@ mod tests {
         let mut lane = LevelsLane::new();
         assert_eq!(lane.next(peak(0.5)), Some(peak(0.5)));
         assert_eq!(lane.next(peak(0.25)), Some(peak(0.25)));
+    }
+
+    #[test]
+    fn end_lane_should_say_so_once_per_end() {
+        let mut lane = EndLane::new(0);
+
+        assert!(!lane.ended(0));
+        assert!(lane.ended(1));
+        assert!(!lane.ended(1));
+        assert!(lane.ended(2));
+    }
+
+    #[test]
+    fn end_lane_should_ignore_the_ends_before_the_output_opened() {
+        let mut lane = EndLane::new(3);
+
+        assert!(!lane.ended(3));
     }
 
     #[test]

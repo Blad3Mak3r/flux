@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
+import { TimelineStrip } from "./TimelineStrip";
 import { FollowToggle } from "./FollowToggle";
-import type { Project } from "../project/types";
+import type { Timeline as TimelineData } from "../project/types";
 import { menuAtPointer, select, setZoom, useUi, zoomBy } from "../state/ui";
+import { activeTimeline } from "../state/doc";
 import type { AssetAudio } from "../state/doc";
-import { useDoc } from "../state/store";
+import { useDoc, useTimeline } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
 import { dropIndex, dropLineY } from "../timeline/reorder";
@@ -26,9 +28,9 @@ const ZOOM_STEP = 1.25;
 const TAIL = 1.15;
 const MIN_SECONDS = 120;
 
-function contentEnd(project: Project, audio: Record<string, AssetAudio>, fps: number, guess: number): number {
+function contentEnd(timeline: TimelineData, audio: Record<string, AssetAudio>, fps: number, guess: number): number {
   let end = 0;
-  for (const track of project.tracks) {
+  for (const track of timeline.tracks) {
     if (track.kind.type === "audio") {
       for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(audio[clip.asset], fps, guess));
     } else {
@@ -75,10 +77,11 @@ export function Timeline() {
   const headers = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(900);
   const [scrollbarHeight, setScrollbarHeight] = useState(0);
-  const project = useDoc((doc) => doc.project);
+  const assets = useDoc((doc) => doc.project.assets);
+  const timeline = useTimeline();
   const audio = useDoc((doc) => doc.audio);
   const pxPerFrame = useUi((ui) => ui.zoom);
-  const { frameRate, start } = project.timecode;
+  const { frameRate, start } = timeline.timecode;
   const fps = nominalFps(frameRate);
   const guessLength = GUESS_SECONDS * fps;
   const zoomPercent = Math.round((pxPerFrame / DEFAULT_PX_PER_FRAME) * 100);
@@ -121,11 +124,11 @@ export function Timeline() {
   }, []);
 
   const assetNames = useMemo(
-    () => Object.fromEntries(project.assets.map((asset) => [asset.id, asset.name])),
-    [project.assets],
+    () => Object.fromEntries(assets.map((asset) => [asset.id, asset.name])),
+    [assets],
   );
 
-  const end = contentEnd(project, audio, realFps(frameRate), guessLength);
+  const end = contentEnd(timeline, audio, realFps(frameRate), guessLength);
   const contentWidth = Math.ceil(
     Math.max(end * TAIL, MIN_SECONDS * fps) * pxPerFrame,
     // Never narrower than the window, so the graticule fills the screen.
@@ -135,7 +138,7 @@ export function Timeline() {
   const grabTrack = useCallback((event: PointerEvent<HTMLElement>, id: string) => {
     if (event.button !== 0 || (event.target as Element).closest("button")) return;
     const header = event.currentTarget.closest<HTMLElement>(".track-header");
-    const { tracks } = useDoc.getState().project;
+    const { tracks } = activeTimeline(useDoc.getState());
     const from = tracks.findIndex((track) => track.id === id);
     if (!header || from === -1) return;
     const heights = tracks.map(laneHeight);
@@ -172,8 +175,8 @@ export function Timeline() {
     window.addEventListener("keydown", onKey);
   }, []);
 
-  const dragFrom = drag ? project.tracks.findIndex((track) => track.id === drag.id) : -1;
-  const dropY = drag && drag.to !== dragFrom ? dropLineY(project.tracks.map(laneHeight), dragFrom, drag.to) : null;
+  const dragFrom = drag ? timeline.tracks.findIndex((track) => track.id === drag.id) : -1;
+  const dropY = drag && drag.to !== dragFrom ? dropLineY(timeline.tracks.map(laneHeight), dragFrom, drag.to) : null;
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
@@ -186,6 +189,7 @@ export function Timeline() {
         <h2 id="tracks-legend" className="legend">
           {t("tracks.legend")}
         </h2>
+        <TimelineStrip />
         <FollowToggle />
         <ViewSwitch />
       </div>
@@ -228,7 +232,7 @@ export function Timeline() {
             }}
           >
             <div className="headers-inner">
-              {project.tracks.map((track) => (
+              {timeline.tracks.map((track) => (
                 <TrackHeader key={track.id} track={track} dragging={drag?.id === track.id} onGrab={grabTrack} />
               ))}
               {dropY !== null && <div className="drop-line" style={{ top: dropY }} />}
@@ -277,7 +281,7 @@ export function Timeline() {
               />
             </div>
 
-            {project.tracks.map((track) => (
+            {timeline.tracks.map((track) => (
               <TrackLane
                 key={track.id}
                 track={track}
@@ -290,7 +294,7 @@ export function Timeline() {
             ))}
             {dropY !== null && <div className="drop-line" style={{ top: RULER_H + dropY }} />}
 
-            {project.tracks.length === 0 && (
+            {timeline.tracks.length === 0 && (
               <div className="empty-state">
                 <p className="empty-title">{t("track.empty.title")}</p>
                 <p>{t("track.empty.body")}</p>

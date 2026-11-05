@@ -8,13 +8,14 @@ import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
+import { TimelineConfirm } from "./components/TimelineConfirm";
 import { UnsavedDialog } from "./components/UnsavedDialog";
 import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
 import { SetupDialog } from "./setup/SetupDialog";
 import { I18nProvider, useT } from "./i18n";
 import { deleteSelection } from "./state/actions";
-import { isDirty } from "./state/doc";
+import { activeTimeline, isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
 import { ask, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
@@ -26,6 +27,7 @@ import {
   saveDocument,
   startDocument,
 } from "./state/workflows";
+import { bindTimelineAdvance, stepTimeline } from "./state/timelines";
 import { nominalFps } from "./timecode";
 import { patchReadout } from "./timeline/layout";
 import { bindTransport, seek, stop, toggle } from "./transport/playback";
@@ -58,6 +60,7 @@ function Shell() {
 
   useEffect(bindTransport, []);
   useEffect(bindDocumentSync, []);
+  useEffect(bindTimelineAdvance, []);
 
   // The clock of the audio device is the master; one that does not keep real time ruins the timecode.
   useEffect(() => {
@@ -113,10 +116,11 @@ function Shell() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
-      if (useUi.getState().pending || useUi.getState().setup || isTyping(event.target)) return;
+      const ui = useUi.getState();
+      if (ui.pending || ui.setup || ui.removing !== null || isTyping(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
-      const fps = nominalFps(useDoc.getState().project.timecode.frameRate);
+      const fps = nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
       const seekBy = (frames: number) => seek(currentFrame() + frames);
 
       if (mod) {
@@ -128,6 +132,8 @@ function Shell() {
           : key === "n" ? "new"
           : key === "b" ? "toggleInspector"
           : key === "," ? "setup"
+          : key === "pageup" ? "previousTimeline"
+          : key === "pagedown" ? "nextTimeline"
           : key === "1" ? "viewEdit"
           : key === "2" ? "viewLive"
           : key === "=" || key === "+" ? "zoomIn"
@@ -142,7 +148,9 @@ function Shell() {
         else if (action === "new") newDocument(t);
         else if (action === "toggleInspector") toggleInspector();
         else if (action === "setup") openSetup();
-        else if (action === "viewEdit" || action === "viewLive") setView(action === "viewEdit" ? "edit" : "live");
+        else if (action === "previousTimeline" || action === "nextTimeline") {
+          void stepTimeline(action === "previousTimeline" ? -1 : 1);
+        } else if (action === "viewEdit" || action === "viewLive") setView(action === "viewEdit" ? "edit" : "live");
         else zoomBy(action === "zoomIn" ? ZOOM_STEP : 1 / ZOOM_STEP);
         return;
       }
@@ -199,6 +207,7 @@ function Shell() {
       <StatusBar />
       <SetupDialog devices={devices} />
       <MenuHost />
+      <TimelineConfirm />
       <UnsavedDialog
         name={name}
         open={asking}

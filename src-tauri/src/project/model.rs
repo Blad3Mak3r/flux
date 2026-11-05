@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::error::{ProjectError, Result};
 pub use super::meta::Meta;
@@ -9,24 +10,51 @@ pub use super::meta::Meta;
 /// (see `migrate.rs`).
 ///
 /// Version 2 turned event tracks into notes and `output.ltc` / `output.mtc` into lists; version 3
-/// added `meta`. Files of version 2 written while the format was changing can hold either shape,
-/// so the migration looks at the shape, not at the number.
-pub const FORMAT_VERSION: u32 = 3;
+/// added `meta`; version 4 moved `timecode` and `tracks` into `timelines`. Files of version 2
+/// written while the format was changing can hold either shape, so the migration looks at the
+/// shape, not at the number.
+pub const FORMAT_VERSION: u32 = 4;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
 
-/// Contents of `project.json`. All positions are frame counts at the project frame rate.
+/// Contents of `project.json`. The audio and the output devices belong to the project; each
+/// timeline has its own timecode and tracks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub format_version: u32,
     pub name: String,
     pub meta: Meta,
-    pub timecode: TimecodeSettings,
     pub assets: Vec<AudioAsset>,
-    pub tracks: Vec<Track>,
     pub output: OutputConfig,
+    /// Never empty. Only one plays at a time.
+    pub timelines: Vec<Timeline>,
+}
+
+/// One line of time of a project, e.g. a song. All positions in it are frame counts at its own
+/// frame rate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Timeline {
+    pub id: String,
+    pub name: String,
+    pub timecode: TimecodeSettings,
+    pub tracks: Vec<Track>,
+}
+
+impl Timeline {
+    pub fn new(name: impl Into<String>, frame_rate: FrameRate) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            name: name.into(),
+            timecode: TimecodeSettings {
+                frame_rate,
+                start: 0,
+            },
+            tracks: Vec::new(),
+        }
+    }
 }
 
 /// The four rates MTC can express; LTC supports them too.
@@ -149,23 +177,40 @@ pub struct MtcOutput {
 }
 
 impl Project {
+    /// A project with one timeline, named like the project.
     pub fn new(name: impl Into<String>, frame_rate: FrameRate) -> Self {
+        let name = name.into();
         Self {
             format_version: FORMAT_VERSION,
-            name: name.into(),
             meta: Meta::new(),
-            timecode: TimecodeSettings {
-                frame_rate,
-                start: 0,
-            },
             assets: Vec::new(),
-            tracks: Vec::new(),
             output: OutputConfig::default(),
+            timelines: vec![Timeline::new(name.clone(), frame_rate)],
+            name,
         }
     }
 
-    /// Checks the invariants the archive format relies on: unique ids, clips pointing at known
-    /// assets, and asset files living directly under `audio/`.
+    pub fn timeline(&self, id: &str) -> Option<&Timeline> {
+        self.timelines.iter().find(|timeline| timeline.id == id)
+    }
+
+    /// Ids of the assets some clip of any timeline plays.
+    pub fn used_assets(&self) -> HashSet<&str> {
+        self.timelines
+            .iter()
+            .flat_map(|timeline| &timeline.tracks)
+            .filter_map(|track| match &track.kind {
+                TrackKind::Audio { clips } => Some(clips),
+                TrackKind::Notes { .. } => None,
+            })
+            .flatten()
+            .map(|clip| clip.asset.as_str())
+            .collect()
+    }
+
+    /// Checks the invariants the archive format relies on: at least one timeline, unique ids (a
+    /// track, clip or note id is unique in the whole project), clips pointing at known assets, and
+    /// asset files living directly under `audio/`.
     pub fn validate(&self) -> Result<()> {
         self.meta.validate()?;
         let mut asset_ids = HashSet::new();
@@ -176,46 +221,63 @@ impl Project {
             ensure_unique(&mut asset_files, "asset file", &asset.file)?;
         }
 
+        if self.timelines.is_empty() {
+            return Err(ProjectError::Invalid("a project needs a timeline".into()));
+        }
+        let mut timeline_ids = HashSet::new();
         let mut track_ids = HashSet::new();
         let mut item_ids = HashSet::new();
-        for track in &self.tracks {
-            ensure_unique(&mut track_ids, "track id", &track.id)?;
-            if track.gain_db.is_some_and(|db| !db.is_finite()) {
-                return Err(ProjectError::Invalid(format!(
-                    "track {} has a gain that is not a number",
-                    track.id
-                )));
-            }
-            if let Some(color) = &track.color {
-                check_color(color)?;
-            }
-            match &track.kind {
-                TrackKind::Audio { clips } => {
-                    for clip in clips {
-                        ensure_unique(&mut item_ids, "clip/note id", &clip.id)?;
-                        if !asset_ids.contains(clip.asset.as_str()) {
-                            return Err(ProjectError::Invalid(format!(
-                                "clip {} references unknown asset {}",
-                                clip.id, clip.asset
-                            )));
-                        }
-                    }
-                }
-                TrackKind::Notes { notes } => {
-                    for note in notes {
-                        ensure_unique(&mut item_ids, "clip/note id", &note.id)?;
-                        if note.length == Some(0) {
-                            return Err(ProjectError::Invalid(format!(
-                                "note {} lasts no time; leave the length out instead",
-                                note.id
-                            )));
-                        }
-                    }
-                }
+        for timeline in &self.timelines {
+            ensure_unique(&mut timeline_ids, "timeline id", &timeline.id)?;
+            for track in &timeline.tracks {
+                validate_track(track, &asset_ids, &mut track_ids, &mut item_ids)?;
             }
         }
         self.output.validate()
     }
+}
+
+fn validate_track<'a>(
+    track: &'a Track,
+    asset_ids: &HashSet<&str>,
+    track_ids: &mut HashSet<&'a str>,
+    item_ids: &mut HashSet<&'a str>,
+) -> Result<()> {
+    ensure_unique(track_ids, "track id", &track.id)?;
+    if track.gain_db.is_some_and(|db| !db.is_finite()) {
+        return Err(ProjectError::Invalid(format!(
+            "track {} has a gain that is not a number",
+            track.id
+        )));
+    }
+    if let Some(color) = &track.color {
+        check_color(color)?;
+    }
+    match &track.kind {
+        TrackKind::Audio { clips } => {
+            for clip in clips {
+                ensure_unique(item_ids, "clip/note id", &clip.id)?;
+                if !asset_ids.contains(clip.asset.as_str()) {
+                    return Err(ProjectError::Invalid(format!(
+                        "clip {} references unknown asset {}",
+                        clip.id, clip.asset
+                    )));
+                }
+            }
+        }
+        TrackKind::Notes { notes } => {
+            for note in notes {
+                ensure_unique(item_ids, "clip/note id", &note.id)?;
+                if note.length == Some(0) {
+                    return Err(ProjectError::Invalid(format!(
+                        "note {} lasts no time; leave the length out instead",
+                        note.id
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 impl OutputConfig {
@@ -319,55 +381,59 @@ pub(super) mod tests {
                 author: "Ana".into(),
                 description: String::new(),
             },
-            timecode: TimecodeSettings {
-                frame_rate: FrameRate::Fps2997Drop,
-                start: 107_892,
-            },
             assets: vec![AudioAsset {
                 id: "a1".into(),
                 name: "Click".into(),
                 file: "audio/click.wav".into(),
             }],
-            tracks: vec![
-                Track {
-                    id: "t1".into(),
-                    name: "Backing".into(),
-                    muted: false,
-                    gain_db: Some(-6.0),
-                    color: Some("#5cd0ea".into()),
-                    kind: TrackKind::Audio {
-                        clips: vec![AudioClip {
-                            id: "c1".into(),
-                            asset: "a1".into(),
-                            start: 120,
-                            gain_db: -3.5,
-                        }],
-                    },
+            timelines: vec![Timeline {
+                id: "l1".into(),
+                name: "Opening night".into(),
+                timecode: TimecodeSettings {
+                    frame_rate: FrameRate::Fps2997Drop,
+                    start: 107_892,
                 },
-                Track {
-                    id: "t2".into(),
-                    name: "Notes".into(),
-                    muted: true,
-                    gain_db: None,
-                    color: None,
-                    kind: TrackKind::Notes {
-                        notes: vec![
-                            Note {
-                                id: "n1".into(),
-                                at: 300,
-                                length: None,
-                                text: "Lights up".into(),
-                            },
-                            Note {
-                                id: "n2".into(),
-                                at: 450,
-                                length: Some(75),
-                                text: "Singer walks on\nstage left".into(),
-                            },
-                        ],
+                tracks: vec![
+                    Track {
+                        id: "t1".into(),
+                        name: "Backing".into(),
+                        muted: false,
+                        gain_db: Some(-6.0),
+                        color: Some("#5cd0ea".into()),
+                        kind: TrackKind::Audio {
+                            clips: vec![AudioClip {
+                                id: "c1".into(),
+                                asset: "a1".into(),
+                                start: 120,
+                                gain_db: -3.5,
+                            }],
+                        },
                     },
-                },
-            ],
+                    Track {
+                        id: "t2".into(),
+                        name: "Notes".into(),
+                        muted: true,
+                        gain_db: None,
+                        color: None,
+                        kind: TrackKind::Notes {
+                            notes: vec![
+                                Note {
+                                    id: "n1".into(),
+                                    at: 300,
+                                    length: None,
+                                    text: "Lights up".into(),
+                                },
+                                Note {
+                                    id: "n2".into(),
+                                    at: 450,
+                                    length: Some(75),
+                                    text: "Singer walks on\nstage left".into(),
+                                },
+                            ],
+                        },
+                    },
+                ],
+            }],
             output: OutputConfig {
                 audio: Some(AudioOutput {
                     device_name: "Main Interface".into(),
@@ -387,7 +453,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 3,
+        "formatVersion": 4,
         "name": "Opening night",
         "meta": {
             "id": "6f0c1d52-7a0e-4a52-9c3b-2d6a5f1b8e10",
@@ -397,9 +463,11 @@ pub(super) mod tests {
             "savedWith": "0.1.0",
             "author": "Ana"
         },
-        "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
         "assets": [{ "id": "a1", "name": "Click", "file": "audio/click.wav" }],
-        "tracks": [
+        "timelines": [{
+            "id": "l1", "name": "Opening night",
+            "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
+            "tracks": [
             {
                 "id": "t1", "name": "Backing", "muted": false, "gainDb": -6.0, "color": "#5cd0ea",
                 "kind": { "type": "audio", "clips": [
@@ -413,7 +481,7 @@ pub(super) mod tests {
                     { "id": "n2", "at": 450, "length": 75, "text": "Singer walks on\nstage left" }
                 ] }
             }
-        ],
+        ] }],
         "output": {
             "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
             "ltc": [{ "deviceName": "Main Interface", "channel": 3 }],
@@ -437,13 +505,13 @@ pub(super) mod tests {
     #[test]
     fn note_without_a_length_should_parse_and_serialize_without_one() {
         let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
-        let TrackKind::Notes { notes } = &parsed.tracks[1].kind else {
+        let TrackKind::Notes { notes } = &parsed.timelines[0].tracks[1].kind else {
             panic!("the second track holds notes");
         };
         assert_eq!(notes[0].length, None);
         let json = serde_json::to_value(&parsed).unwrap();
         assert!(
-            json["tracks"][1]["kind"]["notes"][0]
+            json["timelines"][0]["tracks"][1]["kind"]["notes"][0]
                 .get("length")
                 .is_none()
         );
@@ -498,7 +566,7 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_a_note_that_lasts_no_time() {
         let mut project = sample_project();
-        if let TrackKind::Notes { notes } = &mut project.tracks[1].kind {
+        if let TrackKind::Notes { notes } = &mut project.timelines[0].tracks[1].kind {
             notes[0].length = Some(0);
         }
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
@@ -507,7 +575,7 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_a_note_id_that_a_clip_already_uses() {
         let mut project = sample_project();
-        if let TrackKind::Notes { notes } = &mut project.tracks[1].kind {
+        if let TrackKind::Notes { notes } = &mut project.timelines[0].tracks[1].kind {
             notes[0].id = "c1".into();
         }
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
@@ -528,7 +596,7 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_a_clip_with_an_unknown_asset() {
         let mut project = sample_project();
-        if let TrackKind::Audio { clips } = &mut project.tracks[0].kind {
+        if let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind {
             clips[0].asset = "missing".into();
         }
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
@@ -537,7 +605,7 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_duplicate_ids() {
         let mut project = sample_project();
-        project.tracks[1].id = "t1".into();
+        project.timelines[0].tracks[1].id = "t1".into();
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
     }
 
@@ -552,37 +620,116 @@ pub(super) mod tests {
     #[test]
     fn track_without_a_gain_should_parse_and_serialize_without_one() {
         let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
-        assert_eq!(parsed.tracks[1].gain_db, None);
+        assert_eq!(parsed.timelines[0].tracks[1].gain_db, None);
         let json = serde_json::to_value(&parsed).unwrap();
-        assert!(json["tracks"][1].get("gainDb").is_none());
+        assert!(json["timelines"][0]["tracks"][1].get("gainDb").is_none());
     }
 
     #[test]
     fn validate_should_reject_a_track_gain_that_is_not_finite() {
         let mut project = sample_project();
-        project.tracks[0].gain_db = Some(f32::NAN);
+        project.timelines[0].tracks[0].gain_db = Some(f32::NAN);
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
     }
 
     #[test]
     fn track_without_a_colour_should_parse_and_serialize_without_one() {
         let parsed: Project = serde_json::from_str(FIXTURE).unwrap();
-        assert_eq!(parsed.tracks[1].color, None);
+        assert_eq!(parsed.timelines[0].tracks[1].color, None);
         let json = serde_json::to_value(&parsed).unwrap();
-        assert!(json["tracks"][1].get("color").is_none());
-        assert_eq!(json["tracks"][0]["color"], "#5cd0ea");
+        assert!(json["timelines"][0]["tracks"][1].get("color").is_none());
+        assert_eq!(json["timelines"][0]["tracks"][0]["color"], "#5cd0ea");
     }
 
     #[test]
     fn validate_should_reject_a_track_colour_that_is_not_a_hex_triplet() {
         for bad in ["red", "#fff", "5cd0ea", "#5cd0eg", "#5cd0ea; x", ""] {
             let mut project = sample_project();
-            project.tracks[0].color = Some(bad.into());
+            project.timelines[0].tracks[0].color = Some(bad.into());
             assert!(
                 matches!(project.validate(), Err(ProjectError::Invalid(_))),
                 "{bad:?} should be rejected"
             );
         }
+    }
+
+    /// The sample project with a second timeline that holds one note.
+    fn two_timelines() -> Project {
+        let mut project = sample_project();
+        let mut second = Timeline::new("Second", FrameRate::Fps25);
+        second.tracks.push(Track {
+            id: "t3".into(),
+            name: "Notes".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Notes {
+                notes: vec![Note {
+                    id: "n3".into(),
+                    at: 0,
+                    length: None,
+                    text: String::new(),
+                }],
+            },
+        });
+        project.timelines.push(second);
+        project
+    }
+
+    #[test]
+    fn validate_should_accept_several_timelines() {
+        assert!(two_timelines().validate().is_ok());
+    }
+
+    #[test]
+    fn validate_should_reject_a_project_without_timelines() {
+        let mut project = sample_project();
+        project.timelines.clear();
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_repeated_timeline_id() {
+        let mut project = two_timelines();
+        project.timelines[1].id = "l1".into();
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_note_id_used_in_another_timeline() {
+        let mut project = two_timelines();
+        if let TrackKind::Notes { notes } = &mut project.timelines[1].tracks[0].kind {
+            notes[0].id = "c1".into();
+        }
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn used_assets_should_count_the_clips_of_every_timeline() {
+        let mut project = two_timelines();
+        let clip = AudioClip {
+            id: "c2".into(),
+            asset: "a1".into(),
+            start: 0,
+            gain_db: 0.0,
+        };
+        project.timelines[1].tracks.push(Track {
+            id: "t4".into(),
+            name: "Backing".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Audio { clips: vec![clip] },
+        });
+        project.timelines[0].tracks.remove(0);
+
+        assert_eq!(project.used_assets(), HashSet::from(["a1"]));
+    }
+
+    #[test]
+    fn new_should_give_the_first_timeline_the_name_of_the_project() {
+        let project = Project::new("Show", FrameRate::Fps30);
+        assert_eq!(project.timelines[0].name, "Show");
     }
 
     #[test]

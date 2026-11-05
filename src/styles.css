@@ -612,7 +612,7 @@ input:disabled {
 }
 
 .screen-bar .legend {
-  flex: 1;
+  flex: none;
 }
 
 .zoom {
@@ -2044,6 +2044,116 @@ input:disabled {
   background: var(--panel-lo);
   border-bottom-color: var(--phosphor);
   color: var(--ink);
+}
+
+/* ---- Timelines of the project: a strip of tabs in the bar of Edit and Live ---- */
+
+.timeline-strip {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  gap: 4px;
+  min-width: 0;
+  margin-left: 6px;
+}
+
+.timeline-strip .icon-button {
+  flex: none;
+}
+
+/* Many songs do not fit: the strip scrolls (wheel or touchpad), and the list button reaches any of them. */
+.timeline-tabs {
+  position: relative;
+  display: flex;
+  align-self: stretch;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+/* The chosen timeline reads like a selected tab, with the square lamp of the Preferences list. */
+.timeline-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  max-width: 22ch;
+  height: 100%;
+  padding: 0 14px 0 12px;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--ink-dim);
+  font-weight: 600;
+}
+
+.timeline-tab::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: var(--lamp-off);
+}
+
+.timeline-tab:hover {
+  background: var(--panel-hi);
+  color: var(--ink);
+}
+
+.timeline-tab[aria-selected="true"] {
+  background: var(--panel-lo);
+  border-bottom-color: var(--phosphor);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.timeline-tab[aria-selected="true"]::before {
+  background: var(--phosphor);
+}
+
+/* On air: vermilion means live. */
+.timeline-tab[data-playing="true"]::before {
+  background: var(--signal);
+}
+
+/* While the show plays the others cannot be chosen: dimmed, and the tooltip says why. */
+.timeline-tab[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.timeline-tab[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--ink-dim);
+}
+
+/* Reordering: the tab follows the pointer and a line marks where it will land, as with the tracks. */
+.timeline-tab[data-dragging="true"] {
+  position: relative;
+  z-index: 3;
+  background: var(--panel-hi);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  cursor: grabbing;
+}
+
+.timeline-drop {
+  position: absolute;
+  inset-block: 0;
+  z-index: 4;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--phosphor);
+  pointer-events: none;
+}
+
+.timeline-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live {

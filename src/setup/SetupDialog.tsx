@@ -7,10 +7,12 @@ import { closeSetup, openSetup, useUi } from "../state/ui";
 import { useTransport } from "../transport/store";
 import { SETUP_SECTIONS, isAvailable, stepSection } from "./outputs";
 import type { SetupSection } from "./outputs";
-import { AudioPage, GeneralPage, LtcPage, MtcPage, ProjectPage } from "./pages";
+import { AudioPage, GeneralPage, LtcPage, MtcPage, ProjectPage, TimelinePage } from "./pages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
   switch (section) {
+    case "timeline":
+      return <TimelinePage />;
     case "project":
       return <ProjectPage />;
     case "audio":

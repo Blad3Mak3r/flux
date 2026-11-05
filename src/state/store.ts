@@ -4,6 +4,7 @@
 import { create } from "zustand";
 import { initialLocale, translator } from "../i18n/messages";
 import { docReducer, initialDoc } from "./doc";
+import { activeTimeline } from "./doc";
 import type { Doc, DocAction } from "./doc";
 import { emptyProject } from "./edit";
 
@@ -15,3 +16,6 @@ export const useDoc = create<Doc>()(() =>
 export function dispatch(action: DocAction): void {
   useDoc.setState((doc) => docReducer(doc, action));
 }
+
+/** The active timeline, for a component to draw. It only re-renders when that timeline changes. */
+export const useTimeline = () => useDoc(activeTimeline);

@@ -11,8 +11,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tauri::{AppHandle, State};
 
 use crate::audio::SharedAudio;
-use crate::project::{AudioAsset, Document, FrameRate, Project, ProjectError, Result, Session};
+use crate::project::{
+    AudioAsset, Document, FrameRate, Project, ProjectError, ProjectState, Result, Session,
+};
 use crate::recents;
+use crate::transport_commands::{SharedOutput, is_playing, release};
 
 pub type SharedSession = Arc<Mutex<Session>>;
 
@@ -37,11 +40,12 @@ pub async fn project_document(session: State<'_, SharedSession>) -> Result<Optio
 }
 
 /// Keeps the latest state of the project being edited, for `project_document` to give back.
+/// Answers with the active timeline, which an undo in the window can have changed.
 #[tauri::command]
-pub async fn project_sync(session: State<'_, SharedSession>, project: Project) -> Result<()> {
+pub async fn project_sync(session: State<'_, SharedSession>, project: Project) -> Result<String> {
     run(&session, move |s| {
         s.update(project);
-        Ok(())
+        Ok(s.active())
     })
     .await
 }
@@ -52,9 +56,16 @@ pub async fn project_new(
     audio: State<'_, SharedAudio>,
     name: String,
     frame_rate: FrameRate,
-) -> Result<Project> {
+) -> Result<ProjectState> {
     audio.clear();
-    run(&session, move |s| Ok(s.new_project(&name, frame_rate))).await
+    run(&session, move |s| {
+        let project = s.new_project(&name, frame_rate);
+        Ok(ProjectState {
+            project,
+            active: s.active(),
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -63,12 +74,136 @@ pub async fn project_open(
     session: State<'_, SharedSession>,
     audio: State<'_, SharedAudio>,
     path: PathBuf,
-) -> Result<Project> {
+) -> Result<ProjectState> {
     audio.clear();
     let opened = path.clone();
-    let project = run(&session, move |s| s.open(&path)).await?;
+    let state = run(&session, move |s| {
+        let project = s.open(&path)?;
+        Ok(ProjectState {
+            project,
+            active: s.active(),
+        })
+    })
+    .await?;
     recents::remember(&app, &opened);
-    Ok(project)
+    Ok(state)
+}
+
+/// The timelines cannot be changed while the show plays, as the view cannot change either.
+fn ensure_stopped(output: &SharedOutput) -> Result<()> {
+    if is_playing(output) {
+        return Err(ProjectError::Invalid(
+            "the show is playing: stop it before changing the timelines".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Runs a change of the active timeline or of its timecode. The show cannot be playing: the output
+/// was opened with the old timecode, so it is released and the window opens it again.
+async fn retime<T, F>(session: &SharedSession, output: &SharedOutput, op: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut Session) -> Result<T> + Send + 'static,
+{
+    ensure_stopped(output)?;
+    let value = run(session, op).await?;
+    release(output).await;
+    Ok(value)
+}
+
+// The timeline commands take the project the window shows and make it the document first, so they
+// act on what the user sees even when the window's last edit has not been synced yet.
+
+/// Adds a timeline named `"{label} N"` and makes it the active one.
+#[tauri::command]
+pub async fn timeline_add(
+    session: State<'_, SharedSession>,
+    output: State<'_, SharedOutput>,
+    project: Project,
+    label: String,
+) -> Result<ProjectState> {
+    retime(&session, &output, move |s| {
+        s.update(project);
+        s.add_timeline(&label)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn timeline_rename(
+    session: State<'_, SharedSession>,
+    project: Project,
+    id: String,
+    name: String,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.rename_timeline(&id, &name)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn timeline_remove(
+    session: State<'_, SharedSession>,
+    output: State<'_, SharedOutput>,
+    project: Project,
+    id: String,
+) -> Result<ProjectState> {
+    retime(&session, &output, move |s| {
+        s.update(project);
+        s.remove_timeline(&id)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn timeline_select(
+    session: State<'_, SharedSession>,
+    output: State<'_, SharedOutput>,
+    project: Project,
+    id: String,
+) -> Result<ProjectState> {
+    retime(&session, &output, move |s| {
+        s.update(project);
+        s.select_timeline(&id)
+    })
+    .await
+}
+
+/// Moves a timeline to index `to` of the order. It changes neither the active timeline nor any
+/// timecode, so the output stays open, but not while the show plays.
+#[tauri::command]
+pub async fn timeline_move(
+    session: State<'_, SharedSession>,
+    output: State<'_, SharedOutput>,
+    project: Project,
+    id: String,
+    to: usize,
+) -> Result<ProjectState> {
+    ensure_stopped(&output)?;
+    run(&session, move |s| {
+        s.update(project);
+        s.move_timeline(&id, to)
+    })
+    .await
+}
+
+/// Sets the frame rate and the start of the active timeline.
+#[tauri::command]
+pub async fn timeline_set_timecode(
+    session: State<'_, SharedSession>,
+    output: State<'_, SharedOutput>,
+    project: Project,
+    frame_rate: FrameRate,
+    start: u64,
+) -> Result<ProjectState> {
+    retime(&session, &output, move |s| {
+        s.update(project);
+        s.set_timecode(frame_rate, start)
+    })
+    .await
 }
 
 /// Registers an audio file; the returned asset is for the frontend to add to its project.
@@ -123,6 +258,11 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn ensure_stopped_should_allow_a_change_when_no_output_runs() {
+        assert!(ensure_stopped(&SharedOutput::default()).is_ok());
+    }
 
     #[test]
     fn delete_show_should_remove_the_file() {

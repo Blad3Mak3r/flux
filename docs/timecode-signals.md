@@ -53,7 +53,7 @@ one clock and cannot drift apart. Nothing in it allocates or locks.
   Every boundary is the exact fraction rounded to the nearest sample, so 1000 frames of 29.97 fps at 48 kHz are
   exactly 1 601 600 samples and errors never accumulate.
 - `Command`: `Play`, `Pause`, `Stop` (back to the start), `Seek(frame)`. A seek takes a frame count, like every
-  position in the project; positions before `project.timecode.start` go to the start.
+  position in the project; positions before the active timeline's `timecode.start` go to the start.
 - **End of the show.** `set_end(samples)` gives the transport the latest end among all clips and cues. When playing
   reaches it, the transport stops by itself exactly like `Stop`: state `stopped`, back at the start (so the next Play
   runs the show again), epoch changed so LTC and MTC resync; the `transport-position` lane reports it as a state
@@ -68,6 +68,25 @@ one clock and cannot drift apart. Nothing in it allocates or locks.
   compare it with the last epoch they saw and call `resync`.
 - `LtcStream` plays LTC in step with the transport: silence until the next frame boundary, then one frame after
   another from a preallocated buffer, so `fill` is safe in the audio callback.
+
+## Timelines
+
+A project can hold several timelines, each with its own frame rate, start and tracks, but **one plays at a time**: the
+output, the transport and every LTC and MTC signal run the **active** timeline, which the backend's `Session` keeps.
+`live_cues`, `live_state`, `output_start` and `output_set_clips` take the project but not a timeline: the backend picks
+the active one. The `timeline_*` commands (`timeline_add`, `timeline_rename`, `timeline_remove`, `timeline_select`,
+`timeline_set_timecode`, `timeline_move`) take the project the window shows, make it the document, do the work and answer with
+`{ project, active }`. Changing the active timeline, removing one or changing its timecode is refused while the
+transport plays, and it closes the running output (the rate and the start are fixed when the output opens), so the
+window opens it again: the transport then stands at the start of the new timeline. `timeline_move` (reordering)
+is refused while the transport plays too, like changing the view, but it leaves the open output alone.
+
+**In Live, the next timeline is made ready when one ends.** The window opens the output with `advance` set when the
+Live view is showing. When the show then runs to its end by itself (a stop from the user does not count: the transport
+counts those ends, see `PositionReader::shows_ended`), a lane of the output makes the following timeline the active one
+(`Session::next_timeline`) and emits the `timeline-advanced` event with the `{ project, active }` it left. The window
+shows it and opens the output again for the new timeline, which is stopped at its start: it is never started for the
+user. After the last timeline nothing changes and the show stays where it ended.
 
 ## Cues and the Live view (`engine/cues.rs`, `live_commands.rs`)
 
@@ -113,7 +132,7 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project`, `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
+| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |

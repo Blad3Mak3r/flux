@@ -1,5 +1,5 @@
 // Mirrors the Rust model in src-tauri/src/project/model.rs (the `project.json` shape).
-// Positions are frame counts at the project frame rate.
+// Positions are frame counts at the frame rate of the timeline they are in.
 
 export type FrameRate = "fps24" | "fps25" | "fps2997Drop" | "fps30";
 
@@ -7,10 +7,24 @@ export interface Project {
   formatVersion: number;
   name: string;
   meta: ProjectMeta;
-  timecode: { frameRate: FrameRate; start: number };
   assets: AudioAsset[];
-  tracks: Track[];
   output: OutputConfig;
+  /** Never empty. The backend decides which one is active; only that one plays. */
+  timelines: Timeline[];
+}
+
+/** One line of time of a project, e.g. a song, with its own timecode and tracks. */
+export interface Timeline {
+  id: string;
+  name: string;
+  timecode: { frameRate: FrameRate; start: number };
+  tracks: Track[];
+}
+
+/** A project with the id of its active timeline, as the backend answers after it changed something. */
+export interface ProjectState {
+  project: Project;
+  active: string;
 }
 
 /** Identity and history of the project; `modifiedAt` and `savedWith` are set by the backend on save. */
