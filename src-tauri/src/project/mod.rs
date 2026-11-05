@@ -12,7 +12,7 @@ pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, sav
 pub use error::{ProjectError, Result};
 pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, FORMAT_VERSION, FrameRate, LtcOutput, Meta,
-    MtcOutput, Note, OutputConfig, Project, TimecodeSettings, Track, TrackKind,
+    MtcOutput, Note, OutputConfig, Project, TimecodeSettings, Timeline, Track, TrackKind,
 };
 pub use preview::{AudioStamp, Preview};
-pub use session::{Document, Session};
+pub use session::{Document, ProjectState, Session};

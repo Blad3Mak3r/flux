@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
 use super::error::{ProjectError, Result};
-use super::model::{AUDIO_DIR, AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path};
+use super::model::{
+    AUDIO_DIR, AudioAsset, FORMAT_VERSION, FrameRate, Project, Timeline, check_asset_path,
+};
 use super::preview::{AudioStamp, Preview, StoredPreview};
 
 /// The document being edited, as the backend last heard of it. The window that edits it can be
@@ -22,6 +24,49 @@ pub struct Document {
     /// The project as it was last opened or saved, or as it started for a new one: the document is
     /// unsaved when `project` differs from it.
     pub baseline: Project,
+    /// Id of the timeline being edited and played. Only the backend chooses it.
+    pub active: String,
+}
+
+impl Document {
+    fn new(project: Project, path: Option<PathBuf>) -> Self {
+        Self {
+            active: first_timeline(&project),
+            baseline: project.clone(),
+            project,
+            path,
+        }
+    }
+
+    /// Makes `id` the active timeline when the project has it.
+    fn select(&mut self, id: &str) {
+        if self.project.timeline(id).is_some() {
+            id.clone_into(&mut self.active);
+        }
+    }
+
+    /// An undo in the window can take the active timeline away: the first one takes over.
+    fn settle(&mut self) {
+        if self.project.timeline(&self.active).is_none() {
+            self.active = first_timeline(&self.project);
+        }
+    }
+}
+
+fn first_timeline(project: &Project) -> String {
+    project
+        .timelines
+        .first()
+        .map(|timeline| timeline.id.clone())
+        .unwrap_or_default()
+}
+
+/// A project and the timeline that is active in it: what the window shows after the backend
+/// changed something.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ProjectState {
+    pub project: Project,
+    pub active: String,
 }
 
 /// Backend state for the project being edited.
@@ -43,11 +88,7 @@ impl Session {
         self.sources.clear();
         self.previews.clear();
         let project = Project::new(name, frame_rate);
-        self.document = Some(Document {
-            baseline: project.clone(),
-            project: project.clone(),
-            path: None,
-        });
+        self.document = Some(Document::new(project.clone(), None));
         project
     }
 
@@ -58,11 +99,7 @@ impl Session {
         let (project, _archive) = archive::open(path)?;
         self.sources = archive_sources(&project, path);
         self.previews.clear();
-        self.document = Some(Document {
-            baseline: project.clone(),
-            project: project.clone(),
-            path: Some(path.to_path_buf()),
-        });
+        self.document = Some(Document::new(project.clone(), Some(path.to_path_buf())));
         if !project.meta.is_stamped()
             && let Ok(saved) = self.save(&project, path)
         {
@@ -74,15 +111,122 @@ impl Session {
     /// Remembers the latest state of the project being edited.
     pub fn update(&mut self, project: Project) {
         match &mut self.document {
-            Some(document) => document.project = project,
-            None => {
-                self.document = Some(Document {
-                    baseline: project.clone(),
-                    project,
-                    path: None,
-                });
+            Some(document) => {
+                document.project = project;
+                document.settle();
             }
+            None => self.document = Some(Document::new(project, None)),
         }
+    }
+
+    /// The id of the active timeline, empty before a document was started.
+    pub fn active(&self) -> String {
+        self.document
+            .as_ref()
+            .map(|document| document.active.clone())
+            .unwrap_or_default()
+    }
+
+    /// The timeline of `project` that is active in the document, else its first one. The engine
+    /// plays the project the window sends, and this says which of its timelines.
+    pub fn active_timeline<'a>(&self, project: &'a Project) -> Result<&'a Timeline> {
+        self.document
+            .as_ref()
+            .and_then(|document| project.timeline(&document.active))
+            .or_else(|| project.timelines.first())
+            .ok_or_else(no_timeline)
+    }
+
+    /// Adds a timeline called `"{label} {n}"` with the frame rate of the active one, and activates
+    /// it. The window supplies the translated `label`; the number is the new count.
+    pub fn add_timeline(&mut self, label: &str) -> Result<ProjectState> {
+        self.change(|project, active| {
+            let rate = project
+                .timeline(active)
+                .or(project.timelines.first())
+                .ok_or_else(no_timeline)?
+                .timecode
+                .frame_rate;
+            let timeline = Timeline::new(format!("{label} {}", project.timelines.len() + 1), rate);
+            *active = timeline.id.clone();
+            project.timelines.push(timeline);
+            Ok(())
+        })
+    }
+
+    pub fn rename_timeline(&mut self, id: &str, name: &str) -> Result<ProjectState> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(ProjectError::Invalid("a timeline needs a name".into()));
+        }
+        self.change(|project, _| {
+            timeline_mut(project, id)?.name = name.to_owned();
+            Ok(())
+        })
+    }
+
+    /// Removes a timeline and the audio no clip uses any more. The one that takes its place becomes
+    /// active when it was the active one.
+    pub fn remove_timeline(&mut self, id: &str) -> Result<ProjectState> {
+        self.change(|project, active| {
+            let index = project
+                .timelines
+                .iter()
+                .position(|timeline| timeline.id == id)
+                .ok_or_else(|| unknown_timeline(id))?;
+            if project.timelines.len() == 1 {
+                return Err(no_timeline());
+            }
+            project.timelines.remove(index);
+            let used: HashSet<String> = project
+                .used_assets()
+                .into_iter()
+                .map(String::from)
+                .collect();
+            project.assets.retain(|asset| used.contains(&asset.id));
+            if active == id {
+                let neighbour = index.min(project.timelines.len() - 1);
+                *active = project.timelines[neighbour].id.clone();
+            }
+            Ok(())
+        })
+    }
+
+    pub fn select_timeline(&mut self, id: &str) -> Result<ProjectState> {
+        self.change(|project, active| {
+            timeline_mut(project, id)?;
+            id.clone_into(active);
+            Ok(())
+        })
+    }
+
+    /// Sets the frame rate and the start of the active timeline.
+    pub fn set_timecode(&mut self, frame_rate: FrameRate, start: u64) -> Result<ProjectState> {
+        self.change(|project, active| {
+            let timecode = &mut timeline_mut(project, active)?.timecode;
+            timecode.frame_rate = frame_rate;
+            timecode.start = start;
+            Ok(())
+        })
+    }
+
+    /// Applies `edit` to a copy of the project and the active id, and keeps the result only when it
+    /// is still a valid project, so a refused change leaves the document as it was.
+    fn change(
+        &mut self,
+        edit: impl FnOnce(&mut Project, &mut String) -> Result<()>,
+    ) -> Result<ProjectState> {
+        let document = self
+            .document
+            .as_mut()
+            .ok_or_else(|| ProjectError::Invalid("no project is open".into()))?;
+        let mut project = document.project.clone();
+        let mut active = document.active.clone();
+        edit(&mut project, &mut active)?;
+        project.validate()?;
+        document.project = project.clone();
+        document.active.clone_from(&active);
+        Ok(ProjectState { project, active })
     }
 
     /// The document being edited, if one was started.
@@ -160,13 +304,29 @@ impl Session {
         self.sources = archive_sources(&saved, path);
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
-        self.document = Some(Document {
-            project: saved.clone(),
-            path: Some(path.to_path_buf()),
-            baseline: saved.clone(),
-        });
+        let mut document = Document::new(saved.clone(), Some(path.to_path_buf()));
+        if let Some(previous) = &self.document {
+            document.select(&previous.active);
+        }
+        self.document = Some(document);
         Ok(saved)
     }
+}
+
+fn no_timeline() -> ProjectError {
+    ProjectError::Invalid("a project needs a timeline".into())
+}
+
+fn unknown_timeline(id: &str) -> ProjectError {
+    ProjectError::Invalid(format!("unknown timeline: {id}"))
+}
+
+fn timeline_mut<'a>(project: &'a mut Project, id: &str) -> Result<&'a mut Timeline> {
+    project
+        .timelines
+        .iter_mut()
+        .find(|timeline| timeline.id == id)
+        .ok_or_else(|| unknown_timeline(id))
 }
 
 fn archive_sources(project: &Project, path: &Path) -> HashMap<String, AssetSource> {
@@ -196,7 +356,7 @@ mod tests {
         let mut session = Session::default();
         let mut project = session.new_project("Show", FrameRate::Fps25);
         let asset = session.import_audio(&wav).unwrap();
-        project.tracks.push(Track {
+        project.timelines[0].tracks.push(Track {
             id: "t1".into(),
             name: "Backing".into(),
             muted: false,
@@ -555,5 +715,235 @@ mod tests {
         let (session, project) = imported_project(&dir);
 
         assert_eq!(session.preview(&project.assets[0]).unwrap(), None);
+    }
+
+    /// A session holding a new 25 fps project that has a second timeline; the first is active.
+    fn with_two_timelines() -> (Session, String, String) {
+        let mut session = Session::default();
+        let first = session.new_project("Show", FrameRate::Fps25).timelines[0]
+            .id
+            .clone();
+        let second = session.add_timeline("Timeline").unwrap().active;
+        session.select_timeline(&first).unwrap();
+        (session, first, second)
+    }
+
+    #[test]
+    fn new_project_should_activate_its_first_timeline() {
+        let mut session = Session::default();
+        let project = session.new_project("Show", FrameRate::Fps25);
+
+        assert_eq!(session.active(), project.timelines[0].id);
+    }
+
+    #[test]
+    fn add_timeline_should_number_it_and_activate_it() {
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+
+        let state = session.add_timeline("Timeline").unwrap();
+
+        assert_eq!(state.project.timelines[1].name, "Timeline 2");
+        assert_eq!(state.active, state.project.timelines[1].id);
+    }
+
+    #[test]
+    fn add_timeline_should_copy_the_frame_rate_of_the_active_one() {
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps30);
+
+        let state = session.add_timeline("Timeline").unwrap();
+
+        assert_eq!(
+            state.project.timelines[1].timecode.frame_rate,
+            FrameRate::Fps30
+        );
+    }
+
+    #[test]
+    fn add_timeline_should_start_the_new_one_at_zero_with_no_tracks() {
+        let mut session = Session::default();
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        project.timelines[0].timecode.start = 90_000;
+        session.update(project);
+
+        let added = &session.add_timeline("Timeline").unwrap().project.timelines[1];
+
+        assert_eq!((added.timecode.start, added.tracks.len()), (0, 0));
+    }
+
+    #[test]
+    fn timeline_operations_should_fail_without_a_document() {
+        let mut session = Session::default();
+
+        assert!(session.add_timeline("Timeline").is_err());
+        assert!(session.select_timeline("x").is_err());
+    }
+
+    #[test]
+    fn rename_timeline_should_trim_the_name() {
+        let (mut session, first, _) = with_two_timelines();
+
+        let state = session.rename_timeline(&first, "  Song 1 ").unwrap();
+
+        assert_eq!(state.project.timelines[0].name, "Song 1");
+    }
+
+    #[test]
+    fn rename_timeline_should_refuse_an_empty_name() {
+        let (mut session, first, _) = with_two_timelines();
+
+        assert!(matches!(
+            session.rename_timeline(&first, "   "),
+            Err(ProjectError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn rename_timeline_should_refuse_an_unknown_id() {
+        let (mut session, ..) = with_two_timelines();
+
+        assert!(session.rename_timeline("nope", "Song").is_err());
+    }
+
+    #[test]
+    fn select_timeline_should_change_the_active_one() {
+        let (mut session, _, second) = with_two_timelines();
+
+        let state = session.select_timeline(&second).unwrap();
+
+        assert_eq!((state.active, session.active()), (second.clone(), second));
+    }
+
+    #[test]
+    fn select_timeline_should_refuse_an_unknown_id_and_keep_the_active_one() {
+        let (mut session, first, _) = with_two_timelines();
+
+        assert!(session.select_timeline("nope").is_err());
+        assert_eq!(session.active(), first);
+    }
+
+    #[test]
+    fn remove_timeline_should_refuse_the_last_one() {
+        let mut session = Session::default();
+        let only = session.new_project("Show", FrameRate::Fps25).timelines[0]
+            .id
+            .clone();
+
+        assert!(session.remove_timeline(&only).is_err());
+        assert_eq!(session.document().unwrap().project.timelines.len(), 1);
+    }
+
+    #[test]
+    fn remove_timeline_should_activate_the_one_that_takes_its_place() {
+        let (mut session, first, second) = with_two_timelines();
+
+        let state = session.remove_timeline(&first).unwrap();
+
+        assert_eq!(state.active, second);
+    }
+
+    #[test]
+    fn remove_timeline_should_keep_the_active_one_when_another_goes() {
+        let (mut session, first, second) = with_two_timelines();
+
+        let state = session.remove_timeline(&second).unwrap();
+
+        assert_eq!(state.active, first);
+    }
+
+    #[test]
+    fn remove_timeline_should_drop_the_audio_no_clip_uses_any_more() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, project) = imported_project(&dir);
+        let first = project.timelines[0].id.clone();
+        session.update(project);
+        session.add_timeline("Timeline").unwrap();
+
+        let state = session.remove_timeline(&first).unwrap();
+
+        assert!(state.project.assets.is_empty());
+    }
+
+    #[test]
+    fn remove_timeline_should_keep_the_audio_another_timeline_uses() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, mut project) = imported_project(&dir);
+        let first = project.timelines[0].id.clone();
+        let mut second = Timeline::new("Second", FrameRate::Fps25);
+        let mut track = project.timelines[0].tracks[0].clone();
+        track.id = "t2".into();
+        if let TrackKind::Audio { clips } = &mut track.kind {
+            clips[0].id = "c2".into();
+        }
+        second.tracks.push(track);
+        project.timelines.push(second);
+        session.update(project);
+
+        let state = session.remove_timeline(&first).unwrap();
+
+        assert_eq!(state.project.assets.len(), 1);
+    }
+
+    #[test]
+    fn set_timecode_should_change_the_active_timeline_only() {
+        let (mut session, first, second) = with_two_timelines();
+        session.select_timeline(&second).unwrap();
+
+        let state = session.set_timecode(FrameRate::Fps24, 86_400).unwrap();
+
+        let timecode = |id: &str| state.project.timeline(id).unwrap().timecode.clone();
+        assert_eq!(
+            (timecode(&second).frame_rate, timecode(&second).start),
+            (FrameRate::Fps24, 86_400)
+        );
+        assert_eq!(timecode(&first).frame_rate, FrameRate::Fps25);
+    }
+
+    #[test]
+    fn update_should_fall_back_to_the_first_timeline_when_the_active_one_is_gone() {
+        let (mut session, first, second) = with_two_timelines();
+        session.select_timeline(&second).unwrap();
+        let mut project = session.document().unwrap().project;
+        project.timelines.retain(|timeline| timeline.id == first);
+
+        session.update(project);
+
+        assert_eq!(session.active(), first);
+    }
+
+    #[test]
+    fn save_should_keep_the_active_timeline() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, _, second) = with_two_timelines();
+        session.select_timeline(&second).unwrap();
+        let project = session.document().unwrap().project;
+
+        session
+            .save(&project, &dir.path().join("show.fxtc"))
+            .unwrap();
+
+        assert_eq!(session.active(), second);
+    }
+
+    #[test]
+    fn active_timeline_should_follow_the_selection_in_the_project_it_is_given() {
+        let (mut session, _, second) = with_two_timelines();
+        let project = session.document().unwrap().project;
+        session.select_timeline(&second).unwrap();
+
+        let timeline = session.active_timeline(&project).unwrap();
+
+        assert_eq!(timeline.id, second);
+    }
+
+    #[test]
+    fn active_timeline_should_fall_back_to_the_first_when_the_project_lacks_it() {
+        let (session, first, _) = with_two_timelines();
+        let mut project = session.document().unwrap().project;
+        project.timelines.reverse();
+        project.timelines.retain(|timeline| timeline.id == first);
+
+        assert_eq!(session.active_timeline(&project).unwrap().id, first);
     }
 }

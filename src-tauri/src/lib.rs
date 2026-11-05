@@ -36,6 +36,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::project_document,
             commands::project_sync,
+            commands::timeline_add,
+            commands::timeline_rename,
+            commands::timeline_remove,
+            commands::timeline_select,
+            commands::timeline_set_timecode,
             commands::project_new,
             commands::project_open,
             commands::project_import_audio,

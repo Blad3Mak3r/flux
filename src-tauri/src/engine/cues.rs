@@ -14,7 +14,7 @@ use serde::Serialize;
 use crate::audio::ENGINE_RATE;
 use crate::engine::timecode::Timecode;
 use crate::engine::transport::Clock;
-use crate::project::{AudioAsset, FrameRate, Project, TrackKind};
+use crate::project::{AudioAsset, FrameRate, Project, Timeline, TrackKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -123,18 +123,22 @@ pub struct CueList {
 }
 
 impl CueList {
-    /// Derives the cues of `project`. `length_of` gives the samples (at the engine rate) of an
+    /// Derives the cues of `timeline`, a timeline of `project`. `length_of` gives the samples (at the engine rate) of an
     /// asset's audio; one it cannot give leaves the clip without length rather than failing,
     /// because a file that went missing must not stop the show.
-    pub fn build(project: &Project, mut length_of: impl FnMut(&AudioAsset) -> Option<u64>) -> Self {
-        let rate = project.timecode.frame_rate;
-        let start = project.timecode.start;
+    pub fn build(
+        project: &Project,
+        timeline: &Timeline,
+        mut length_of: impl FnMut(&AudioAsset) -> Option<u64>,
+    ) -> Self {
+        let rate = timeline.timecode.frame_rate;
+        let start = timeline.timecode.start;
         let clock = Clock::new(ENGINE_RATE, rate);
         let text = |frames| Timecode::from_frames(frames, rate).display(rate);
         let mut cues = Vec::new();
         let mut end = 0;
 
-        for track in &project.tracks {
+        for track in &timeline.tracks {
             let cue = |id: &str, kind, name: &str, at: u64, length: Option<u64>| Cue {
                 id: id.to_owned(),
                 number: 0,
@@ -351,20 +355,20 @@ mod tests {
     /// track `t1` (clips `c1` at 0 and `c2` at 100) and a notes track `t2` (note `m1` at 50, with no length).
     fn project(muted: bool) -> Project {
         let mut project = Project::new("Show", FrameRate::Fps25);
-        project.timecode.start = 100;
+        project.timelines[0].timecode.start = 100;
         project.assets.push(AudioAsset {
             id: "a1".into(),
             name: "Intro".into(),
             file: "audio/intro.wav".into(),
         });
-        project.tracks.push(track(
+        project.timelines[0].tracks.push(track(
             "t1",
             muted,
             TrackKind::Audio {
                 clips: vec![clip("c2", 100), clip("c1", 0)],
             },
         ));
-        project.tracks.push(track(
+        project.timelines[0].tracks.push(track(
             "t2",
             false,
             TrackKind::Notes {
@@ -375,7 +379,7 @@ mod tests {
     }
 
     fn list(project: &Project) -> CueList {
-        CueList::build(project, |_| Some(2 * SECOND))
+        CueList::build(project, &project.timelines[0], |_| Some(2 * SECOND))
     }
 
     fn cue_named(list: &CueList, id: &str) -> Cue {
@@ -409,10 +413,10 @@ mod tests {
     fn end_samples_should_use_the_exact_length_of_a_clip_and_count_notes() {
         let mut project = project(false);
         // 1.5 frames of audio: the end is not rounded down to whole frames.
-        let short = CueList::build(&project, |_| Some(2_880));
+        let short = CueList::build(&project, &project.timelines[0], |_| Some(2_880));
         assert_eq!(short.end_samples(), 4 * SECOND + 2_880);
 
-        project.tracks[1].kind = TrackKind::Notes {
+        project.timelines[0].tracks[1].kind = TrackKind::Notes {
             notes: vec![note("m1", 250, Some(25), "late")],
         };
         assert_eq!(list(&project).end_samples(), 11 * SECOND);
@@ -427,7 +431,7 @@ mod tests {
     #[test]
     fn build_should_keep_the_track_order_for_cues_at_the_same_frame() {
         let mut project = project(false);
-        project.tracks[1].kind = TrackKind::Notes {
+        project.timelines[0].tracks[1].kind = TrackKind::Notes {
             notes: vec![note("m1", 0, None, "M1")],
         };
         assert_eq!(ids(&list(&project))[..2], ["c1", "m1"]);
@@ -449,14 +453,15 @@ mod tests {
 
     #[test]
     fn build_should_leave_a_clip_without_length_when_its_audio_is_unknown() {
-        let list = CueList::build(&project(false), |_| None);
+        let project = project(false);
+        let list = CueList::build(&project, &project.timelines[0], |_| None);
         assert_eq!(list.cues()[0].length, None);
     }
 
     #[test]
     fn build_should_name_a_note_after_its_first_line_and_keep_all_of_its_text() {
         let mut project = project(false);
-        project.tracks[1].kind = TrackKind::Notes {
+        project.timelines[0].tracks[1].kind = TrackKind::Notes {
             notes: vec![note("n1", 0, None, "  Singer on\nstage left ")],
         };
         let cue = cue_named(&list(&project), "n1");
@@ -468,7 +473,7 @@ mod tests {
     #[test]
     fn build_should_give_a_note_its_own_length() {
         let mut project = project(false);
-        project.tracks[1].kind = TrackKind::Notes {
+        project.timelines[0].tracks[1].kind = TrackKind::Notes {
             notes: vec![note("n1", 0, Some(30), "Hold")],
         };
         assert_eq!(cue_named(&list(&project), "n1").length, Some(30));
@@ -551,21 +556,22 @@ mod tests {
 
     #[test]
     fn state_at_should_not_run_a_clip_without_length() {
-        let list = CueList::build(&project(false), |_| None);
+        let project = project(false);
+        let list = CueList::build(&project, &project.timelines[0], |_| None);
         assert_eq!(list.state_at(100).statuses[0], CueStatus::Done);
     }
 
     #[test]
     fn state_at_should_write_times_with_a_semicolon_in_drop_frame() {
         let mut project = project(false);
-        project.timecode.frame_rate = FrameRate::Fps2997Drop;
+        project.timelines[0].timecode.frame_rate = FrameRate::Fps2997Drop;
         assert!(list(&project).cues()[0].timecode.contains(';'));
     }
 
     /// A project with only the notes track `t2` holding `notes`.
     fn with_notes(notes: Vec<Note>) -> Project {
         let mut project = Project::new("Show", FrameRate::Fps25);
-        project
+        project.timelines[0]
             .tracks
             .push(track("t2", false, TrackKind::Notes { notes }));
         project
@@ -618,7 +624,7 @@ mod tests {
     #[test]
     fn state_at_should_show_notes_of_different_tracks_together() {
         let mut project = with_notes(vec![note("a", 0, None, "A")]);
-        project.tracks.push(track(
+        project.timelines[0].tracks.push(track(
             "t3",
             false,
             TrackKind::Notes {
@@ -631,7 +637,7 @@ mod tests {
     #[test]
     fn state_at_should_not_show_the_notes_of_a_muted_track() {
         let mut project = with_notes(vec![note("a", 0, None, "A")]);
-        project.tracks[0].muted = true;
+        project.timelines[0].tracks[0].muted = true;
         assert_eq!(shown(&list(&project), 10), Vec::<String>::new());
     }
 

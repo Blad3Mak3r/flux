@@ -25,7 +25,7 @@ use super::mtc::MtcScheduler;
 use super::transport::{Clock, Command, Transport, TransportState};
 use crate::audio::ENGINE_RATE;
 use crate::devices;
-use crate::project::{FrameRate, LtcOutput, Project};
+use crate::project::{FrameRate, LtcOutput, Project, ProjectError, Timeline};
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
 /// The longest the MTC thread sleeps before it looks at the transport again.
@@ -55,6 +55,8 @@ pub enum OutputError {
     Stream(String),
     #[error("the output is not running")]
     NotRunning,
+    #[error(transparent)]
+    Project(#[from] ProjectError),
 }
 
 /// Tauri sends command errors to the frontend as serialized values: use the message.
@@ -535,7 +537,11 @@ impl Output {
     /// Opens the devices a project's `output` section names and starts the stream, stopped at
     /// the timeline start. The audio device is required because its clock drives everything; a
     /// missing MIDI port only produces a warning.
-    pub fn start(project: &Project, programme: Programme) -> Result<Self, OutputError> {
+    pub fn start(
+        project: &Project,
+        timeline: &Timeline,
+        programme: Programme,
+    ) -> Result<Self, OutputError> {
         let output = &project.output;
         // An empty device name is the system's default output, so a project without any device
         // chosen still plays. A project written before `output.audio` existed carries the
@@ -565,8 +571,8 @@ impl Output {
             .unwrap_or(2);
 
         let ltc_config = LtcConfig::default();
-        let rate = project.timecode.frame_rate;
-        let start = project.timecode.start;
+        let rate = timeline.timecode.frame_rate;
+        let start = timeline.timecode.start;
         let clock = Clock::new(ltc_config.sample_rate, rate);
         let shared = Arc::new(SharedClock::new());
         let stop = Arc::new(AtomicBool::new(false));

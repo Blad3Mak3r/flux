@@ -18,9 +18,28 @@ use super::model::FORMAT_VERSION;
 pub(super) fn upgrade(value: &mut Value, created: &str) {
     events_to_notes(value);
     add_meta(value, created);
+    wrap_timelines(value);
     if let Some(version) = value.get_mut("formatVersion") {
         *version = json!(FORMAT_VERSION);
     }
+}
+
+/// Before version 4 a project had one timecode and one list of tracks at the top level. They become
+/// the first timeline, named like the project.
+fn wrap_timelines(value: &mut Value) {
+    let Some(project) = value.as_object_mut() else {
+        return;
+    };
+    if project.contains_key("timelines") {
+        return;
+    }
+    let timeline = json!({
+        "id": Uuid::new_v4().to_string(),
+        "name": project.get("name").cloned().unwrap_or_else(|| json!("")),
+        "timecode": project.remove("timecode"),
+        "tracks": project.remove("tracks"),
+    });
+    project.insert("timelines".into(), json!([timeline]));
 }
 
 /// Files from before version 3 have no identity: they get a new id, and the creation and last
@@ -102,7 +121,7 @@ mod tests {
         let mut value = v1();
         upgrade(&mut value, DATE);
         assert_eq!(
-            value["tracks"][1]["kind"],
+            value["timelines"][0]["tracks"][1]["kind"],
             json!({ "type": "notes", "notes": [
                 { "id": "e1", "at": 300, "text": "Lights up" },
                 { "id": "e3", "at": 600, "text": "Blackout" }
@@ -115,7 +134,7 @@ mod tests {
         let mut value = v1();
         value["formatVersion"] = json!(2);
         upgrade(&mut value, DATE);
-        assert_eq!(value["tracks"][1]["kind"]["type"], "notes");
+        assert_eq!(value["timelines"][0]["tracks"][1]["kind"]["type"], "notes");
     }
 
     #[test]
@@ -134,7 +153,7 @@ mod tests {
         ] });
         upgrade(&mut value, DATE);
         assert_eq!(
-            value["tracks"][0]["kind"],
+            value["timelines"][0]["tracks"][0]["kind"],
             json!({ "type": "notes", "notes": [] })
         );
     }
@@ -143,7 +162,7 @@ mod tests {
     fn upgrade_should_leave_audio_tracks_and_the_rest_of_the_file_alone() {
         let mut value = v1();
         upgrade(&mut value, DATE);
-        assert_eq!(value["tracks"][0], v1()["tracks"][0]);
+        assert_eq!(value["timelines"][0]["tracks"][0], v1()["tracks"][0]);
         assert_eq!(value["name"], "Old show");
     }
 
@@ -171,7 +190,7 @@ mod tests {
 
     #[test]
     fn upgrade_should_keep_the_meta_a_file_already_has() {
-        let mut value = json!({ "formatVersion": 3, "meta": { "id": "kept" }, "tracks": [] });
+        let mut value = json!({ "formatVersion": 4, "meta": { "id": "kept" }, "timelines": [] });
         let before = value.clone();
         upgrade(&mut value, DATE);
         assert_eq!(value, before);
@@ -181,6 +200,56 @@ mod tests {
     fn upgrade_should_leave_a_malformed_file_for_parsing_to_report() {
         let mut value = json!({ "formatVersion": 1, "tracks": "nope" });
         upgrade(&mut value, DATE);
-        assert_eq!(value["tracks"], "nope");
+        assert_eq!(value["timelines"][0]["tracks"], "nope");
+    }
+
+    fn v3() -> Value {
+        json!({
+            "formatVersion": 3,
+            "name": "Show",
+            "meta": { "id": "kept" },
+            "timecode": { "frameRate": "fps25", "start": 90000 },
+            "tracks": [{ "id": "t1" }],
+            "output": {}
+        })
+    }
+
+    #[test]
+    fn upgrade_should_move_the_timecode_and_tracks_into_a_first_timeline() {
+        let mut value = v3();
+        upgrade(&mut value, DATE);
+        let timeline = &value["timelines"][0];
+        assert_eq!(timeline["timecode"], v3()["timecode"]);
+        assert_eq!(timeline["tracks"], v3()["tracks"]);
+    }
+
+    #[test]
+    fn upgrade_should_name_the_first_timeline_after_the_project() {
+        let mut value = v3();
+        upgrade(&mut value, DATE);
+        assert_eq!(value["timelines"][0]["name"], "Show");
+    }
+
+    #[test]
+    fn upgrade_should_give_the_first_timeline_an_id() {
+        let mut value = v3();
+        upgrade(&mut value, DATE);
+        assert!(Uuid::parse_str(value["timelines"][0]["id"].as_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn upgrade_should_leave_no_timecode_or_tracks_at_the_top_level() {
+        let mut value = v3();
+        upgrade(&mut value, DATE);
+        assert!(value.get("timecode").is_none() && value.get("tracks").is_none());
+    }
+
+    #[test]
+    fn upgrade_should_keep_the_timelines_of_a_current_file() {
+        let mut value =
+            json!({ "formatVersion": 4, "meta": { "id": "kept" }, "timelines": [{ "id": "l1" }] });
+        let before = value.clone();
+        upgrade(&mut value, DATE);
+        assert_eq!(value, before);
     }
 }

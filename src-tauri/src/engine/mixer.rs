@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use super::transport::Clock;
 use crate::audio::{AudioError, Decoded, ENGINE_RATE};
-use crate::project::{AudioAsset, Project, TrackKind};
+use crate::project::{AudioAsset, Project, Timeline, TrackKind};
 
 /// Frames mixed at a time, on the stack: the callback must not allocate.
 pub const MIX_CHUNK: usize = 256;
@@ -256,19 +256,20 @@ fn track_gain_from_db(db: f32) -> f32 {
     }
 }
 
-/// Builds the clip set of a project. `load` supplies the decoded audio of an asset; an asset it
+/// Builds the clip set of a timeline of `project`. `load` supplies the decoded audio of an asset; an asset it
 /// cannot supply is skipped with a warning, because a missing file must never stop the show.
 pub fn build(
     project: &Project,
+    timeline: &Timeline,
     mut load: impl FnMut(&AudioAsset) -> Result<Arc<Decoded>, AudioError>,
 ) -> Programme {
-    let clock = Clock::new(ENGINE_RATE, project.timecode.frame_rate);
+    let clock = Clock::new(ENGINE_RATE, timeline.timecode.frame_rate);
     let mut clips = Vec::new();
     let mut tracks = Vec::new();
     let mut warnings = Vec::new();
     let mut failed: Vec<&str> = Vec::new();
 
-    for track in project.tracks.iter().filter(|track| !track.muted) {
+    for track in timeline.tracks.iter().filter(|track| !track.muted) {
         let TrackKind::Audio { clips: track_clips } = &track.kind else {
             continue;
         };
@@ -395,7 +396,7 @@ mod tests {
 
     fn project_with(tracks: Vec<Track>, assets: Vec<AudioAsset>) -> Project {
         let mut project = Project::new("Show", FrameRate::Fps25);
-        project.tracks = tracks;
+        project.timelines[0].tracks = tracks;
         project.assets = assets;
         project
     }
@@ -435,7 +436,7 @@ mod tests {
             vec![asset("a1")],
         );
 
-        let programme = build(&project, |_| Ok(audio(1, 1, 10)));
+        let programme = build(&project, &project.timelines[0], |_| Ok(audio(1, 1, 10)));
 
         assert!(programme.warnings.is_empty());
         assert_eq!(programme.set.len(), 1);
@@ -459,7 +460,7 @@ mod tests {
             vec![asset("a1")],
         );
 
-        let programme = build(&project, |_| Ok(audio(1, 1, 10)));
+        let programme = build(&project, &project.timelines[0], |_| Ok(audio(1, 1, 10)));
 
         assert_eq!(programme.set.len(), 1);
     }
@@ -475,7 +476,9 @@ mod tests {
             vec![asset("gone")],
         );
 
-        let programme = build(&project, |_| Err(AudioError::NoAudioTrack));
+        let programme = build(&project, &project.timelines[0], |_| {
+            Err(AudioError::NoAudioTrack)
+        });
 
         assert!(programme.set.is_empty());
         assert_eq!(programme.warnings.len(), 1);
@@ -628,7 +631,7 @@ mod tests {
         muted.gain_db = Some(0.0);
         let project = project_with(vec![quiet, muted], vec![asset("a1")]);
 
-        let programme = build(&project, |_| Ok(audio(16_384, 0, 4)));
+        let programme = build(&project, &project.timelines[0], |_| Ok(audio(16_384, 0, 4)));
 
         let (left, _) = mix(&programme.set, 0, 4);
         assert!((left[0] - 0.5 * 0.501_187).abs() < 1e-5, "{}", left[0]);
