@@ -187,10 +187,10 @@ input:disabled {
 .doc-name {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  flex: 0 1 auto;
+  flex: 1 1 0;
   min-width: 0;
-  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -210,7 +210,6 @@ input:disabled {
 }
 
 .menu-end {
-  margin-left: auto;
   gap: 10px;
 }
 
@@ -266,9 +265,74 @@ input:disabled {
   border-radius: 2px;
 }
 
-.menubar button:hover:not(:disabled) {
+.menubar button:hover:not(:disabled),
+.menubar button[aria-expanded="true"] {
   background: var(--panel-hi);
   border-color: var(--rule);
+}
+
+.menubar .icon-button {
+  width: 28px;
+  padding: 0;
+}
+
+/* ---- Menus: the menu bar's and the right-click ones ---- */
+
+.menu {
+  position: fixed;
+  z-index: 100;
+  display: grid;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 4px 0;
+  background: var(--panel-hi);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  user-select: none;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 14px 0 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Hover moves the focus, so one recessed row shows both. */
+.menu-item:focus {
+  outline: none;
+  background: var(--panel-lo);
+}
+
+.menu-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 16px;
+}
+
+.menu-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.menu-keys {
+  margin-left: 24px;
+  font: 11px/1 var(--font-measure);
+  color: var(--ink-faint);
+}
+
+.menu-rule {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--rule);
 }
 
 /* ---- Faceplate ---- */
