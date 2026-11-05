@@ -89,6 +89,16 @@ pub async fn project_open(
     Ok(state)
 }
 
+/// The timelines cannot be changed while the show plays, as the view cannot change either.
+fn ensure_stopped(output: &SharedOutput) -> Result<()> {
+    if is_playing(output) {
+        return Err(ProjectError::Invalid(
+            "the show is playing: stop it before changing the timelines".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// Runs a change of the active timeline or of its timecode. The show cannot be playing: the output
 /// was opened with the old timecode, so it is released and the window opens it again.
 async fn retime<T, F>(session: &SharedSession, output: &SharedOutput, op: F) -> Result<T>
@@ -96,11 +106,7 @@ where
     T: Send + 'static,
     F: FnOnce(&mut Session) -> Result<T> + Send + 'static,
 {
-    if is_playing(output) {
-        return Err(ProjectError::Invalid(
-            "the show is playing: stop it before changing the timeline".into(),
-        ));
-    }
+    ensure_stopped(output)?;
     let value = run(session, op).await?;
     release(output).await;
     Ok(value)
@@ -167,14 +173,16 @@ pub async fn timeline_select(
 }
 
 /// Moves a timeline to index `to` of the order. It changes neither the active timeline nor any
-/// timecode, so it is allowed while the show plays.
+/// timecode, so the output stays open, but not while the show plays.
 #[tauri::command]
 pub async fn timeline_move(
     session: State<'_, SharedSession>,
+    output: State<'_, SharedOutput>,
     project: Project,
     id: String,
     to: usize,
 ) -> Result<ProjectState> {
+    ensure_stopped(&output)?;
     run(&session, move |s| {
         s.update(project);
         s.move_timeline(&id, to)
@@ -250,6 +258,11 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn ensure_stopped_should_allow_a_change_when_no_output_runs() {
+        assert!(ensure_stopped(&SharedOutput::default()).is_ok());
+    }
 
     #[test]
     fn delete_show_should_remove_the_file() {
