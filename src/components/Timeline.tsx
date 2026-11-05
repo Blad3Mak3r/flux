@@ -10,12 +10,13 @@ import { useDoc } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
+import { addNoteAt, importAudioFiles } from "../state/workflows";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength } from "./TrackRow";
-import { ZoomInIcon, ZoomOutIcon } from "./icons";
+import { PlusIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 
 const ZOOM_STEP = 1.25;
 /** Room past the last item, so there is always somewhere to drop the next one. */
@@ -185,6 +186,17 @@ export function Timeline() {
                 <p className="hint">{t("tracks.hint")}</p>
               </div>
             </div>
+          </div>
+
+          <div className="side-add">
+            <button type="button" className="add-song" onClick={() => void importAudioFiles()} title={`${t("tracks.addSong")} (I)`}>
+              <PlusIcon />
+              {t("tracks.addSong")}
+            </button>
+            <button type="button" className="add-note" onClick={() => addNoteAt(t)} title={`${t("tracks.addNote")} (N)`}>
+              <PlusIcon />
+              {t("tracks.addNote")}
+            </button>
           </div>
         </div>
 
