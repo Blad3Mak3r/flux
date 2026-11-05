@@ -90,6 +90,7 @@ export const es: Record<MessageKey, string> = {
   "view.label": "Vista",
   "view.edit": "Edición",
   "view.live": "Live",
+  "view.lockedPlaying": "Para la reproducción antes de cambiar de vista.",
 
   "live.legend": "Live",
   "live.next": "Preparado",
@@ -190,6 +191,9 @@ export const es: Record<MessageKey, string> = {
 
   "out.audioDevice": "Dispositivo de audio",
   "out.programme": "Salida del programa",
+  "out.previewDevice": "Dispositivo de preescucha (Edición)",
+  "out.previewChannels": "Salida de preescucha",
+  "out.previewNone": "Ninguno (usar el dispositivo del programa)",
   "out.pair": "{first}–{second}",
   "out.mono": "{channel} (mono)",
   "out.choose": "Elige un dispositivo",
@@ -215,6 +219,7 @@ export const es: Record<MessageKey, string> = {
   "setup.section.video": "Vídeo",
   "setup.soon": "Próximamente",
   "setup.audio.note": "Este dispositivo reproduce el proyecto y da el reloj que siguen LTC y MTC.",
+  "setup.audio.previewNote": "Edición reproduce aquí y no envía timecode. Live usa siempre el dispositivo del programa.",
   "setup.ltc.intro": "Cada salida LTC envía el timecode como señal de audio por un canal de una interfaz.",
   "setup.ltc.empty": "Sin salidas LTC. Añade una para enviar timecode por una interfaz de audio.",
   "setup.ltc.add": "Añadir salida LTC",

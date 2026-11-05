@@ -4,10 +4,12 @@ import { test } from "node:test";
 import {
   addLtc,
   addMtc,
+  clearPreview,
   freeChannel,
   isAvailable,
   removeLtc,
   removeMtc,
+  setPreviewDevice,
   setProgrammeDevice,
   stepSection,
   updateLtc,
@@ -79,4 +81,18 @@ test("stepSection wraps round and skips the section that is not available", () =
   assert.equal(stepSection("project", 1), "audio");
   assert.equal(stepSection("general", 1), "project");
   assert.equal(stepSection("project", -1), "general");
+});
+
+test("setPreviewDevice sets only the preview and leaves the programme and timecode alone", () => {
+  const before = output();
+  const after = setPreviewDevice(before, "Phones", 2);
+  assert.deepEqual(after.preview, { deviceName: "Phones", channels: [1, 2] });
+  assert.deepEqual({ ...after, preview: undefined }, { ...before, preview: undefined });
+  assert.deepEqual(setPreviewDevice(before, "Mono", 1).preview.channels, [1]);
+});
+
+test("clearPreview drops the preview and keeps the rest", () => {
+  const withPreview = setPreviewDevice(output(), "Phones", 2);
+  assert.deepEqual(clearPreview(withPreview), output());
+  assert.ok(!("preview" in clearPreview(withPreview)));
 });

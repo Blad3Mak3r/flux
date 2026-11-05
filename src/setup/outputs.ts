@@ -73,5 +73,16 @@ export function setProgrammeDevice(output: OutputConfig, deviceName: string, cha
   };
 }
 
+/** Auditions Edit on `deviceName`, on its first pair. Unlike the programme, nothing else follows it. */
+export function setPreviewDevice(output: OutputConfig, deviceName: string, channelCount: number): OutputConfig {
+  return { ...output, preview: { deviceName, channels: channelCount >= 2 ? [1, 2] : [1] } };
+}
+
+/** Edit plays on the programme again. */
+export function clearPreview(output: OutputConfig): OutputConfig {
+  const { preview: _preview, ...rest } = output;
+  return rest;
+}
+
 /** Whether a rendered device is among the connected ones (an empty name is the system default). */
 export const isConnected = (name: string, connected: string[]): boolean => name === "" || connected.includes(name);

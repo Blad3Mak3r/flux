@@ -31,3 +31,4 @@ export const useTransport = create<TransportState>()(() => ({
 export const selectFrame = (s: TransportState): number => s.position?.frame ?? s.parked;
 export const selectMode = (s: TransportState): Mode => s.position?.state ?? "stopped";
 export const currentFrame = (): number => selectFrame(useTransport.getState());
+export const isPlaying = (): boolean => selectMode(useTransport.getState()) === "playing";

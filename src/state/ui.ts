@@ -5,6 +5,7 @@ import { create } from "zustand";
 import type { MessageKey } from "../i18n/messages";
 import type { SetupSection } from "../setup/outputs";
 import { DEFAULT_PX_PER_FRAME, clampZoom } from "../timeline/scale";
+import { isPlaying } from "../transport/store";
 
 /** The timeline is edited in `edit` and run on stage in `live`. */
 export type View = "edit" | "live";
@@ -117,7 +118,10 @@ export function setCollapsed(collapsed: boolean): void {
   }
 }
 
+/** The view cannot change while playing: Edit and Live may use different devices. Stop first. */
 export function setView(view: View): void {
+  if (view === get().view) return;
+  if (isPlaying()) return say("view.lockedPlaying");
   set({ view });
   try {
     localStorage.setItem(VIEW_KEY, view);

@@ -113,6 +113,10 @@ pub struct Note {
 pub struct OutputConfig {
     /// Where the project's audio clips are played.
     pub audio: Option<AudioOutput>,
+    /// Where the Edit view auditions the clips, when it should not use `audio`. Edit then sends
+    /// no timecode. Absent means Edit plays like Live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<AudioOutput>,
     /// Every LTC signal to send; each one names its own device and channel.
     #[serde(default, deserialize_with = "list_or_one")]
     pub ltc: Vec<LtcOutput>,
@@ -220,7 +224,7 @@ impl OutputConfig {
         for ltc in &self.ltc {
             check_channel(ltc.channel)?;
         }
-        if let Some(audio) = &self.audio {
+        for audio in [&self.audio, &self.preview].into_iter().flatten() {
             let mut seen = HashSet::new();
             for &channel in &audio.channels {
                 check_channel(channel)?;
@@ -376,6 +380,7 @@ pub(super) mod tests {
                 mtc: vec![MtcOutput {
                     port_name: "IAC Driver Bus 1".into(),
                 }],
+                preview: None,
             },
         }
     }
@@ -467,6 +472,27 @@ pub(super) mod tests {
         json["output"] = serde_json::json!({});
         let parsed: Project = serde_json::from_value(json).unwrap();
         assert!(parsed.output.ltc.is_empty() && parsed.output.mtc.is_empty());
+    }
+
+    #[test]
+    fn preview_should_default_to_none_and_stay_out_of_the_file_when_unset() {
+        let json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
+        let parsed: Project = serde_json::from_value(json).unwrap();
+        assert!(parsed.output.preview.is_none());
+        let written = serde_json::to_value(&parsed).unwrap();
+        assert!(written["output"].get("preview").is_none());
+    }
+
+    #[test]
+    fn validate_should_reject_bad_preview_channels() {
+        for channels in [vec![0], vec![1, 1]] {
+            let mut project = sample_project();
+            project.output.preview = Some(AudioOutput {
+                device_name: "Headphones".into(),
+                channels,
+            });
+            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        }
     }
 
     #[test]
