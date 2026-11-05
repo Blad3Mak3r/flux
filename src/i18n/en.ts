@@ -89,6 +89,7 @@ export const en = {
   "view.label": "View",
   "view.edit": "Edit",
   "view.live": "Live",
+  "view.lockedPlaying": "Stop playback before switching view.",
 
   "live.legend": "Live",
   "live.next": "Standby",
@@ -185,6 +186,9 @@ export const en = {
 
   "out.audioDevice": "Audio device",
   "out.programme": "Programme output",
+  "out.previewDevice": "Preview device (Edit)",
+  "out.previewChannels": "Preview output",
+  "out.previewNone": "None (use the programme device)",
   "out.pair": "{first}–{second}",
   "out.mono": "{channel} (mono)",
   "out.choose": "Choose a device",
@@ -210,6 +214,7 @@ export const en = {
   "setup.section.video": "Video",
   "setup.soon": "Coming soon",
   "setup.audio.note": "This device plays the project and provides the clock that LTC and MTC follow.",
+  "setup.audio.previewNote": "Edit plays here and sends no timecode. Live always uses the programme device.",
   "setup.ltc.intro": "Each LTC output sends the timecode as an audio signal on one channel of an interface.",
   "setup.ltc.empty": "No LTC output. Add one to send timecode through an audio interface.",
   "setup.ltc.add": "Add LTC output",

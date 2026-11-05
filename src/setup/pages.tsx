@@ -13,9 +13,11 @@ import { useTransport } from "../transport/store";
 import {
   addLtc,
   addMtc,
+  clearPreview,
   isConnected,
   removeLtc,
   removeMtc,
+  setPreviewDevice,
   setProgrammeDevice,
   updateLtc,
   updateMtc,
@@ -136,14 +138,23 @@ function DeviceOptions({ current, devices }: { current: string; devices: Devices
 const channelsOf = (devices: Devices, name: string, fallback: number) =>
   devices.audio.find((d) => d.name === name)?.outputChannels ?? fallback;
 
+/** The first pair stereo interfaces offer, then each following one; a mono device offers channel 1. */
+const pairsOf = (count: number): number[][] =>
+  count < 2 ? [[1]] : Array.from({ length: Math.floor(count / 2) }, (_, i) => [2 * i + 1, 2 * i + 2]);
+
+/** The select value that stands for "no preview device"; an empty name is the system default. */
+const NO_PREVIEW = "__none__";
+
 export function AudioPage({ devices }: { devices: Devices }) {
   const t = useT();
   const [output, change] = useOutput();
   const deviceName = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? "";
   const count = channelsOf(devices, deviceName, Math.max(...(output.audio?.channels ?? []), 2));
   const programme = output.audio?.channels.length ? output.audio.channels : [1, 2];
-  const pairs: number[][] =
-    count < 2 ? [[1]] : Array.from({ length: Math.floor(count / 2) }, (_, i) => [2 * i + 1, 2 * i + 2]);
+  const pairs = pairsOf(count);
+  const preview = output.preview;
+  const previewCount = channelsOf(devices, preview?.deviceName ?? "", Math.max(...(preview?.channels ?? []), 2));
+  const previewChannels = preview?.channels.length ? preview.channels : [1, 2];
   return (
     <div className="setup-fields">
       {!devices.available && <p className="field-note">{t("out.desktopOnly")}</p>}
@@ -171,6 +182,34 @@ export function AudioPage({ devices }: { devices: Devices }) {
           </option>
         ))}
       </SelectField>
+      <SelectField
+        label={t("out.previewDevice")}
+        value={preview ? preview.deviceName : NO_PREVIEW}
+        hint={t("setup.audio.previewNote")}
+        disabled={!devices.available}
+        onChange={(name) =>
+          change(name === NO_PREVIEW ? clearPreview(output) : setPreviewDevice(output, name, channelsOf(devices, name, 2)))
+        }
+      >
+        <option value={NO_PREVIEW}>{t("out.previewNone")}</option>
+        <DeviceOptions current={preview?.deviceName ?? ""} devices={devices} />
+      </SelectField>
+      {preview && (
+        <SelectField
+          label={t("out.previewChannels")}
+          value={previewChannels.join("-")}
+          disabled={!devices.available}
+          onChange={(pair) => change({ ...output, preview: { ...preview, channels: pair.split("-").map(Number) } })}
+        >
+          {pairsOf(previewCount).map((pair) => (
+            <option key={pair.join("-")} value={pair.join("-")}>
+              {pair.length === 1
+                ? t("out.mono", { channel: pair[0] })
+                : t("out.pair", { first: pair[0], second: pair[1] })}
+            </option>
+          ))}
+        </SelectField>
+      )}
     </div>
   );
 }
