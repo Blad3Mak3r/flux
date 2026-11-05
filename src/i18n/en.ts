@@ -235,6 +235,11 @@ export const en = {
   "dialog.discard": "Don't save",
   "dialog.cancel": "Cancel",
 
+  "about.open": "About Flux Timecode",
+  "about.version": "Version {version}",
+  "about.developer": "Developed by {name}",
+  "about.close": "Close",
+
   "launcher.audio": "Audio engine",
   "launcher.midi": "MIDI ports",
   "launcher.ltc": "LTC",

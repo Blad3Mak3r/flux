@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { AboutDialog } from "./AboutDialog";
 import { BrandMark } from "./BrandMark";
 import { isDirty } from "../state/doc";
 import { useDoc } from "../state/store";
@@ -14,6 +15,7 @@ export function MenuBar() {
   const owner = useUi((ui) => ui.menu?.owner);
   const { t } = useI18n();
   const bar = useRef<HTMLDivElement>(null);
+  const [about, setAbout] = useState(false);
 
   const show = (index: number) => {
     const { id, items } = BAR_MENUS[index];
@@ -42,7 +44,8 @@ export function MenuBar() {
 
   return (
     <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
-      <BrandMark />
+      <BrandMark onClick={() => setAbout(true)} />
+      {about ? <AboutDialog onClose={() => setAbout(false)} /> : null}
 
       <div ref={bar} className="menu-group" role="menubar" aria-label={t("app.title")}>
         {BAR_MENUS.map(({ id, label }, index) => (

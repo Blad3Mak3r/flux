@@ -240,6 +240,11 @@ export const es: Record<MessageKey, string> = {
   "dialog.discard": "No guardar",
   "dialog.cancel": "Cancelar",
 
+  "about.open": "Acerca de Flux Timecode",
+  "about.version": "Versión {version}",
+  "about.developer": "Desarrollado por {name}",
+  "about.close": "Cerrar",
+
   "launcher.audio": "Motor de audio",
   "launcher.midi": "Puertos MIDI",
   "launcher.ltc": "LTC",
