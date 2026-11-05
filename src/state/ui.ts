@@ -10,7 +10,7 @@ import { DEFAULT_PX_PER_FRAME, clampZoom } from "../timeline/scale";
 export type View = "edit" | "live";
 
 export interface Selected {
-  kind: "clip" | "trigger";
+  kind: "clip" | "note";
   id: string;
 }
 
@@ -26,6 +26,10 @@ interface UiState {
   selection: Selected | null;
   collapsed: boolean;
   view: View;
+  /** The timeline scrolls to keep the playhead in view while the show plays. */
+  follow: boolean;
+  /** The user scrolled by hand while following: it stays put until they say otherwise. */
+  detached: boolean;
   zoom: number;
   /** A new document starts the timeline over: scrolled to the origin, at the default zoom. */
   docKey: number;
@@ -46,6 +50,15 @@ function readCollapsed(): boolean {
 }
 
 const VIEW_KEY = "flux.view";
+const FOLLOW_KEY = "flux.follow";
+
+function readFollow(): boolean {
+  try {
+    return localStorage.getItem(FOLLOW_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
 
 function readView(): View {
   try {
@@ -59,6 +72,8 @@ export const useUi = create<UiState>()(() => ({
   selection: null,
   collapsed: readCollapsed(),
   view: readView(),
+  follow: readFollow(),
+  detached: false,
   zoom: DEFAULT_PX_PER_FRAME,
   docKey: 0,
   message: { key: "status.ready", tone: "info" },
@@ -90,6 +105,20 @@ export function setView(view: View): void {
     // Not remembered, still works.
   }
 }
+
+/** The Follow control: it turns following on, or off; after a manual scroll it takes the view back. */
+export function toggleFollow(): void {
+  const { follow, detached } = get();
+  const next = detached ? true : !follow;
+  set({ follow: next, detached: false });
+  try {
+    localStorage.setItem(FOLLOW_KEY, next ? "1" : "0");
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+export const setDetached = (detached: boolean) => set({ detached });
 
 export const toggleInspector = () => setCollapsed(!get().collapsed);
 

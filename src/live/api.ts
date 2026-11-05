@@ -4,18 +4,20 @@ import type { Project } from "../project/types";
 // Mirrors src-tauri/src/engine/cues.rs and src-tauri/src/live_commands.rs. The backend derives the
 // cues and says where the show stands; nothing here orders, compares or formats them.
 
-export type CueKind = "audio" | "marker" | "midi";
+export type CueKind = "audio" | "note";
 
 export type CueStatus = "pending" | "next" | "running" | "done" | "muted";
 
 export interface Cue {
-  /** Id of the clip or trigger. */
+  /** Id of the clip or note. */
   id: string;
   /** Place in the show, from 1. */
   number: number;
   kind: CueKind;
-  /** The audio file's name or the trigger's label; a trigger can have none. */
+  /** The audio file's name or the first line of a note; a note can have none. */
   name: string;
+  /** The whole text of a note. */
+  text: string | null;
   trackId: string;
   trackName: string;
   /** `#rrggbb`, or null for the default colour of its kind. */
@@ -43,6 +45,14 @@ export interface RunningCue {
   progress: number;
 }
 
+/** A note that is on show now. */
+export interface NoteNow {
+  cueId: string;
+  text: string;
+  /** Time left of a note that has a length. */
+  remaining: string | null;
+}
+
 export interface LiveState {
   /** The status of every cue, in the order of the list. */
   statuses: CueStatus[];
@@ -50,6 +60,8 @@ export interface LiveState {
   current: string | null;
   next: Countdown | null;
   running: RunningCue[];
+  /** The notes on show now, in the order of the list. */
+  notes: NoteNow[];
 }
 
 export function liveCues(project: Project): Promise<Cue[]> {

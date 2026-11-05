@@ -45,9 +45,9 @@ export const WaveIcon = () => (
   </Icon>
 );
 
-export const FlagIcon = () => (
+export const NoteIcon = () => (
   <Icon>
-    <path d="M4 14 V2 M4 3 H12 L10 5.5 L12 8 H4" />
+    <path d="M3 2.5 H13 V13.5 H3 Z M5.5 5.5 H10.5 M5.5 8 H10.5 M5.5 10.5 H8.5" />
   </Icon>
 );
 

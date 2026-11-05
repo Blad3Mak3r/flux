@@ -17,7 +17,7 @@ import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
 import { ask, openSetup, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
 import {
-  addMarkerAtPlayhead,
+  addNoteAt,
   importAudioFiles,
   newDocument,
   openDocument,
@@ -138,8 +138,11 @@ function Shell() {
       } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         seekBy((event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? fps : 1));
-      } else if (key === "m") {
-        addMarkerAtPlayhead(t);
+      } else if (key === "n") {
+        // Live only reads the show; notes are written in the editor.
+        if (useUi.getState().view !== "edit") return;
+        event.preventDefault();
+        addNoteAt(t);
       } else if (key === "i") {
         void importAudioFiles();
       } else if (event.key === "Delete" || event.key === "Backspace") {

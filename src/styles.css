@@ -850,7 +850,7 @@ input:disabled {
 }
 
 /* A track is drawn in its own colour (--trace, set inline) or in the default of its kind:
-   phosphor for audio, amber for events. */
+   phosphor for audio, amber for notes. */
 .track-header,
 .lane {
   --trace-c: var(--trace, var(--phosphor));
@@ -858,7 +858,7 @@ input:disabled {
 }
 
 .track-header[data-audio="false"],
-.lane[data-kind="events"] {
+.lane[data-kind="notes"] {
   --trace-c: var(--trace, var(--amber));
   --trace-c-dim: var(--trace-dim, var(--amber-dim));
 }
@@ -920,9 +920,9 @@ input:disabled {
   font-weight: 400;
 }
 
-/* Cues are flags on a vertical line; the kind is told by the chip's fill, not only by colour:
-   hatched for a marker, dotted for a MIDI message. */
-.flag {
+/* A note is a line at its start with its text beside it; one with a length is a box as long as it
+   lasts. Notes are hatched where clips are solid, so the kind never rides on colour alone. */
+.note {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -933,44 +933,54 @@ input:disabled {
   user-select: none;
 }
 
-.flag-chip {
+.note-body {
   position: absolute;
   top: 8px;
   left: 0;
+  box-sizing: border-box;
+  max-width: 260px;
   padding: 2px 10px 2px 8px;
-  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   background-color: oklch(0.2 0.03 205);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--trace-c) 22%, transparent) 0 2px,
+    transparent 2px 6px
+  );
   border: 1px solid var(--trace-c-dim);
   border-left: 0;
   color: var(--ink);
   font-size: 11px;
   font-weight: 600;
+  line-height: 1.35;
 }
 
-.flag[data-kind="marker"] .flag-chip {
-  background-image: repeating-linear-gradient(
-    135deg,
-    color-mix(in oklch, var(--trace-c) 28%, transparent) 0 2px,
-    transparent 2px 6px
-  );
+/* With a length the box is as wide as the note lasts (its width is set inline) and holds two lines. */
+.note[data-timed="true"] .note-body {
+  max-width: none;
+  max-height: calc(100% - 16px);
+  white-space: pre-line;
+  text-overflow: clip;
+  background-image: none;
+  background-color: color-mix(in oklch, var(--trace-c) 12%, oklch(0.2 0.03 205));
 }
 
-.flag[data-kind="midi"] .flag-chip {
-  background-image: radial-gradient(color-mix(in oklch, var(--trace-c) 55%, transparent) 1px, transparent 1.4px);
-  background-size: 5px 5px;
+.note-body[data-empty="true"] {
+  color: var(--ink-faint);
+  font-style: italic;
+  font-weight: 400;
 }
 
 /* Selection is an outline in ink, never a colour change alone. */
 .clip[data-selected="true"],
-.flag[data-selected="true"] .flag-chip {
+.note[data-selected="true"] .note-body {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
 }
 
-.flag[data-selected="true"] {
+.note[data-selected="true"] {
   border-left-width: 2px;
 }
 
@@ -985,7 +995,7 @@ input:disabled {
   opacity: 0.6;
 }
 
-.lane[data-muted="true"] .flag {
+.lane[data-muted="true"] .note {
   border-left-style: dashed;
   opacity: 0.7;
 }
@@ -1043,6 +1053,19 @@ input:disabled {
   background: oklch(0.87 0.17 128 / 0.1);
   border-inline: 1px dashed var(--phosphor-dim);
   pointer-events: none;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 7em;
+  padding: 6px 8px;
+  resize: vertical;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.4;
 }
 
 .empty-state {
@@ -1773,6 +1796,32 @@ input:disabled {
   }
 }
 
+/* ---- Follow ---- */
+
+.follow-toggle {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 8px;
+  padding: 0 12px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.follow-toggle:hover {
+  background: var(--panel-hi);
+}
+
+.follow-toggle[aria-pressed="true"] {
+  color: var(--ink);
+}
+
 /* ---- Live: the timeline as it is run on stage ---- */
 
 .work[data-view="live"] {
@@ -1818,10 +1867,17 @@ input:disabled {
   background: var(--screen);
 }
 
+/* What the operator reads first. It gives way to the cue list, which keeps room for a few rows. */
+.live-head {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
 .live-top {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-  border-bottom: 1px solid var(--rule-strong);
 }
 
 .live-panel {
@@ -1860,8 +1916,7 @@ input:disabled {
   --cue-c-dim: var(--trace-dim, var(--phosphor-dim));
 }
 
-.cue-row[data-kind="marker"],
-.cue-row[data-kind="midi"] {
+.cue-row[data-kind="note"] {
   --cue-c: var(--trace, var(--amber));
   --cue-c-dim: var(--trace-dim, var(--amber-dim));
 }
@@ -1972,7 +2027,7 @@ input:disabled {
 
 .live-cues {
   display: flex;
-  flex: 1;
+  flex: 1 0 150px;
   flex-direction: column;
   min-height: 0;
 }
@@ -1993,6 +2048,54 @@ input:disabled {
   flex: none;
   color: var(--ink-faint);
   font-size: 12px;
+}
+
+/* The notes on show: the text itself is what the operator reads, so it is the largest thing here. */
+.live-notes {
+  display: grid;
+  gap: 10px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--rule-strong);
+}
+
+.live-notes-list {
+  display: grid;
+  gap: 10px;
+  max-height: 9.5em;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.live-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 12px;
+  --cue-c: var(--trace, var(--amber));
+  --cue-c-dim: var(--trace-dim, var(--amber-dim));
+}
+
+.live-note .live-number {
+  border-color: var(--cue-c-dim);
+  color: var(--cue-c);
+  font-size: 14px;
+}
+
+.live-note-text {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.live-note-left {
+  color: var(--ink-dim);
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 /* Header and rows share one set of columns, so the legends sit over what they name. */
@@ -2093,26 +2196,20 @@ input:disabled {
   color: var(--ink);
 }
 
-/* The kind is told by the fill, as on the timeline: solid audio, hatched marker, dotted MIDI. */
+/* The kind is told by the fill, as on the timeline: solid audio, hatched note. */
 .cue-kind {
   height: 14px;
   border: 1px solid var(--cue-c-dim);
   background-color: color-mix(in oklch, var(--cue-c) 40%, var(--screen));
 }
 
-.cue-kind[data-kind="marker"] {
+.cue-kind[data-kind="note"] {
   background-color: var(--screen);
   background-image: repeating-linear-gradient(
     135deg,
     color-mix(in oklch, var(--cue-c) 55%, transparent) 0 2px,
     transparent 2px 5px
   );
-}
-
-.cue-kind[data-kind="midi"] {
-  background-color: var(--screen);
-  background-image: radial-gradient(color-mix(in oklch, var(--cue-c) 80%, transparent) 1px, transparent 1.4px);
-  background-size: 5px 5px;
 }
 
 /* Lamps say the state by shape as well as colour: filled, hollow or dashed, beside a printed word. */
@@ -2193,10 +2290,25 @@ input:disabled {
   .live-panel {
     min-height: 0;
     gap: 6px;
+    padding-block: 8px 8px;
+  }
+
+  .live-running-list {
+    gap: 8px;
+    max-height: none;
+  }
+
+  .live-left {
+    font-size: 20px;
+  }
+
+  .live-notes {
+    gap: 6px;
+    padding-block: 8px;
   }
 
   .live-countdown .measure {
-    font-size: clamp(32px, 4vw, 44px);
+    font-size: clamp(30px, 3.6vw, 40px);
   }
 
   .live-name {
@@ -2205,6 +2317,14 @@ input:disabled {
 
   .cue-row {
     height: 34px;
+  }
+
+  .live-note-text {
+    font-size: 18px;
+  }
+
+  .live-notes-list {
+    max-height: 6.5em;
   }
 }
 

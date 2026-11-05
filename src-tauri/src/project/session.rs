@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
 use super::error::{ProjectError, Result};
-use super::model::{AUDIO_DIR, AudioAsset, FrameRate, Project, check_asset_path};
+use super::model::{AUDIO_DIR, AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path};
 use super::preview::{AudioStamp, Preview, StoredPreview};
 
 /// The document being edited, as the backend last heard of it. The window that edits it can be
@@ -51,6 +51,9 @@ impl Session {
         project
     }
 
+    /// Opens a `.fxtc`. A file written before projects carried metadata got an id while opening,
+    /// and is saved right away so that the id is the one it keeps; when it cannot be written (a
+    /// read-only disk) the project is still opened, and the next save does it.
     pub fn open(&mut self, path: &Path) -> Result<Project> {
         let (project, _archive) = archive::open(path)?;
         self.sources = archive_sources(&project, path);
@@ -60,6 +63,11 @@ impl Session {
             project: project.clone(),
             path: Some(path.to_path_buf()),
         });
+        if !project.meta.is_stamped()
+            && let Ok(saved) = self.save(&project, path)
+        {
+            return Ok(saved);
+        }
         Ok(project)
     }
 
@@ -142,18 +150,22 @@ impl Session {
             .insert(asset.id.clone(), StoredPreview { stamp, preview });
     }
 
-    /// Writes `project` to `path`. Afterwards every asset is read from that file.
-    pub fn save(&mut self, project: &Project, path: &Path) -> Result<()> {
-        archive::save(path, project, &self.sources, &self.previews)?;
-        self.sources = archive_sources(project, path);
+    /// Writes `project` to `path` and returns it as written, with the save recorded in its
+    /// metadata. Afterwards every asset is read from that file.
+    pub fn save(&mut self, project: &Project, path: &Path) -> Result<Project> {
+        let mut saved = project.clone();
+        saved.format_version = FORMAT_VERSION;
+        saved.meta.stamp();
+        archive::save(path, &saved, &self.sources, &self.previews)?;
+        self.sources = archive_sources(&saved, path);
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
         self.document = Some(Document {
-            project: project.clone(),
+            project: saved.clone(),
             path: Some(path.to_path_buf()),
-            baseline: project.clone(),
+            baseline: saved.clone(),
         });
-        Ok(())
+        Ok(saved)
     }
 }
 
@@ -265,11 +277,67 @@ mod tests {
         project.name = "Saved".into();
         let path = dir.path().join("show.fxtc");
 
-        session.save(&project, &path).unwrap();
+        let saved = session.save(&project, &path).unwrap();
 
         let document = session.document().unwrap();
-        assert_eq!(document.baseline, project);
+        assert_eq!(document.baseline, saved);
+        assert_eq!(document.project, saved);
         assert_eq!(document.path, Some(path));
+    }
+
+    #[test]
+    fn save_should_record_the_version_and_date_in_the_project_it_returns_and_writes() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, mut project) = imported_project(&dir);
+        project.meta.modified_at = "2000-01-01T00:00:00Z".into();
+        let path = dir.path().join("show.fxtc");
+
+        let saved = session.save(&project, &path).unwrap();
+
+        assert_eq!(saved.meta.id, project.meta.id);
+        assert_eq!(saved.meta.created_at, project.meta.created_at);
+        assert_eq!(saved.meta.saved_with, crate::project::meta::APP_VERSION);
+        assert_ne!(saved.meta.modified_at, "2000-01-01T00:00:00Z");
+        assert_eq!(archive::open(&path).unwrap().0, saved);
+    }
+
+    #[test]
+    fn open_should_save_a_file_without_meta_so_it_keeps_the_id_it_was_given() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.fxtc");
+        let old = r##"{ "formatVersion": 2, "name": "Old", "timecode": { "frameRate": "fps25", "start": 0 },
+            "assets": [], "tracks": [], "output": { "ltc": null, "mtc": { "portName": "loopMIDI Port" } } }"##;
+        let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+        zip.start_file("project.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zip, old.as_bytes()).unwrap();
+        zip.finish().unwrap();
+
+        let opened = Session::default().open(&path).unwrap();
+        let again = Session::default().open(&path).unwrap();
+
+        assert!(opened.meta.is_stamped());
+        assert_eq!(again.meta, opened.meta);
+        assert_eq!(again.output.mtc.len(), 1);
+    }
+
+    #[test]
+    fn open_should_still_open_a_file_it_cannot_write_back() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.fxtc");
+        let old = r##"{ "formatVersion": 1, "name": "Old", "timecode": { "frameRate": "fps25", "start": 0 },
+            "assets": [], "tracks": [], "output": {} }"##;
+        let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+        zip.start_file("project.json", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        std::io::Write::write_all(&mut zip, old.as_bytes()).unwrap();
+        zip.finish().unwrap();
+        // The save writes `old.fxtc.tmp` next to the file; a directory in its place makes it fail.
+        fs::create_dir(dir.path().join("old.fxtc.tmp")).unwrap();
+
+        let opened = Session::default().open(&path).unwrap();
+
+        assert!(!opened.meta.is_stamped());
     }
 
     #[test]
@@ -355,10 +423,10 @@ mod tests {
         let (mut session, project) = imported_project(&dir);
         let path = dir.path().join("show.fxtc");
 
-        session.save(&project, &path).unwrap();
+        let saved = session.save(&project, &path).unwrap();
         let opened = Session::default().open(&path).unwrap();
 
-        assert_eq!(opened, project);
+        assert_eq!(opened, saved);
         assert_eq!(read_asset(&path, &project.assets[0].file), AUDIO_BYTES);
     }
 

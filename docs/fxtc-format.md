@@ -20,12 +20,13 @@ the positions of clips (`start`) and cues (`at`) are counted **from that origin*
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `2`. A file with a newer version is rejected before it is parsed further. |
+| `formatVersion` | number | `3`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
+| `meta` | object | Identity and history of the project, see below. |
 | `timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
 | `timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
 | `assets[]` | `{ id, name, file }` | `file` is the archive path under `audio/`. |
-| `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, so `formatVersion` did not change. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for events), also without a version bump. |
+| `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
 | `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
 | `output.ltc` | `[{ deviceName, channel }]` | LTC outputs, any number, each through an audio interface; `channel` is 1-based. An entry may share a device with `output.audio` (its channel is written into the programme's stream) or name another one, which gets a stream of its own, shared by every entry that names it. A repeated device and channel plays once. Absent is an empty list. |
 | `output.mtc` | `[{ portName }]` | MTC outputs, any number, each through a MIDI port, each with its own thread. Absent is an empty list. |
@@ -33,10 +34,12 @@ the positions of clips (`start`) and cues (`at`) are counted **from that origin*
 Track kinds:
 
 - `{ "type": "audio", "clips": [{ id, asset, start, gainDb }] }` — `asset` is the id of an entry in `assets`.
-- `{ "type": "events", "triggers": [{ id, at, label, action }] }` — `action` is `{ "type": "marker" }` or
-  `{ "type": "midi", "bytes": [...] }`.
+- `{ "type": "notes", "notes": [{ id, at, length?, text }] }` — text for the operator at frame `at` (counted from the
+  timeline origin). `text` may have several lines. A note is shown for `length` frames (at least 1) or, when `length` is
+  absent, until the next note of its track starts. Other kinds of track (video, Art-Net, MIDI keys, OSC) will be added as
+  new kinds.
 
-Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/trigger ids
+Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/note ids
 (the last two kinds share one namespace). Output channels must be at least 1, and `output.audio.channels` must not
 repeat a channel.
 
@@ -87,12 +90,39 @@ A hint matches exactly, or else ignoring case, surrounding whitespace and the `c
 MIDI port names. A missing device is `null`, never an error: the UI asks for a replacement and opening a project
 never fails because of hardware.
 
+## Project metadata
+
+`meta` says who the project is and when it was made, apart from the show it holds.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | string | A UUID, created with the project. It survives renames, copies of the file and saves, so two files with the same id are the same project. |
+| `createdAt` | string | RFC 3339 UTC, e.g. `2026-11-05T14:29:03Z`. |
+| `modifiedAt` | string | Same format. The time of the last save. |
+| `createdWith` | string | FluxTimecode version that created the project; empty when unknown. |
+| `savedWith` | string | FluxTimecode version of the last save. Empty marks a file written before `meta` existed. |
+| `author` | string | Free text. Left out when empty. |
+| `description` | string | Free text. Left out when empty. |
+
+The backend sets `modifiedAt` and `savedWith` on every save and returns the project as written, so the editor's copy is
+the saved one. Everything else in `meta` is the user's or the project's own; new fields go here, with a default for the
+files that lack them, so they do not need a version bump.
+
 ## Versioning
 
 `FORMAT_VERSION` is the highest version this build understands. Files with a higher version fail with
-`UnsupportedVersion`. When the format changes, bump the version and migrate older files while reading (`migrate` in `project/model.rs`).
+`UnsupportedVersion`. When the format changes, bump the version and migrate older files while reading: `migrate.rs`
+rewrites the raw JSON before it is parsed, so the model only describes the current shape. Each step looks at the shape of
+the file, not at its number, because two builds wrote a different "version 2" while the format was changing. Opening
+does not rewrite a file by itself, except a file without `meta`, which is saved right away so that the id it was given
+is the one it keeps. Saving writes the current version, which older builds cannot open.
 
-Version history: **1** held `output.ltc` and `output.mtc` as an object or `null`; **2** holds them as lists. Version 1 files are migrated when opened (an object becomes a one-item list, `null` or absent an empty list) and are written back as version 2.
+- **2**: the `events` track kind was replaced by `notes`. A version 1 `marker` trigger becomes a note with its label as
+  text. `midi` triggers are dropped (nothing ever sent them; MIDI cues will return as a track kind of their own), and an
+  events track left with no marker stays as an empty notes track. `output.ltc` and `output.mtc` became lists; an object
+  becomes a one-item list, and `null` or absent an empty list (the model reads all three shapes).
+- **3**: added `meta`. A file without it gets a new `id` and a creation and modification date taken from the file's own
+  modification time.
 
 ## Saving
 

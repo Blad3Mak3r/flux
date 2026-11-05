@@ -10,7 +10,9 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use super::error::{ProjectError, Result};
-use super::model::{AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path, migrate};
+use super::meta;
+use super::migrate;
+use super::model::{AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path};
 use super::preview::{AudioStamp, Preview, StoredPreview, preview_path};
 
 const PROJECT_JSON: &str = "project.json";
@@ -51,7 +53,7 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
         }
     }
 
-    let value: serde_json::Value = match archive.by_name(PROJECT_JSON) {
+    let mut value: serde_json::Value = match archive.by_name(PROJECT_JSON) {
         Ok(entry) => serde_json::from_reader(entry)?,
         Err(ZipError::FileNotFound) => return Err(ProjectError::MissingProjectJson),
         Err(err) => return Err(err.into()),
@@ -70,8 +72,7 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
         });
     }
 
-    let mut value = value;
-    migrate(&mut value);
+    migrate::upgrade(&mut value, &file_date(path));
     let project: Project = serde_json::from_value(value)?;
     project.validate()?;
     for asset in &project.assets {
@@ -79,6 +80,14 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
     }
 
     Ok((project, ProjectArchive { archive }))
+}
+
+/// When the file was last written, for a project that does not say when it was made.
+fn file_date(path: &Path) -> String {
+    let modified = fs::metadata(path)
+        .and_then(|info| info.modified())
+        .unwrap_or_else(|_| std::time::SystemTime::now());
+    meta::format_time(modified)
 }
 
 /// What a list of shows displays, read from `project.json` alone.
@@ -449,6 +458,65 @@ mod tests {
             Err(ProjectError::UnsupportedVersion { found, supported })
                 if found == FORMAT_VERSION + 1 && supported == FORMAT_VERSION
         ));
+    }
+
+    #[test]
+    fn open_should_migrate_a_version_1_file_with_event_tracks_to_notes() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.fxtc");
+        let old = r##"{ "formatVersion": 1, "name": "Old", "timecode": { "frameRate": "fps25", "start": 0 },
+            "assets": [], "output": { "audio": null, "ltc": null, "mtc": null },
+            "tracks": [{ "id": "t", "name": "Cues", "muted": false, "kind": { "type": "events", "triggers": [
+                { "id": "e1", "at": 10, "label": "Go", "action": { "type": "marker" } },
+                { "id": "e2", "at": 20, "label": "PC", "action": { "type": "midi", "bytes": [192, 1] } }
+            ] } }] }"##;
+        zip_with(&path, &[(PROJECT_JSON, old.as_bytes())]);
+
+        let (project, _) = open(&path).unwrap();
+
+        assert_eq!(project.format_version, FORMAT_VERSION);
+        let crate::project::TrackKind::Notes { notes } = &project.tracks[0].kind else {
+            panic!("the events track becomes a notes track");
+        };
+        assert_eq!(notes.len(), 1);
+        assert_eq!((notes[0].at, notes[0].text.as_str()), (10, "Go"));
+    }
+
+    #[test]
+    fn open_should_read_a_version_2_file_with_notes_and_single_outputs() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("titanium.fxtc");
+        let written = r##"{ "formatVersion": 2, "name": "Titanium",
+            "timecode": { "frameRate": "fps30", "start": 0 }, "assets": [],
+            "tracks": [{ "id": "n", "name": "Events", "muted": false, "kind": { "type": "notes", "notes": [
+                { "id": "a", "at": 60, "text": "Start INTRO" },
+                { "id": "b", "at": 2115, "length": 404, "text": "Build up" }
+            ] } }],
+            "output": { "audio": { "deviceName": "", "channels": [1, 2] }, "ltc": null,
+                        "mtc": { "portName": "loopMIDI Port" } } }"##;
+        zip_with(&path, &[(PROJECT_JSON, written.as_bytes())]);
+
+        let (project, _) = open(&path).unwrap();
+
+        assert_eq!(project.format_version, FORMAT_VERSION);
+        assert!(project.output.ltc.is_empty());
+        assert_eq!(project.output.mtc.len(), 1);
+        assert!(!project.meta.is_stamped());
+        assert!(project.meta.validate().is_ok());
+    }
+
+    #[test]
+    fn open_should_date_a_file_without_meta_by_the_file_itself() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("old.fxtc");
+        let old = r##"{ "formatVersion": 1, "name": "Old", "timecode": { "frameRate": "fps25", "start": 0 },
+            "assets": [], "tracks": [], "output": {} }"##;
+        zip_with(&path, &[(PROJECT_JSON, old.as_bytes())]);
+
+        let (project, _) = open(&path).unwrap();
+
+        assert_eq!(project.meta.created_at, file_date(&path));
+        assert_eq!(project.meta.modified_at, project.meta.created_at);
     }
 
     #[test]

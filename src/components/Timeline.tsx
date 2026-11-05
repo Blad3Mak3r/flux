@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
+import { FollowToggle } from "./FollowToggle";
 import type { Project } from "../project/types";
 import { select, setZoom, useUi, zoomBy } from "../state/ui";
 import type { AssetAudio } from "../state/doc";
@@ -27,7 +28,7 @@ function contentEnd(project: Project, audio: Record<string, AssetAudio>, fps: nu
     if (track.kind.type === "audio") {
       for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(audio[clip.asset], fps, guess));
     } else {
-      for (const trigger of track.kind.triggers) end = Math.max(end, trigger.at + 25);
+      for (const note of track.kind.notes) end = Math.max(end, note.at + (note.length ?? 25));
     }
   }
   return end;
@@ -135,6 +136,7 @@ export function Timeline() {
         <h2 id="tracks-legend" className="legend">
           {t("tracks.legend")}
         </h2>
+        <FollowToggle />
         <ViewSwitch />
       </div>
 

@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 export const RULER_H = 34;
 export const AUDIO_LANE_H = 96;
-export const EVENTS_LANE_H = 48;
+export const NOTES_LANE_H = 64;
 
 /** Pointer feedback on the timeline, in frames from the timeline origin. */
 export interface Readout {
