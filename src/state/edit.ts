@@ -125,14 +125,23 @@ export function removeItem(project: Project, id: string): Project {
       ? { ...track, kind: { type: "notes", notes: notes.filter((n) => n.id !== id) } }
       : track;
   });
-  if (removed === project) return project;
+  return removed === project ? project : dropUnused(removed);
+}
 
-  const tracks = removed.tracks.filter((track) => track.kind.type !== "audio" || track.kind.clips.length > 0);
+/** Drops audio tracks left with no clip and the audio files no clip uses. */
+function dropUnused(project: Project): Project {
+  const tracks = project.tracks.filter((track) => track.kind.type !== "audio" || track.kind.clips.length > 0);
   const used = new Set(tracks.flatMap((track) => (track.kind.type === "audio" ? track.kind.clips.map((c) => c.asset) : [])));
-  const assets = removed.assets.filter((asset) => used.has(asset.id));
-  return tracks.length === removed.tracks.length && assets.length === removed.assets.length
-    ? removed
-    : { ...removed, tracks, assets };
+  const assets = project.assets.filter((asset) => used.has(asset.id));
+  return tracks.length === project.tracks.length && assets.length === project.assets.length
+    ? project
+    : { ...project, tracks, assets };
+}
+
+/** Removes a whole track with its clips or notes, and the audio files nothing else uses. */
+export function removeTrack(project: Project, trackId: string): Project {
+  const tracks = project.tracks.filter((track) => track.id !== trackId);
+  return tracks.length === project.tracks.length ? project : dropUnused({ ...project, tracks });
 }
 
 export function toggleMute(project: Project, trackId: string): Project {
