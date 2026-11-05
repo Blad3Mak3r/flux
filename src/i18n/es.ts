@@ -22,6 +22,8 @@ export const es: Record<MessageKey, string> = {
   "menu.addSong": "Añadir canción…",
   "menu.muteTrack": "Silenciar pista",
   "menu.unmuteTrack": "Activar pista",
+  "menu.moveTrackUp": "Subir pista",
+  "menu.moveTrackDown": "Bajar pista",
   "menu.deleteTrack": "Eliminar pista",
   "menu.playPause": "Reproducir / Pausa",
   "menu.stop": "Detener",

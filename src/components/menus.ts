@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MessageKey, Translate } from "../i18n/messages";
 import type { Cue } from "../live/api";
 import type { AudioClip, Note, Track } from "../project/types";
-import { deleteSelection, deleteTrack, muteTrack, setGain } from "../state/actions";
+import { deleteSelection, deleteTrack, muteTrack, reorderTrack, setGain } from "../state/actions";
 import { findItem } from "../state/edit";
 import { dispatch, useDoc } from "../state/store";
 import { openSetup, select, setView, toggleFollow, toggleInspector, useUi, zoomBy } from "../state/ui";
@@ -73,6 +73,8 @@ function editMenu(t: Translate): MenuItem[] {
 function trackMenu(t: Translate): MenuItem[] {
   const track = selectedTrack();
   const editing = state().ui.view === "edit";
+  const index = track ? state().doc.project.tracks.indexOf(track) : -1;
+  const last = state().doc.project.tracks.length - 1;
   return [
     { label: t("menu.addSong"), shortcut: "I", run: () => void importAudioFiles() },
     { label: t("menu.addNote"), shortcut: "N", disabled: !editing, run: () => addNoteAt(t) },
@@ -81,6 +83,16 @@ function trackMenu(t: Translate): MenuItem[] {
       label: t(track?.muted ? "menu.unmuteTrack" : "menu.muteTrack"),
       disabled: !track,
       run: () => track && muteTrack(track.id),
+    },
+    {
+      label: t("menu.moveTrackUp"),
+      disabled: !editing || index < 1,
+      run: () => track && reorderTrack(track.id, index - 1),
+    },
+    {
+      label: t("menu.moveTrackDown"),
+      disabled: !editing || index === -1 || index === last,
+      run: () => track && reorderTrack(track.id, index + 1),
     },
     { label: t("menu.deleteTrack"), disabled: !track, run: () => track && deleteTrack(track.id) },
   ];

@@ -21,6 +21,8 @@ export const en = {
   "menu.addSong": "Add song…",
   "menu.muteTrack": "Mute track",
   "menu.unmuteTrack": "Unmute track",
+  "menu.moveTrackUp": "Move track up",
+  "menu.moveTrackDown": "Move track down",
   "menu.deleteTrack": "Delete track",
   "menu.playPause": "Play / Pause",
   "menu.stop": "Stop",
