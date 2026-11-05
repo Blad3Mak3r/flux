@@ -118,6 +118,8 @@ pub struct LiveState {
 pub struct CueList {
     rate: FrameRate,
     cues: Vec<Cue>,
+    /// Samples (at the engine rate) since the timeline origin where the last cue ends.
+    end: u64,
 }
 
 impl CueList {
@@ -130,6 +132,7 @@ impl CueList {
         let clock = Clock::new(ENGINE_RATE, rate);
         let text = |frames| Timecode::from_frames(frames, rate).display(rate);
         let mut cues = Vec::new();
+        let mut end = 0;
 
         for track in &project.tracks {
             let cue = |id: &str, kind, name: &str, at: u64, length: Option<u64>| Cue {
@@ -154,8 +157,9 @@ impl CueList {
                         let Some(asset) = project.assets.iter().find(|a| a.id == clip.asset) else {
                             continue;
                         };
-                        let length =
-                            length_of(asset).map(|samples| clock.samples_to_frames(samples));
+                        let samples = length_of(asset);
+                        end = end.max(clock.frames_to_samples(clip.start) + samples.unwrap_or(0));
+                        let length = samples.map(|samples| clock.samples_to_frames(samples));
                         cues.push(cue(
                             &clip.id,
                             CueKind::Audio,
@@ -167,6 +171,7 @@ impl CueList {
                 }
                 TrackKind::Notes { notes } => {
                     for note in notes {
+                        end = end.max(clock.frames_to_samples(note.at + note.length.unwrap_or(0)));
                         let first_line = note.text.lines().next().unwrap_or_default().trim();
                         let mut item =
                             cue(&note.id, CueKind::Note, first_line, note.at, note.length);
@@ -186,7 +191,15 @@ impl CueList {
         for (cue, end) in cues.iter_mut().zip(ends) {
             cue.shown_until = end;
         }
-        Self { rate, cues }
+        Self { rate, cues, end }
+    }
+
+    /// Where the show ends: the latest end among all cues, muted ones too, in samples since the
+    /// timeline origin. A clip's end uses its exact decoded length, not the length in whole frames,
+    /// so the last sound is never cut. A cue without length (a note, or a file that cannot be read)
+    /// ends where it starts. Zero when there are no cues.
+    pub fn end_samples(&self) -> u64 {
+        self.end
     }
 
     pub fn cues(&self) -> &[Cue] {
@@ -383,6 +396,32 @@ mod tests {
         assert_eq!(ids(&list), ["c1", "m1", "c2"]);
         let numbers: Vec<u32> = list.cues().iter().map(|cue| cue.number).collect();
         assert_eq!(numbers, [1, 2, 3]);
+    }
+
+    #[test]
+    fn end_samples_should_be_the_latest_end_of_the_clips_muted_ones_too() {
+        // c2 starts at frame 100 (4 s) and lasts 2 s.
+        assert_eq!(list(&project(false)).end_samples(), 6 * SECOND);
+        assert_eq!(list(&project(true)).end_samples(), 6 * SECOND);
+    }
+
+    #[test]
+    fn end_samples_should_use_the_exact_length_of_a_clip_and_count_notes() {
+        let mut project = project(false);
+        // 1.5 frames of audio: the end is not rounded down to whole frames.
+        let short = CueList::build(&project, |_| Some(2_880));
+        assert_eq!(short.end_samples(), 4 * SECOND + 2_880);
+
+        project.tracks[1].kind = TrackKind::Notes {
+            notes: vec![note("m1", 250, Some(25), "late")],
+        };
+        assert_eq!(list(&project).end_samples(), 11 * SECOND);
+    }
+
+    #[test]
+    fn end_samples_should_be_zero_without_cues() {
+        let project = Project::new("Empty", FrameRate::Fps25);
+        assert_eq!(list(&project).end_samples(), 0);
     }
 
     #[test]

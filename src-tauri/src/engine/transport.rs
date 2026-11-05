@@ -99,6 +99,8 @@ pub struct Transport {
     position: u64,
     /// Changes whenever the position jumps or playback starts, so generators know to resync.
     epoch: u64,
+    /// Samples at which the show ends, if it has an end (see [`Transport::set_end`]).
+    end: Option<u64>,
 }
 
 impl Transport {
@@ -109,7 +111,17 @@ impl Transport {
             state: TransportState::Stopped,
             position: 0,
             epoch: 0,
+            end: None,
         }
+    }
+
+    /// Sets where the show ends, in samples since the timeline origin: the latest end among the
+    /// clips and cues. Once the position reaches it while playing, the transport stops by itself
+    /// (see [`advance`](Self::advance)) and a seek past it goes to the end. A show with no end, or
+    /// one that ends at the origin (nothing to play), never stops by itself, so the generators can
+    /// still run without a programme. It can change while playing, as the clips are edited.
+    pub fn set_end(&mut self, end: Option<u64>) {
+        self.end = end.filter(|&end| end > 0);
     }
 
     pub fn apply(&mut self, command: Command) {
@@ -131,18 +143,24 @@ impl Transport {
                 self.epoch += 1;
             }
             Command::Seek(frame) => {
-                self.position = self
+                let position = self
                     .clock
                     .frames_to_samples(frame.saturating_sub(self.start));
+                self.position = self.end.map_or(position, |end| position.min(end));
                 self.epoch += 1;
             }
         }
     }
 
-    /// Called by the output callback with the number of samples it just produced.
+    /// Called by the output callback with the number of samples it just produced. Reaching the end
+    /// of the show stops the transport like [`Command::Stop`]: it goes back to the start, ready to
+    /// run again, and the epoch changes so the generators resync.
     pub fn advance(&mut self, samples: u64) {
         if self.state == TransportState::Playing {
             self.position += samples;
+            if self.end.is_some_and(|end| self.position >= end) {
+                self.apply(Command::Stop);
+            }
         }
     }
 
@@ -286,6 +304,84 @@ mod tests {
         t.apply(Command::Seek(10));
         assert_eq!(t.position_samples(), 0);
         assert_eq!(t.frame(), 90_000);
+    }
+
+    #[test]
+    fn transport_should_stop_by_itself_when_the_position_reaches_the_end() {
+        let mut t = transport(0);
+        t.set_end(Some(48_000));
+        t.apply(Command::Play);
+        let epoch = t.epoch();
+        t.advance(47_999);
+        assert_eq!(t.state(), TransportState::Playing);
+        t.advance(1);
+        assert_eq!(t.state(), TransportState::Stopped);
+        assert_eq!(t.position_samples(), 0);
+        assert_ne!(t.epoch(), epoch);
+    }
+
+    #[test]
+    fn transport_should_not_stop_while_paused_or_stopped_at_the_end() {
+        let mut t = transport(0);
+        t.set_end(Some(1_000));
+        t.apply(Command::Play);
+        t.advance(500);
+        t.apply(Command::Pause);
+        t.advance(10_000);
+        assert_eq!(t.state(), TransportState::Paused);
+        assert_eq!(t.position_samples(), 500);
+    }
+
+    #[test]
+    fn transport_should_keep_playing_when_the_end_moves_away_while_playing() {
+        let mut t = transport(0);
+        t.set_end(Some(1_000));
+        t.apply(Command::Play);
+        t.advance(900);
+        t.set_end(Some(5_000));
+        t.advance(900);
+        assert_eq!(t.state(), TransportState::Playing);
+        assert_eq!(t.position_samples(), 1_800);
+        t.set_end(Some(1_000));
+        t.advance(1);
+        assert_eq!(
+            t.state(),
+            TransportState::Stopped,
+            "an end that came closer"
+        );
+    }
+
+    #[test]
+    fn transport_should_run_forever_when_the_show_has_no_end() {
+        let mut t = transport(0);
+        t.apply(Command::Play);
+        t.advance(u32::MAX.into());
+        assert_eq!(t.state(), TransportState::Playing);
+
+        t.set_end(Some(0));
+        t.advance(1);
+        assert_eq!(
+            t.state(),
+            TransportState::Playing,
+            "an empty show has no end"
+        );
+    }
+
+    #[test]
+    fn seek_past_the_end_should_go_to_the_end() {
+        let mut t = transport(0);
+        t.set_end(Some(48_000));
+        t.apply(Command::Seek(25 * 10));
+        assert_eq!(t.position_samples(), 48_000);
+        assert_eq!(t.frame(), 25);
+
+        t.apply(Command::Play);
+        t.advance(1_920);
+        assert_eq!(
+            t.state(),
+            TransportState::Stopped,
+            "playing from the end ends at once"
+        );
     }
 
     #[test]
