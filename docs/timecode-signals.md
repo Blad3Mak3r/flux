@@ -79,7 +79,7 @@ the active one. The `timeline_*` commands (`timeline_add`, `timeline_rename`, `t
 `{ project, active }`. Changing the active timeline, removing one or changing its timecode is refused while the
 transport plays, and it closes the running output (the rate and the start are fixed when the output opens), so the
 window opens it again: the transport then stands at the start of the new timeline. `timeline_move` (reordering)
-changes neither the active timeline nor a timecode, so it is allowed while the show plays and leaves the output alone.
+is refused while the transport plays too, like changing the view, but it leaves the open output alone.
 
 **In Live, the next timeline is made ready when one ends.** The window opens the output with `advance` set when the
 Live view is showing. When the show then runs to its end by itself (a stop from the user does not count: the transport
