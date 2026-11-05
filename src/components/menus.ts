@@ -149,13 +149,18 @@ export function allTimelinesMenu(t: Translate): MenuItem[] {
   }));
 }
 
-/** Move left and right, for whoever does not drag: disabled at the ends. */
+/** Move left and right, for whoever does not drag: disabled at the ends and while the show plays. */
 function moveItems(t: Translate, id: string): MenuItem[] {
   const { timelines } = state().doc.project;
   const index = timelines.findIndex((timeline) => timeline.id === id);
+  const locked = isPlaying();
   return [
-    { label: t("timeline.moveLeft"), disabled: index < 1, run: () => void nudgeTimeline(id, -1) },
-    { label: t("timeline.moveRight"), disabled: index === -1 || index === timelines.length - 1, run: () => void nudgeTimeline(id, 1) },
+    { label: t("timeline.moveLeft"), disabled: locked || index < 1, run: () => void nudgeTimeline(id, -1) },
+    {
+      label: t("timeline.moveRight"),
+      disabled: locked || index === -1 || index === timelines.length - 1,
+      run: () => void nudgeTimeline(id, 1),
+    },
   ];
 }
 

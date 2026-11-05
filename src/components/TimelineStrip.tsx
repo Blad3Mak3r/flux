@@ -7,7 +7,7 @@ import { useDoc } from "../state/store";
 import { addTimeline, moveTimeline, openTimelineSettings, selectTimeline } from "../state/timelines";
 import { menuAtPointer, openMenu } from "../state/ui";
 import { dropIndex, dropLineY } from "../timeline/reorder";
-import { selectMode, useTransport } from "../transport/store";
+import { isPlaying, selectMode, useTransport } from "../transport/store";
 import { ChevronDownIcon, PlusIcon } from "./icons";
 import { allTimelinesMenu, timelineMenu } from "./menus";
 
@@ -97,7 +97,8 @@ export function TimelineStrip() {
     const tab = event.currentTarget;
     const tabs = Array.from(list.current?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []);
     const from = tabs.indexOf(tab);
-    if (event.button !== 0 || from === -1) return;
+    // While the show plays the order is locked, like everything about the timelines.
+    if (event.button !== 0 || from === -1 || isPlaying()) return;
     const widths = tabs.map((node) => node.offsetWidth);
     const before = widths.slice(0, from).reduce((sum, width) => sum + width, 0);
     const after = widths.slice(from + 1).reduce((sum, width) => sum + width, 0);

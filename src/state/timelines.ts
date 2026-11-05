@@ -22,37 +22,50 @@ import { openSetup, resetView, say, sayError } from "./ui";
 
 /**
  * Shows the project as the backend answered. A change of the active timeline or of its timecode
- * (`retimes`) leaves the output open for the old one, so it is opened again for the new one.
+ * (`reopens`) leaves the output open for the old one, so it is opened again for the new one.
  */
-function show({ project, active }: ProjectState, retimes: boolean): void {
+function show({ project, active }: ProjectState, reopens: boolean): void {
   const before = activeTimeline(useDoc.getState()).id;
   dispatch({ type: "apply", project, active });
   if (active !== before) resetView();
-  if (retimes) reconnect(true);
+  if (reopens) reconnect(true);
 }
 
+/** What a change needs: the show stopped (the backend refuses otherwise), and the output reopened. */
+interface Kind {
+  locks: boolean;
+  reopens: boolean;
+}
+
+/** The active timeline or its timecode changes: the output is reopened for it. */
+const RETIME: Kind = { locks: true, reopens: true };
+/** The order changes: the output stays, but not while the show plays. */
+const REORDER: Kind = { locks: true, reopens: false };
+/** A name changes: it can happen at any time. */
+const RENAME: Kind = { locks: false, reopens: false };
+
 /** Asks the backend for a change and shows its answer. */
-async function change(ask: (project: Project) => Promise<ProjectState>, retimes: boolean): Promise<void> {
-  if (retimes && isPlaying()) return say("timeline.lockedPlaying");
+async function change(ask: (project: Project) => Promise<ProjectState>, kind: Kind): Promise<void> {
+  if (kind.locks && isPlaying()) return say("timeline.lockedPlaying");
   try {
-    show(await ask(useDoc.getState().project), retimes);
+    show(await ask(useDoc.getState().project), kind.reopens);
   } catch (error) {
     sayError(errorMessage(error));
   }
 }
 
-export const addTimeline = (t: Translate) => change((p) => timelineAdd(p, t("timeline.default")), true);
+export const addTimeline = (t: Translate) => change((p) => timelineAdd(p, t("timeline.default")), RETIME);
 
 export const selectTimeline = (id: string) => {
-  if (id !== activeTimeline(useDoc.getState()).id) return change((p) => timelineSelect(p, id), true);
+  if (id !== activeTimeline(useDoc.getState()).id) return change((p) => timelineSelect(p, id), RETIME);
 };
 
-export const removeTimeline = (id: string) => change((p) => timelineRemove(p, id), true);
+export const removeTimeline = (id: string) => change((p) => timelineRemove(p, id), RETIME);
 
-export const renameTimeline = (id: string, name: string) => change((p) => timelineRename(p, id, name), false);
+export const renameTimeline = (id: string, name: string) => change((p) => timelineRename(p, id, name), RENAME);
 
-/** Reordering changes neither the active timeline nor a timecode, so it is allowed while playing. */
-export const moveTimeline = (id: string, to: number) => change((p) => timelineMove(p, id, to), false);
+/** Reordering is locked while the show plays, like changing the timeline or the view. */
+export const moveTimeline = (id: string, to: number) => change((p) => timelineMove(p, id, to), REORDER);
 
 /** Moves a timeline one place left (`-1`) or right (`1`). */
 export function nudgeTimeline(id: string, step: 1 | -1) {
@@ -61,7 +74,7 @@ export function nudgeTimeline(id: string, step: 1 | -1) {
 }
 
 export const setTimecode = (frameRate: FrameRate, start: number) =>
-  change((p) => timelineSetTimecode(p, frameRate, start), true);
+  change((p) => timelineSetTimecode(p, frameRate, start), RETIME);
 
 /** Makes the timeline the active one and opens its settings, where its name and timecode are edited. */
 export async function openTimelineSettings(id: string): Promise<void> {
