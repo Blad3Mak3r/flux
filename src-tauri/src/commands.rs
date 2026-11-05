@@ -166,6 +166,22 @@ pub async fn timeline_select(
     .await
 }
 
+/// Moves a timeline to index `to` of the order. It changes neither the active timeline nor any
+/// timecode, so it is allowed while the show plays.
+#[tauri::command]
+pub async fn timeline_move(
+    session: State<'_, SharedSession>,
+    project: Project,
+    id: String,
+    to: usize,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.move_timeline(&id, to)
+    })
+    .await
+}
+
 /// Sets the frame rate and the start of the active timeline.
 #[tauri::command]
 pub async fn timeline_set_timecode(

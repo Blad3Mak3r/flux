@@ -192,6 +192,22 @@ impl Session {
         })
     }
 
+    /// Puts the timeline at index `to` of the order (clamped to the last). The active one stays.
+    pub fn move_timeline(&mut self, id: &str, to: usize) -> Result<ProjectState> {
+        self.change(|project, _| {
+            let from = project
+                .timelines
+                .iter()
+                .position(|timeline| timeline.id == id)
+                .ok_or_else(|| unknown_timeline(id))?;
+            let timeline = project.timelines.remove(from);
+            project
+                .timelines
+                .insert(to.min(project.timelines.len()), timeline);
+            Ok(())
+        })
+    }
+
     /// Makes the timeline after the active one the active one, as when a show ends and the next
     /// is made ready. `None` when the active one is the last: the show stays where it is.
     pub fn next_timeline(&mut self) -> Result<Option<ProjectState>> {
@@ -983,5 +999,57 @@ mod tests {
     #[test]
     fn next_timeline_should_fail_without_a_document() {
         assert!(Session::default().next_timeline().is_err());
+    }
+
+    fn order(state: &ProjectState) -> Vec<&str> {
+        state
+            .project
+            .timelines
+            .iter()
+            .map(|timeline| timeline.id.as_str())
+            .collect()
+    }
+
+    #[test]
+    fn move_timeline_should_put_it_at_the_new_index() {
+        let (mut session, first, second) = with_two_timelines();
+
+        let state = session.move_timeline(&first, 1).unwrap();
+
+        assert_eq!(order(&state), [second.as_str(), first.as_str()]);
+    }
+
+    #[test]
+    fn move_timeline_should_clamp_the_index_to_the_last_place() {
+        let (mut session, first, second) = with_two_timelines();
+
+        let state = session.move_timeline(&first, 99).unwrap();
+
+        assert_eq!(order(&state), [second.as_str(), first.as_str()]);
+    }
+
+    #[test]
+    fn move_timeline_should_leave_the_order_when_it_is_already_there() {
+        let (mut session, first, second) = with_two_timelines();
+
+        let state = session.move_timeline(&first, 0).unwrap();
+
+        assert_eq!(order(&state), [first.as_str(), second.as_str()]);
+    }
+
+    #[test]
+    fn move_timeline_should_keep_the_active_timeline() {
+        let (mut session, first, _) = with_two_timelines();
+
+        let state = session.move_timeline(&first, 1).unwrap();
+
+        assert_eq!(state.active, first);
+    }
+
+    #[test]
+    fn move_timeline_should_refuse_an_unknown_id() {
+        let (mut session, ..) = with_two_timelines();
+
+        assert!(session.move_timeline("nope", 0).is_err());
     }
 }

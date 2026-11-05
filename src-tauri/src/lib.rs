@@ -40,6 +40,7 @@ pub fn run() {
             commands::timeline_rename,
             commands::timeline_remove,
             commands::timeline_select,
+            commands::timeline_move,
             commands::timeline_set_timecode,
             commands::project_new,
             commands::project_open,
