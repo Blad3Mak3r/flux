@@ -98,6 +98,8 @@ the transport reaches frame N.
 
 `output_start(project, onPosition, onLevels, onLive)` opens the devices `project.output` names and starts a stopped transport at
 `project.timecode.start`; it replaces a running output. TS wrappers are in `src/transport/api.ts`.
+The UI decides what `project.output` the backend sees: in the Edit view, a project with `output.preview` is sent with that
+device as its only output (no LTC or MTC), so auditioning never emits timecode; Live sends the project's outputs as they are.
 
 | Command | Arguments | Result |
 | --- | --- | --- |

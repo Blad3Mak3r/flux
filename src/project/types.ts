@@ -75,6 +75,8 @@ export interface Note {
 export interface OutputConfig {
   /** Where the project's audio clips play. `channels` are 1-based, e.g. `[1, 2]`. */
   audio: { deviceName: string; channels: number[] } | null;
+  /** Where the Edit view auditions the clips instead of `audio`, with no timecode. Absent: Edit plays like Live. */
+  preview?: { deviceName: string; channels: number[] };
   /** Any number of LTC signals, each on its own device and 1-based channel. */
   ltc: LtcOutputConfig[];
   /** Any number of MIDI ports that receive MTC. */
