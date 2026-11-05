@@ -5,6 +5,14 @@ on:
     tags: ['v[0-9]*.[0-9]*.[0-9]*']
   workflow_dispatch:
     inputs:
+      version:
+        description: Stable version to release (for example 1.2.0)
+        required: true
+        type: string
+      dry_run:
+        description: Build and verify without creating a tag or publishing
+        type: boolean
+        default: false
       base_url:
         description: Optional HTTPS origin for dry-run installers
         type: string
@@ -13,7 +21,8 @@ permissions:
   contents: read
 
 env:
-  RELEASE_BASE_URL: ${{ (github.event_name == 'workflow_dispatch' && inputs.base_url) || vars.RELEASE_BASE_URL || (github.event_name == 'workflow_dispatch' && 'https://releases.example.invalid') || '' }}
+  RELEASE_VERSION: ${{ inputs.version }}
+  RELEASE_BASE_URL: ${{ (inputs.dry_run && inputs.base_url) || vars.RELEASE_BASE_URL || (inputs.dry_run && 'https://releases.example.invalid') || '' }}
 
 jobs:
   validate:
@@ -31,11 +40,17 @@ jobs:
           cache: npm
       - id: version
         env:
-          EVENT: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           tag="$GITHUB_REF_NAME"
-          if [[ "$EVENT" == workflow_dispatch ]]; then
-            tag="v$(node -p 'require("./package.json").version')"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$DRY_RUN" != true && "$GITHUB_REF" != refs/heads/main ]]; then
+              echo "::error::Select main for a stable release, or enable dry_run."
+              exit 1
+            fi
+            node scripts/release.mjs set-version "$RELEASE_VERSION"
+            git add package-lock.json src-tauri/Cargo.lock
+            tag="v$RELEASE_VERSION"
           fi
           node scripts/release.mjs validate "$tag"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -96,9 +111,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev
+      - name: Set the release version and updater endpoint
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            node scripts/release.mjs set-version "$RELEASE_VERSION"
+            git add package-lock.json src-tauri/Cargo.lock
+          fi
+          node scripts/release.mjs validate "$TAG" release-config.json
       - run: npm ci
-      - name: Configure the public updater endpoint
-        run: node scripts/release.mjs validate "$TAG" release-config.json
       - name: Build and sign installers
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -134,8 +154,11 @@ jobs:
           pattern: installers-*
           path: incoming
       - run: sudo apt-get update && sudo apt-get install -y minisign
-      - name: Collect public release notes
+      - name: Set the version and collect public release notes
         run: |
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            node scripts/release.mjs set-version "$RELEASE_VERSION"
+          fi
           touch release-notes.txt
           if [[ "$GITHUB_EVENT_NAME" == push && "$(git cat-file -t "refs/tags/$TAG")" == tag ]]; then
             git for-each-ref --format='%(contents:subject)%0a%0a%(contents:body)' "refs/tags/$TAG" > release-notes.txt
@@ -152,17 +175,23 @@ jobs:
 
   publish:
     name: Publish, verify public downloads, and promote
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: |
+      (github.event_name == 'push' && github.ref_type == 'tag') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && !inputs.dry_run)
     needs: [validate, prepare]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
     environment: stable
+    env:
+      TAG: ${{ needs.validate.outputs.tag }}
     concurrency:
       group: stable-release-publication
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
         with:
-          persist-credentials: false
+          persist-credentials: ${{ github.event_name == 'workflow_dispatch' }}
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -171,9 +200,30 @@ jobs:
           name: prepared-release
           path: prepared
       - run: sudo apt-get update && sudo apt-get install -y minisign
+      - name: Tag the tested version
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          node scripts/release.mjs set-version "$RELEASE_VERSION"
+          node scripts/release.mjs dry-run "$TAG" prepared
+          git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json
+          tag_ref="refs/tags/$TAG"
+          existing=$(git ls-remote --refs origin "$tag_ref")
+          if [[ -n "$existing" ]]; then
+            git fetch --no-tags origin "$tag_ref"
+            if [[ "$(git rev-parse FETCH_HEAD^{tree})" != "$(git write-tree)" ||
+                  "$(git rev-parse FETCH_HEAD^)" != "$GITHUB_SHA" ]]; then
+              echo "::error::$TAG already points to a different release commit."
+              exit 1
+            fi
+          else
+            git -c user.name='github-actions[bot]' \
+              -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+              commit -m "chore(release): bump version to $RELEASE_VERSION"
+            # The built-in token does not start another run from this push.
+            git push origin "HEAD:$tag_ref"
+          fi
       - name: Publish verified release to R2
         env:
-          TAG: ${{ needs.validate.outputs.tag }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

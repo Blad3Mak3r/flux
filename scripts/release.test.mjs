@@ -3,6 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { compareVersions, publish, releaseOrigin, versionParts } from "./release.mjs";
 
@@ -157,4 +158,42 @@ test("a concurrent promotion causes a conditional write failure", async (t) => {
   };
   await assert.rejects(publish(options), /PreconditionFailed/);
   assert.equal(activeVersion(), "1.9.0");
+});
+
+test("set-version updates only the app versions across manifests and lockfiles", (t) => {
+  const dir = scratchDir(t);
+  mkdirSync(join(dir, "src-tauri"));
+  const files = [
+    "package.json", "package-lock.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock",
+    "src-tauri/tauri.conf.json", "src-tauri/tauri.windows.conf.json", "src-tauri/tauri.linux.conf.json",
+  ];
+  const before = Object.fromEntries(files.map((file) => [file, readFileSync(file, "utf8")]));
+  for (const [file, contents] of Object.entries(before)) writeFileSync(join(dir, file), contents);
+
+  const oldVersion = JSON.parse(before["package.json"]).version;
+  const [major, minor, patch] = versionParts(oldVersion);
+  const version = `${major}.${minor}.${patch + 1n}`;
+  const script = new URL("./release.mjs", import.meta.url);
+  const release = (command, value) => spawnSync(process.execPath, [fileURLToPath(script), command, value], {
+    cwd: dir,
+    encoding: "utf8",
+    env: { ...process.env, RELEASE_BASE_URL: "https://example.invalid" },
+  });
+
+  assert.notEqual(release("set-version", oldVersion).status, 0);
+  assert.notEqual(release("set-version", version + "-beta").status, 0);
+  for (const file of files) assert.equal(readFileSync(join(dir, file), "utf8"), before[file]);
+  const result = release("set-version", version);
+  assert.equal(result.status, 0, result.stderr);
+  const validated = release("validate", "v" + version);
+  assert.equal(validated.status, 0, validated.stderr);
+
+  const lockPath = "package-lock.json";
+  const lock = JSON.parse(readFileSync(join(dir, lockPath), "utf8"));
+  lock.version = lock.packages[""].version = oldVersion;
+  assert.deepEqual(lock, JSON.parse(before[lockPath]));
+  const cargoPath = "src-tauri/Cargo.lock";
+  const cargo = readFileSync(join(dir, cargoPath), "utf8");
+  assert.equal(cargo.replace(`name = "flux-timecode"\nversion = "${version}"`,
+    `name = "flux-timecode"\nversion = "${oldVersion}"`), before[cargoPath]);
 });

@@ -48,17 +48,15 @@ function cargoVersion(lock, name) {
   return section?.match(/^version = "([^"]+)"/m)?.[1];
 }
 
-async function validate(tag) {
-  if (!tag?.startsWith("v")) throw new Error("Expected a vX.Y.Z tag");
-  const version = tag.slice(1);
-  versionParts(version);
-  const [config, pkg, npmLock, cargo, cargoLock, windows, linux] = await Promise.all([
-    readJson(configPath), readJson("package.json"), readJson("package-lock.json"),
+async function versionFiles(expected) {
+  const [config, pkg, npmLock, cargo, cargoLock] = await Promise.all([
+    readText(configPath), readJson("package.json"), readJson("package-lock.json"),
     readText("src-tauri/Cargo.toml"), readText("src-tauri/Cargo.lock"),
-    readJson("src-tauri/tauri.windows.conf.json"), readJson("src-tauri/tauri.linux.conf.json"),
   ]);
+  const version = expected ?? pkg.version;
+  versionParts(version);
   const versions = {
-    [configPath]: config.version,
+    [configPath]: JSON.parse(config).version,
     "package.json": pkg.version,
     "package-lock.json": npmLock.version,
     "package-lock.json (root)": npmLock.packages[""].version,
@@ -66,9 +64,40 @@ async function validate(tag) {
     "src-tauri/Cargo.lock": cargoVersion(cargoLock, pkg.name),
   };
   for (const [file, actual] of Object.entries(versions)) {
-    if (actual !== version) throw new Error(`${file} version ${actual} does not match ${tag}`);
+    if (actual !== version) throw new Error(`${file} version ${actual} does not match ${version}`);
   }
+  return { config, pkg, npmLock, cargo, cargoLock };
+}
 
+export async function setVersion(version) {
+  versionParts(version);
+  const { config, pkg, npmLock, cargo, cargoLock } = await versionFiles();
+  if (compareVersions(version, pkg.version) <= 0) {
+    throw new Error(`Release version must be newer than ${pkg.version}`);
+  }
+  const versionLine = /^version = "[^"]+"/m;
+  const sections = cargoLock.split("[[package]]");
+  const app = sections.findIndex((section) => section.includes(`name = "${pkg.name}"\n`));
+  sections[app] = sections[app].replace(versionLine, `version = "${version}"`);
+  pkg.version = npmLock.version = npmLock.packages[""].version = version;
+
+  await Promise.all([
+    writeFile(configPath, config.replace(/"version": "[^"]+"/, `"version": "${version}"`)),
+    writeFile("package.json", json(pkg)),
+    writeFile("package-lock.json", json(npmLock)),
+    writeFile("src-tauri/Cargo.toml", cargo.replace(versionLine, `version = "${version}"`)),
+    writeFile("src-tauri/Cargo.lock", sections.join("[[package]]")),
+  ]);
+}
+
+async function validate(tag) {
+  if (!tag?.startsWith("v")) throw new Error("Expected a vX.Y.Z tag");
+  const version = tag.slice(1);
+  const [files, windows, linux] = await Promise.all([
+    versionFiles(version), readJson("src-tauri/tauri.windows.conf.json"), readJson("src-tauri/tauri.linux.conf.json"),
+  ]);
+  const { npmLock, cargoLock } = files;
+  const config = JSON.parse(files.config);
   const { bundle, plugins: { updater } } = config;
   if (config.identifier !== "com.fluxtimecode.app" || config.productName !== "Flux Timecode" ||
       bundle.active || bundle.targets.length !== 0 || bundle.createUpdaterArtifacts !== true ||
@@ -247,6 +276,10 @@ async function deliver(output, version, origin, scratch, dryRun, config) {
 }
 
 async function main([command, tag, ...args]) {
+  if (command === "set-version") {
+    await setVersion(tag);
+    return;
+  }
   const version = await validate(tag);
   const base = process.env.RELEASE_BASE_URL;
   const origin = releaseOrigin(base);
