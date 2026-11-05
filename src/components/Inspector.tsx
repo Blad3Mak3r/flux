@@ -1,14 +1,23 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { FrameRate, Project, Track, TriggerAction } from "../project/types";
+import type { FrameRate, Project, Track } from "../project/types";
 import { deleteSelection, edit } from "../state/actions";
 import type { AssetAudio } from "../state/doc";
 import { useDoc } from "../state/store";
 import { openTab, toggleInspector, useUi } from "../state/ui";
 import type { InspectorTab, Selected } from "../state/ui";
-import { findItem, setFrameRate, setName, setStart, setTrackColor, updateClip, updateTrigger } from "../state/edit";
+import {
+  findItem,
+  setFrameRate,
+  setName,
+  setNoteLength,
+  setStart,
+  setTrackColor,
+  updateClip,
+  updateNote,
+} from "../state/edit";
 import { TRACK_COLORS } from "../timeline/palette";
-import { SelectField, TextField, TimecodeField } from "./fields";
+import { SelectField, TextAreaField, TextField, TimecodeField } from "./fields";
 import { ChevronLeftIcon, ChevronRightIcon, OutputIcon, ProjectIcon, SelectionIcon, TrashIcon } from "./icons";
 import { MOD_KEY } from "./MenuBar";
 import { OutputPanel } from "./OutputPanel";
@@ -17,16 +26,6 @@ import type { Devices } from "../devices/useDevices";
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const TABS: InspectorTab[] = ["selection", "project", "output"];
 const TAB_ICONS = { selection: SelectionIcon, project: ProjectIcon, output: OutputIcon };
-
-const hex = (bytes: number[]) => bytes.map((b) => b.toString(16).toUpperCase().padStart(2, "0")).join(" ");
-
-/** Parses "C0 05" into bytes, or `null` when it is not a list of hex bytes. */
-function parseBytes(text: string): number[] | null {
-  const parts = text.trim().split(/\s+/);
-  if (parts.length === 0 || parts[0] === "") return null;
-  const bytes = parts.map((part) => (/^[0-9a-f]{1,2}$/i.test(part) ? parseInt(part, 16) : NaN));
-  return bytes.some(Number.isNaN) ? null : bytes;
-}
 
 /** The colour of the track an item sits on. Each swatch is named, so colour is never the only cue. */
 function TrackColorField({
@@ -128,43 +127,31 @@ function SelectionPanel({
     );
   }
 
-  const { trigger } = found;
-  const action = trigger.action;
-  const setAction = (next: TriggerAction) => onEdit(updateTrigger(project, trigger.id, { action: next }));
+  const { note } = found;
   return (
     <div className="panel-body">
-      <h3>{t("trigger.title")}</h3>
-      <TextField
-        label={t("trigger.label")}
-        value={trigger.label}
-        onCommit={(label) => onEdit(updateTrigger(project, trigger.id, { label }))}
+      <h3>{t("note.title")}</h3>
+      <TextAreaField
+        // A new note is selected to be written: it opens with the cursor in the text.
+        key={note.id}
+        label={t("note.text")}
+        value={note.text}
+        autoFocus={note.text === ""}
+        onCommit={(text) => onEdit(updateNote(project, note.id, { text }))}
       />
       <TimecodeField
-        label={t("trigger.at")}
-        frame={start + trigger.at}
+        label={t("note.at")}
+        frame={start + note.at}
         rate={frameRate}
-        onCommit={(frame) => onEdit(updateTrigger(project, trigger.id, { at: Math.max(0, frame - start) }))}
+        onCommit={(frame) => onEdit(updateNote(project, note.id, { at: Math.max(0, frame - start) }))}
       />
-      <SelectField
-        label={t("trigger.kind")}
-        value={action.type}
-        onChange={(kind) => setAction(kind === "midi" ? { type: "midi", bytes: [0xc0, 0x00] } : { type: "marker" })}
-      >
-        <option value="marker">{t("trigger.kind.marker")}</option>
-        <option value="midi">{t("trigger.kind.midi")}</option>
-      </SelectField>
-      {action.type === "midi" && (
-        <TextField
-          label={t("trigger.bytes")}
-          value={hex(action.bytes)}
-          monospace
-          validate={(text) => (parseBytes(text) ? null : t("trigger.bytesInvalid"))}
-          onCommit={(text) => {
-            const bytes = parseBytes(text);
-            if (bytes) setAction({ type: "midi", bytes });
-          }}
-        />
-      )}
+      <TimecodeField
+        label={t("note.length")}
+        hint={t("note.length.hint")}
+        frame={note.length ?? 0}
+        rate={frameRate}
+        onCommit={(frames) => onEdit(setNoteLength(project, note.id, frames))}
+      />
       <TrackColorField project={project} track={found.track} onEdit={onEdit} />
       <button type="button" className="button danger" onClick={onDelete}>
         <TrashIcon />

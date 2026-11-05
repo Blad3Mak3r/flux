@@ -11,7 +11,7 @@ export type InspectorTab = "selection" | "project" | "output";
 export type View = "edit" | "live";
 
 export interface Selected {
-  kind: "clip" | "trigger";
+  kind: "clip" | "note";
   id: string;
 }
 

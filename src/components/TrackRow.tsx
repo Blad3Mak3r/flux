@@ -1,25 +1,26 @@
 import { memo, useRef, useState } from "react";
-import type { KeyboardEvent, PointerEvent } from "react";
+import type { KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
-import type { AudioClip, Track, Trigger } from "../project/types";
+import type { AudioClip, Note, Track } from "../project/types";
 import { moveTo, muteTrack, setGain } from "../state/actions";
 import { useDoc } from "../state/store";
 import { select, useUi } from "../state/ui";
+import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
-import { AUDIO_LANE_H, EVENTS_LANE_H } from "../timeline/layout";
+import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
 import { traceStyle } from "../timeline/palette";
 import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { Fader } from "./Fader";
 import { LevelMeter } from "./LevelMeter";
-import { FlagIcon, MuteIcon, WaveIcon } from "./icons";
+import { MuteIcon, NoteIcon, WaveIcon } from "./icons";
 
 /** Length shown for a clip whose audio length is not known yet (10 s at the project rate). */
 const GUESS_SECONDS = 10;
 
 export function laneHeight(track: Track): number {
-  return track.kind.type === "audio" ? AUDIO_LANE_H : EVENTS_LANE_H;
+  return track.kind.type === "audio" ? AUDIO_LANE_H : NOTES_LANE_H;
 }
 
 export const TrackHeader = memo(function TrackHeader({ track }: { track: Track }) {
@@ -34,9 +35,9 @@ export const TrackHeader = memo(function TrackHeader({ track }: { track: Track }
       data-colored={track.color !== undefined}
     >
       <div className="track-head-row">
-        <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.events")}>
-          {audio ? <WaveIcon /> : <FlagIcon />}
-          <span className="visually-hidden">{t(audio ? "track.kind.audio" : "track.kind.events")}</span>
+        <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.notes")}>
+          {audio ? <WaveIcon /> : <NoteIcon />}
+          <span className="visually-hidden">{t(audio ? "track.kind.audio" : "track.kind.notes")}</span>
         </span>
         <span className="track-name" title={track.name}>
           {track.name}
@@ -163,22 +164,34 @@ function ClipBlock({
   );
 }
 
-function TriggerFlag({ trigger, muted, pxPerFrame }: { trigger: Trigger; muted: boolean; pxPerFrame: number }) {
-  const { shown, handlers: pointer } = useDrag(trigger.id, "trigger", trigger.at, pxPerFrame);
-  const selected = useUi((ui) => ui.selection?.id === trigger.id);
+/**
+ * A note on its lane: a line at its start with the text beside it. One with a length is drawn as a
+ * box as long as it lasts, so what is on show at a point of the timeline can be read off the ruler.
+ */
+function NoteBlock({ note, muted, pxPerFrame }: { note: Note; muted: boolean; pxPerFrame: number }) {
+  const t = useT();
+  const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, pxPerFrame);
+  const selected = useUi((ui) => ui.selection?.id === note.id);
+  const empty = note.text.trim() === "";
   return (
     <div
-      className="flag"
+      className="note"
       role="button"
       tabIndex={0}
       aria-pressed={selected}
       data-selected={selected}
       data-muted={muted}
-      data-kind={trigger.action.type}
+      data-timed={note.length !== undefined}
       style={{ left: frameX(shown, pxPerFrame) }}
       {...pointer}
     >
-      <span className="flag-chip">{trigger.label}</span>
+      <span
+        className="note-body"
+        data-empty={empty}
+        style={note.length === undefined ? undefined : { width: Math.max(24, note.length * pxPerFrame) }}
+      >
+        {empty ? t("note.empty") : note.text}
+      </span>
     </div>
   );
 }
@@ -196,9 +209,22 @@ export const TrackLane = memo(function TrackLane({
   fps: number;
   pxPerFrame: number;
 }) {
+  const t = useT();
   const height = laneHeight(track);
+  // A double click on the empty part of a notes lane writes a note there.
+  const addHere = (event: MouseEvent<HTMLDivElement>) => {
+    if (track.kind.type !== "notes" || event.target !== event.currentTarget) return;
+    const { start } = useDoc.getState().project.timecode;
+    addNoteAt(t, start + Math.round(event.nativeEvent.offsetX / pxPerFrame), track.id);
+  };
   return (
-    <div className="lane" style={{ height, ...traceStyle(track.color) }} data-muted={track.muted} data-kind={track.kind.type}>
+    <div
+      className="lane"
+      style={{ height, ...traceStyle(track.color) }}
+      data-muted={track.muted}
+      data-kind={track.kind.type}
+      onDoubleClick={addHere}
+    >
       {track.kind.type === "audio"
         ? track.kind.clips.map((clip) => (
             <ClipBlock
@@ -213,8 +239,8 @@ export const TrackLane = memo(function TrackLane({
               pxPerFrame={pxPerFrame}
             />
           ))
-        : track.kind.triggers.map((trigger) => (
-            <TriggerFlag key={trigger.id} trigger={trigger} muted={track.muted} pxPerFrame={pxPerFrame} />
+        : track.kind.notes.map((note) => (
+            <NoteBlock key={note.id} note={note} muted={track.muted} pxPerFrame={pxPerFrame} />
           ))}
     </div>
   );

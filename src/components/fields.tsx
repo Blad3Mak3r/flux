@@ -95,24 +95,75 @@ export function TextField({
   );
 }
 
+/**
+ * Several lines of text, applied when focus leaves it: Enter writes a new line, so it cannot be
+ * the key that commits.
+ */
+export function TextAreaField({
+  label,
+  value,
+  onCommit,
+  hint,
+  rows = 5,
+  autoFocus,
+}: {
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+  hint?: string;
+  rows?: number;
+  autoFocus?: boolean;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    if (draft !== null && draft !== value) onCommit(draft);
+    setDraft(null);
+  };
+  return (
+    <Field label={label} hint={hint}>
+      {({ id, describedBy }) => (
+        <textarea
+          id={id}
+          aria-describedby={describedBy}
+          className="textarea"
+          rows={rows}
+          autoFocus={autoFocus}
+          value={draft ?? value}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setDraft(null);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      )}
+    </Field>
+  );
+}
+
 /** A timecode shown with the project's start offset; edits are parsed at the project frame rate. */
 export function TimecodeField({
   label,
   frame,
   rate,
   onCommit,
+  hint,
 }: {
   label: string;
   /** Absolute frame count, including the start offset. */
   frame: number;
   rate: FrameRate;
   onCommit: (frame: number) => void;
+  hint?: string;
 }) {
   const t = useT();
   return (
     <TextField
       label={label}
       value={formatFrames(frame, rate)}
+      hint={hint}
       monospace
       inputMode="numeric"
       validate={(text) => (parseTimecode(text, rate) === null ? t("field.timecodeInvalid") : null)}

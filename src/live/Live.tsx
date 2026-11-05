@@ -5,6 +5,7 @@ import { selectMode, useTransport } from "../transport/store";
 import { CueList } from "./CueList";
 import { bindLive } from "./feed";
 import { NextCue } from "./NextCue";
+import { Notes } from "./Notes";
 import { Running } from "./Running";
 import { useLive } from "./store";
 import { ViewSwitch } from "./ViewSwitch";
@@ -16,6 +17,7 @@ import { ViewSwitch } from "./ViewSwitch";
 export function Live() {
   const t = useT();
   const empty = useLive((live) => live.cues.length === 0);
+  const hasNotes = useLive((live) => live.cues.some((cue) => cue.kind === "note"));
   const playing = useTransport((transport) => selectMode(transport) === "playing");
 
   useEffect(bindLive, []);
@@ -40,9 +42,12 @@ export function Live() {
         </div>
       ) : (
         <>
-          <div className="live-top">
-            <NextCue />
-            <Running />
+          <div className="live-head">
+            <div className="live-top">
+              <NextCue />
+              <Running />
+            </div>
+            {hasNotes && <Notes />}
           </div>
           <CueList />
         </>

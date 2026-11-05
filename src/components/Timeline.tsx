@@ -28,7 +28,7 @@ function contentEnd(project: Project, audio: Record<string, AssetAudio>, fps: nu
     if (track.kind.type === "audio") {
       for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(audio[clip.asset], fps, guess));
     } else {
-      for (const trigger of track.kind.triggers) end = Math.max(end, trigger.at + 25);
+      for (const note of track.kind.notes) end = Math.max(end, note.at + (note.length ?? 25));
     }
   }
   return end;

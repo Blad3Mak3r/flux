@@ -2,14 +2,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { docReducer, initialDoc, isDirty } from "./doc.ts";
-import { emptyProject, moveItem, removeItem, setTrackColor, setTrackGain, toggleMute, updateClip } from "./edit.ts";
+import {
+  addNote,
+  emptyProject,
+  findItem,
+  moveItem,
+  removeItem,
+  setNoteLength,
+  setTrackColor,
+  setTrackGain,
+  toggleMute,
+  updateClip,
+  updateNote,
+} from "./edit.ts";
 
 function project() {
   return {
     ...emptyProject("Show", "fps25"),
     tracks: [
       { id: "t1", name: "Backing", muted: false, kind: { type: "audio", clips: [] } },
-      { id: "t2", name: "Cues", muted: false, kind: { type: "events", triggers: [] } },
+      { id: "t2", name: "Notes", muted: false, kind: { type: "notes", notes: [] } },
     ],
   };
 }
@@ -80,7 +92,7 @@ function withItems() {
     tracks: [
       { ...base.tracks[0], kind: { type: "audio", clips: [{ id: "c1", asset: "a", start: 0, gainDb: 0 }] } },
       { id: "t3", name: "Other", muted: false, kind: { type: "audio", clips: [{ id: "c2", asset: "b", start: 5, gainDb: 0 }] } },
-      { ...base.tracks[1], kind: { type: "events", triggers: [{ id: "k1", at: 3, label: "Go", action: { type: "marker" } }] } },
+      { ...base.tracks[1], kind: { type: "notes", notes: [{ id: "k1", at: 3, text: "Go" }] } },
     ],
   };
 }
@@ -93,10 +105,10 @@ test("moving a clip keeps every other track as it was", () => {
   assert.equal(after.tracks[2], before.tracks[2]);
 });
 
-test("moving a cue keeps the audio tracks as they were", () => {
+test("moving a note keeps the audio tracks as they were", () => {
   const before = withItems();
   const after = moveItem(before, "k1", 9);
-  assert.equal(after.tracks[2].kind.triggers[0].at, 9);
+  assert.equal(after.tracks[2].kind.notes[0].at, 9);
   assert.equal(after.tracks[0], before.tracks[0]);
   assert.equal(after.tracks[1], before.tracks[1]);
 });
@@ -127,4 +139,64 @@ test("restore picks a document up with no history, and unsaved work is told from
 
   doc = docReducer(initialDoc(project()), { type: "restore", project: saved, path: null, saved });
   assert.equal(isDirty(doc), false);
+});
+
+test("addNote creates a notes track when there is none and puts an empty note at the position", () => {
+  const before = { ...project(), tracks: [project().tracks[0]] };
+  const { project: after, id } = addNote(before, 120, "Notes");
+  assert.equal(after.tracks.length, 2);
+  assert.equal(after.tracks[1].kind.type, "notes");
+  assert.deepEqual(after.tracks[1].kind.notes, [{ id, at: 120, text: "" }]);
+  assert.equal(before.tracks.length, 1);
+});
+
+test("addNote uses the first notes track and leaves the other tracks as they were", () => {
+  const before = project();
+  const { project: after, id } = addNote(before, 10, "Notes");
+  assert.equal(after.tracks.length, 2);
+  assert.equal(after.tracks[1].kind.notes[0].id, id);
+  assert.equal(after.tracks[0], before.tracks[0]);
+});
+
+test("addNote prefers the track it is given when that is a notes track", () => {
+  const base = project();
+  const two = { ...base, tracks: [...base.tracks, { id: "t9", name: "More", muted: false, kind: { type: "notes", notes: [] } }] };
+  const { project: after, id } = addNote(two, 5, "Notes", "t9");
+  assert.equal(after.tracks[2].kind.notes[0].id, id);
+  assert.equal(after.tracks[1], two.tracks[1]);
+});
+
+test("addNote ignores a track id that is not a notes track", () => {
+  const { project: after, id } = addNote(project(), 5, "Notes", "t1");
+  assert.equal(after.tracks[1].kind.notes[0].id, id);
+});
+
+test("addNote never puts a note before the timeline origin", () => {
+  const { project: after } = addNote(project(), -30, "Notes");
+  assert.equal(after.tracks[1].kind.notes[0].at, 0);
+});
+
+test("updateNote changes the text and keeps the other notes", () => {
+  const before = withItems();
+  const after = updateNote(before, "k1", { text: "Lights up\nslowly" });
+  assert.equal(after.tracks[2].kind.notes[0].text, "Lights up\nslowly");
+  assert.equal(after.tracks[0], before.tracks[0]);
+});
+
+test("setNoteLength stores a length, and no time removes it", () => {
+  const withLength = setNoteLength(withItems(), "k1", 50);
+  assert.equal(withLength.tracks[2].kind.notes[0].length, 50);
+  const without = setNoteLength(withLength, "k1", 0);
+  assert.equal("length" in without.tracks[2].kind.notes[0], false);
+});
+
+test("setNoteLength on something that is not a note changes nothing", () => {
+  const before = withItems();
+  assert.equal(setNoteLength(before, "c1", 50), before);
+});
+
+test("findItem finds a note and says so", () => {
+  const found = findItem(withItems(), "k1");
+  assert.equal(found.kind, "note");
+  assert.equal(found.note.text, "Go");
 });
