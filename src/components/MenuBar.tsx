@@ -3,9 +3,8 @@ import { useI18n } from "../i18n";
 import { BrandMark } from "./BrandMark";
 import { isDirty } from "../state/doc";
 import { useDoc } from "../state/store";
-import { closeMenu, openMenu, openSetup, useUi } from "../state/ui";
-import { GearIcon } from "./icons";
-import { BAR_MENUS, MOD_KEY } from "./menus";
+import { closeMenu, openMenu, useUi } from "../state/ui";
+import { BAR_MENUS } from "./menus";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
 export function MenuBar() {
@@ -69,17 +68,6 @@ export function MenuBar() {
         ) : null}
       </p>
 
-      <div className="menu-end">
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => openSetup()}
-          aria-label={t("menu.setup")}
-          title={`${t("menu.setup")} (${MOD_KEY}+,)`}
-        >
-          <GearIcon />
-        </button>
-      </div>
       {hasNativeWindow() ? <WindowControls /> : null}
     </nav>
   );
