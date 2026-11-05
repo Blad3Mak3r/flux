@@ -8,6 +8,9 @@ const Launcher = lazy(() => import("./launcher/Launcher"));
 const Welcome = lazy(() => import("./welcome/Welcome"));
 const App = lazy(() => import("./App"));
 
+// The webview's own menu (Back, Reload, Inspect…) is not for the user; the app opens its own.
+window.addEventListener("contextmenu", (event) => event.preventDefault());
+
 const view = new URLSearchParams(window.location.search).get("view");
 const Screen = view === "launcher" ? Launcher : view === "welcome" ? Welcome : App;
 

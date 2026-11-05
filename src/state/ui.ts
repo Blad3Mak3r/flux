@@ -22,6 +22,25 @@ export type Message =
 /** What waits for the user to decide about unsaved work. */
 export type Pending = () => Promise<void> | void;
 
+/** One row of a menu: a context menu or a menu of the menu bar. `"-"` is a separator. */
+export type MenuItem =
+  | "-"
+  | {
+      label: string;
+      shortcut?: string;
+      checked?: boolean;
+      disabled?: boolean;
+      run: () => void;
+    };
+
+/** The menu on show, at a point of the window; `owner` is the menu bar title it hangs from. */
+export interface OpenMenu {
+  x: number;
+  y: number;
+  items: MenuItem[];
+  owner?: string;
+}
+
 interface UiState {
   selection: Selected | null;
   collapsed: boolean;
@@ -37,6 +56,7 @@ interface UiState {
   pending: Pending | null;
   /** The page of the Setup dialog that is open, or `null` while it is closed. */
   setup: SetupSection | null;
+  menu: OpenMenu | null;
 }
 
 const INSPECTOR_KEY = "flux.inspector.collapsed";
@@ -79,6 +99,7 @@ export const useUi = create<UiState>()(() => ({
   message: { key: "status.ready", tone: "info" },
   pending: null,
   setup: null,
+  menu: null,
 }));
 
 const set = useUi.setState;
@@ -136,5 +157,30 @@ export const resetView = () =>
 export const say = (key: MessageKey, values?: Record<string, string | number>) =>
   set({ message: { key, values, tone: "info" } });
 export const sayError = (text: string) => set({ message: { text, tone: "error" } });
+
+// The element that had the focus when a menu opened gets it back when the menu closes.
+let returnFocus: Element | null = null;
+
+export function openMenu(menu: OpenMenu): void {
+  if (!get().menu) returnFocus = document.activeElement;
+  set({ menu });
+}
+
+export function closeMenu(): void {
+  if (!get().menu) return;
+  set({ menu: null });
+  if (returnFocus instanceof HTMLElement) returnFocus.focus();
+  returnFocus = null;
+}
+
+/** Opens `items` at the pointer of a right click, and keeps the click from reaching the webview's own menu. */
+export function menuAtPointer(
+  event: { clientX: number; clientY: number; preventDefault(): void; stopPropagation(): void },
+  items: MenuItem[],
+): void {
+  event.preventDefault();
+  event.stopPropagation();
+  openMenu({ x: event.clientX, y: event.clientY, items });
+}
 
 export const ask = (pending: Pending | null) => set({ pending });

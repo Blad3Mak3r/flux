@@ -1,7 +1,7 @@
 import { useT } from "../i18n";
 import { setView, useUi } from "../state/ui";
 import type { View } from "../state/ui";
-import { MOD_KEY } from "../components/MenuBar";
+import { MOD_KEY } from "../components/menus";
 
 const VIEWS: { id: View; key: "1" | "2" }[] = [
   { id: "edit", key: "1" },
