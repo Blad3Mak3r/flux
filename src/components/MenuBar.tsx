@@ -3,9 +3,8 @@ import { useI18n } from "../i18n";
 import { BrandMark } from "./BrandMark";
 import { isDirty } from "../state/doc";
 import { useDoc } from "../state/store";
-import { closeMenu, openMenu, openSetup, useUi } from "../state/ui";
-import { GearIcon } from "./icons";
-import { BAR_MENUS, MOD_KEY } from "./menus";
+import { closeMenu, openMenu, useUi } from "../state/ui";
+import { BAR_MENUS } from "./menus";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
 export function MenuBar() {
@@ -29,6 +28,10 @@ export function MenuBar() {
     if (!owner) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      // A submenu takes the arrow first: Right opens it, Left leaves it.
+      const active = document.activeElement;
+      if (event.defaultPrevented || active?.closest(".menu-sub")) return;
+      if (event.key === "ArrowRight" && active?.getAttribute("aria-haspopup") === "menu" && active.closest(".menu")) return;
       event.preventDefault();
       const at = BAR_MENUS.findIndex((menu) => menu.id === owner);
       show((at + (event.key === "ArrowLeft" ? -1 : 1) + BAR_MENUS.length) % BAR_MENUS.length);
@@ -69,17 +72,6 @@ export function MenuBar() {
         ) : null}
       </p>
 
-      <div className="menu-end">
-        <button
-          type="button"
-          className="icon-button"
-          onClick={() => openSetup()}
-          aria-label={t("menu.setup")}
-          title={`${t("menu.setup")} (${MOD_KEY}+,)`}
-        >
-          <GearIcon />
-        </button>
-      </div>
       {hasNativeWindow() ? <WindowControls /> : null}
     </nav>
   );
