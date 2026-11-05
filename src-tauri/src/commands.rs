@@ -106,41 +106,64 @@ where
     Ok(value)
 }
 
+// The timeline commands take the project the window shows and make it the document first, so they
+// act on what the user sees even when the window's last edit has not been synced yet.
+
 /// Adds a timeline named `"{label} N"` and makes it the active one.
 #[tauri::command]
 pub async fn timeline_add(
     session: State<'_, SharedSession>,
     output: State<'_, SharedOutput>,
+    project: Project,
     label: String,
 ) -> Result<ProjectState> {
-    retime(&session, &output, move |s| s.add_timeline(&label)).await
+    retime(&session, &output, move |s| {
+        s.update(project);
+        s.add_timeline(&label)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn timeline_rename(
     session: State<'_, SharedSession>,
+    project: Project,
     id: String,
     name: String,
 ) -> Result<ProjectState> {
-    run(&session, move |s| s.rename_timeline(&id, &name)).await
+    run(&session, move |s| {
+        s.update(project);
+        s.rename_timeline(&id, &name)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn timeline_remove(
     session: State<'_, SharedSession>,
     output: State<'_, SharedOutput>,
+    project: Project,
     id: String,
 ) -> Result<ProjectState> {
-    retime(&session, &output, move |s| s.remove_timeline(&id)).await
+    retime(&session, &output, move |s| {
+        s.update(project);
+        s.remove_timeline(&id)
+    })
+    .await
 }
 
 #[tauri::command]
 pub async fn timeline_select(
     session: State<'_, SharedSession>,
     output: State<'_, SharedOutput>,
+    project: Project,
     id: String,
 ) -> Result<ProjectState> {
-    retime(&session, &output, move |s| s.select_timeline(&id)).await
+    retime(&session, &output, move |s| {
+        s.update(project);
+        s.select_timeline(&id)
+    })
+    .await
 }
 
 /// Sets the frame rate and the start of the active timeline.
@@ -148,10 +171,12 @@ pub async fn timeline_select(
 pub async fn timeline_set_timecode(
     session: State<'_, SharedSession>,
     output: State<'_, SharedOutput>,
+    project: Project,
     frame_rate: FrameRate,
     start: u64,
 ) -> Result<ProjectState> {
     retime(&session, &output, move |s| {
+        s.update(project);
         s.set_timecode(frame_rate, start)
     })
     .await
