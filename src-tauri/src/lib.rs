@@ -33,6 +33,7 @@ pub fn run() {
         .manage(commands::SharedSession::default())
         .manage(audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
+        .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .invoke_handler(tauri::generate_handler![
             commands::project_document,
             commands::project_sync,
@@ -63,6 +64,20 @@ pub fn run() {
             transport_commands::transport_seek,
             transport_commands::transport_position,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // macOS passes the opened file in an event, not on the command line. Once the launcher
+            // is past, the editor is already up and replacing it could lose unsaved work.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                use tauri::Manager;
+
+                if let Some(path) = urls.iter().find_map(|url| url.to_file_path().ok()) {
+                    app.state::<windows::PendingOpen>().set(path);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }
