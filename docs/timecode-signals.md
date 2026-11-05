@@ -117,6 +117,19 @@ kinds.
 With an output running, the `flux-live` lane sends the same `LiveState` over its channel; the output keeps a cue list
 that `output_start` and `output_set_clips` rebuild, which the lane swaps in whole like the meters' state.
 
+## Tempo detection (`audio/tempo.rs`)
+
+`audio_detect_bpm(asset)` decodes the asset if needed (it uses the same cache as playback) and returns its BPM, or `null`
+when it is too short (under 4 s), silent, or shows no steady pulse. The UI asks for it after importing audio and the
+result is stored on the asset (`assets[].bpm`), so opening a project decodes nothing for it. The inspector can detect
+again, type another value, or copy it to the timeline's tempo.
+
+The method: loudness every 512 samples, its rises (onset strength), a blur, the autocorrelation over 55 to 210 BPM
+weighted towards 120 BPM, and a refinement that slides a comb of beats over the onsets at 0.1 % steps. It reads at most
+120 s from the middle of the audio. It finds the pulse of music that has one; the choice between a tempo and its double
+is made by the weighting towards 120 BPM, so an evenly spaced pulse at 174 BPM reads as 87. It was checked on synthetic
+drum patterns, not on a library of real recordings.
+
 ## Defaults and open decisions
 
 `LtcConfig::default()` is 48 kHz, level 0.5 (-6 dBFS) and a one-sample edge. These can become project settings later.

@@ -54,6 +54,7 @@ pub fn run() {
             windows::window_show_welcome,
             windows::window_open_editor,
             audio_commands::audio_analyze,
+            audio_commands::audio_detect_bpm,
             devices::devices_list_audio,
             devices::devices_list_midi,
             devices::devices_find_audio,

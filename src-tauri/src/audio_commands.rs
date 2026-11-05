@@ -6,7 +6,7 @@ use std::sync::{Arc, PoisonError};
 
 use tauri::State;
 
-use crate::audio::{AudioError, Decoded, PEAKS_PER_SECOND, SharedAudio, decode, peaks};
+use crate::audio::{AudioError, Decoded, PEAKS_PER_SECOND, SharedAudio, decode, detect_bpm, peaks};
 use crate::commands::SharedSession;
 use crate::project::{AudioAsset, AudioStamp, Preview};
 
@@ -78,6 +78,23 @@ pub async fn audio_analyze(
     tauri::async_runtime::spawn_blocking(move || analyze(&session, &cache, &asset))
         .await
         .map_err(|err| AudioError::Worker(io::Error::other(err).to_string()))?
+}
+
+/// The tempo of an asset in BPM, or `null` when it shows no steady pulse. It decodes the asset when
+/// that was not done yet (and keeps it for playback), so it is asked for when the user wants it
+/// rather than on every open: a project stores the answer with the asset.
+#[tauri::command]
+pub async fn audio_detect_bpm(
+    session: State<'_, SharedSession>,
+    cache: State<'_, SharedAudio>,
+    asset: AudioAsset,
+) -> Result<Option<f64>, AudioError> {
+    let (session, cache) = (Arc::clone(&session), Arc::clone(&cache));
+    tauri::async_runtime::spawn_blocking(move || {
+        load(&session, &cache, &asset).map(|decoded| detect_bpm(&decoded))
+    })
+    .await
+    .map_err(|err| AudioError::Worker(io::Error::other(err).to_string()))?
 }
 
 #[cfg(test)]
