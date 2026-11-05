@@ -4,9 +4,11 @@
 //! `create: false` and built here, one after the other. The next window is always created before
 //! the previous one closes, so the app never has zero windows and never exits in between.
 
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 const LAUNCHER: &str = "launcher";
 const WELCOME: &str = "welcome";
@@ -49,10 +51,54 @@ fn encode_component(path: &Path) -> String {
         })
 }
 
-/// Replaces the launcher with the welcome window.
+/// The `.fxtc` file the OS asked Flux to open, kept until the launcher is done.
+#[derive(Default)]
+pub struct PendingOpen(Mutex<Option<PathBuf>>);
+
+impl PendingOpen {
+    /// Reads the file from the command line, where Linux and Windows pass it.
+    pub fn from_args(args: impl IntoIterator<Item = OsString>) -> Self {
+        Self(Mutex::new(project_arg(args)))
+    }
+
+    /// macOS hands the file over in an event instead of the command line.
+    #[cfg(target_os = "macos")]
+    pub fn set(&self, path: PathBuf) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(path);
+    }
+
+    fn take(&self) -> Option<PathBuf> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+}
+
+/// The first argument that is an existing `.fxtc` file.
+fn project_arg(args: impl IntoIterator<Item = OsString>) -> Option<PathBuf> {
+    args.into_iter().map(PathBuf::from).find(|path| {
+        path.extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("fxtc"))
+            && path.is_file()
+    })
+}
+
+fn editor_url(path: Option<&Path>) -> String {
+    match path {
+        Some(path) => format!("index.html?open={}", encode_component(path)),
+        None => "index.html".to_owned(),
+    }
+}
+
+/// Replaces the launcher with the welcome window, or straight with the editor when the OS asked
+/// Flux to open a file.
 #[tauri::command]
-pub async fn window_show_welcome(app: AppHandle) -> Result<(), String> {
-    build(&app, WELCOME, "index.html?view=welcome")?;
+pub async fn window_show_welcome(
+    app: AppHandle,
+    pending: State<'_, PendingOpen>,
+) -> Result<(), String> {
+    match pending.take() {
+        Some(path) => build(&app, EDITOR, &editor_url(Some(&path)))?,
+        None => build(&app, WELCOME, "index.html?view=welcome")?,
+    };
     close(&app, LAUNCHER);
     Ok(())
 }
@@ -60,11 +106,7 @@ pub async fn window_show_welcome(app: AppHandle) -> Result<(), String> {
 /// Replaces the welcome window with the editor, which opens `path` or starts a new show.
 #[tauri::command]
 pub async fn window_open_editor(app: AppHandle, path: Option<PathBuf>) -> Result<(), String> {
-    let url = match path {
-        Some(path) => format!("index.html?open={}", encode_component(&path)),
-        None => "index.html".to_owned(),
-    };
-    build(&app, EDITOR, &url)?;
+    build(&app, EDITOR, &editor_url(path.as_deref()))?;
     close(&app, WELCOME);
     Ok(())
 }
@@ -72,6 +114,22 @@ pub async fn window_open_editor(app: AppHandle, path: Option<PathBuf>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_arg_should_pick_the_existing_fxtc_file_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let show = dir.path().join("Show.FXTC");
+        std::fs::write(&show, b"").unwrap();
+        let args = [
+            "--flag",
+            "notes.txt",
+            "missing.fxtc",
+            show.to_str().unwrap(),
+        ]
+        .map(OsString::from);
+
+        assert_eq!(project_arg(args), Some(show));
+    }
 
     #[test]
     fn encode_component_should_escape_what_a_query_string_cannot_carry() {

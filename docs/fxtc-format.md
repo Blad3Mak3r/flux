@@ -131,6 +131,13 @@ is the one it keeps. Saving writes the current version, which older builds canno
 as it was. Each asset is taken from either a file on disk (newly imported) or an existing `.fxtc`, from which the entry
 (and its preview) is copied without recompressing.
 
+## File association
+
+`bundle.fileAssociations` in `tauri.conf.json` registers `.fxtc` (`application/x-fxtc`) with Flux in the installed
+bundles. A file opened from the OS arrives on the command line (Linux, Windows) or as a `RunEvent::Opened` (macOS),
+is kept in `windows::PendingOpen`, and when the launcher finishes the editor opens it instead of the welcome window.
+Opening a file while Flux already runs starts a second instance; the macOS event is only honoured during start-up.
+
 ## Tauri commands
 
 Defined in `src-tauri/src/commands.rs`, typed wrappers (with the file dialogs) in `src/project/api.ts`, TS types in

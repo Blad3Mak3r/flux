@@ -52,6 +52,15 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "fileAssociations": [
+      {
+        "ext": ["fxtc"],
+        "name": "Flux Timecode project",
+        "description": "Flux Timecode project",
+        "mimeType": "application/x-fxtc",
+        "role": "Editor"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
