@@ -39,7 +39,7 @@ export const en = {
   "context.copy": "Copy",
   "context.paste": "Paste",
   "context.selectAll": "Select all",
-  "menu.setup": "Setup",
+  "menu.setup": "Preferences",
 
   "window.group": "Window controls",
   "window.minimize": "Minimize",
@@ -77,7 +77,7 @@ export const en = {
   "output.channel": "Ch {channel}",
   "output.default": "System default",
   "output.state.fast": "Not real time",
-  "output.clockFast": "This audio device does not keep real time, so the timecode runs wrong. Choose another device in Setup.",
+  "output.clockFast": "This audio device does not keep real time, so the timecode runs wrong. Choose another device in Preferences.",
   "output.notSet": "None",
   "output.count": "{count} outputs",
 
@@ -194,9 +194,9 @@ export const en = {
   "out.noDevices": "No audio output devices found.",
   "out.channels": "{count} ch",
 
-  "setup.title": "Setup",
-  "setup.close": "Close setup",
-  "setup.sections": "Setup sections",
+  "setup.title": "Preferences",
+  "setup.close": "Close preferences",
+  "setup.sections": "Preferences sections",
   "setup.section.project": "Project",
   "setup.section.audio": "Audio",
   "setup.section.ltc": "LTC outputs",

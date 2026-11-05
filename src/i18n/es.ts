@@ -40,7 +40,7 @@ export const es: Record<MessageKey, string> = {
   "context.copy": "Copiar",
   "context.paste": "Pegar",
   "context.selectAll": "Seleccionar todo",
-  "menu.setup": "Configuración",
+  "menu.setup": "Preferencias",
 
   "window.group": "Controles de la ventana",
   "window.minimize": "Minimizar",
@@ -78,7 +78,7 @@ export const es: Record<MessageKey, string> = {
   "output.channel": "Can. {channel}",
   "output.default": "Predeterminado del sistema",
   "output.state.fast": "Sin tiempo real",
-  "output.clockFast": "Este dispositivo de audio no marca el tiempo real, así que el timecode va mal. Elige otro dispositivo en la Configuración.",
+  "output.clockFast": "Este dispositivo de audio no marca el tiempo real, así que el timecode va mal. Elige otro dispositivo en Preferencias.",
   "output.notSet": "Ninguno",
   "output.count": "{count} salidas",
 
@@ -199,9 +199,9 @@ export const es: Record<MessageKey, string> = {
   "out.noDevices": "No se han encontrado dispositivos de salida de audio.",
   "out.channels": "{count} can.",
 
-  "setup.title": "Configuración",
-  "setup.close": "Cerrar la configuración",
-  "setup.sections": "Secciones de la configuración",
+  "setup.title": "Preferencias",
+  "setup.close": "Cerrar las preferencias",
+  "setup.sections": "Secciones de las preferencias",
   "setup.section.project": "Proyecto",
   "setup.section.audio": "Audio",
   "setup.section.ltc": "Salidas LTC",
