@@ -173,6 +173,9 @@ function NoteBlock({ note, muted, pxPerFrame }: { note: Note; muted: boolean; px
   const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, pxPerFrame);
   const selected = useUi((ui) => ui.selection?.id === note.id);
   const empty = note.text.trim() === "";
+  const timed = note.length !== undefined;
+  // A note with no length is a label at a point: its first line. One with a length is a box with room for more.
+  const label = timed ? note.text : (note.text.split("\n").find((line) => line.trim() !== "") ?? "");
   return (
     <div
       className="note"
@@ -181,7 +184,7 @@ function NoteBlock({ note, muted, pxPerFrame }: { note: Note; muted: boolean; px
       aria-pressed={selected}
       data-selected={selected}
       data-muted={muted}
-      data-timed={note.length !== undefined}
+      data-timed={timed}
       style={{ left: frameX(shown, pxPerFrame) }}
       {...pointer}
     >
@@ -190,7 +193,7 @@ function NoteBlock({ note, muted, pxPerFrame }: { note: Note; muted: boolean; px
         data-empty={empty}
         style={note.length === undefined ? undefined : { width: Math.max(24, note.length * pxPerFrame) }}
       >
-        {empty ? t("note.empty") : note.text}
+        {empty ? t("note.empty") : label}
       </span>
     </div>
   );

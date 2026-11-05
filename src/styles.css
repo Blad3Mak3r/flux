@@ -940,16 +940,12 @@ input:disabled {
   position: absolute;
   top: 8px;
   left: 0;
-  display: -webkit-box;
   box-sizing: border-box;
-  /* Its container has no width, so without this the box would shrink to its narrowest word. */
-  width: max-content;
   max-width: 260px;
   padding: 2px 10px 2px 8px;
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: pre-line;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   background-color: oklch(0.2 0.03 205);
   background-image: repeating-linear-gradient(
     135deg,
@@ -964,9 +960,12 @@ input:disabled {
   line-height: 1.35;
 }
 
-/* With a length the box is as wide as the note lasts, whatever the text. */
+/* With a length the box is as wide as the note lasts (its width is set inline) and holds two lines. */
 .note[data-timed="true"] .note-body {
   max-width: none;
+  max-height: calc(100% - 16px);
+  white-space: pre-line;
+  text-overflow: clip;
   background-image: none;
   background-color: color-mix(in oklch, var(--trace-c) 12%, oklch(0.2 0.03 205));
 }
@@ -1015,8 +1014,6 @@ input:disabled {
   margin-left: -1px;
   background: var(--ink);
   pointer-events: none;
-  /* Its own layer: it moves every frame while playing and must not repaint the lanes under it. */
-  will-change: transform;
 }
 
 .playhead[data-playing="true"] {
