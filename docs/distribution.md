@@ -1,6 +1,6 @@
 # Release distribution
 
-The private GitHub repository builds Flux Timecode in GitHub Actions. Cloudflare R2 serves the signed x64 installers and the Tauri update feed over HTTPS. The public bucket contains release files only. The workflow uses the S3-compatible API for distribution. Only the delivery job has write access to GitHub contents, to create the release tag for a manual run.
+The private GitHub repository builds Flux Timecode in GitHub Actions. Cloudflare R2 serves the signed x64 installers and the Tauri update feed over HTTPS. The public bucket contains release files only. The workflow uses the S3-compatible API for distribution. GitHub write access is scoped to the jobs that open a version pull request and create its release tag.
 
 ## Configure GitHub and R2
 
@@ -10,16 +10,17 @@ The private GitHub repository builds Flux Timecode in GitHub Actions. Cloudflare
 4. Create an R2 S3 API token with Object Read & Write scoped to this bucket. Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Actions secrets in the `stable` environment. The runner uses AWS CLI v2 with `s3api put-object --if-none-match` and `--if-match` support.
 5. In the `release-signing` environment, set `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` using the existing keypair. Its public key is already in `src-tauri/tauri.conf.json`. If the key has no password, the password value may be omitted. Keep the private key in the secret store.
 6. Use a GitHub tag ruleset to restrict creation, deletion and updates of `v*` tags to release maintainers. Allow `main` and stable tags in the `stable` environment. Allow the release workflow to create stable tags with its built-in token, while protecting existing tags against changes and deletion. Restrict `release-signing` to trusted release tags, `main` and trusted refs for dry-runs.
+7. Under **Settings → Actions → General → Workflow permissions**, enable **Allow GitHub Actions to create and approve pull requests** so the workflow can open the version PR. Merge that PR through the repository's normal review process. [GitHub Actions repository settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests)
 
 ## Publish a stable release
 
-In GitHub, select **Actions → Release → Run workflow**, choose `main`, and enter the next stable version, such as `1.2.0`. The workflow updates `package.json`, both root versions in `package-lock.json`, `src-tauri/Cargo.toml`, the app entry in `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`. The version must be higher than the version on the selected revision and contain three numeric SemVer components.
+In GitHub, select **Actions → Release → Run workflow**, choose `main`, and enter the next stable version, such as `1.2.0`. The workflow opens a version PR and links it in the run summary. It updates `package.json`, both root versions in `package-lock.json`, `src-tauri/Cargo.toml`, the app entry in `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`. Use three numeric SemVer components and a version higher than the current version on `main`.
 
-After the builds and signature checks pass, the workflow creates a version commit from the tested revision and tags it `vX.Y.Z`. The version commit lives at the tag and `main` keeps its existing history. The same run then delivers the tagged release to R2. Manual runs use a generic release note.
+Merge the version PR into `main`. The resulting push starts the release build when the version changes. After the builds and signature checks pass, the workflow creates `vX.Y.Z` at the exact commit on `main` that it built and delivers the release to R2. This path uses a generic release note.
 
-Enable **dry_run** to build and verify the chosen version without creating a tag or publishing. The private `prepared-release` artifact contains the installers and manifest. Signing secrets are required and R2 credentials are optional for a dry-run. Use `base_url` to point dry-run installers at a test origin. If both the input and the repository variable are unset, a dry-run uses `https://releases.example.invalid`.
+Enable **dry_run** to build and verify a version without opening a PR, creating a tag or publishing. The private `prepared-release` artifact contains the installers and manifest. Signing secrets are required and R2 credentials are optional for a dry-run. Use `base_url` to point dry-run installers at a test origin. If both the input and the repository variable are unset, a dry-run uses `https://releases.example.invalid`.
 
-The tag-push workflow also supports a version already committed in the five files. For that path, an annotated `vX.Y.Z` tag supplies the public release notes. Use the acceptance checks below before publishing the first release.
+The tag-push workflow also accepts a stable tag that points to a commit already on `main` with matching versions. An annotated tag supplies the public release notes. Use the acceptance checks below before publishing the first release.
 
 The workflow validates the lockfiles, versions, bundle settings and tests. Windows builds the NSIS installer and Linux builds DEB and RPM. Tauri CLI signs the original installer bytes and puts the filename and version in the signed Minisign comment. Preparation verifies each signature against the public key and records SHA-256 for each installer and signature.
 
