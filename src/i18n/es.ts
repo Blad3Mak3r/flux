@@ -84,6 +84,7 @@ export const es: Record<MessageKey, string> = {
   "live.notes.none": "No hay notas a la vista",
   "live.notes.left": "Quedan {time}",
   "live.progress": "Progreso de {name}",
+  "live.loading": "Leyendo el show…",
   "live.empty.title": "Aún no hay cues",
   "live.empty.body": "Importa audio o añade notas en la vista de edición y aparecerán aquí como cues.",
   "live.empty.action": "Ir a edición",

@@ -16,6 +16,7 @@ import { ViewSwitch } from "./ViewSwitch";
  */
 export function Live() {
   const t = useT();
+  const ready = useLive((live) => live.ready);
   const empty = useLive((live) => live.cues.length === 0);
   const hasNotes = useLive((live) => live.cues.some((cue) => cue.kind === "note"));
   const playing = useTransport((transport) => selectMode(transport) === "playing");
@@ -30,7 +31,11 @@ export function Live() {
         </h2>
         <ViewSwitch />
       </div>
-      {empty ? (
+      {empty && !ready ? (
+        <div className="empty-state">
+          <p className="empty-title">{t("live.loading")}</p>
+        </div>
+      ) : empty ? (
         <div className="empty-state">
           <p className="empty-title">{t("live.empty.title")}</p>
           <p>{t("live.empty.body")}</p>

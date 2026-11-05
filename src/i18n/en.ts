@@ -83,6 +83,7 @@ export const en = {
   "live.notes.none": "No notes on show",
   "live.notes.left": "{time} left",
   "live.progress": "Progress of {name}",
+  "live.loading": "Reading the show…",
   "live.empty.title": "No cues yet",
   "live.empty.body": "Import audio or add notes in the Edit view and they appear here as cues.",
   "live.empty.action": "Go to Edit",
