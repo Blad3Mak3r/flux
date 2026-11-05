@@ -234,6 +234,8 @@ A 34px square icon button on the inspector's left edge, at the start of its titl
 ### Output Lamps
 Rows of a 10px square lamp, uppercase name, status word and a truncating detail. Off = `lamp-off`; on = phosphor; fault = vermilion. The status word is always printed. With several outputs of a kind the row summarises them ("2 outputs", the full list in the tooltip) and shows the worst state, so one missing device reads as Missing. Each row is a button that opens its page of Preferences (Clock opens Audio, LTC and MTC their own list): the lamps are the live state, Preferences is where it changes. Hover raises the row to `panel-hi` with a 1px rule.
 
+The launcher's first lamp row shows the update state, with amber during download and installation. Its fixed-height footer shows a progress bar, downloaded megabytes, and a Skip button while downloading.
+
 ### Timecode Readout (signature)
 A recessed screen window holding a 5x7 dot-matrix face drawn as SVG squares; lit pixels `phosphor`, unlit `ghost`. The cell is a whole number of device pixels (9 CSS px wide, 7 narrow, at least 4 device px, gap at least 1 device px) so no pixel blends. A readout line beneath carries the state word (PLAYING vermilion, PAUSED amber, otherwise ink) in measure type.
 

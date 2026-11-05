@@ -30,6 +30,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            // Checked and installed by the launcher window before the app opens.
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            Ok(())
+        })
         .manage(commands::SharedSession::default())
         .manage(audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
