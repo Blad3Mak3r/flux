@@ -144,6 +144,16 @@ export function removeTrack(project: Project, trackId: string): Project {
   return tracks.length === project.tracks.length ? project : dropUnused({ ...project, tracks });
 }
 
+/** Moves a track to index `to` of the track order (clamped); the order is the order on screen and in the mix. */
+export function moveTrack(project: Project, trackId: string, to: number): Project {
+  const from = project.tracks.findIndex((track) => track.id === trackId);
+  const index = Math.min(Math.max(to, 0), project.tracks.length - 1);
+  if (from === -1 || from === index) return project;
+  const tracks = [...project.tracks];
+  tracks.splice(index, 0, ...tracks.splice(from, 1));
+  return { ...project, tracks };
+}
+
 export function toggleMute(project: Project, trackId: string): Project {
   return mapTracks(project, (track) =>
     track.id === trackId ? { ...track, muted: !track.muted } : track,

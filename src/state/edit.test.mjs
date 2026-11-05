@@ -1,12 +1,14 @@
 // Run with `npm test`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { dropIndex, dropLineY } from "../timeline/reorder.ts";
 import { docReducer, initialDoc, isDirty } from "./doc.ts";
 import {
   addNote,
   emptyProject,
   findItem,
   moveItem,
+  moveTrack,
   removeItem,
   removeTrack,
   setNoteLength,
@@ -266,4 +268,39 @@ test("removing a track takes its audio file with it and keeps the file another t
   assert.deepEqual(after.tracks.map((track) => track.id), ["t1", "t2"]);
   assert.deepEqual(after.assets.map((asset) => asset.id), ["a"]);
   assert.equal(removeTrack(before, "nope"), before);
+});
+
+const order = (p) => p.tracks.map((track) => track.id);
+const three = () => ({
+  ...project(),
+  tracks: [...project().tracks, { id: "t3", name: "Cues", muted: false, kind: { type: "notes", notes: [] } }],
+});
+
+test("moveTrack puts a track at the new index without touching the input", () => {
+  const before = three();
+  assert.deepEqual(order(moveTrack(before, "t1", 2)), ["t2", "t3", "t1"]);
+  assert.deepEqual(order(moveTrack(before, "t3", 0)), ["t3", "t1", "t2"]);
+  assert.deepEqual(order(before), ["t1", "t2", "t3"]);
+});
+
+test("moveTrack clamps the index and ignores a move that changes nothing", () => {
+  const before = three();
+  assert.deepEqual(order(moveTrack(before, "t1", 99)), ["t2", "t3", "t1"]);
+  assert.equal(moveTrack(before, "t2", 1), before);
+  assert.equal(moveTrack(before, "nope", 0), before);
+});
+
+test("dropIndex follows the middle of the dragged row past the middles of the others", () => {
+  const heights = [96, 64, 96];
+  assert.equal(dropIndex(heights, 0, 0), 0);
+  assert.equal(dropIndex(heights, 0, 90), 1); // middle at 138, past the 128 of row 1
+  assert.equal(dropIndex(heights, 0, 400), 2);
+  assert.equal(dropIndex(heights, 2, -400), 0);
+});
+
+test("dropLineY marks the edge of the row the dragged one lands against", () => {
+  const heights = [96, 64, 96];
+  assert.equal(dropLineY(heights, 0, 2), 256); // below the last row
+  assert.equal(dropLineY(heights, 2, 0), 0); // above the first
+  assert.equal(dropLineY(heights, 2, 1), 96);
 });
