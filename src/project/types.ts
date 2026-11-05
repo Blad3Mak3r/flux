@@ -55,7 +55,18 @@ export type TriggerAction = { type: "marker" } | { type: "midi"; bytes: number[]
 export interface OutputConfig {
   /** Where the project's audio clips play. `channels` are 1-based, e.g. `[1, 2]`. */
   audio: { deviceName: string; channels: number[] } | null;
-  /** `channel` is 1-based. */
-  ltc: { deviceName: string; channel: number } | null;
-  mtc: { portName: string } | null;
+  /** Any number of LTC signals, each on its own device and 1-based channel. */
+  ltc: LtcOutputConfig[];
+  /** Any number of MIDI ports that receive MTC. */
+  mtc: MtcOutputConfig[];
+}
+
+export interface LtcOutputConfig {
+  deviceName: string;
+  /** 1-based. */
+  channel: number;
+}
+
+export interface MtcOutputConfig {
+  portName: string;
 }

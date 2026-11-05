@@ -10,13 +10,26 @@ export interface OutputInfo {
   device: string;
   sampleRate: number;
   channels: number;
-  /** 1-based interface channel carrying LTC. */
-  ltcChannel: number | null;
-  /** The device LTC plays on when it is not `device`; null when LTC is off or shares it. */
-  ltcDevice: string | null;
-  mtcPort: string | null;
+  /** One entry per `output.ltc` of the project, in the same order. */
+  ltc: LtcInfo[];
+  /** One entry per `output.mtc` of the project, in the same order. */
+  mtc: MtcInfo[];
   /** Things that did not stop the output, e.g. a missing MIDI port. */
   warnings: string[];
+}
+
+/** How one LTC output ended up; when it did not open, `device` is the name the project holds. */
+export interface LtcInfo {
+  device: string;
+  /** 1-based interface channel. */
+  channel: number;
+  ok: boolean;
+}
+
+/** How one MTC output ended up; when it did not open, `port` is the name the project holds. */
+export interface MtcInfo {
+  port: string;
+  ok: boolean;
 }
 
 export interface Position {

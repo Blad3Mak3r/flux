@@ -257,34 +257,13 @@ input:disabled {
   outline-offset: -2px;
 }
 
-.menubar button,
-.menubar select {
+.menubar button {
   white-space: nowrap;
   height: 28px;
   padding: 0 10px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 2px;
-}
-
-/* The language selector is a menubar control like the buttons: same 28px box, centred, and its
-   focus ring stays inside the 38px bar. */
-.locale {
-  display: flex;
-  align-items: center;
-  height: 28px;
-}
-
-.menubar select {
-  height: 28px;
-  padding: 0 6px;
-  line-height: 1;
-  background: var(--panel);
-  border-color: var(--rule);
-}
-
-.menubar select:focus-visible {
-  outline-offset: 0;
 }
 
 .menubar button:hover:not(:disabled) {
@@ -428,11 +407,29 @@ input:disabled {
 }
 
 .lamps li {
+  font-size: 13px;
+}
+
+/* Each row is the live state of one output and the way into its page of Setup. */
+.lamp-row {
   display: grid;
   grid-template-columns: 10px 4.4em 6em minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-  font-size: 13px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: inherit;
+  text-align: left;
+  width: calc(100% + 12px);
+  transition: background-color 120ms var(--ease);
+}
+
+.lamp-row:hover {
+  background: var(--panel-hi);
+  border-color: var(--rule);
 }
 
 .lamp {
@@ -1076,13 +1073,23 @@ input:disabled {
 
 .tab-row {
   display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--rule-strong);
 }
 
-.tabs {
-  display: flex;
+/* The inspector holds one page, the selection; its title sits where tabs used to be. */
+.inspector-title {
   flex: 1;
   min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
 }
 
 /* The toggle sits on the sidebar's left edge, in the tab row, and heads the rail when collapsed. */
@@ -1103,34 +1110,6 @@ input:disabled {
   width: 100%;
   border-right: 0;
   border-bottom: 1px solid var(--rule-strong);
-}
-
-.rail {
-  display: grid;
-  justify-items: center;
-  align-content: start;
-  gap: 4px;
-  padding: 6px 0;
-}
-
-.tabs button {
-  flex: 1;
-  height: 34px;
-  padding: 0 6px;
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--ink-dim);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.tabs button[aria-selected="true"] {
-  color: var(--ink);
-  border-bottom-color: var(--phosphor);
-  background: var(--panel-lo);
 }
 
 .panel {
@@ -1394,6 +1373,209 @@ input:disabled {
 .dialog p {
   margin-bottom: 18px;
   color: var(--ink-dim);
+}
+
+/* ---- Setup dialog ---- */
+
+.dialog.setup {
+  width: 760px;
+  max-width: 92vw;
+  height: 520px;
+  max-height: 88vh;
+  padding: 0;
+}
+
+.dialog.setup[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.setup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 20px;
+  height: 44px;
+  background: var(--panel-lo);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.dialog.setup h2 {
+  margin: 0;
+}
+
+.setup-body {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.setup-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  overflow: auto;
+  border-right: 1px solid var(--rule);
+}
+
+.setup-nav button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px 0 12px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-dim);
+  font-weight: 600;
+  text-align: left;
+}
+
+/* The marker is a square lamp, as everywhere else on the faceplate. */
+.setup-nav button > span:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 10px;
+  vertical-align: 1px;
+  background: var(--lamp-off);
+}
+
+.setup-nav button:hover:not([aria-disabled="true"]) {
+  background: var(--panel-hi);
+  color: var(--ink);
+}
+
+.setup-nav button[aria-selected="true"] {
+  background: var(--panel-lo);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.setup-nav button[aria-selected="true"] > span:first-child::before {
+  background: var(--phosphor);
+}
+
+/* Planned but not built: dimmed like a disabled control, and it says why in words. */
+.setup-nav button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-page {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 18px 22px 24px;
+  overflow: auto;
+}
+
+.setup-page h3 {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.setup-fields {
+  display: grid;
+  gap: 14px;
+  max-width: 460px;
+}
+
+.dialog.setup p {
+  margin: 0;
+}
+
+.setup-intro {
+  color: var(--ink-dim);
+}
+
+.dialog.setup .empty-note {
+  padding: 0;
+}
+
+.setup-rows {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.setup-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.setup-row-name {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.row-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-row-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8em;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+
+.setup-row select {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+}
+
+.setup-row-fields select:only-child {
+  grid-column: 1 / -1;
+}
+
+.setup-refresh {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.setup-foot {
+  display: grid;
+  gap: 4px;
+  padding: 8px 20px;
+  background: var(--panel-lo);
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.setup-foot p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-foot .warning {
+  color: var(--amber);
 }
 
 /* ---- Launcher and welcome windows ---- */

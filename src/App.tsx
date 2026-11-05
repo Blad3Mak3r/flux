@@ -8,12 +8,13 @@ import { Timeline } from "./components/Timeline";
 import { UnsavedDialog } from "./components/UnsavedDialog";
 import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
+import { SetupDialog } from "./setup/SetupDialog";
 import { I18nProvider, useT } from "./i18n";
 import { deleteSelection } from "./state/actions";
 import { isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, select, sayError, toggleInspector, useUi, zoomBy } from "./state/ui";
+import { ask, openSetup, select, sayError, toggleInspector, useUi, zoomBy } from "./state/ui";
 import {
   addMarkerAtPlayhead,
   importAudioFiles,
@@ -91,7 +92,8 @@ function Shell() {
   // Keyboard first: the keys a show operator reaches for without looking.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (useUi.getState().pending || isTyping(event.target)) return;
+      // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
+      if (useUi.getState().pending || useUi.getState().setup || isTyping(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       const fps = nominalFps(useDoc.getState().project.timecode.frameRate);
@@ -105,6 +107,7 @@ function Shell() {
           : key === "o" ? "open"
           : key === "n" ? "new"
           : key === "b" ? "toggleInspector"
+          : key === "," ? "setup"
           : key === "=" || key === "+" ? "zoomIn"
           : key === "-" ? "zoomOut"
           : null;
@@ -116,6 +119,7 @@ function Shell() {
         else if (action === "open") openDocument();
         else if (action === "new") newDocument(t);
         else if (action === "toggleInspector") toggleInspector();
+        else if (action === "setup") openSetup();
         else zoomBy(action === "zoomIn" ? ZOOM_STEP : 1 / ZOOM_STEP);
         return;
       }
@@ -158,9 +162,10 @@ function Shell() {
       <Faceplate devices={devices} />
       <main className="work" data-inspector-collapsed={collapsed}>
         <Timeline key={docKey} />
-        <Inspector devices={devices} />
+        <Inspector />
       </main>
       <StatusBar />
+      <SetupDialog devices={devices} />
       <UnsavedDialog
         name={name}
         open={asking}

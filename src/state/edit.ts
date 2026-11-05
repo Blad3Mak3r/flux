@@ -13,12 +13,12 @@ import type {
 
 export function emptyProject(name: string, frameRate: FrameRate): Project {
   return {
-    formatVersion: 1,
+    formatVersion: 2,
     name,
     timecode: { frameRate, start: 0 },
     assets: [],
     tracks: [],
-    output: { audio: null, ltc: null, mtc: null },
+    output: { audio: null, ltc: [], mtc: [] },
   };
 }
 

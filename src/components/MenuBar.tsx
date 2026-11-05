@@ -1,8 +1,8 @@
-import { LOCALES, useI18n } from "../i18n";
+import { useI18n } from "../i18n";
 import { BrandMark } from "./BrandMark";
-import type { Locale } from "../i18n";
 import { isDirty } from "../state/doc";
 import { dispatch, useDoc } from "../state/store";
+import { openSetup } from "../state/ui";
 import { importAudioFiles, newDocument, openDocument, saveDocument } from "../state/workflows";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
@@ -14,7 +14,7 @@ export function MenuBar() {
   const dirty = useDoc(isDirty);
   const canUndo = useDoc((doc) => doc.past.length > 0);
   const canRedo = useDoc((doc) => doc.future.length > 0);
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const mod = MOD_KEY;
   // Shortcuts live in the tooltip: printed on every button they crowd a bar this narrow.
   const hint = (label: string, keys: string) => `${label} (${keys})`;
@@ -44,16 +44,9 @@ export function MenuBar() {
       </div>
 
       <div className="menu-end">
-        <label className="locale">
-          <span className="visually-hidden">{t("menu.language")}</span>
-          <select value={locale} onChange={(event) => setLocale(event.target.value as Locale)}>
-            {LOCALES.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <button type="button" onClick={() => openSetup()} title={hint(t("menu.setup"), `${mod}+,`)}>
+          {t("menu.setup")}
+        </button>
       </div>
       {hasNativeWindow() && <WindowControls />}
     </nav>

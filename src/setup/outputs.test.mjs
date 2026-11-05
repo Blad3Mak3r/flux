@@ -1,0 +1,82 @@
+// Run with `npm test`.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  addLtc,
+  addMtc,
+  freeChannel,
+  isAvailable,
+  removeLtc,
+  removeMtc,
+  setProgrammeDevice,
+  stepSection,
+  updateLtc,
+  updateMtc,
+} from "./outputs.ts";
+
+const output = () => ({
+  audio: { deviceName: "Main", channels: [1, 2] },
+  ltc: [{ deviceName: "Main", channel: 8 }],
+  mtc: [{ portName: "IAC" }],
+});
+
+test("freeChannel takes the highest channel up to eight that is not taken", () => {
+  assert.equal(freeChannel([], 16), 8);
+  assert.equal(freeChannel([8], 16), 7);
+  assert.equal(freeChannel([], 4), 4);
+  assert.equal(freeChannel([4, 3], 4), 2);
+  assert.equal(freeChannel([1], 1), 1);
+});
+
+test("addLtc avoids the channels LTC and the programme already use on that device", () => {
+  const before = output();
+  const after = addLtc(before, "Main", 8);
+  assert.deepEqual(after.ltc, [
+    { deviceName: "Main", channel: 8 },
+    { deviceName: "Main", channel: 7 },
+  ]);
+  assert.equal(before.ltc.length, 1);
+
+  const stereo = addLtc({ audio: { deviceName: "Main", channels: [1, 2] }, ltc: [], mtc: [] }, "Main", 2);
+  assert.equal(stereo.ltc[0].channel, 2, "the programme holds 1 and 2, so a two channel device reuses the top one");
+});
+
+test("addLtc on another device ignores the programme's channels", () => {
+  const after = addLtc(output(), "Booth", 2);
+  assert.deepEqual(after.ltc[1], { deviceName: "Booth", channel: 2 });
+});
+
+test("updateLtc and removeLtc touch only the output they are given", () => {
+  const two = addLtc(output(), "Booth", 4);
+  const changed = updateLtc(two, 1, { channel: 1 });
+  assert.equal(changed.ltc[1].channel, 1);
+  assert.equal(changed.ltc[0], two.ltc[0]);
+  assert.deepEqual(removeLtc(two, 0).ltc, [two.ltc[1]]);
+});
+
+test("addMtc picks the first port that is not in use, or none", () => {
+  assert.deepEqual(addMtc(output(), ["IAC", "Bus 2"]).mtc[1], { portName: "Bus 2" });
+  assert.deepEqual(addMtc(output(), ["IAC"]).mtc[1], { portName: "" });
+  assert.deepEqual(addMtc({ ...output(), mtc: [] }, []).mtc, [{ portName: "" }]);
+});
+
+test("updateMtc and removeMtc touch only the output they are given", () => {
+  const two = addMtc(output(), ["IAC", "Bus 2"]);
+  assert.equal(updateMtc(two, 0, { portName: "X" }).mtc[1], two.mtc[1]);
+  assert.deepEqual(removeMtc(two, 1).mtc, [{ portName: "IAC" }]);
+});
+
+test("setProgrammeDevice moves the LTC outputs that shared the old device, and only those", () => {
+  const before = { ...output(), ltc: [{ deviceName: "Main", channel: 8 }, { deviceName: "Booth", channel: 1 }] };
+  const after = setProgrammeDevice(before, "Other", 4);
+  assert.deepEqual(after.audio, { deviceName: "Other", channels: [1, 2] });
+  assert.deepEqual(after.ltc, [{ deviceName: "Other", channel: 4 }, { deviceName: "Booth", channel: 1 }]);
+  assert.deepEqual(setProgrammeDevice(before, "Mono", 1).audio, { deviceName: "Mono", channels: [1] });
+});
+
+test("stepSection wraps round and skips the section that is not available", () => {
+  assert.equal(isAvailable("video"), false);
+  assert.equal(stepSection("project", 1), "audio");
+  assert.equal(stepSection("general", 1), "project");
+  assert.equal(stepSection("project", -1), "general");
+});
