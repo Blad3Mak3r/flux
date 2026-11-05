@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Faceplate } from "./components/Faceplate";
+import { MenuHost } from "./components/Menu";
+import { textMenu } from "./components/menus";
 import { Inspector } from "./components/Inspector";
 import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
@@ -15,7 +17,7 @@ import { deleteSelection } from "./state/actions";
 import { isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, openSetup, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
+import { ask, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
 import {
   addNoteAt,
   importAudioFiles,
@@ -90,6 +92,22 @@ function Shell() {
       stopListening?.();
     };
   }, []);
+
+  // A right click nothing claimed (our menus stop theirs): close the open menu, and offer the text
+  // menu on a text field. The webview's own menu is blocked for every window in main.tsx.
+  useEffect(() => {
+    const onContextMenu = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      closeMenu();
+      const field = event.target;
+      if (field instanceof HTMLElement && field.matches('textarea, input:not([type]), input[type="text"], input[type="search"]')) {
+        field.focus();
+        openMenu({ x: event.clientX, y: event.clientY, items: textMenu(t, field as HTMLInputElement) });
+      }
+    };
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => document.removeEventListener("contextmenu", onContextMenu);
+  }, [t]);
 
   // Keyboard first: the keys a show operator reaches for without looking.
   useEffect(() => {
@@ -180,6 +198,7 @@ function Shell() {
       </main>
       <StatusBar />
       <SetupDialog devices={devices} />
+      <MenuHost />
       <UnsavedDialog
         name={name}
         open={asking}

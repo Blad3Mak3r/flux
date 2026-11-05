@@ -8,6 +8,7 @@ import {
   findItem,
   moveItem,
   removeItem,
+  removeTrack,
   setNoteLength,
   setTrackColor,
   setTrackGain,
@@ -253,4 +254,16 @@ test("findItem finds a note and says so", () => {
   const found = findItem(withItems(), "k1");
   assert.equal(found.kind, "note");
   assert.equal(found.note.text, "Go");
+});
+
+test("removing a track takes its audio file with it and keeps the file another track still uses", () => {
+  const base = withItems();
+  const before = {
+    ...base,
+    assets: [{ id: "a", name: "A", file: "audio/a" }, { id: "b", name: "B", file: "audio/b" }],
+  };
+  const after = removeTrack(before, "t3");
+  assert.deepEqual(after.tracks.map((track) => track.id), ["t1", "t2"]);
+  assert.deepEqual(after.assets.map((asset) => asset.id), ["a"]);
+  assert.equal(removeTrack(before, "nope"), before);
 });

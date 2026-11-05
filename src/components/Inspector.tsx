@@ -16,7 +16,7 @@ import {
 import { TRACK_COLORS } from "../timeline/palette";
 import { TextAreaField, TextField, TimecodeField } from "./fields";
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
-import { MOD_KEY } from "./MenuBar";
+import { MOD_KEY } from "./menus";
 
 /** The colour of the track an item sits on. Each swatch is named, so colour is never the only cue. */
 function TrackColorField({

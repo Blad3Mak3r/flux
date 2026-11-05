@@ -3,7 +3,7 @@
 
 import type { Project } from "../project/types";
 import { dispatch, useDoc } from "./store";
-import { moveItem, removeItem, setTrackGain, toggleMute } from "./edit";
+import { moveItem, removeItem, removeTrack, setTrackGain, toggleMute } from "./edit";
 import { select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
@@ -13,6 +13,11 @@ const editWith = (change: (project: Project) => Project) => edit(change(useDoc.g
 export const moveTo = (id: string, position: number) => editWith((p) => moveItem(p, id, position));
 export const muteTrack = (trackId: string) => editWith((p) => toggleMute(p, trackId));
 export const setGain = (trackId: string, gainDb: number) => editWith((p) => setTrackGain(p, trackId, gainDb));
+
+export function deleteTrack(trackId: string): void {
+  editWith((p) => removeTrack(p, trackId));
+  select(null);
+}
 
 export function deleteSelection(): void {
   const { selection } = useUi.getState();

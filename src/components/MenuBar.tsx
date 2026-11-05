@@ -1,56 +1,86 @@
+import { useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
 import { BrandMark } from "./BrandMark";
 import { isDirty } from "../state/doc";
-import { dispatch, useDoc } from "../state/store";
-import { openSetup, useUi } from "../state/ui";
-import { addNoteAt, importAudioFiles, newDocument, openDocument, saveDocument } from "../state/workflows";
+import { useDoc } from "../state/store";
+import { closeMenu, openMenu, openSetup, useUi } from "../state/ui";
+import { GearIcon } from "./icons";
+import { BAR_MENUS, MOD_KEY } from "./menus";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
-
-/** The modifier key as this platform prints it, for shortcut hints. */
-export const MOD_KEY = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 
 export function MenuBar() {
   const name = useDoc((doc) => doc.project.name);
   const dirty = useDoc(isDirty);
-  const canUndo = useDoc((doc) => doc.past.length > 0);
-  const canRedo = useDoc((doc) => doc.future.length > 0);
-  const editing = useUi((ui) => ui.view === "edit");
+  // Only which title is open: the items themselves are built when it opens.
+  const owner = useUi((ui) => ui.menu?.owner);
   const { t } = useI18n();
-  const mod = MOD_KEY;
-  // Shortcuts live in the tooltip: printed on every button they crowd a bar this narrow.
-  const hint = (label: string, keys: string) => `${label} (${keys})`;
+  const bar = useRef<HTMLDivElement>(null);
+
+  const show = (index: number) => {
+    const { id, items } = BAR_MENUS[index];
+    const title = bar.current?.querySelector<HTMLElement>(`[data-menu="${id}"]`);
+    if (!title) return;
+    const { left, bottom } = title.getBoundingClientRect();
+    openMenu({ x: left, y: bottom, owner: id, items: items(t) });
+  };
+
+  // With a menu open, Left and Right move along the bar.
+  useEffect(() => {
+    if (!owner) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const at = BAR_MENUS.findIndex((menu) => menu.id === owner);
+      show((at + (event.key === "ArrowLeft" ? -1 : 1) + BAR_MENUS.length) % BAR_MENUS.length);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  });
+
   return (
     <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
       <BrandMark />
+
+      <div ref={bar} className="menu-group" role="menubar" aria-label={t("app.title")}>
+        {BAR_MENUS.map(({ id, label }, index) => (
+          <button
+            key={id}
+            type="button"
+            role="menuitem"
+            data-menu={id}
+            aria-haspopup="menu"
+            aria-expanded={owner === id}
+            onClick={() => (owner === id ? closeMenu() : show(index))}
+            // Once one is open, the others open by pointing at them, as in every desktop app.
+            onPointerEnter={() => owner && owner !== id && show(index)}
+          >
+            {t(label)}
+          </button>
+        ))}
+      </div>
+
       <p className="doc-name" title={name} data-tauri-drag-region>
         {name}
-        {dirty && (
+        {dirty ? (
           <span className="dirty" title={t("project.unsaved")}>
             <span aria-hidden="true">●</span>
             <span className="visually-hidden">{t("project.unsaved")}</span>
           </span>
-        )}
+        ) : null}
       </p>
 
-      <div className="menu-group" role="group" aria-label={t("menu.file")}>
-        <button type="button" onClick={() => newDocument(t)} title={hint(t("menu.new"), `${mod}+N`)}>{t("menu.new")}</button>
-        <button type="button" onClick={openDocument} title={hint(t("menu.open"), `${mod}+O`)}>{t("menu.open")}</button>
-        <button type="button" onClick={() => void saveDocument(false)} title={hint(t("menu.save"), `${mod}+S`)}>{t("menu.save")}</button>
-        <button type="button" onClick={() => void saveDocument(true)} title={hint(t("menu.saveAs"), `${mod}+⇧+S`)}>{t("menu.saveAs")}</button>
-        <button type="button" onClick={() => void importAudioFiles()} title={hint(t("menu.importAudio"), "I")}>{t("menu.importAudio")}</button>
-        <button type="button" onClick={() => addNoteAt(t)} disabled={!editing} title={hint(t("menu.addNote"), "N")}>{t("menu.addNote")}</button>
-      </div>
-      <div className="menu-group" role="group" aria-label={t("menu.edit")}>
-        <button type="button" onClick={() => dispatch({ type: "undo" })} disabled={!canUndo} title={hint(t("menu.undo"), `${mod}+Z`)}>{t("menu.undo")}</button>
-        <button type="button" onClick={() => dispatch({ type: "redo" })} disabled={!canRedo} title={hint(t("menu.redo"), `${mod}+⇧+Z`)}>{t("menu.redo")}</button>
-      </div>
-
       <div className="menu-end">
-        <button type="button" onClick={() => openSetup()} title={hint(t("menu.setup"), `${mod}+,`)}>
-          {t("menu.setup")}
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => openSetup()}
+          aria-label={t("menu.setup")}
+          title={`${t("menu.setup")} (${MOD_KEY}+,)`}
+        >
+          <GearIcon />
         </button>
       </div>
-      {hasNativeWindow() && <WindowControls />}
+      {hasNativeWindow() ? <WindowControls /> : null}
     </nav>
   );
 }
