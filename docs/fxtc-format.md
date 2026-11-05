@@ -20,15 +20,15 @@ the positions of clips (`start`) and cues (`at`) are counted **from that origin*
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `1`. A file with a newer version is rejected before it is parsed further. |
+| `formatVersion` | number | `2`. A file with a newer version is rejected before it is parsed further. |
 | `name` | string | |
 | `timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
 | `timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
 | `assets[]` | `{ id, name, file }` | `file` is the archive path under `audio/`. |
-| `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, so `formatVersion` stays 1. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for events), also without a version bump. |
+| `tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, so `formatVersion` did not change. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for events), also without a version bump. |
 | `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
-| `output.ltc` | `{ deviceName, channel }` \| `null` | LTC out through an audio interface; `channel` is 1-based. May share a device with `output.audio` or name another one, which gets a stream of its own. |
-| `output.mtc` | `{ portName }` \| `null` | MTC out through a MIDI port. |
+| `output.ltc` | `[{ deviceName, channel }]` | LTC outputs, any number, each through an audio interface; `channel` is 1-based. An entry may share a device with `output.audio` (its channel is written into the programme's stream) or name another one, which gets a stream of its own, shared by every entry that names it. A repeated device and channel plays once. Absent is an empty list. |
+| `output.mtc` | `[{ portName }]` | MTC outputs, any number, each through a MIDI port, each with its own thread. Absent is an empty list. |
 
 Track kinds:
 
@@ -90,7 +90,9 @@ never fails because of hardware.
 ## Versioning
 
 `FORMAT_VERSION` is the highest version this build understands. Files with a higher version fail with
-`UnsupportedVersion`. When the format changes, bump the version and migrate older files while reading.
+`UnsupportedVersion`. When the format changes, bump the version and migrate older files while reading (`migrate` in `project/model.rs`).
+
+Version history: **1** held `output.ltc` and `output.mtc` as an object or `null`; **2** holds them as lists. Version 1 files are migrated when opened (an object becomes a one-item list, `null` or absent an empty list) and are written back as version 2.
 
 ## Saving
 
