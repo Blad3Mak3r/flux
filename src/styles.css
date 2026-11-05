@@ -185,6 +185,38 @@ input:disabled {
   width: auto;
 }
 
+.brand-button {
+  display: flex;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.dialog.about {
+  min-width: 300px;
+  text-align: center;
+}
+
+.dialog.about[open] {
+  display: grid;
+  justify-items: center;
+}
+
+.dialog.about img {
+  height: 56px;
+  width: auto;
+  margin-bottom: 14px;
+}
+
+.dialog.about p {
+  margin-bottom: 4px;
+}
+
+.dialog.about .button-row {
+  margin-top: 14px;
+}
+
 .doc-name {
   display: flex;
   align-items: center;
