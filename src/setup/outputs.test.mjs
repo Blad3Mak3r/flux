@@ -8,11 +8,15 @@ import {
   clearPreview,
   freeChannel,
   isAvailable,
+  portChoices,
+  portKey,
+  portLabel,
   removeLtc,
   removeMtc,
   setMetronomeChannels,
   setMetronomeDevice,
   setMetronomeGain,
+  setMtcPort,
   setPreviewDevice,
   setProgrammeDevice,
   stepSection,
@@ -64,6 +68,30 @@ test("addMtc picks the first port that is not in use, or none", () => {
   assert.deepEqual(addMtc(output(), ["IAC", "Bus 2"]).mtc[1], { portName: "Bus 2" });
   assert.deepEqual(addMtc(output(), ["IAC"]).mtc[1], { portName: "" });
   assert.deepEqual(addMtc({ ...output(), mtc: [] }, []).mtc, [{ portName: "" }]);
+});
+
+test("ports that share a name are told apart by their place among them", () => {
+  const names = ["Hub", "Other", "Hub"];
+  const choices = portChoices(names);
+  assert.deepEqual(choices, [{ portName: "Hub" }, { portName: "Other" }, { portName: "Hub", portIndex: 1 }]);
+  assert.deepEqual(choices.map((choice) => portLabel(choice, choices)), ["Hub (1)", "Other", "Hub (2)"]);
+  assert.deepEqual(addMtc({ ...output(), mtc: [{ portName: "Hub" }] }, names).mtc[1], { portName: "Other" });
+  const both = addMtc(addMtc({ ...output(), mtc: [{ portName: "Hub" }] }, names), names);
+  assert.deepEqual(both.mtc[2], { portName: "Hub", portIndex: 1 });
+});
+
+test("setMtcPort keeps the index only for a port after the first of its name", () => {
+  const picked = setMtcPort(output(), 0, portKey({ portName: "Hub", portIndex: 1 }));
+  assert.deepEqual(picked.mtc[0], { portName: "Hub", portIndex: 1 });
+  assert.deepEqual(setMtcPort(picked, 0, portKey({ portName: "Hub" })).mtc[0], { portName: "Hub" });
+  assert.deepEqual(setMtcPort(picked, 0, "").mtc[0], { portName: "" });
+});
+
+test("updateLtc sets the level of one output only", () => {
+  const two = addLtc(output(), "Main", 8);
+  const changed = updateLtc(two, 1, { level: 0.25 });
+  assert.equal(changed.ltc[1].level, 0.25);
+  assert.equal(changed.ltc[0], two.ltc[0]);
 });
 
 test("updateMtc and removeMtc touch only the output they are given", () => {

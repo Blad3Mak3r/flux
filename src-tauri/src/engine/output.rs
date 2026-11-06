@@ -26,7 +26,9 @@ use super::mtc::MtcScheduler;
 use super::transport::{Clock, Command, Transport, TransportState};
 use crate::audio::ENGINE_RATE;
 use crate::devices;
-use crate::project::{FrameRate, LtcOutput, Project, ProjectError, Tempo, Timeline};
+use crate::project::{
+    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, Project, ProjectError, Tempo, Timeline,
+};
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
 /// The longest the MTC thread sleeps before it looks at the transport again.
@@ -218,13 +220,31 @@ impl Default for SharedClock {
     }
 }
 
+/// One interface channel an LTC signal is written to, and how loud.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LtcTap {
+    /// Zero-based index into each frame of the interleaved buffer.
+    pub channel: usize,
+    /// Linear factor applied to the generator's full-scale signal.
+    pub gain: f32,
+}
+
+impl LtcTap {
+    /// The tap for a project output: a 1-based channel and its level.
+    fn new((channel, level): (u16, f32)) -> Self {
+        Self {
+            channel: usize::from(channel) - 1,
+            gain: level,
+        }
+    }
+}
+
 /// The LTC generator and the interface channels it goes to. One signal feeds every channel, so
-/// two LTC outputs on one device cost a single generator.
+/// two LTC outputs on one device cost a single generator; each channel has a level of its own.
 #[derive(Debug)]
 pub struct LtcChannel {
     pub stream: LtcStream,
-    /// Zero-based indexes into each frame of the interleaved buffer.
-    pub channels: Vec<usize>,
+    pub channels: Vec<LtcTap>,
 }
 
 /// Fills audio buffers from the transport. Owned by the audio callback, so it must not allocate
@@ -367,9 +387,9 @@ impl Renderer {
                     }
                 }
                 if let Some(ltc) = &mut self.ltc {
-                    let sample = T::from_sample(ltc.stream.next_sample());
-                    for &channel in &ltc.channels {
-                        frame[channel] = sample;
+                    let sample = ltc.stream.next_sample();
+                    for tap in &ltc.channels {
+                        frame[tap.channel] = T::from_sample(sample * tap.gain);
                     }
                 }
             }
@@ -395,8 +415,7 @@ impl Fill for Renderer {
 #[derive(Debug)]
 pub struct LtcFollower {
     stream: LtcStream,
-    /// Zero-based indexes into each frame of the interleaved buffer.
-    outputs: Vec<usize>,
+    outputs: Vec<LtcTap>,
     channels: usize,
     clock: Clock,
     shared: Arc<SharedClock>,
@@ -417,7 +436,7 @@ pub struct LtcFollower {
 impl LtcFollower {
     pub fn new(
         stream: LtcStream,
-        outputs: Vec<usize>,
+        outputs: Vec<LtcTap>,
         channels: usize,
         clock: Clock,
         shared: Arc<SharedClock>,
@@ -492,9 +511,9 @@ impl LtcFollower {
                         frame[channel] = T::from_sample(click[at].clamp(-1.0, 1.0));
                     }
                 }
-                let sample = T::from_sample(self.stream.next_sample());
-                for &channel in &self.outputs {
-                    frame[channel] = sample;
+                let sample = self.stream.next_sample();
+                for tap in &self.outputs {
+                    frame[tap.channel] = T::from_sample(sample * tap.gain);
                 }
             }
         }
@@ -714,7 +733,11 @@ impl Output {
             .max()
             .unwrap_or(2);
 
-        let ltc_config = LtcConfig::default();
+        // The generator runs at full scale and every channel applies its own level.
+        let ltc_config = LtcConfig {
+            level: 1.0,
+            ..LtcConfig::default()
+        };
         let rate = timeline.timecode.frame_rate;
         let start = timeline.timecode.start;
         let clock = Clock::new(ltc_config.sample_rate, rate);
@@ -730,7 +753,7 @@ impl Output {
             needed,
             programme: programme_channels,
             clips: Arc::clone(&clips),
-            ltc_channels: channels_of(&shared_ltc),
+            ltc: levels_of(&shared_ltc),
             click: click_for(ClickPlace::Programme),
             ltc_config,
             rate,
@@ -769,7 +792,7 @@ impl Output {
         for (index, group) in own_ltc.into_iter().enumerate() {
             let spec = LtcSpec {
                 device_hint: group.device.clone(),
-                channels: channels_of(&group.slots),
+                ltc: levels_of(&group.slots),
                 click: click_for(ClickPlace::Group(index)),
                 config: ltc_config,
                 rate,
@@ -804,7 +827,7 @@ impl Output {
             let device = device.unwrap_or_default();
             let spec = LtcSpec {
                 device_hint: device.clone(),
-                channels: Vec::new(),
+                ltc: Vec::new(),
                 click: Some(spec),
                 config: ltc_config,
                 rate,
@@ -831,20 +854,21 @@ impl Output {
         // Likewise for MTC: one thread per port, and a port listed twice (or named two ways)
         // shares the first one's result.
         let mut mtc_info: Vec<MtcInfo> = Vec::with_capacity(output.mtc.len());
-        let mut by_hint: HashMap<&str, usize> = HashMap::new();
-        let mut by_port: HashMap<String, usize> = HashMap::new();
+        let mut by_hint: HashMap<(&str, usize), usize> = HashMap::new();
+        // The system's own position of each port taken, since two ports can share a name.
+        let mut by_port: HashMap<usize, usize> = HashMap::new();
         for mtc in &output.mtc {
             let hint = mtc.port_name.as_str();
-            if let Some(&first) = by_hint.get(hint) {
+            if let Some(&first) = by_hint.get(&(hint, mtc.port_index)) {
                 mtc_info.push(mtc_info[first].clone());
                 continue;
             }
             let here = mtc_info.len();
-            by_hint.insert(hint, here);
-            let result = match connect_midi(hint) {
-                Ok((name, _)) if by_port.contains_key(&name) => mtc_info[by_port[&name]].clone(),
-                Ok((name, connection)) => {
-                    by_port.insert(name.clone(), here);
+            by_hint.insert((hint, mtc.port_index), here);
+            let result = match connect_midi(hint, mtc.port_index) {
+                Ok((at, _, _)) if by_port.contains_key(&at) => mtc_info[by_port[&at]].clone(),
+                Ok((at, name, connection)) => {
+                    by_port.insert(at, here);
                     let scheduler = MtcScheduler::new(clock, rate, start);
                     let (shared, stop) = (Arc::clone(&shared), Arc::clone(&stop));
                     let spawned = thread::Builder::new()
@@ -970,8 +994,8 @@ struct AudioSpec {
     /// 1-based interface channels of the programme.
     programme: Vec<u16>,
     clips: Arc<ClipSet>,
-    /// 1-based. Empty when LTC is off or plays on devices of its own.
-    ltc_channels: Vec<u16>,
+    /// 1-based channels and their levels. Empty when LTC is off or plays on devices of its own.
+    ltc: Vec<(u16, f32)>,
     /// The metronome, when it plays on this stream.
     click: Option<ClickSpec>,
     ltc_config: LtcConfig,
@@ -987,8 +1011,8 @@ struct AudioInfo {
 
 struct LtcSpec {
     device_hint: String,
-    /// 1-based. Empty when the stream plays only the metronome.
-    channels: Vec<u16>,
+    /// 1-based channels and their levels. Empty when the stream plays only the metronome.
+    ltc: Vec<(u16, f32)>,
     /// The metronome, when it plays on this device.
     click: Option<ClickSpec>,
     config: LtcConfig,
@@ -1039,17 +1063,19 @@ fn same_device(a: &str, b: &str) -> bool {
 }
 
 /// One LTC signal on one interface channel, and the project outputs that asked for it.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 struct LtcSlot {
     /// 1-based.
     channel: u16,
+    /// Linear peak level: the first output that asked for this slot sets it.
+    level: f32,
     /// Positions in the project's `output.ltc`. More than one when the same device and channel is
     /// listed twice, which plays once.
     outputs: Vec<usize>,
 }
 
 /// Where each LTC output of a project plays.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 struct LtcPlan {
     /// Channels written into the programme's own stream.
     shared: Vec<LtcSlot>,
@@ -1057,15 +1083,19 @@ struct LtcPlan {
     own: Vec<LtcGroup>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 struct LtcGroup {
     /// The name hint of the first output that named the device.
     device: String,
     slots: Vec<LtcSlot>,
 }
 
-fn channels_of(slots: &[LtcSlot]) -> Vec<u16> {
-    slots.iter().map(|slot| slot.channel).collect()
+/// Each slot's 1-based channel and its level.
+fn levels_of(slots: &[LtcSlot]) -> Vec<(u16, f32)> {
+    slots
+        .iter()
+        .map(|slot| (slot.channel, slot.level))
+        .collect()
 }
 
 /// Splits the project's LTC outputs between the programme's stream and one stream per other
@@ -1100,6 +1130,7 @@ fn plan_ltc(
             Some(slot) => slot.outputs.push(index),
             None => slots.push(LtcSlot {
                 channel: output.channel,
+                level: output.level.unwrap_or(DEFAULT_LTC_LEVEL),
                 outputs: vec![index],
             }),
         }
@@ -1201,13 +1232,9 @@ fn open_stream(
     let opened = open_device(&spec.device_hint, spec.needed, rate)?;
     let channels = opened.channels;
 
-    let ltc = (!spec.ltc_channels.is_empty()).then(|| LtcChannel {
+    let ltc = (!spec.ltc.is_empty()).then(|| LtcChannel {
         stream: LtcStream::new(spec.ltc_config, spec.rate, spec.start, 0),
-        channels: spec
-            .ltc_channels
-            .iter()
-            .map(|&channel| usize::from(channel) - 1)
-            .collect(),
+        channels: spec.ltc.iter().copied().map(LtcTap::new).collect(),
     });
     // Channels beyond what the device opened cannot be written to.
     let programme = spec
@@ -1248,9 +1275,9 @@ fn open_ltc_stream(
 ) -> Result<(cpal::Stream, String), OutputError> {
     let rate = spec.config.sample_rate;
     let needed = spec
-        .channels
+        .ltc
         .iter()
-        .copied()
+        .map(|&(channel, _)| channel)
         .chain(
             spec.click
                 .iter()
@@ -1261,10 +1288,7 @@ fn open_ltc_stream(
     let opened = open_device(&spec.device_hint, needed, rate)?;
     let follower = LtcFollower::new(
         LtcStream::new(spec.config, spec.rate, spec.start, 0),
-        spec.channels
-            .iter()
-            .map(|&channel| usize::from(channel) - 1)
-            .collect(),
+        spec.ltc.iter().copied().map(LtcTap::new).collect(),
         usize::from(opened.channels),
         spec.clock,
         Arc::clone(&shared),
@@ -1327,9 +1351,13 @@ where
         .map_err(|err| OutputError::Stream(err.to_string()))
 }
 
-/// Connects to the MIDI output port a project's name hint refers to. The error is a message for
-/// the user, since a missing port is not fatal.
-fn connect_midi(hint: &str) -> Result<(String, midir::MidiOutputConnection), String> {
+/// Connects to the MIDI output port a project's name hint refers to, the `index`-th one of that
+/// name. Returns the port's position in the system's list, its name and the connection. The error
+/// is a message for the user, since a missing port is not fatal.
+fn connect_midi(
+    hint: &str,
+    index: usize,
+) -> Result<(usize, String, midir::MidiOutputConnection), String> {
     let output = midir::MidiOutput::new(MIDI_CLIENT_NAME)
         .map_err(|err| format!("MTC is off, MIDI is unavailable: {err}"))?;
     let ports: Vec<(String, midir::MidiOutputPort)> = output
@@ -1337,12 +1365,16 @@ fn connect_midi(hint: &str) -> Result<(String, midir::MidiOutputConnection), Str
         .into_iter()
         .filter_map(|port| Some((output.port_name(&port).ok()?, port)))
         .collect();
-    let (name, port) = devices::find_by_name(hint, &ports, |(name, _)| name)
+    let (name, port) = devices::find_by_name(hint, &ports, index, |(name, _)| name)
         .ok_or_else(|| format!("MTC is off, MIDI port not found: {hint}"))?;
     let name = name.clone();
+    let at = ports
+        .iter()
+        .position(|(_, other)| other == port)
+        .unwrap_or(0);
     output
         .connect(port, "Flux Timecode MTC")
-        .map(|connection| (name.clone(), connection))
+        .map(|connection| (at, name.clone(), connection))
         .map_err(|err| format!("MTC is off, cannot open {name}: {err}"))
 }
 
@@ -1429,6 +1461,10 @@ mod tests {
         }
     }
 
+    fn tap(channel: usize, gain: f32) -> LtcTap {
+        LtcTap { channel, gain }
+    }
+
     /// A renderer for `channels` interface channels with LTC on 0-based channel `ltc_channel`.
     fn renderer(
         channels: usize,
@@ -1438,7 +1474,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let ltc = LtcChannel {
             stream: LtcStream::new(config(), RATE, 0, 0),
-            channels: vec![ltc_channel],
+            channels: vec![tap(ltc_channel, 1.0)],
         };
         let renderer = Renderer::new(
             Transport::new(clock(), 0),
@@ -1681,7 +1717,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let ltc = ltc.map(|channel| LtcChannel {
             stream: LtcStream::new(config(), RATE, 0, 0),
-            channels: vec![channel],
+            channels: vec![tap(channel, 1.0)],
         });
         let renderer = Renderer::new(
             Transport::new(clock(), 0),
@@ -1907,7 +1943,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let follower = LtcFollower::new(
             LtcStream::new(config(), RATE, 0, 0),
-            vec![0],
+            vec![tap(0, 1.0)],
             1,
             clock(),
             Arc::clone(&shared),
@@ -1950,7 +1986,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let mut follower = LtcFollower::new(
             LtcStream::new(config(), RATE, 0, 0),
-            vec![2],
+            vec![tap(2, 1.0)],
             4,
             clock(),
             Arc::clone(&shared),
@@ -2085,7 +2121,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let ltc = LtcChannel {
             stream: LtcStream::new(config(), RATE, 0, 0),
-            channels: vec![1, 3],
+            channels: vec![tap(1, 1.0), tap(3, 1.0)],
         };
         let mut renderer = Renderer::new(
             Transport::new(clock(), 0),
@@ -2109,11 +2145,53 @@ mod tests {
     }
 
     #[test]
+    fn render_should_scale_each_ltc_channel_by_its_level() {
+        let (tx, rx) = mpsc::channel();
+        let ltc = LtcChannel {
+            stream: LtcStream::new(config(), RATE, 0, 0),
+            channels: vec![tap(0, 1.0), tap(1, 0.25)],
+        };
+        let mut renderer = Renderer::new(
+            Transport::new(clock(), 0),
+            rx,
+            Arc::new(ClipSet::default()),
+            Vec::new(),
+            Some(ltc),
+            2,
+            Arc::new(SharedClock::new()),
+        );
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 2 * 400];
+        renderer.render(&mut buffer, 10);
+
+        let peak = |channel| {
+            channel_of(&buffer, 2, channel)
+                .iter()
+                .fold(0.0f32, |peak, sample| peak.max(sample.abs()))
+        };
+        assert_eq!(peak(0), config().level);
+        assert_eq!(peak(1), config().level * 0.25);
+    }
+
+    #[test]
+    fn plan_ltc_should_take_the_level_of_the_first_output_on_a_slot() {
+        let mut quiet = ltc_out("Main", 3);
+        quiet.level = Some(0.25);
+        let mut loud = ltc_out("Main", 3);
+        loud.level = Some(1.0);
+        let plan = plan_ltc(&[quiet, loud, ltc_out("Main", 4)], "Main", loosely);
+        assert_eq!(
+            levels_of(&plan.shared),
+            vec![(3, 0.25), (4, DEFAULT_LTC_LEVEL)]
+        );
+    }
+
+    #[test]
     fn follower_should_put_one_ltc_signal_on_every_channel_it_is_given() {
         let shared = Arc::new(SharedClock::new());
         let mut follower = LtcFollower::new(
             LtcStream::new(config(), RATE, 0, 0),
-            vec![0, 2],
+            vec![tap(0, 1.0), tap(2, 1.0)],
             3,
             clock(),
             Arc::clone(&shared),
@@ -2131,6 +2209,7 @@ mod tests {
         LtcOutput {
             device_name: device.into(),
             channel,
+            level: None,
         }
     }
 
@@ -2142,6 +2221,7 @@ mod tests {
     fn slot(channel: u16, outputs: &[usize]) -> LtcSlot {
         LtcSlot {
             channel,
+            level: DEFAULT_LTC_LEVEL,
             outputs: outputs.to_vec(),
         }
     }
@@ -2184,7 +2264,7 @@ mod tests {
         assert_eq!(plan.shared, vec![slot(3, &[0, 1])]);
         assert_eq!(plan.own.len(), 1);
         assert_eq!(plan.own[0].slots, vec![slot(1, &[2, 3])]);
-        assert_eq!(channels_of(&plan.shared), vec![3]);
+        assert_eq!(levels_of(&plan.shared), vec![(3, DEFAULT_LTC_LEVEL)]);
     }
 
     #[test]
@@ -2316,7 +2396,7 @@ mod tests {
         let shared = Arc::new(SharedClock::new());
         let follower = LtcFollower::new(
             LtcStream::new(config(), RATE, 0, 0),
-            if ltc { vec![0] } else { Vec::new() },
+            if ltc { vec![tap(0, 1.0)] } else { Vec::new() },
             2,
             clock(),
             Arc::clone(&shared),

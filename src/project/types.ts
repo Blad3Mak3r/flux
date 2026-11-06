@@ -130,8 +130,12 @@ export interface LtcOutputConfig {
   deviceName: string;
   /** 1-based. */
   channel: number;
+  /** Peak level of the signal, linear from 0 to 1; 0.5 when absent. */
+  level?: number;
 }
 
 export interface MtcOutputConfig {
   portName: string;
+  /** Which of the ports with this name it is, counting from 0 in the system's order; 0 when absent. */
+  portIndex?: number;
 }

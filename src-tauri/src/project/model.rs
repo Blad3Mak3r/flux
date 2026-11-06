@@ -236,12 +236,26 @@ pub struct LtcOutput {
     pub device_name: String,
     /// 1-based interface channel.
     pub channel: u16,
+    /// Peak level of the signal, linear from 0 to 1; absent is [`DEFAULT_LTC_LEVEL`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<f32>,
 }
+
+/// The LTC level of an output that does not set one: half scale, -6 dBFS.
+pub const DEFAULT_LTC_LEVEL: f32 = 0.5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MtcOutput {
     pub port_name: String,
+    /// Which of the ports named `port_name` this is, counting from 0 in the order the system lists
+    /// them. Tells apart two interfaces of the same model.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub port_index: usize,
+}
+
+fn is_zero(value: &usize) -> bool {
+    *value == 0
 }
 
 impl Project {
@@ -363,6 +377,11 @@ impl OutputConfig {
     fn validate(&self) -> Result<()> {
         for ltc in &self.ltc {
             check_channel(ltc.channel)?;
+            if !ltc.level.is_none_or(|level| (0.0..=1.0).contains(&level)) {
+                return Err(ProjectError::Invalid(
+                    "the LTC level must be between 0 and 1".into(),
+                ));
+            }
         }
         if let Some(metronome) = &self.metronome {
             if !metronome.gain_db.is_finite() {
@@ -540,9 +559,11 @@ pub(super) mod tests {
                 ltc: vec![LtcOutput {
                     device_name: "Main Interface".into(),
                     channel: 3,
+                    level: Some(0.25),
                 }],
                 mtc: vec![MtcOutput {
                     port_name: "IAC Driver Bus 1".into(),
+                    port_index: 1,
                 }],
                 preview: None,
                 metronome: Some(MetronomeOutput {
@@ -589,8 +610,8 @@ pub(super) mod tests {
         "output": {
             "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
             "metronome": { "deviceName": "Band Monitor", "channels": [3, 4], "gainDb": -6.0 },
-            "ltc": [{ "deviceName": "Main Interface", "channel": 3 }],
-            "mtc": [{ "portName": "IAC Driver Bus 1" }]
+            "ltc": [{ "deviceName": "Main Interface", "channel": 3, "level": 0.25 }],
+            "mtc": [{ "portName": "IAC Driver Bus 1", "portIndex": 1 }]
         }
     }"##;
 
@@ -912,6 +933,25 @@ pub(super) mod tests {
         let mut project = sample_project();
         project.output.audio.as_mut().unwrap().channels = vec![0, 1];
         assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_an_ltc_level_outside_0_to_1() {
+        for level in [-0.1, 1.1, f32::NAN] {
+            let mut project = sample_project();
+            project.output.ltc[0].level = Some(level);
+            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        }
+    }
+
+    #[test]
+    fn ltc_level_and_mtc_port_index_should_be_left_out_when_unset() {
+        let mut project = sample_project();
+        project.output.ltc[0].level = None;
+        project.output.mtc[0].port_index = 0;
+        let json = serde_json::to_value(&project).unwrap();
+        assert!(json["output"]["ltc"][0].get("level").is_none());
+        assert!(json["output"]["mtc"][0].get("portIndex").is_none());
     }
 
     #[test]

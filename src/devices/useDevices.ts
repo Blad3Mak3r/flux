@@ -3,6 +3,7 @@ import { errorMessage } from "../project/api";
 import type { OutputConfig } from "../project/types";
 import { findAudioDevice, findMidiPort, listAudioDevices, listMidiPorts } from "./api";
 import type { AudioDevice, MidiPort } from "./api";
+import { portKey, splitPortKey } from "../setup/outputs";
 
 /** `found`: connected now. `missing`: the project names it but it is not connected. */
 export type Presence = "unset" | "found" | "missing" | "unknown";
@@ -52,7 +53,7 @@ export function useDevices(output: OutputConfig): Devices {
   const audioHint = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? null;
   // The effect depends on the names, not on the lists, which are new objects after every edit.
   const ltcHints = JSON.stringify(output.ltc.map((ltc) => ltc.deviceName));
-  const midiHints = JSON.stringify(output.mtc.map((mtc) => mtc.portName));
+  const midiHints = JSON.stringify(output.mtc.map(portKey));
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +76,7 @@ export function useDevices(output: OutputConfig): Devices {
     };
     resolveAll([audioHint], findAudioDevice, setAudioPresence);
     resolveAll(JSON.parse(ltcHints) as string[], findAudioDevice, setLtcPresence);
-    resolveAll(JSON.parse(midiHints) as string[], findMidiPort, setMtcPresence);
+    resolveAll(JSON.parse(midiHints) as string[], (key) => findMidiPort(...splitPortKey(key)), setMtcPresence);
     return () => {
       cancelled = true;
     };
