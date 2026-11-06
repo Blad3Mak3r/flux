@@ -6,6 +6,7 @@ export const en = {
   "menu.open": "Open…",
   "menu.save": "Save",
   "menu.saveAs": "Save as…",
+  "menu.close": "Close",
   "menu.import": "Import",
   "menu.importAudio": "Import audio…",
   "menu.audio": "Audio",

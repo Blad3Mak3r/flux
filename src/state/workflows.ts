@@ -13,6 +13,7 @@ import {
 } from "../project/api";
 import type { BackendDocument } from "../project/api";
 import type { Project, ProjectState } from "../project/types";
+import { closeEditor } from "../welcome/api";
 import { currentFrame } from "../transport/store";
 import { reconnect, seek } from "../transport/playback";
 import { analyse, detectTempos, forgetAnalyses } from "./audio";
@@ -111,6 +112,9 @@ export const openDocument = () =>
       fail(err);
     }
   });
+
+/** Returns to the welcome window after the shared unsaved-changes flow has finished. */
+export const closeDocument = () => replaceDoc(closeEditor);
 
 export async function saveDocument(asNew: boolean): Promise<boolean> {
   try {
