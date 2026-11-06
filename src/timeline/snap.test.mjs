@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { lineSpacing, barTickPositions, tickPositions } from "./scale.ts";
-import { SNAP_PX, snapToSpacing } from "./snap.ts";
+import { SNAP_PX, collectTargets, nearestTarget, snapMove, snapPoint, snapToSpacing } from "./snap.ts";
 
 test("a position near a line goes onto it, and one far from it stays", () => {
   // Lines every 25 frames at 2 px a frame: 8 px is 4 frames.
@@ -59,8 +59,6 @@ test("zooming in snaps to finer lines in the bars view", () => {
   assert.ok(lineSpacing(0.1, "fps25", grid) > lineSpacing(1.6, "fps25", grid));
   assert.equal(lineSpacing(1.6, "fps25", grid), 12.5);
 });
-
-import { collectTargets, nearestTarget, snapMove, snapPoint } from "./snap.ts";
 
 const ALL = new Set(["grid", "items", "playhead", "origin"]);
 const frames = (targets) => targets.map((target) => target.frame);

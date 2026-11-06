@@ -7,7 +7,7 @@ import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/action
 import { addCueEvent, moveCueEvent } from "../state/cues";
 import { editClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
-import { snapFrame } from "../state/snap";
+import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
 import { useDoc } from "../state/store";
 import { menuAtPointer, rename, select, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
@@ -15,6 +15,7 @@ import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
 import { clipLength } from "../timeline/clip";
 import { traceStyle } from "../timeline/palette";
+import type { SnapTarget } from "../timeline/snap";
 import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
@@ -111,25 +112,29 @@ export const TrackHeader = memo(function TrackHeader({
   );
 });
 
-/** Drag an item sideways in whole frames; commit once on release so undo takes one step. */
-function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFrame: number) {
+/**
+ * Drag an item sideways in whole frames; commit once on release so undo takes one step. `length` is
+ * how many frames it lasts, so that its end can land on something as well as its start.
+ */
+function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
   const move = kind === "event" ? moveCueEvent : moveTo;
   const [delta, setDelta] = useState(0);
-  const origin = useRef<{ x: number; position: number } | null>(null);
+  const origin = useRef<{ x: number; position: number; targets: SnapTarget[] } | null>(null);
 
   const handlers = {
     onPointerDown(event: PointerEvent<HTMLElement>) {
       if (event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      origin.current = { x: event.clientX, position };
+      origin.current = { x: event.clientX, position, targets: snapTargets([id]) };
       select({ kind, id });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (!origin.current) return;
       const frames = Math.round((event.clientX - origin.current.x) / pxPerFrame);
-      // With the magnet on, the item's start lands on the closest grid line when it is near one.
-      const target = Math.max(0, snapFrame(origin.current.position + frames));
+      // With the magnet on, the item's start or end lands on the closest grid line, item or the
+      // playhead when it is near one.
+      const target = Math.max(0, snapBlockStart(origin.current.position + frames, length, origin.current.targets));
       setDelta(target - origin.current.position);
     },
     onPointerUp() {
@@ -159,6 +164,7 @@ type HandleProps = ReturnType<typeof useHandle>["handlers"];
 function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
   const originX = useRef<number | null>(null);
+  const targets = useRef<SnapTarget[]>([]);
   const at = drag?.from === frame ? drag.to : frame;
 
   const handlers = {
@@ -167,12 +173,13 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
       event.stopPropagation(); // The clip underneath would start moving.
       event.currentTarget.setPointerCapture(event.pointerId);
       originX.current = event.clientX;
+      targets.current = snapTargets([id]);
       select({ kind: "clip", id });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (originX.current === null) return;
       const frames = Math.round((event.clientX - originX.current) / pxPerFrame);
-      setDrag({ from: frame, to: Math.max(0, snapFrame(frame + frames)) });
+      setDrag({ from: frame, to: Math.max(0, snapFrame(frame + frames, targets.current)) });
     },
     onPointerUp() {
       originX.current = null;
@@ -244,7 +251,6 @@ function ClipBlock({
   pxPerFrame: number;
 }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, pxPerFrame);
   // Each clip asks the stores for its own slice: a selection or a decoded waveform elsewhere
   // does not re-render it.
   const selected = useUi((ui) => ui.selection?.id === clip.id);
@@ -252,6 +258,7 @@ function ClipBlock({
   const audio = useDoc((doc) => doc.audio[clip.asset]);
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
+  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame);
@@ -338,7 +345,7 @@ function ClipBlock({
  */
 function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPerFrame: number }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, note.length ?? 0, pxPerFrame);
   const selected = useUi((ui) => ui.selection?.id === note.id);
   const empty = note.text.trim() === "";
   const timed = note.length !== undefined;
@@ -378,7 +385,7 @@ function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPe
  */
 function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEvent | OscEvent; pxPerFrame: number }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(event.id, "event", event.at, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(event.id, "event", event.at, 0, pxPerFrame);
   const selected = useUi((ui) => ui.selection?.id === event.id);
   const osc = "address" in event;
   const tag = t(osc ? "event.tag.osc" : (`event.tag.${event.message.type}` as const));
@@ -428,7 +435,7 @@ export const TrackLane = memo(function TrackLane({
     const kind = track.kind.type;
     if (kind === "audio" || event.target !== event.currentTarget) return;
     const { start } = activeTimeline(useDoc.getState()).timecode;
-    const frame = start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame));
+    const frame = start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame), snapTargets());
     if (kind === "notes") addNoteAt(t, frame, track.id);
     else void addCueEvent(kind, frame, t(`track.kind.${kind}`), track.id);
   };

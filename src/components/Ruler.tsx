@@ -1,11 +1,12 @@
 import { memo, useRef } from "react";
 import type { PointerEvent } from "react";
 import { useT } from "../i18n";
-import { snapFrame } from "../state/snap";
+import { snapFrame, snapTargets } from "../state/snap";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
 import { barTickPositions, frameX, pickTicks, tickPositions } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
+import type { SnapTarget } from "../timeline/snap";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
 
 /** The bar lines and beats, labelled with bar numbers (`3`) and, zoomed in, beats (`3.2`). */
@@ -116,15 +117,18 @@ export function Ruler({
 }) {
   const t = useT();
   const mode = useRef<"seek" | "measure" | null>(null);
+  // What the playhead or the span can land on, taken when the press starts; not the playhead itself.
+  const targets = useRef<SnapTarget[]>([]);
 
   const frameAt = (event: PointerEvent<SVGSVGElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
-    return Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame)));
+    return Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame), targets.current));
   };
 
   const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    targets.current = snapTargets([], ["playhead"]);
     const frame = frameAt(event);
     if (event.shiftKey) {
       mode.current = "measure";
