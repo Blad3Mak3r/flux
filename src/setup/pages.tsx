@@ -4,7 +4,7 @@ import { SelectField, TextField, TimecodeField } from "../components/fields";
 import type { Devices } from "../devices/useDevices";
 import { LOCALES, useI18n, useT } from "../i18n";
 import type { Locale, MessageKey } from "../i18n";
-import type { FrameRate, OutputConfig } from "../project/types";
+import type { FrameRate, OscDestination, OutputConfig } from "../project/types";
 import { edit } from "../state/actions";
 import { setName, setOutput } from "../state/edit";
 import { addDestination, removeDestination, updateDestination } from "../state/cues";
@@ -36,6 +36,7 @@ import {
 } from "./outputs";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
+const NO_OSC_DESTINATIONS: OscDestination[] = [];
 
 type LampState = "off" | "on" | "fault";
 
@@ -499,7 +500,7 @@ export function MtcPage({ devices }: { devices: Devices }) {
 /** The OSC receivers the OSC tracks choose from. The backend adds, checks and removes them. */
 export function OscPage() {
   const t = useT();
-  const destinations = useDoc((doc) => doc.project.output.osc ?? []);
+  const destinations = useDoc((doc) => doc.project.output.osc ?? NO_OSC_DESTINATIONS);
   const reported = useTransport((transport) => transport.info?.cues ?? []);
   const integer = (text: string) => (/^\s*\d+\s*$/.test(text) ? null : t("field.integerInvalid"));
   return (
