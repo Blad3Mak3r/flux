@@ -1,6 +1,6 @@
 # Release distribution
 
-The private GitHub repository builds Flux Timecode in GitHub Actions. Cloudflare R2 serves the signed x64 installers and the Tauri update feed over HTTPS. The public bucket contains release files only. The workflow uses the S3-compatible API for distribution. GitHub write access is scoped to the jobs that open a version pull request and create its release tag.
+The private GitHub repository builds Flux Timecode in GitHub Actions. Cloudflare R2 serves the signed x64 installers and the Tauri update feed over HTTPS. The public bucket contains release files only. The workflow uses the S3-compatible API for distribution. GitHub write access is scoped to the delivery job that pushes the version commit and tag.
 
 ## Configure GitHub and R2
 
@@ -9,16 +9,15 @@ The private GitHub repository builds Flux Timecode in GitHub Actions. Cloudflare
 3. Configure Cloudflare Cache Rules to bypass caching for `/stable/latest.json` and to respect the origin cache policy on versioned objects. Avoid negative caching for release files. Versioned objects use `public, max-age=31536000, immutable` and the feed uses `no-store`.
 4. Create an R2 S3 API token with Object Read & Write scoped to this bucket. Set `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` as Actions secrets in the `stable` environment. The runner uses AWS CLI v2 with `s3api put-object --if-none-match` and `--if-match` support.
 5. In the `release-signing` environment, set `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` using the existing keypair. Its public key is already in `src-tauri/tauri.conf.json`. If the key has no password, the password value may be omitted. Keep the private key in the secret store.
-6. Use a GitHub tag ruleset to restrict creation, deletion and updates of `v*` tags to release maintainers. Allow `main` and stable tags in the `stable` environment. Allow the release workflow to create stable tags with its built-in token, while protecting existing tags against changes and deletion. Restrict `release-signing` to trusted release tags, `main` and trusted refs for dry-runs.
-7. Under **Settings → Actions → General → Workflow permissions**, enable **Allow GitHub Actions to create and approve pull requests** so the workflow can open the version PR. Merge that PR through the repository's normal review process. [GitHub Actions repository settings](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository#preventing-github-actions-from-creating-or-approving-pull-requests)
+6. Use a GitHub tag ruleset to restrict creation, deletion and updates of `v*` tags to release maintainers. Allow `main` and stable tags in the `stable` environment. The manual release uses its built-in token with `contents: write`. The repository rules must permit that token to push the generated version commit to `main` and create the stable tag. Protect existing tags against changes and deletion. Restrict `release-signing` to trusted release tags, `main` and trusted refs for dry-runs.
 
 ## Publish a stable release
 
-In GitHub, select **Actions → Release → Run workflow**, choose `main`, and enter the next stable version, such as `1.2.0`. The workflow opens a version PR and links it in the run summary. It updates `package.json`, both root versions in `package-lock.json`, `src-tauri/Cargo.toml`, the app entry in `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`. Use three numeric SemVer components and a version higher than the current version on `main`.
+In GitHub, select **Actions → Release → Run workflow**, choose `main`, and enter the next stable version, such as `1.2.0`. The workflow updates `package.json`, both root versions in `package-lock.json`, `src-tauri/Cargo.toml`, the app entry in `src-tauri/Cargo.lock` and `src-tauri/tauri.conf.json`. Use three numeric SemVer components and a version higher than the current version on `main`.
 
-Merge the version PR into `main`. The resulting push starts the release build when the version changes. After the builds and signature checks pass, the workflow creates `vX.Y.Z` at the exact commit on `main` that it built and delivers the release to R2. This path uses a generic release note.
+After the builds and signature checks pass, the workflow pushes the version commit directly to `main` and creates `vX.Y.Z` at the same commit in one atomic Git push. If `main` advanced during the build or GitHub rejects either update, start a new run after resolving the cause. The same run delivers the tagged release to R2 and uses a generic release note.
 
-Enable **dry_run** to build and verify a version without opening a PR, creating a tag or publishing. The private `prepared-release` artifact contains the installers and manifest. Signing secrets are required and R2 credentials are optional for a dry-run. Use `base_url` to point dry-run installers at a test origin. If both the input and the repository variable are unset, a dry-run uses `https://releases.example.invalid`.
+Enable **dry_run** to build and verify a version without updating `main`, creating a tag or publishing. The private `prepared-release` artifact contains the installers and manifest. Signing secrets are required and R2 credentials are optional for a dry-run. Use `base_url` to point dry-run installers at a test origin. If both the input and the repository variable are unset, a dry-run uses `https://releases.example.invalid`.
 
 The tag-push workflow also accepts a stable tag that points to a commit already on `main` with matching versions. An annotated tag supplies the public release notes. Use the acceptance checks below before publishing the first release.
 
@@ -79,7 +78,7 @@ In the test origin, also try a corrupted installer or mismatched signature. The 
 
 ## Recovery
 
-If a build or verification fails before promotion, the current stable manifest remains in place. Resolve the error and rerun **only the failed delivery job** to reuse the original `prepared-release` artifact and, if it exists, its matching tag. An existing versioned file can be reused when the public bytes and cache policy match. For a cache-related failure, correct the cache rule or purge the stale entry before retrying.
+If a build or verification fails before promotion, the current stable manifest remains in place. Resolve the error and rerun **only the failed delivery job** to reuse the original `prepared-release` artifact. If the version commit and tag already reached GitHub, the retry checks that the tag identifies the same version commit on `main` before continuing. An existing versioned file can be reused when the public bytes and cache policy match. For a cache-related failure, correct the cache rule or purge the stale entry before retrying.
 
 A conflict at promotion means the manifest changed since the job read it. Rerun delivery to recheck the active version. If the artifact has expired, the tag points to a broken build or the versioned bytes differ, prepare a corrected higher version through the normal release process. Keep earlier artifacts available. To recover from a promoted bad build, ship a higher version containing the fix or revert, so installed clients can upgrade to it.
 
