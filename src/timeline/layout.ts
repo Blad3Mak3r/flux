@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { Viewport } from "./waveform";
 
 export const RULER_H = 34;
 export const AUDIO_LANE_H = 96;
@@ -23,3 +24,11 @@ export function patchReadout(patch: Partial<Readout>): void {
 /** Frames between the two ends of the measured span, or `null` when none is being measured. */
 export const selectSpan = ({ spanA, spanB }: Readout): number | null =>
   spanA !== null && spanB !== null ? Math.abs(spanB - spanA) : null;
+
+/** What of the timeline is on screen, in pixels from its origin; waveforms draw only that. */
+export const useViewport = create<Viewport>()(() => ({ left: 0, width: 1200 }));
+
+export function setViewport(patch: Partial<Viewport>): void {
+  const current = useViewport.getState();
+  if ((Object.keys(patch) as (keyof Viewport)[]).some((key) => patch[key] !== current[key])) useViewport.setState(patch);
+}

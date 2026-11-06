@@ -1098,13 +1098,14 @@ input:disabled {
 
 .clip-wave {
   position: absolute;
-  inset: 0;
+  top: 0;
   opacity: 0.8;
 }
 
 .clip-label {
   position: absolute;
-  top: 3px;
+  /* Under the row of the fade grips (10px and a border), so a fade never draws its grip over the name. */
+  top: 13px;
   left: 4px;
   max-width: calc(100% - 8px);
   padding: 1px 6px;
@@ -2903,14 +2904,149 @@ input:disabled {
 .clip-handle[data-edge="fadeIn"],
 .clip-handle[data-edge="fadeOut"] {
   top: 0;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   background: oklch(0.175 0.024 205);
   border: 1px solid var(--ink);
   cursor: ew-resize;
 }
 
+/* The click lands on a square much larger than the one drawn, so a corner is easy to hit with the
+   mouse. It is above the trim grips and the clip, and the clip's edge cuts it where it ends. */
+.clip-handle[data-edge="fadeIn"]::before,
+.clip-handle[data-edge="fadeOut"]::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.clip-handle[data-edge="fadeIn"]:hover,
+.clip-handle[data-edge="fadeOut"]:hover {
+  background: var(--ink);
+}
+
 .clip-handle:focus-visible {
   outline: 1px solid var(--ink-dim);
   outline-offset: -1px;
+}
+
+/* A track or clip name typed in place: the text keeps its size and weight, on a field of its own. */
+.inline-name {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+}
+
+.clip .inline-name {
+  height: 20px;
+  font-size: 11px;
+}
+
+/* ---- Snap: the magnet's control and the guide line it draws while it holds a drag ---- */
+
+.snap-control {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+}
+
+.snap-toggle,
+.snap-options {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-dim);
+}
+
+.snap-toggle {
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.snap-options {
+  padding: 0 6px;
+}
+
+.snap-toggle:hover,
+.snap-options:hover {
+  background: var(--panel-hi);
+}
+
+.snap-toggle[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.snap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  width: 0;
+  border-left: 1px solid var(--ink);
+  pointer-events: none;
+}
+
+.snap-guide:not([data-kind="grid"]) {
+  border-left-style: dashed;
+}
+
+/* ---- Volume envelope: the line over a clip, and on the selected one its square points ---- */
+
+.clip-envelope {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.envelope-line {
+  fill: none;
+  stroke: var(--phosphor);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.envelope-point {
+  pointer-events: none;
+}
+
+.clip-envelope[data-active="true"] .envelope-point {
+  pointer-events: all;
+}
+
+.envelope-point {
+  fill: var(--screen);
+  stroke: var(--phosphor);
+  stroke-width: 1.5;
+  cursor: ns-resize;
+}
+
+.envelope-point[data-active="true"],
+.envelope-point:focus-visible {
+  fill: var(--phosphor);
+  outline: none;
+}
+
+.envelope-point:focus-visible {
+  stroke: var(--ink);
+}
+
+.envelope-readout {
+  fill: var(--ink);
+  font-family: var(--font-measure);
+  font-size: 11px;
+  pointer-events: none;
 }

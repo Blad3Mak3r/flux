@@ -11,7 +11,10 @@ use serde::Serialize;
 
 use flux_audio::{AudioError, Decoded, ENGINE_RATE};
 use flux_core::Clock;
-use flux_project::{AudioAsset, AudioClip, Project, Timeline, TrackKind};
+use flux_project::{
+    AudioAsset, AudioClip, ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, FadeCurve, Project,
+    Timeline, TrackKind,
+};
 
 /// Frames mixed at a time, on the stack: the callback must not allocate.
 pub const MIX_CHUNK: usize = 256;
@@ -34,6 +37,8 @@ pub struct Span {
     pub fade_in: u64,
     /// Samples the clip takes to fall to silence.
     pub fade_out: u64,
+    pub fade_in_curve: FadeCurve,
+    pub fade_out_curve: FadeCurve,
 }
 
 /// Where `clip` sounds, given the samples of its asset: trimmed by its offset and length, and never
@@ -58,6 +63,96 @@ pub fn span(clip: &AudioClip, clock: &Clock, asset_samples: u64) -> Span {
         to,
         fade_in: fade(clip.fade_in),
         fade_out: fade(clip.fade_out),
+        fade_in_curve: clip.fade_in_curve,
+        fade_out_curve: clip.fade_out_curve,
+    }
+}
+
+/// The gain of a fade `x` of the way up from silence (0 is silent, 1 is full): the same shape
+/// whether the clip is rising or falling, because a fade out is read from its end.
+pub fn fade_shape(curve: FadeCurve, x: f32) -> f32 {
+    match curve {
+        FadeCurve::Linear => x,
+        FadeCurve::EqualPower => (x * std::f32::consts::FRAC_PI_2).sin(),
+        FadeCurve::SCurve => 0.5 - 0.5 * (x * std::f32::consts::PI).cos(),
+        FadeCurve::Exponential => x * x,
+    }
+}
+
+/// Samples a `Hold` segment takes to step to the next point (4 ms), so the step is never a click.
+const HOLD_RAMP: i64 = 192;
+
+/// One breakpoint of an envelope, on the timeline.
+#[derive(Debug, Clone, Copy)]
+struct Node {
+    /// Where it is, in samples of the timeline.
+    at: i64,
+    db: f32,
+    /// The gain at `db`; silence is exactly 0.
+    gain: f32,
+    curve: EnvCurve,
+}
+
+/// A clip's volume envelope placed on the timeline, ready for the audio callback: positions are in
+/// samples and gains are linear, worked out once when the programme is built.
+#[derive(Debug, Clone)]
+pub struct Envelope {
+    nodes: Vec<Node>,
+}
+
+impl Envelope {
+    /// The envelope of `clip`, whose audio file would begin at the sample `origin`; `None` when it
+    /// has no points.
+    pub fn new(clip: &AudioClip, origin: i64, clock: &Clock) -> Option<Arc<Self>> {
+        if clip.envelope.is_empty() {
+            return None;
+        }
+        let nodes = clip
+            .envelope
+            .iter()
+            .map(|point| Node {
+                at: origin + clock.ticks_to_samples(point.at, ENVELOPE_TICKS_PER_FRAME) as i64,
+                db: point.gain_db,
+                gain: if point.gain_db <= ENVELOPE_MIN_DB {
+                    0.0
+                } else {
+                    gain_from_db(point.gain_db)
+                },
+                curve: point.curve,
+            })
+            .collect();
+        Some(Arc::new(Self { nodes }))
+    }
+
+    /// The linear gain at the sample `at`. Before the first point and after the last it is theirs.
+    /// Between two points the gain runs in dB, so a fade sounds even, unless one of them is
+    /// silence, which has no dB: that segment runs in amplitude.
+    pub fn gain_at(&self, at: i64) -> f32 {
+        let next = self.nodes.partition_point(|node| node.at <= at);
+        let Some(from) = next.checked_sub(1).map(|index| self.nodes[index]) else {
+            return self.nodes[0].gain;
+        };
+        let Some(to) = self.nodes.get(next).copied() else {
+            return from.gain;
+        };
+        // `to.at > at >= from.at`, so the segment is not empty.
+        let length = to.at - from.at;
+        let t = ((at - from.at) as f64 / length as f64) as f32;
+        let u = match from.curve {
+            EnvCurve::Linear => t,
+            EnvCurve::Smooth => t * t * (3.0 - 2.0 * t),
+            EnvCurve::Fast => 1.0 - (1.0 - t) * (1.0 - t),
+            EnvCurve::Slow => t * t,
+            EnvCurve::Hold => {
+                let ramp = HOLD_RAMP.min(length);
+                ((at - (to.at - ramp)) as f64 / ramp as f64).clamp(0.0, 1.0) as f32
+            }
+        };
+        if from.gain > 0.0 && to.gain > 0.0 {
+            gain_from_db(from.db + (to.db - from.db) * u)
+        } else {
+            from.gain + (to.gain - from.gain) * u
+        }
     }
 }
 
@@ -68,6 +163,8 @@ pub struct ClipPlayer {
     pub span: Span,
     /// Linear gain.
     pub gain: f32,
+    /// The volume drawn over the clip, if any.
+    pub envelope: Option<Arc<Envelope>>,
     /// Index into the clip set's tracks.
     pub track: usize,
 }
@@ -81,13 +178,25 @@ impl ClipPlayer {
             to: start + audio.frames() as u64,
             fade_in: 0,
             fade_out: 0,
+            fade_in_curve: FadeCurve::Linear,
+            fade_out_curve: FadeCurve::Linear,
         };
         Self {
             audio,
             span,
             gain,
+            envelope: None,
             track,
         }
+    }
+
+    /// The gain of the fades and the envelope at the sample `at`, which must be inside the span.
+    fn level(&self, at: u64) -> f32 {
+        let envelope = self
+            .envelope
+            .as_ref()
+            .map_or(1.0, |envelope| envelope.gain_at(at as i64));
+        self.fade_gain(at) * envelope
     }
 
     /// The gain of the fades at the sample `at` of the timeline, which must be inside the span:
@@ -97,11 +206,11 @@ impl ClipPlayer {
         let mut gain = 1.0;
         let since_start = at - span.from;
         if since_start < span.fade_in {
-            gain = since_start as f32 / span.fade_in as f32;
+            gain = fade_shape(span.fade_in_curve, since_start as f32 / span.fade_in as f32);
         }
         let until_end = span.to - at - 1;
         if until_end < span.fade_out {
-            gain *= until_end as f32 / span.fade_out as f32;
+            gain *= fade_shape(span.fade_out_curve, until_end as f32 / span.fade_out as f32);
         }
         gain
     }
@@ -275,7 +384,7 @@ impl ClipSet {
                 for at in from..to {
                     let source = ((at as i64 - clip.span.origin) * 2) as usize;
                     let out = (at - position) as usize;
-                    let gain = SCALE * clip.gain * clip.fade_gain(at);
+                    let gain = SCALE * clip.gain * clip.level(at);
                     track_left[out] += f32::from(clip.audio.samples[source]) * gain;
                     track_right[out] += f32::from(clip.audio.samples[source + 1]) * gain;
                 }
@@ -361,12 +470,16 @@ pub fn build(
                 continue;
             }
             match load(asset) {
-                Ok(audio) => clips.push(ClipPlayer {
-                    span: span(clip, &clock, audio.frames() as u64),
-                    audio,
-                    gain: gain_from_db(clip.gain_db),
-                    track: index,
-                }),
+                Ok(audio) => {
+                    let span = span(clip, &clock, audio.frames() as u64);
+                    clips.push(ClipPlayer {
+                        envelope: Envelope::new(clip, span.origin, &clock),
+                        span,
+                        audio,
+                        gain: gain_from_db(clip.gain_db),
+                        track: index,
+                    });
+                }
                 Err(err) => {
                     failed.push(&asset.id);
                     warnings.push(format!("{} is silent: {err}", asset.name));
@@ -422,6 +535,7 @@ mod tests {
         let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
         let span = span(&clip, &clock, audio.frames() as u64);
         set(vec![ClipPlayer {
+            envelope: Envelope::new(&clip, span.origin, &clock),
             audio,
             span,
             gain: 1.0,
@@ -463,6 +577,212 @@ mod tests {
         let (left, _) = mix(&clips, 17_279, 1921);
 
         assert_eq!((left[0], left[960], left[1920]), (0.5, 0.25, 0.0));
+    }
+
+    #[test]
+    fn fade_shape_should_run_from_silence_to_full_level_on_every_curve() {
+        for curve in [
+            FadeCurve::Linear,
+            FadeCurve::EqualPower,
+            FadeCurve::SCurve,
+            FadeCurve::Exponential,
+        ] {
+            assert_eq!(fade_shape(curve, 0.0), 0.0, "{curve:?} starts silent");
+            assert!(
+                (fade_shape(curve, 1.0) - 1.0).abs() < 1e-6,
+                "{curve:?} ends full"
+            );
+            let mut last = 0.0;
+            for step in 1..=100 {
+                let gain = fade_shape(curve, step as f32 / 100.0);
+                assert!(gain >= last, "{curve:?} never falls on the way up");
+                last = gain;
+            }
+        }
+    }
+
+    #[test]
+    fn fade_shape_should_hit_the_known_midpoints() {
+        assert_eq!(fade_shape(FadeCurve::Linear, 0.5), 0.5);
+        assert!(
+            (fade_shape(FadeCurve::EqualPower, 0.5) - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6
+        );
+        assert!((fade_shape(FadeCurve::SCurve, 0.5) - 0.5).abs() < 1e-6);
+        assert_eq!(fade_shape(FadeCurve::Exponential, 0.5), 0.25);
+    }
+
+    #[test]
+    fn mix_should_shape_a_fade_in_with_its_curve() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+            clip.fade_in = 1;
+            clip.fade_in_curve = FadeCurve::Exponential;
+        });
+
+        let (left, _) = mix(&clips, 0, 1922);
+
+        // Half way up the fade the line would give 0.25 (half of 0.5); the square gives a quarter of that.
+        assert_eq!((left[0], left[960], left[1920]), (0.0, 0.125, 0.5));
+    }
+
+    #[test]
+    fn mix_should_shape_a_fade_out_with_its_own_curve_and_end_in_silence() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+            clip.fade_out = 1;
+            clip.fade_out_curve = FadeCurve::EqualPower;
+            clip.fade_in_curve = FadeCurve::Exponential;
+        });
+
+        let (left, _) = mix(&clips, 17_279, 1921);
+
+        assert_eq!(left[0], 0.5);
+        assert!((left[960] - 0.5 * std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
+        assert_eq!(left[1920], 0.0);
+    }
+
+    fn point(frames: u64, gain_db: f32, curve: EnvCurve) -> flux_project::EnvPoint {
+        flux_project::EnvPoint {
+            at: frames * ENVELOPE_TICKS_PER_FRAME,
+            gain_db,
+            curve,
+        }
+    }
+
+    /// The envelope of an untrimmed clip at the origin, at 25 fps (1920 samples a frame).
+    fn envelope(points: Vec<flux_project::EnvPoint>) -> Arc<Envelope> {
+        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+        let clip = AudioClip {
+            envelope: points,
+            ..AudioClip::new("c1", "a1", 0)
+        };
+        Envelope::new(&clip, 0, &clock).expect("the clip has points")
+    }
+
+    #[test]
+    fn envelope_should_be_absent_without_points() {
+        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+        assert!(Envelope::new(&AudioClip::new("c1", "a1", 0), 0, &clock).is_none());
+    }
+
+    #[test]
+    fn envelope_should_hold_the_nearest_point_outside_its_points() {
+        let envelope = envelope(vec![
+            point(1, -6.0, EnvCurve::Linear),
+            point(2, 0.0, EnvCurve::Linear),
+        ]);
+        let first = gain_from_db(-6.0);
+        assert_eq!(envelope.gain_at(-500), first);
+        assert_eq!(envelope.gain_at(1920), first);
+        assert_eq!(envelope.gain_at(3840), 1.0);
+        assert_eq!(envelope.gain_at(900_000), 1.0);
+    }
+
+    #[test]
+    fn envelope_should_run_a_segment_in_db() {
+        let envelope = envelope(vec![
+            point(0, 0.0, EnvCurve::Linear),
+            point(1, -6.0, EnvCurve::Linear),
+        ]);
+        // Half way along is half way in dB: -3 dB, not the mean of the two amplitudes.
+        assert!((envelope.gain_at(960) - gain_from_db(-3.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn envelope_should_run_a_segment_that_touches_silence_in_amplitude() {
+        let up = envelope(vec![
+            point(0, ENVELOPE_MIN_DB, EnvCurve::Linear),
+            point(1, 0.0, EnvCurve::Linear),
+        ]);
+        assert_eq!(up.gain_at(0), 0.0);
+        assert!((up.gain_at(960) - 0.5).abs() < 1e-6);
+        let down = envelope(vec![
+            point(0, 0.0, EnvCurve::Linear),
+            point(1, ENVELOPE_MIN_DB, EnvCurve::Linear),
+        ]);
+        assert!((down.gain_at(480) - 0.75).abs() < 1e-6);
+        assert_eq!(down.gain_at(1920), 0.0);
+    }
+
+    #[test]
+    fn envelope_curves_should_bend_the_segment_between_the_same_two_points() {
+        let at_quarter = |curve| {
+            envelope(vec![
+                point(0, ENVELOPE_MIN_DB, curve),
+                point(1, 0.0, EnvCurve::Linear),
+            ])
+            .gain_at(480)
+        };
+        let linear = at_quarter(EnvCurve::Linear);
+        assert!(at_quarter(EnvCurve::Slow) < linear, "slow lags the line");
+        assert!(
+            at_quarter(EnvCurve::Smooth) < linear,
+            "smooth eases out of the first point"
+        );
+        assert!(at_quarter(EnvCurve::Fast) > linear, "fast leads the line");
+    }
+
+    #[test]
+    fn envelope_hold_should_keep_the_gain_then_ramp_to_the_next_point_without_a_step() {
+        let envelope = envelope(vec![
+            point(0, 0.0, EnvCurve::Hold),
+            point(1, ENVELOPE_MIN_DB, EnvCurve::Linear),
+        ]);
+        let end = 1920 - HOLD_RAMP;
+        assert_eq!(envelope.gain_at(0), 1.0);
+        assert_eq!(envelope.gain_at(end), 1.0);
+        assert!(envelope.gain_at(end + HOLD_RAMP / 2) < 1.0);
+        assert!(envelope.gain_at(1919) > 0.0);
+        // No two neighbouring samples are more than one ramp step apart.
+        for at in end..1920 {
+            let step = (envelope.gain_at(at) - envelope.gain_at(at + 1)).abs();
+            assert!(
+                step <= 1.0 / HOLD_RAMP as f32 + 1e-6,
+                "step of {step} at {at}"
+            );
+        }
+    }
+
+    #[test]
+    fn mix_should_scale_a_clip_by_its_envelope() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+            clip.envelope = vec![
+                point(0, 0.0, EnvCurve::Linear),
+                point(1, ENVELOPE_MIN_DB, EnvCurve::Linear),
+            ];
+        });
+
+        let (left, _) = mix(&clips, 0, 1921);
+
+        assert_eq!((left[0], left[960]), (0.5, 0.25));
+        assert_eq!(left[1920], 0.0);
+        // Past the last point the clip stays at its gain, which is silence.
+        assert_eq!(mix(&clips, 5_000, 1).0[0], 0.0);
+    }
+
+    #[test]
+    fn mix_should_multiply_the_envelope_with_the_fade_and_the_clip_gain() {
+        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+        let mut clip = AudioClip::new("c1", "a1", 0);
+        clip.fade_in = 1;
+        clip.envelope = vec![point(0, -6.0, EnvCurve::Linear)];
+        let audio = audio(16_384, 16_384, 19_200);
+        let span = span(&clip, &clock, audio.frames() as u64);
+        let set = set(vec![ClipPlayer {
+            envelope: Envelope::new(&clip, span.origin, &clock),
+            span,
+            audio,
+            gain: gain_from_db(-6.0),
+            track: 0,
+        }]);
+
+        let (left, _) = mix(&set, 0, 1921);
+
+        // Half way up the fade (0.5) of a half-scale signal, at -6 dB twice.
+        let expected = 0.5 * 0.5 * gain_from_db(-6.0) * gain_from_db(-6.0);
+        assert!(
+            (left[960] - expected).abs() < 1e-6,
+            "{} != {expected}",
+            left[960]
+        );
     }
 
     #[test]
@@ -787,11 +1107,15 @@ mod tests {
         let clock = Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop);
         let players = clips
             .iter()
-            .map(|clip| ClipPlayer {
-                span: span(clip, &clock, asset.frames() as u64),
-                audio: Arc::clone(asset),
-                gain: 1.0,
-                track: 0,
+            .map(|clip| {
+                let span = span(clip, &clock, asset.frames() as u64);
+                ClipPlayer {
+                    envelope: Envelope::new(clip, span.origin, &clock),
+                    span,
+                    audio: Arc::clone(asset),
+                    gain: 1.0,
+                    track: 0,
+                }
             })
             .collect();
         let set = ClipSet::new(players, vec![("t1".into(), 1.0)]);
@@ -799,6 +1123,43 @@ mod tests {
         let (mut left, mut right) = (vec![0.0; samples], vec![0.0; samples]);
         set.mix(0, &mut left, &mut right);
         left
+    }
+
+    #[test]
+    fn split_should_play_back_exactly_with_an_envelope_and_fade_curves() {
+        let asset = Arc::new(Decoded {
+            samples: (0..192_000usize)
+                .flat_map(|i| [(i % 30_000) as i16, 0])
+                .collect(),
+            source_rate: ENGINE_RATE,
+        });
+        let asset_frames =
+            Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop).samples_to_frames(192_000);
+        let mut original = AudioClip::new("c1", "a1", 7);
+        original.offset = 13;
+        original.length = Some(80);
+        original.fade_in = 10;
+        original.fade_out = 12;
+        original.fade_in_curve = FadeCurve::SCurve;
+        original.fade_out_curve = FadeCurve::Exponential;
+        // Points counted from the file, which starts 13 frames before the clip does; the cuts below
+        // fall between them, on a segment of every kind.
+        original.envelope = vec![
+            point(13, -6.0, EnvCurve::Smooth),
+            point(30, -40.0, EnvCurve::Hold),
+            point(45, 0.0, EnvCurve::Fast),
+            point(70, ENVELOPE_MIN_DB, EnvCurve::Slow),
+            point(100, -3.0, EnvCurve::Linear),
+        ];
+        for cut in [20, 33, 61] {
+            let halves =
+                apply_clip_op(&original, ClipOp::Split, cut, asset_frames, || "c2".into()).unwrap();
+            assert_eq!(
+                mixed(&halves, &asset, 100),
+                mixed(std::slice::from_ref(&original), &asset, 100),
+                "cut at {cut}"
+            );
+        }
     }
 
     #[test]

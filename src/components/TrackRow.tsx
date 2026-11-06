@@ -3,27 +3,29 @@ import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "rea
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
 import type { AudioClip, MidiEvent, Note, OscEvent, Track } from "../project/types";
-import { moveTo, muteTrack, setGain } from "../state/actions";
+import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
 import { editClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
-import { snapFrame } from "../state/snap";
+import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
 import { useDoc } from "../state/store";
-import { menuAtPointer, select, useUi } from "../state/ui";
+import { menuAtPointer, rename, select, setSnapGuide, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
+import { clipLength } from "../timeline/clip";
+import { fadePoints } from "../audio/fade";
 import { traceStyle } from "../timeline/palette";
+import type { SnapTarget } from "../timeline/snap";
 import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
+import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
+import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
 import { MidiIcon, MuteIcon, NoteIcon, OscIcon, WaveIcon } from "./icons";
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu } from "./menus";
-
-/** Length shown for a clip whose audio length is not known yet (10 s at the project rate). */
-const GUESS_SECONDS = 10;
 
 export function laneHeight(track: Track): number {
   return track.kind.type === "audio" ? AUDIO_LANE_H : NOTES_LANE_H;
@@ -48,6 +50,7 @@ export const TrackHeader = memo(function TrackHeader({
 }) {
   const t = useT();
   const audio = track.kind.type === "audio";
+  const renaming = useUi((ui) => ui.renaming?.kind === "track" && ui.renaming.id === track.id);
   return (
     <div
       className="track-header"
@@ -68,9 +71,22 @@ export const TrackHeader = memo(function TrackHeader({
           {KIND_ICONS[track.kind.type]}
           <span className="visually-hidden">{t(`track.kind.${track.kind.type}`)}</span>
         </span>
-        <span className="track-name" title={track.name}>
-          {track.name}
-        </span>
+        {renaming ? (
+          <InlineName
+            value={track.name}
+            label={t("track.rename", { name: track.name })}
+            onCommit={(text) => nameTrack(track.id, text)}
+            onDone={() => rename(null)}
+          />
+        ) : (
+          <span
+            className="track-name"
+            title={track.name}
+            onDoubleClick={() => rename({ kind: "track", id: track.id })}
+          >
+            {track.name}
+          </span>
+        )}
         {track.muted && <span className="track-muted-tag">{t("track.muted")}</span>}
         <button
           type="button"
@@ -98,30 +114,35 @@ export const TrackHeader = memo(function TrackHeader({
   );
 });
 
-/** Drag an item sideways in whole frames; commit once on release so undo takes one step. */
-function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFrame: number) {
+/**
+ * Drag an item sideways in whole frames; commit once on release so undo takes one step. `length` is
+ * how many frames it lasts, so that its end can land on something as well as its start.
+ */
+function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
   const move = kind === "event" ? moveCueEvent : moveTo;
   const [delta, setDelta] = useState(0);
-  const origin = useRef<{ x: number; position: number } | null>(null);
+  const origin = useRef<{ x: number; position: number; targets: SnapTarget[] } | null>(null);
 
   const handlers = {
     onPointerDown(event: PointerEvent<HTMLElement>) {
       if (event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      origin.current = { x: event.clientX, position };
+      origin.current = { x: event.clientX, position, targets: snapTargets([id]) };
       select({ kind, id });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (!origin.current) return;
       const frames = Math.round((event.clientX - origin.current.x) / pxPerFrame);
-      // With the magnet on, the item's start lands on the closest grid line when it is near one.
-      const target = Math.max(0, snapFrame(origin.current.position + frames));
+      // With the magnet on, the item's start or end lands on the closest grid line, item or the
+      // playhead when it is near one.
+      const target = Math.max(0, snapBlockStart(origin.current.position + frames, length, origin.current.targets, { alt: event.altKey }));
       setDelta(target - origin.current.position);
     },
     onPointerUp() {
       if (origin.current && delta !== 0) void move(id, origin.current.position + delta);
       origin.current = null;
+      setSnapGuide(null);
       setDelta(0);
     },
     onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -136,19 +157,6 @@ function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFram
   return { shown: position + delta, handlers };
 }
 
-/**
- * Length in frames of a clip: the trim the backend wrote, else the whole audio once it has been
- * read, else the guess. (The backend always writes a length when it moves the start.)
- */
-export function clipLength(
-  clip: AudioClip,
-  audio: { seconds: number } | undefined,
-  fps: number,
-  guess: number,
-): number {
-  return clip.length ?? (audio ? Math.round(audio.seconds * fps) : guess);
-}
-
 type HandleProps = ReturnType<typeof useHandle>["handlers"];
 
 /**
@@ -159,6 +167,7 @@ type HandleProps = ReturnType<typeof useHandle>["handlers"];
 function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
   const originX = useRef<number | null>(null);
+  const targets = useRef<SnapTarget[]>([]);
   const at = drag?.from === frame ? drag.to : frame;
 
   const handlers = {
@@ -167,15 +176,17 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
       event.stopPropagation(); // The clip underneath would start moving.
       event.currentTarget.setPointerCapture(event.pointerId);
       originX.current = event.clientX;
+      targets.current = snapTargets([id]);
       select({ kind: "clip", id });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (originX.current === null) return;
       const frames = Math.round((event.clientX - originX.current) / pxPerFrame);
-      setDrag({ from: frame, to: Math.max(0, snapFrame(frame + frames)) });
+      setDrag({ from: frame, to: Math.max(0, snapFrame(frame + frames, targets.current, { alt: event.altKey, guide: true })) });
     },
     onPointerUp() {
       originX.current = null;
+      setSnapGuide(null);
       if (drag && drag.to !== frame) void editClip(id, op, drag.to).finally(() => setDrag(null));
       else setDrag(null);
     },
@@ -216,8 +227,19 @@ function ClipHandle({
   );
 }
 
-/** Pixels the fade handle is wide; its centre sits where the fade ends. */
-const FADE_HANDLE_PX = 8;
+/**
+ * Pixels the fade handle is wide; its centre sits where the fade ends, but it never leaves the clip,
+ * so with no fade it sits whole in the corner instead of half outside it. What takes the click is
+ * larger than what is drawn (see `.clip-handle[data-edge="fadeIn"]::before`).
+ */
+const FADE_HANDLE_PX = 10;
+
+/**
+ * Where the fade handle starts, in pixels from the left of a clip `width` wide, for a fade ending at
+ * `end`. Handles sit inside the clip's 1px border, so its room is two pixels less than `width`.
+ */
+const fadeHandleLeft = (end: number, width: number) =>
+  Math.min(Math.max(end - FADE_HANDLE_PX / 2, 0), Math.max(0, width - 2 - FADE_HANDLE_PX));
 
 function ClipBlock({
   track,
@@ -244,13 +266,15 @@ function ClipBlock({
   pxPerFrame: number;
 }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, pxPerFrame);
   // Each clip asks the stores for its own slice: a selection or a decoded waveform elsewhere
   // does not re-render it.
   const selected = useUi((ui) => ui.selection?.id === clip.id);
+  const renaming = useUi((ui) => ui.renaming?.kind === "clip" && ui.renaming.id === clip.id);
+  const labelRef = useRef<HTMLSpanElement>(null);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
+  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame);
@@ -276,6 +300,34 @@ function ClipBlock({
         select({ kind: "clip", id: clip.id });
         menuAtPointer(event, audioMenu(t, track, clip));
       }}
+      // The clip holds the pointer while it is pressed, so a double click lands here and not on what
+      // is under it: on the name it renames the clip, elsewhere on a selected clip it adds a point.
+      onDoubleClick={(event) => {
+        const label = labelRef.current?.getBoundingClientRect();
+        const onLabel =
+          label !== undefined &&
+          event.clientX >= label.left &&
+          event.clientX <= label.right &&
+          event.clientY >= label.top &&
+          event.clientY <= label.bottom;
+        if (onLabel) {
+          rename({ kind: "clip", id: clip.id });
+        } else if (selected) {
+          const box = event.currentTarget.getBoundingClientRect();
+          addEnvelopePoint(
+            clip,
+            {
+              left: box.left + event.currentTarget.clientLeft,
+              top: box.top + event.currentTarget.clientTop,
+              height,
+              frame: left,
+              pxPerFrame,
+            },
+            event.clientX,
+            event.clientY,
+          );
+        }
+      }}
       {...pointer}
     >
       <span className="clip-wave-shift" style={{ left: (clip.start - trimStart.at) * pxPerFrame }}>
@@ -283,6 +335,7 @@ function ClipBlock({
           seed={clip.asset}
           width={waveWidth}
           height={height}
+          origin={frameX(clip.start, pxPerFrame)}
           color="currentColor"
           peaks={audio?.peaks}
           pxPerSecond={pxPerFrame * fps}
@@ -292,27 +345,52 @@ function ClipBlock({
       </span>
       {(fadeInPx > 0 || fadeOutPx > 0) && (
         <svg className="clip-fades" width={width} height={height} aria-hidden="true">
-          {fadeInPx > 0 && <polyline points={`0,${height} ${fadeInPx},0`} />}
-          {fadeOutPx > 0 && <polyline points={`${width - fadeOutPx},0 ${width},${height}`} />}
+          {fadeInPx > 0 && <polyline points={fadePoints(clip.fadeInCurve ?? "linear", "in", fadeInPx, height)} />}
+          {fadeOutPx > 0 && (
+            <polyline
+              transform={`translate(${width - fadeOutPx} 0)`}
+              points={fadePoints(clip.fadeOutCurve ?? "linear", "out", fadeOutPx, height)}
+            />
+          )}
         </svg>
       )}
-      <span className="clip-label">
-        {name}
-        {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
-        {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
-      </span>
+      <EnvelopeLayer
+        clip={clip}
+        shown={shown}
+        left={left}
+        width={width}
+        height={height}
+        pxPerFrame={pxPerFrame}
+        selected={selected}
+      />
+      {renaming ? (
+        <span className="clip-label">
+          <InlineName
+            value={name}
+            label={t("clip.rename", { name })}
+            onCommit={(text) => nameClip(clip.id, text)}
+            onDone={() => rename(null)}
+          />
+        </span>
+      ) : (
+        <span className="clip-label" ref={labelRef}>
+          {name}
+          {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
+          {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
+        </span>
+      )}
       <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
       <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
       <ClipHandle
         edge="fadeIn"
         label={t("clip.fadeIn", { name })}
-        style={{ left: fadeInPx - FADE_HANDLE_PX / 2 }}
+        style={{ left: fadeHandleLeft(fadeInPx, width) }}
         handlers={fadeIn.handlers}
       />
       <ClipHandle
         edge="fadeOut"
         label={t("clip.fadeOut", { name })}
-        style={{ left: width - fadeOutPx - FADE_HANDLE_PX / 2 }}
+        style={{ left: fadeHandleLeft(width - fadeOutPx, width) }}
         handlers={fadeOut.handlers}
       />
     </div>
@@ -325,7 +403,7 @@ function ClipBlock({
  */
 function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPerFrame: number }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, note.length ?? 0, pxPerFrame);
   const selected = useUi((ui) => ui.selection?.id === note.id);
   const empty = note.text.trim() === "";
   const timed = note.length !== undefined;
@@ -365,7 +443,7 @@ function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPe
  */
 function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEvent | OscEvent; pxPerFrame: number }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(event.id, "event", event.at, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(event.id, "event", event.at, 0, pxPerFrame);
   const selected = useUi((ui) => ui.selection?.id === event.id);
   const osc = "address" in event;
   const tag = t(osc ? "event.tag.osc" : (`event.tag.${event.message.type}` as const));
@@ -415,7 +493,7 @@ export const TrackLane = memo(function TrackLane({
     const kind = track.kind.type;
     if (kind === "audio" || event.target !== event.currentTarget) return;
     const { start } = activeTimeline(useDoc.getState()).timecode;
-    const frame = start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame));
+    const frame = start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame), snapTargets());
     if (kind === "notes") addNoteAt(t, frame, track.id);
     else void addCueEvent(kind, frame, t(`track.kind.${kind}`), track.id);
   };
@@ -442,7 +520,7 @@ export const TrackLane = memo(function TrackLane({
               key={clip.id}
               track={track}
               clip={clip}
-              name={assetNames[clip.asset] ?? clip.asset}
+              name={clip.name ?? assetNames[clip.asset] ?? clip.asset}
               guessLength={guessLength}
               muted={track.muted}
               rowHeight={height}
@@ -461,5 +539,3 @@ export const TrackLane = memo(function TrackLane({
     </div>
   );
 });
-
-export { GUESS_SECONDS };

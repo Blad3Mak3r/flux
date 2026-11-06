@@ -16,8 +16,8 @@ use crate::transport_commands::{SharedOutput, is_playing, release};
 use flux_audio::{ENGINE_RATE, SharedAudio};
 use flux_core::Clock;
 use flux_project::{
-    AudioAsset, ClipOp, CueEdited, CueOp, Document, FrameRate, OffsetKind, Project, ProjectError,
-    ProjectState, Result, Session,
+    AudioAsset, ClipOp, CueEdited, CueOp, Document, FrameRate, ItemOp, OffsetKind, Project,
+    ProjectError, ProjectState, Result, Session,
 };
 
 pub type SharedSession = Arc<Mutex<Session>>;
@@ -242,6 +242,21 @@ pub async fn clip_edit(
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Renames a track or a clip, or changes a clip's fade curves or volume envelope (see [`ItemOp`]);
+/// the answer is the project with the edit made, or the reason it was refused.
+#[tauri::command]
+pub async fn item_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: ItemOp,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.item_edit(op)
+    })
+    .await
 }
 
 /// Edits the MIDI and OSC tracks and the OSC destinations (see [`CueOp`]); the answer is the project

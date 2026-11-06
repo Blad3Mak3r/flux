@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { PlusIcon, RefreshIcon, TrashIcon } from "../components/icons";
 import { SelectField, TextField, TimecodeField } from "../components/fields";
@@ -5,13 +6,19 @@ import type { Devices } from "../devices/useDevices";
 import { LOCALES, useI18n, useT } from "../i18n";
 import type { Locale, MessageKey } from "../i18n";
 import type { FrameRate, OutputConfig } from "../project/types";
+import { DEFAULT_GRAPHICS, graphicsGet, graphicsRestart, graphicsSet } from "../graphics/api";
+import type { GraphicsApi, GraphicsPrefs, GraphicsState } from "../graphics/api";
+import { errorMessage } from "../project/api";
 import { edit } from "../state/actions";
+import { isDirty } from "../state/doc";
+import { ask } from "../state/ui";
 import { setName, setOutput } from "../state/edit";
 import { addDestination, removeDestination, updateDestination } from "../state/cues";
 import { setOutputOffset } from "../state/output";
 import { useDoc, useTimeline } from "../state/store";
 import { renameTimeline, setTimecode } from "../state/timelines";
 import { reconnect } from "../transport/playback";
+import { isPlaying } from "../transport/store";
 import { useTransport } from "../transport/store";
 import {
   addLtc,
@@ -574,6 +581,101 @@ export function GeneralPage({ devices }: { devices: Devices }) {
         </button>
         <p className="field-note">{t("setup.general.refreshNote")}</p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * How the window is drawn: hardware acceleration and, where the system allows it, the graphics API.
+ * The webview reads them when it starts, so a change is saved at once and applies after a restart.
+ */
+export function GraphicsPage() {
+  const t = useT();
+  const [state, setState] = useState<GraphicsState | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const running = useTransport((transport) => transport.info !== null);
+
+  useEffect(() => {
+    graphicsGet().then(setState, (err) => setProblem(errorMessage(err)));
+  }, []);
+
+  if (!state) return <p className="empty-note">{problem ?? t("setup.graphics.loading")}</p>;
+
+  const change = (prefs: GraphicsPrefs) => {
+    setProblem(null);
+    graphicsSet(prefs).then(setState, (err) => setProblem(errorMessage(err)));
+  };
+  // The restart drops the document and the output, so it asks first about work that was not saved.
+  const restart = () => {
+    const go = () => void graphicsRestart();
+    if (isDirty(useDoc.getState())) ask(go);
+    else go();
+  };
+  const { saved } = state;
+  const choosable = state.apis.length > 1;
+  const playing = running && isPlaying();
+
+  return (
+    <div className="setup-fields">
+      <p className="setup-intro">{t("setup.graphics.intro")}</p>
+      {!state.accelerationConfigurable && <p className="field-note">{t("setup.graphics.fixed")}</p>}
+      {state.safeMode && (
+        <p className="field-note" role="status">
+          {t("setup.graphics.safe")}
+        </p>
+      )}
+      {state.accelerationConfigurable && (
+        <label className="check-row">
+          <input
+            type="checkbox"
+            checked={saved.hardwareAcceleration}
+            onChange={(event) => change({ ...saved, hardwareAcceleration: event.target.checked })}
+          />
+          <span>{t("setup.graphics.acceleration")}</span>
+        </label>
+      )}
+      {choosable && (
+        <SelectField
+          label={t("setup.graphics.api")}
+          value={saved.api}
+          disabled={!saved.hardwareAcceleration}
+          hint={saved.api === "vulkan" ? t("setup.graphics.vulkanNote") : t("setup.graphics.apiNote")}
+          onChange={(api) => change({ ...saved, api: api as GraphicsApi })}
+        >
+          {state.apis.map((api) => (
+            <option key={api} value={api}>
+              {t(`setup.graphics.api.${api}`)}
+            </option>
+          ))}
+        </SelectField>
+      )}
+      {state.restartNeeded && (
+        <div className="setup-refresh">
+          <button type="button" className="button" disabled={playing} onClick={restart}>
+            <RefreshIcon />
+            {t("setup.graphics.restart")}
+          </button>
+          <p className="field-note" role="status">
+            {playing ? t("setup.graphics.restartPlaying") : t("setup.graphics.restartNote")}
+          </p>
+        </div>
+      )}
+      {state.accelerationConfigurable && (
+        <button
+          type="button"
+          className="button"
+          disabled={saved.hardwareAcceleration === DEFAULT_GRAPHICS.hardwareAcceleration && saved.api === DEFAULT_GRAPHICS.api}
+          onClick={() => change(DEFAULT_GRAPHICS)}
+        >
+          {t("setup.graphics.reset")}
+        </button>
+      )}
+      <p className="field-note">{t("setup.graphics.safeHint")}</p>
+      {problem && (
+        <p className="field-note" role="alert">
+          {problem}
+        </p>
+      )}
     </div>
   );
 }
