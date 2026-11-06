@@ -96,6 +96,24 @@ export function removeMtc(output: OutputConfig, index: number): OutputConfig {
   return { ...output, mtc: output.mtc.filter((_, i) => i !== index) };
 }
 
+/**
+ * Moves every audio output to another driver. Device names belong to one driver, so each goes back
+ * to that driver's default device, keeping its channels. The system's default driver is stored as
+ * no driver, so the project does not pin what this machine would pick anyway.
+ */
+export function setDriver(output: OutputConfig, driver: string | undefined): OutputConfig {
+  const { driver: _driver, ...rest } = output;
+  const system = <T extends { deviceName: string }>(device: T): T => ({ ...device, deviceName: "" });
+  return {
+    ...rest,
+    ...(driver ? { driver } : {}),
+    audio: output.audio && system(output.audio),
+    ...(output.preview ? { preview: system(output.preview) } : {}),
+    ...(output.metronome ? { metronome: system(output.metronome) } : {}),
+    ltc: output.ltc.map(system),
+  };
+}
+
 /** Moves the programme to another device. LTC outputs that were on the old one move with it. */
 export function setProgrammeDevice(output: OutputConfig, deviceName: string, channelCount: number): OutputConfig {
   const before = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? "";

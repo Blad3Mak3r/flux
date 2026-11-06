@@ -24,6 +24,7 @@ import {
   portLabel,
   removeLtc,
   removeMtc,
+  setDriver,
   setMetronomeChannels,
   setMetronomeDevice,
   setMetronomeGain,
@@ -175,6 +176,10 @@ export function AudioPage({ devices }: { devices: Devices }) {
   const t = useT();
   const [output, change] = useOutput();
   const deviceName = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? "";
+  const defaultHost = devices.hosts.find((host) => host.isDefault)?.name ?? "";
+  const driver = output.driver ?? defaultHost;
+  // A project from another system can name a driver this one lacks: it plays on the default one.
+  const driverFound = !devices.available || devices.hosts.length === 0 || devices.hosts.some((host) => host.name === driver);
   const count = channelsOf(devices, deviceName, Math.max(...(output.audio?.channels ?? []), 2));
   const programme = output.audio?.channels.length ? output.audio.channels : [1, 2];
   const pairs = pairsOf(count);
@@ -184,6 +189,22 @@ export function AudioPage({ devices }: { devices: Devices }) {
   return (
     <div className="setup-fields">
       {!devices.available && <p className="field-note">{t("out.desktopOnly")}</p>}
+      {(devices.hosts.length > 1 || !driverFound) && (
+        <SelectField
+          label={t("out.driver")}
+          value={driver}
+          hint={t("setup.audio.driverNote")}
+          disabled={!devices.available}
+          onChange={(name) => change(setDriver(output, name === defaultHost ? undefined : name))}
+        >
+          {!driverFound && <option value={driver}>{t("out.driverMissing", { name: driver })}</option>}
+          {devices.hosts.map((host) => (
+            <option key={host.name} value={host.name}>
+              {host.name}
+            </option>
+          ))}
+        </SelectField>
+      )}
       <SelectField
         label={t("out.audioDevice")}
         value={deviceName}

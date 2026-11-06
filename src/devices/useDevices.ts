@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage } from "../project/api";
 import type { OutputConfig } from "../project/types";
-import { findAudioDevice, findMidiPort, listAudioDevices, listMidiPorts } from "./api";
-import type { AudioDevice, MidiPort } from "./api";
+import { findAudioDevice, findMidiPort, listAudioDevices, listAudioHosts, listMidiPorts } from "./api";
+import type { AudioDevice, AudioHost, MidiPort } from "./api";
 import { portKey, splitPortKey } from "../setup/outputs";
 
 /** `found`: connected now. `missing`: the project names it but it is not connected. */
 export type Presence = "unset" | "found" | "missing" | "unknown";
 
 export interface Devices {
+  /** The audio drivers of this system, the default first. */
+  hosts: AudioHost[];
+  /** The devices of the project's driver. */
   audio: AudioDevice[];
   midi: MidiPort[];
   midiError: string | null;
@@ -40,6 +43,7 @@ export function worst(all: Presence[]): Presence {
 
 /** Lists devices and checks whether the ones a project names are connected. */
 export function useDevices(output: OutputConfig): Devices {
+  const [hosts, setHosts] = useState<AudioHost[]>([]);
   const [audio, setAudio] = useState<AudioDevice[]>([]);
   const [midi, setMidi] = useState<MidiPort[]>([]);
   const [midiError, setMidiError] = useState<string | null>(null);
@@ -50,6 +54,7 @@ export function useDevices(output: OutputConfig): Devices {
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((n) => n + 1), []);
 
+  const driver = output.driver;
   const audioHint = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? null;
   // The effect depends on the names, not on the lists, which are new objects after every edit.
   const ltcHints = JSON.stringify(output.ltc.map((ltc) => ltc.deviceName));
@@ -57,7 +62,10 @@ export function useDevices(output: OutputConfig): Devices {
 
   useEffect(() => {
     let cancelled = false;
-    listAudioDevices()
+    listAudioHosts()
+      .then((list) => !cancelled && setHosts(list))
+      .catch(() => !cancelled && setHosts([]));
+    listAudioDevices(driver)
       .then((devices) => !cancelled && (setAudio(devices), setAvailable(true)))
       .catch(() => !cancelled && setAvailable(false));
     listMidiPorts()
@@ -66,21 +74,22 @@ export function useDevices(output: OutputConfig): Devices {
     return () => {
       cancelled = true;
     };
-  }, [tick]);
+  }, [driver, tick]);
 
   useEffect(() => {
     let cancelled = false;
+    const findAudio = (name: string) => findAudioDevice(name, driver);
     const resolveAll = (hints: (string | null)[], find: (name: string) => Promise<unknown>, set: (p: Presence) => void) => {
       if (hints.length === 0 || hints[0] === null) return set("unset");
       Promise.all(hints.map((hint) => presenceOf(hint as string, find))).then((all) => !cancelled && set(worst(all)));
     };
-    resolveAll([audioHint], findAudioDevice, setAudioPresence);
-    resolveAll(JSON.parse(ltcHints) as string[], findAudioDevice, setLtcPresence);
+    resolveAll([audioHint], findAudio, setAudioPresence);
+    resolveAll(JSON.parse(ltcHints) as string[], findAudio, setLtcPresence);
     resolveAll(JSON.parse(midiHints) as string[], (key) => findMidiPort(...splitPortKey(key)), setMtcPresence);
     return () => {
       cancelled = true;
     };
-  }, [audioHint, ltcHints, midiHints, tick]);
+  }, [driver, audioHint, ltcHints, midiHints, tick]);
 
-  return { audio, midi, midiError, available, audioPresence, ltcPresence, mtcPresence, refresh };
+  return { hosts, audio, midi, midiError, available, audioPresence, ltcPresence, mtcPresence, refresh };
 }

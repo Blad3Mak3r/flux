@@ -13,6 +13,7 @@ import {
   portLabel,
   removeLtc,
   removeMtc,
+  setDriver,
   setMetronomeChannels,
   setMetronomeDevice,
   setMetronomeGain,
@@ -170,4 +171,23 @@ test("0 dB on the metronome is stored as no value, and no metronome output leave
   const set = setMetronomeGain(setMetronomeDevice(output(), "Band", 4), -3);
   assert.ok(!("gainDb" in setMetronomeGain(set, 0).metronome));
   assert.ok(!("metronome" in clearMetronome(set)));
+});
+
+test("setDriver sets the driver and sends every audio output back to that driver's default device", () => {
+  const before = { ...output(), preview: { deviceName: "Phones", channels: [1, 2] }, metronome: { deviceName: "Main", channels: [3, 4], gainDb: -6 } };
+  const after = setDriver(before, "JACK");
+  assert.equal(after.driver, "JACK");
+  assert.deepEqual(after.audio, { deviceName: "", channels: [1, 2] });
+  assert.deepEqual(after.preview, { deviceName: "", channels: [1, 2] });
+  assert.deepEqual(after.metronome, { deviceName: "", channels: [3, 4], gainDb: -6 });
+  assert.deepEqual(after.ltc, [{ deviceName: "", channel: 8 }]);
+  assert.deepEqual(after.mtc, before.mtc);
+});
+
+test("setDriver with no driver drops the field and leaves absent outputs absent", () => {
+  const after = setDriver({ ...output(), driver: "JACK" }, undefined);
+  assert.equal("driver" in after, false);
+  assert.equal("preview" in after, false);
+  assert.equal("metronome" in after, false);
+  assert.equal(after.audio?.deviceName, "");
 });

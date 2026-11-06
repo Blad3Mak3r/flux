@@ -10,12 +10,23 @@ export interface AudioDevice {
   isDefault: boolean;
 }
 
+/** An audio driver (API) of this system: ALSA, PipeWire, JACK, WASAPI, CoreAudio, ... The default comes first. */
+export interface AudioHost {
+  name: string;
+  isDefault: boolean;
+}
+
 export interface MidiPort {
   name: string;
 }
 
-export function listAudioDevices(): Promise<AudioDevice[]> {
-  return invoke<AudioDevice[]>("devices_list_audio");
+export function listAudioHosts(): Promise<AudioHost[]> {
+  return invoke<AudioHost[]>("devices_list_hosts");
+}
+
+/** The devices of `driver`; `undefined` is the system's default driver. */
+export function listAudioDevices(driver?: string): Promise<AudioDevice[]> {
+  return invoke<AudioDevice[]>("devices_list_audio", { driver });
 }
 
 export function listMidiPorts(): Promise<MidiPort[]> {
@@ -23,8 +34,8 @@ export function listMidiPorts(): Promise<MidiPort[]> {
 }
 
 /** Resolves a project's stored name hint; `null` means the device is not connected. */
-export function findAudioDevice(name: string): Promise<AudioDevice | null> {
-  return invoke<AudioDevice | null>("devices_find_audio", { name });
+export function findAudioDevice(name: string, driver?: string): Promise<AudioDevice | null> {
+  return invoke<AudioDevice | null>("devices_find_audio", { name, driver });
 }
 
 /** Resolves a project's stored name hint, the `index`-th port of that name; `null` means it is not connected. */

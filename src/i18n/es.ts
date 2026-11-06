@@ -232,6 +232,8 @@ export const es: Record<MessageKey, string> = {
   "timeline.confirm.title": "¿Eliminar «{name}»?",
   "timeline.confirm.body": "Se quitan sus pistas del proyecto, y el audio que no use ninguna otra línea de tiempo. Se puede deshacer.",
 
+  "out.driver": "Driver de audio",
+  "out.driverMissing": "{name} (no disponible)",
   "out.audioDevice": "Dispositivo de audio",
   "out.programme": "Salida del programa",
   "out.previewDevice": "Dispositivo de preescucha (Edición)",
@@ -268,6 +270,7 @@ export const es: Record<MessageKey, string> = {
   "setup.section.general": "General",
   "setup.section.video": "Vídeo",
   "setup.soon": "Próximamente",
+  "setup.audio.driverNote": "Todos los dispositivos de audio de abajo pertenecen a este driver. Deja el del sistema salvo que tu interfaz necesite otro.",
   "setup.audio.note": "Este dispositivo reproduce el proyecto y da el reloj que siguen LTC y MTC.",
   "setup.audio.previewNote": "Edición reproduce aquí y no envía timecode. Live usa siempre el dispositivo del programa.",
   "setup.ltc.intro": "Cada salida LTC envía el timecode como señal de audio por un canal de una interfaz.",

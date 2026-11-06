@@ -33,6 +33,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
 | `timelines[].timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
 | `timelines[].tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | Track, clip and note ids are unique in the **whole project**, not per timeline. `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
+| `output.driver` | string | Optional. The audio driver (API) every audio device below is opened through: `"ALSA"`, `"PipeWire"`, `"JACK"`, `"WASAPI"`, `"CoreAudio"`, ... Absent means the system's default driver, which is also what plays when this machine does not have the named one. Setting it sends every `deviceName` below back to `""` (that driver's default device), since names belong to one driver. Added without a version bump. |
 | `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
 | `output.preview` | `{ deviceName, channels }` | Optional. Interface the Edit view auditions the clips on, with its own 1-based `channels`. While it is set, Edit plays only the audio there and sends no LTC or MTC; Live always uses `output.audio`, `output.ltc` and `output.mtc`. Absent (the file leaves it out) means Edit plays like Live. Added without a version bump. |
 | `output.metronome` | `{ deviceName, channels, gainDb? }` | Optional. Where the metronome clicks, on a device, 1-based `channels` (a pair plays the click on both) and level of its own, apart from the programme. Absent means no click plays whatever `tempo.click` says. Kept in Edit even when `output.preview` is set. Added without a version bump. |
@@ -101,9 +102,10 @@ Nothing is cached, so calling a list command again is the refresh after a hot-pl
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `devices_list_audio` | | Output devices of the default audio host, one per physical output: `{ name, outputChannels, sampleRates, isDefault }`. On ALSA only `plughw:` devices are listed (each name once), not the `hw:`, `front:`, `surround*:`, `hdmi:`, `pipewire`, `pulse` ... variants. |
+| `devices_list_hosts` | | Audio drivers (APIs) available on this machine, the default first: `{ name, isDefault }`. |
+| `devices_list_audio` | `driver?` | Output devices of the audio driver `driver` names (absent: the default one), one per physical output: `{ name, outputChannels, sampleRates, isDefault }`. On ALSA only `plughw:` devices are listed (each name once), not the `hw:`, `front:`, `surround*:`, `hdmi:`, `pipewire`, `pulse` ... variants. |
 | `devices_list_midi` | | MIDI output ports: `{ name }`. Fails if the system has no MIDI support. |
-| `devices_find_audio` | `name` | The matching audio device, or `null` when it is not connected. |
+| `devices_find_audio` | `name`, `driver?` | The matching audio device, or `null` when it is not connected. |
 | `devices_find_midi` | `name` | The matching MIDI port, or `null` when it is not connected (or MIDI is unavailable). |
 
 A hint matches exactly, or else ignoring case, surrounding whitespace and the `client:port` numbers ALSA appends to
