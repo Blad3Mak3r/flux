@@ -34,6 +34,14 @@ rubato = "5.0.1"
 log = { version = "0.4", features = ["std"] }
 
 
+# Extra audio drivers the picker offers next to the system's default one (ALSA, WASAPI, CoreAudio).
+# JACK loads libjack at run time, so it needs nothing installed to start.
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18.2", features = ["pipewire", "jack"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+cpal = { version = "0.18.2", features = ["jack"] }
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

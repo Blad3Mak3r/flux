@@ -293,3 +293,10 @@ The music is decoded once and mixed in the same callback that renders LTC, on th
 On Linux under WSLg only the null device exists until `libasound2-plugins` is installed, which gives ALSA a `pulse`
 and `default` device that reach WSLg's PulseAudio. The cpal PulseAudio host was tried and could not complete the
 handshake with WSLg's server, so it is not enabled.
+
+**Audio drivers.** A project's `output.driver` names the audio API its devices open through (see
+`docs/fxtc-format.md`). On Linux the build offers ALSA, PipeWire and JACK; on macOS and Windows the system's own API
+and JACK. When PipeWire is running it is the default driver, otherwise ALSA is. PipeWire links `libpipewire-0.3` at
+start-up, so the deb and rpm declare it as a dependency; JACK loads `libjack` only when it is used. Names belong to
+one driver: a project that stored an ALSA device name and names no driver looks it up on the default driver, which is
+PipeWire on a PipeWire system, and shows it as not connected until the device is chosen again.
