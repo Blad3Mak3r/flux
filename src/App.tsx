@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Faceplate } from "./components/Faceplate";
 import { MenuHost } from "./components/Menu";
@@ -8,10 +8,13 @@ import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
+import { bindLive } from "./live/feed";
+import { useLive } from "./live/store";
 import { TimelineConfirm } from "./components/TimelineConfirm";
 import { UnsavedDialog } from "./components/UnsavedDialog";
 import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
+import type { Devices } from "./devices/useDevices";
 import { SetupDialog } from "./setup/SetupDialog";
 import { I18nProvider, useT } from "./i18n";
 import { deleteSelection, renameSelectedTrack } from "./state/actions";
@@ -29,6 +32,7 @@ import {
   saveDocument,
   startDocument,
 } from "./state/workflows";
+import type { EditorPhase } from "./state/workflows";
 import { bindTimelineAdvance, stepTimeline } from "./state/timelines";
 import { nominalFps } from "./timecode";
 import { patchReadout } from "./timeline/layout";
@@ -48,55 +52,24 @@ function isTyping(target: EventTarget | null): boolean {
  * The frame around the panels: it wires the window to the stores and holds nothing the panels
  * draw, so an edit, a selection or a playhead move re-renders the panels that show it, not this.
  */
-function Shell() {
+function Shell({ devices }: { devices: Devices }) {
   const t = useT();
   const name = useDoc((doc) => doc.project.name);
   const dirty = useDoc(isDirty);
-  const output = useDoc((doc) => doc.project.output);
   const docKey = useUi((ui) => ui.docKey);
   const collapsed = useUi((ui) => ui.collapsed);
   const view = useUi((ui) => ui.view);
   const asking = useUi((ui) => ui.pending !== null);
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced ?? false);
-  const devices = useDevices(output);
-
-  useEffect(bindTransport, []);
-  useEffect(bindDocumentSync, []);
-  useEffect(bindTimelineAdvance, []);
 
   // The clock of the audio device is the master; one that does not keep real time ruins the timecode.
   useEffect(() => {
     if (clockUnpaced) sayError(t("output.clockFast"));
   }, [clockUnpaced, t]);
 
-  // The project lives in the backend as well: a reloaded window picks it up instead of starting over.
-  useEffect(() => {
-    void startDocument(t);
-  }, [t]);
-
   useEffect(() => {
     document.title = `${name}${dirty ? " ●" : ""} — ${t("app.title")}`;
   }, [name, dirty, t]);
-
-  // Closing the window (our button, Alt+F4, the OS) must not throw unsaved work away silently.
-  useEffect(() => {
-    if (!hasNativeWindow()) return;
-    const appWindow = getCurrentWindow();
-    let stopListening: (() => void) | undefined;
-    let cancelled = false;
-    appWindow
-      .onCloseRequested((event) => {
-        if (!isDirty(useDoc.getState())) return;
-        event.preventDefault();
-        ask(() => appWindow.destroy());
-      })
-      .then((off) => (cancelled ? off() : (stopListening = off)))
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-      stopListening?.();
-    };
-  }, []);
 
   // A right click nothing claimed (our menus stop theirs): close the open menu, and offer the text
   // menu on a text field. The webview's own menu is blocked for every window in main.tsx.
@@ -248,10 +221,61 @@ function Shell() {
   );
 }
 
+function Editor() {
+  const t = useT();
+  const native = hasNativeWindow();
+  const [phase, setPhase] = useState<EditorPhase>("project");
+  const [connected, setConnected] = useState(!native);
+  const [ready, setReady] = useState(!native);
+  const output = useDoc((doc) => doc.project.output);
+  const view = useUi((ui) => ui.view);
+  const devices = useDevices(output, !native || phase === "outputs");
+  const liveEnabled = connected && view === "live";
+  const cuesReady = useLive((live) => live.ready);
+  const waiting = !connected || devices.loading || (liveEnabled && !cuesReady);
+
+  useEffect(bindTransport, []);
+  useEffect(bindDocumentSync, []);
+  useEffect(bindTimelineAdvance, []);
+  useEffect(() => {
+    if (native) void startDocument(t, setPhase).then(() => setConnected(true));
+  }, [native, t]);
+  useEffect(() => {
+    if (liveEnabled) return bindLive();
+  }, [liveEnabled]);
+  useEffect(() => {
+    if (!waiting) setReady(true);
+  }, [waiting]);
+
+  // The OS can request a close before the editor's controls are mounted.
+  useEffect(() => {
+    if (!native) return;
+    const appWindow = getCurrentWindow();
+    const listening = appWindow.onCloseRequested((event) => {
+      if (!isDirty(useDoc.getState())) return;
+      event.preventDefault();
+      ask(() => appWindow.destroy());
+    }).catch(() => undefined);
+    return () => void listening.then((off) => off?.());
+  }, [native]);
+
+  if (ready) return <Shell devices={devices} />;
+  const step = connected && !devices.loading && liveEnabled ? "cues" : phase;
+  return (
+    <main className="editor-loading">
+      <section className="editor-loading-panel" aria-labelledby="editor-loading-title">
+        <h1 id="editor-loading-title">{t("editor.loading.title")}</h1>
+        <p role="status">{t(`editor.loading.${step}`)}</p>
+        <progress aria-labelledby="editor-loading-title" />
+      </section>
+    </main>
+  );
+}
+
 export default function App() {
   return (
     <I18nProvider>
-      <Shell />
+      <Editor />
     </I18nProvider>
   );
 }

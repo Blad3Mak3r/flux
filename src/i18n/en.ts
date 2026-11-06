@@ -383,6 +383,11 @@ export const en = {
   "delete.confirm": "Delete file",
 
   "status.ready": "Ready",
+  "editor.loading.title": "Preparing the editor",
+  "editor.loading.project": "Opening the project…",
+  "editor.loading.audio": "Preparing waveforms and tempos…",
+  "editor.loading.outputs": "Connecting and checking outputs…",
+  "editor.loading.cues": "Preparing Live cues…",
   "status.analysing": "Reading audio…",
   "status.analysed": "Audio ready",
   "status.saved": "Saved {name}",

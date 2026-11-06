@@ -59,6 +59,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 let run = 0;
 let clipsTimer: ReturnType<typeof setTimeout> | undefined;
 let attaching: Promise<void> | undefined;
+let initialized = false;
 
 async function guard(action: () => Promise<void>): Promise<void> {
   try {
@@ -151,8 +152,16 @@ export function bindTransport(): () => void {
  * even when nothing changed, for a device that was plugged in since.
  */
 export function reconnect(force = false): void {
+  if (!initialized) return;
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => void connect(force), RECONNECT_DEBOUNCE_MS);
+}
+
+/** The editor awaits the first connection instead of queuing it behind the settings debounce. */
+export async function startTransport(): Promise<void> {
+  await connect(false);
+  initialized = true;
+  if (useTransport.getState().pendingReconfigure && useTransport.getState().position?.state !== "playing") reconnect();
 }
 
 async function connect(force: boolean): Promise<void> {

@@ -15,7 +15,7 @@ import type { BackendDocument } from "../project/api";
 import type { Project, ProjectState } from "../project/types";
 import { closeEditor } from "../welcome/api";
 import { currentFrame } from "../transport/store";
-import { reconnect, seek } from "../transport/playback";
+import { seek, startTransport } from "../transport/playback";
 import { analyse, detectTempos, forgetAnalyses } from "./audio";
 import { activeTimeline, isDirty } from "./doc";
 import { addAudioClip, addNote, emptyProject } from "./edit";
@@ -46,13 +46,15 @@ function load({ project, active }: ProjectState, path: string | null): void {
 /** The same content, whether or not it is the same object: what unsaved work is told by identity. */
 const sameProject = (a: Project, b: Project) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
-function restore({ project, path, baseline, active }: BackendDocument): void {
+function restore({ project, path, baseline, active }: BackendDocument): Project {
   forgetAnalyses();
   dispatch({ type: "restore", project, path, active, saved: sameProject(project, baseline) ? project : baseline });
   resetView();
   say("status.restored", { name: project.name });
-  void analyse(project.assets).then(() => detectTempos(project.assets, true));
+  return project;
 }
+
+export type EditorPhase = "project" | "audio" | "outputs";
 
 let started: Promise<void> | null = null;
 
@@ -64,20 +66,34 @@ let started: Promise<void> | null = null;
  * always this window's own. Outside the desktop app there is no backend and the window keeps its
  * own. Once only.
  */
-export function startDocument(t: Translate): Promise<void> {
+export function startDocument(t: Translate, phase: (value: EditorPhase) => void): Promise<void> {
   started ??= (async () => {
     let found: BackendDocument | null;
     try {
       found = await projectDocument();
-    } catch {
+    } catch (err) {
+      fail(err);
       return;
     }
-    if (found) return restore(found);
-    const path = new URLSearchParams(window.location.search).get("open");
-    if (path) return openAt(path);
-    const fresh = await newProject(t("project.untitled"), "fps25").catch(() => null);
-    if (fresh) load(fresh, null);
-  })().finally(() => reconnect());
+    let project: Project | undefined;
+    if (found) {
+      project = restore(found);
+    } else {
+      const path = new URLSearchParams(window.location.search).get("open");
+      if (path) project = await openAt(path);
+      else {
+        const fresh = await newProject(t("project.untitled"), "fps25");
+        load(fresh, null);
+      }
+    }
+    if (project?.assets.length) {
+      phase("audio");
+      await prepareAudio(project);
+    }
+  })().catch(fail).then(() => {
+    phase("outputs");
+    return startTransport();
+  }).catch(fail);
   return started;
 }
 
@@ -88,22 +104,28 @@ export const newDocument = (t: Translate) =>
     say("status.ready");
   });
 
-async function openAt(path: string): Promise<void> {
+async function openAt(path: string): Promise<Project | undefined> {
   try {
     const opened = await openProjectAt(path);
     load(opened, path);
     say("status.opened", { name: basename(path) });
-    void analyse(opened.project.assets).then(() => detectTempos(opened.project.assets, true));
+    return opened.project;
   } catch (err) {
     fail(err);
   }
+}
+
+async function prepareAudio(project: Project): Promise<void> {
+  await analyse(project.assets);
+  await detectTempos(project.assets, true);
 }
 
 export const openDocument = () =>
   replaceDoc(async () => {
     try {
       const path = await pickProjectPath();
-      if (path) await openAt(path);
+      const project = path && await openAt(path);
+      if (project) void prepareAudio(project);
     } catch (err) {
       fail(err);
     }

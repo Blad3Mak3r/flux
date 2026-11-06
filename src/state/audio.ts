@@ -21,6 +21,7 @@ export function analyse(assets: AudioAsset[]): Promise<void> {
   if (assets.length === 0) return Promise.resolve();
   say("status.analysing");
   let pending = assets.length;
+  let failed = false;
   const reads = assets.map((asset) =>
     analyzeAudio(asset)
       .then((info) => {
@@ -34,10 +35,13 @@ export function analyse(assets: AudioAsset[]): Promise<void> {
           },
         });
       })
-      .catch((err) => generation === current && sayError(`${asset.name}: ${errorMessage(err)}`))
+      .catch((err) => {
+        failed = true;
+        if (generation === current) sayError(`${asset.name}: ${errorMessage(err)}`);
+      })
       .finally(() => {
         pending -= 1;
-        if (pending === 0 && generation === current) say("status.analysed");
+        if (pending === 0 && !failed && generation === current) say("status.analysed");
       }),
   );
   return Promise.all(reads).then(() => undefined);

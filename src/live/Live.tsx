@@ -1,9 +1,7 @@
-import { useEffect } from "react";
 import { useT } from "../i18n";
 import { setView } from "../state/ui";
 import { selectMode, useTransport } from "../transport/store";
 import { CueList } from "./CueList";
-import { bindLive } from "./feed";
 import { NextCue } from "./NextCue";
 import { Notes } from "./Notes";
 import { Running } from "./Running";
@@ -21,8 +19,6 @@ export function Live() {
   const empty = useLive((live) => live.cues.length === 0);
   const hasNotes = useLive((live) => live.cues.some((cue) => cue.kind === "note"));
   const playing = useTransport((transport) => selectMode(transport) === "playing");
-
-  useEffect(bindLive, []);
 
   return (
     <section className="live" data-playing={playing} aria-labelledby="live-legend">
