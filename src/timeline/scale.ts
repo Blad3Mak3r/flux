@@ -55,15 +55,43 @@ export interface TickPositions {
   minor: number[];
 }
 
-/** Every tick up to `width` pixels, so the ruler and the graticule are drawn from the same list. */
-export function tickPositions(pxPerFrame: number, rate: FrameRate, width: number): TickPositions {
+/** A stretch of the timeline, in pixels from its origin. */
+export interface PixelRange {
+  from: number;
+  to: number;
+}
+
+/** Pixels the visible range moves in: scrolling redraws the ticks once per chunk, not at every pixel. */
+const RANGE_CHUNK = 1024;
+
+/**
+ * The part of a timeline `total` pixels wide that needs ticks: what is on screen (`left` to
+ * `left + viewWidth`) and a screenful each side, in whole chunks. A long timeline at a deep zoom has
+ * tens of thousands of ticks; only these are drawn.
+ */
+export function visibleRange(left: number, viewWidth: number, total: number): PixelRange {
+  const margin = Math.max(viewWidth, RANGE_CHUNK);
+  const clamp = (x: number) => Math.min(Math.max(x, 0), total);
+  return {
+    from: clamp(Math.floor((left - margin) / RANGE_CHUNK) * RANGE_CHUNK),
+    to: clamp(Math.ceil((left + viewWidth + margin) / RANGE_CHUNK) * RANGE_CHUNK),
+  };
+}
+
+/**
+ * Every tick up to `width` pixels, or only those inside `range`, so the ruler and the graticule are
+ * drawn from the same list.
+ */
+export function tickPositions(pxPerFrame: number, rate: FrameRate, width: number, range?: PixelRange): TickPositions {
   const ticks = pickTicks(pxPerFrame, rate);
-  const frames = Math.ceil(width / pxPerFrame);
+  const frames = Math.ceil(Math.min(width, range?.to ?? width) / pxPerFrame);
+  const first = Math.max(0, Math.floor((range?.from ?? 0) / pxPerFrame));
   const major: number[] = [];
   const minor: number[] = [];
-  for (let f = 0; f <= frames; f += ticks.major) major.push(f);
+  for (let f = Math.ceil(first / ticks.major) * ticks.major; f <= frames; f += ticks.major) major.push(f);
   if (ticks.minor !== null) {
-    for (let f = 0; f <= frames; f += ticks.minor) if (f % ticks.major !== 0) minor.push(f);
+    const step = ticks.minor;
+    for (let f = Math.ceil(first / step) * step; f <= frames; f += step) if (f % ticks.major !== 0) minor.push(f);
   }
   return { major, minor };
 }
@@ -127,19 +155,25 @@ export function lineSpacing(pxPerFrame: number, rate: FrameRate, grid: BeatGrid 
 export const beatFrames = (grid: BeatGrid): number => (60 / grid.bpm) * grid.fps;
 
 /**
- * Every bar line and beat up to `width` pixels, from the origin, spaced like `tickPositions` so
+ * Every bar line and beat up to `width` pixels (or inside `range`), from the origin, spaced like `tickPositions` so
  * labels never crowd. Positions are exact (a beat is rarely a whole frame); `frameX` rounds them
  * to the pixel, so the ruler and the graticule agree.
  */
-export function barTickPositions(pxPerFrame: number, grid: BeatGrid, width: number): BarTickPositions {
+export function barTickPositions(
+  pxPerFrame: number,
+  grid: BeatGrid,
+  width: number,
+  range?: PixelRange,
+): BarTickPositions {
   const beat = beatFrames(grid);
   const perBar = grid.beatsPerBar;
   const { step, minorStep } = barSteps(pxPerFrame, grid);
 
-  const beats = Math.ceil(width / pxPerFrame / beat);
+  const beats = Math.ceil(Math.min(width, range?.to ?? width) / pxPerFrame / beat);
+  const firstBeat = Math.max(0, Math.floor((range?.from ?? 0) / pxPerFrame / beat));
   const major: BarTick[] = [];
   const minor: number[] = [];
-  for (let n = 0; n <= beats; n++) {
+  for (let n = firstBeat; n <= beats; n++) {
     const bar = Math.floor(n / perBar) + 1;
     const inBar = n % perBar;
     if (n % step === 0) major.push({ frame: n * beat, label: inBar === 0 ? String(bar) : `${bar}.${inBar + 1}` });

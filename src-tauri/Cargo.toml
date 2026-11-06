@@ -33,6 +33,8 @@ serde_json = "1"
 zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
 thiserror = "2.0.21"
 log = { version = "0.4", features = ["std"] }
+# Where the app data folder is, before Tauri can say (see `graphics.rs`).
+dirs = "7"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

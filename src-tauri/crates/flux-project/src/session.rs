@@ -10,6 +10,7 @@ use super::archive::{self, AssetSource};
 use super::clips::{self, ClipOp};
 use super::cue_ops::{self, CueEdited, CueOp};
 use super::error::{ProjectError, Result};
+use super::item_ops::{self, ItemOp};
 use super::model::{
     AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, Timeline, TrackKind,
     check_asset_path,
@@ -294,6 +295,11 @@ impl Session {
             }
             Err(unknown_clip(clip_id))
         })
+    }
+
+    /// Renames a track or a clip, or changes a clip's fade curves or volume envelope (see [`ItemOp`]).
+    pub fn item_edit(&mut self, op: ItemOp) -> Result<ProjectState> {
+        self.change(|project, active| item_ops::apply(project, active, op))
     }
 
     /// Edits the MIDI and OSC tracks and the OSC destinations (see [`CueOp`]).

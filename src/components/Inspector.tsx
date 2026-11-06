@@ -1,7 +1,8 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { Project, Timeline, Track } from "../project/types";
-import { deleteSelection, edit, setTimelineTempo } from "../state/actions";
+import type { FadeCurve, Project, Timeline, Track } from "../project/types";
+import { deleteSelection, edit, nameClip, nameTrack, setTimelineTempo } from "../state/actions";
+import { editItem } from "../state/items";
 import { detectTempo } from "../state/audio";
 import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
@@ -18,7 +19,8 @@ import {
 } from "../state/edit";
 import { TRACK_COLORS } from "../timeline/palette";
 import { MidiEventPanel, OscEventPanel } from "./CueEventPanel";
-import { TextAreaField, TextField, TimecodeField } from "./fields";
+import { FADE_CURVES } from "../audio/fade";
+import { SelectField, TextAreaField, TextField, TimecodeField } from "./fields";
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
 import { MOD_KEY } from "./menus";
 
@@ -69,6 +71,20 @@ function TrackColorField({
   );
 }
 
+/** The name of the track an item is on, which the track header also types in place. */
+function TrackNameField({ track }: { track: Track }) {
+  const t = useT();
+  return (
+    <TextField
+      // Another track starts the field over, so a half-typed name never lands on it.
+      key={track.id}
+      label={t("track.name")}
+      value={track.name}
+      onCommit={(text) => void nameTrack(track.id, text)}
+    />
+  );
+}
+
 function SelectionPanel({
   project,
   timeline,
@@ -99,9 +115,15 @@ function SelectionPanel({
         <dl className="facts">
           <dt>{t("clip.name")}</dt>
           <dd>{asset?.name ?? clip.asset}</dd>
-          <dt>{t("clip.track")}</dt>
-          <dd>{track.name}</dd>
         </dl>
+        <TextField
+          key={clip.id}
+          label={t("clip.label")}
+          hint={t("clip.label.hint", { file: asset?.name ?? clip.asset })}
+          value={clip.name ?? ""}
+          onCommit={(text) => void nameClip(clip.id, text)}
+        />
+        <TrackNameField track={track} />
         <TimecodeField
           label={t("clip.start")}
           frame={start + clip.start}
@@ -116,6 +138,38 @@ function SelectionPanel({
           validate={(text) => (Number.isFinite(Number(text)) && text.trim() !== "" ? null : t("field.numberInvalid"))}
           onCommit={(text) => onEdit(updateClip(project, timeline.id, clip.id, { gainDb: Number(text) }))}
         />
+        {[
+          { label: t("clip.fadeInCurve"), key: "fadeInCurve", length: clip.fadeIn },
+          { label: t("clip.fadeOutCurve"), key: "fadeOutCurve", length: clip.fadeOut },
+        ].map(({ label, key, length }) => (
+          <SelectField
+            key={key}
+            label={label}
+            value={clip[key as "fadeInCurve" | "fadeOutCurve"] ?? "linear"}
+            disabled={!length}
+            hint={length ? undefined : t("clip.fadeCurve.none")}
+            onChange={(curve) =>
+              void editItem({
+                op: "setFadeCurve",
+                id: clip.id,
+                fade: key === "fadeInCurve" ? "in" : "out",
+                curve: curve as FadeCurve,
+              })
+            }
+          >
+            {FADE_CURVES.map((curve) => (
+              <option key={curve} value={curve}>
+                {t(`fade.curve.${curve}`)}
+              </option>
+            ))}
+          </SelectField>
+        ))}
+        <p className="field-note">{t("envelope.hint")}</p>
+        {clip.envelope && clip.envelope.length > 0 && (
+          <button type="button" className="button" onClick={() => void editItem({ op: "clearEnvelope", id: clip.id })}>
+            {t("envelope.remove")}
+          </button>
+        )}
         {!audio[clip.asset]?.peaks && <p className="field-note">{t("clip.lengthGuess")}</p>}
         {asset && (
           <>
@@ -181,6 +235,7 @@ function SelectionPanel({
   return (
     <div className="panel-body">
       <h3>{t("note.title")}</h3>
+      <TrackNameField track={found.track} />
       <TextAreaField
         // A new note is selected to be written: it opens with the cursor in the text.
         key={note.id}

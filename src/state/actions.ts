@@ -4,9 +4,19 @@
 import type { Project, Tempo } from "../project/types";
 import { activeTimeline } from "./doc";
 import { dispatch, useDoc } from "./store";
-import { moveItem, moveTrack, removeItem, removeTrack, setTempo, setTrackGain, toggleMute } from "./edit";
+import {
+  findItem,
+  moveItem,
+  moveTrack,
+  removeItem,
+  removeTrack,
+  setTempo,
+  setTrackGain,
+  toggleMute,
+} from "./edit";
 import { removeCueEvent } from "./cues";
-import { select, useUi } from "./ui";
+import { editItem } from "./items";
+import { rename, select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
 
@@ -19,6 +29,10 @@ export const editWith = (change: (project: Project, timeline: string) => Project
 export const moveTo = (id: string, position: number) => editWith((p, tl) => moveItem(p, tl, id, position));
 export const reorderTrack = (trackId: string, to: number) => editWith((p, tl) => moveTrack(p, tl, trackId, to));
 export const muteTrack = (trackId: string) => editWith((p, tl) => toggleMute(p, tl, trackId));
+/** Renames a track; the backend trims the name and refuses a blank one. */
+export const nameTrack = (id: string, name: string) => editItem({ op: "renameTrack", id, name });
+/** Names a clip; a blank name takes it away, so the clip goes by its audio file's name again. */
+export const nameClip = (id: string, name: string) => editItem({ op: "renameClip", id, name });
 export const setGain = (trackId: string, gainDb: number) =>
   editWith((p, tl) => setTrackGain(p, tl, trackId, gainDb));
 
@@ -40,4 +54,11 @@ export function deleteSelection(): void {
   }
   editWith((p, tl) => removeItem(p, tl, selection.id));
   select(null);
+}
+
+/** Opens the name of the track that holds the selected item for typing (F2). */
+export function renameSelectedTrack(): void {
+  const { selection } = useUi.getState();
+  const track = selection && findItem(useDoc.getState().project, selection.id)?.track;
+  if (track) rename({ kind: "track", id: track.id });
 }

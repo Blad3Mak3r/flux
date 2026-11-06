@@ -190,7 +190,7 @@ impl CueList {
                         cues.push(cue(
                             &clip.id,
                             CueKind::Audio,
-                            &asset.name,
+                            clip.name.as_deref().unwrap_or(&asset.name),
                             clip.start,
                             length,
                         ));
@@ -626,6 +626,23 @@ mod tests {
         assert_eq!(ids(&list), ["c1", "m1", "c2"]);
         let numbers: Vec<u32> = list.cues().iter().map(|cue| cue.number).collect();
         assert_eq!(numbers, [1, 2, 3]);
+    }
+
+    #[test]
+    fn build_should_name_a_cue_after_its_clip_before_its_asset() {
+        let mut project = project(false);
+        let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind else {
+            panic!("the first track is audio");
+        };
+        clips[1].name = Some("Opening".into());
+        let list = list(&project);
+        let names: Vec<&str> = list
+            .cues()
+            .iter()
+            .filter(|cue| cue.id == "c1" || cue.id == "c2")
+            .map(|cue| cue.name.as_str())
+            .collect();
+        assert_eq!(names, ["Opening", "Intro"]);
     }
 
     #[test]

@@ -1,11 +1,14 @@
 import { memo, useRef } from "react";
 import type { PointerEvent } from "react";
 import { useT } from "../i18n";
-import { snapFrame } from "../state/snap";
+import { snapFrame, snapTargets } from "../state/snap";
+import { setSnapGuide } from "../state/ui";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
 import { barTickPositions, frameX, pickTicks, tickPositions } from "../timeline/scale";
+import { useVisibleRange } from "../timeline/useVisibleRange";
 import type { BeatGrid } from "../timeline/scale";
+import type { SnapTarget } from "../timeline/snap";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
 
 /** The bar lines and beats, labelled with bar numbers (`3`) and, zoomed in, beats (`3.2`). */
@@ -18,7 +21,8 @@ const BarTicks = memo(function BarTicks({
   pxPerFrame: number;
   grid: BeatGrid;
 }) {
-  const { major, minor } = barTickPositions(pxPerFrame, grid, width);
+  const range = useVisibleRange(width);
+  const { major, minor } = barTickPositions(pxPerFrame, grid, width, range);
   let d = "";
   for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
   for (const { frame } of major) d += `M${frameX(frame, pxPerFrame) + 0.5} ${RULER_H - 16}V${RULER_H}`;
@@ -47,7 +51,8 @@ const RulerTicks = memo(function RulerTicks({
   start: number;
 }) {
   const ticks = pickTicks(pxPerFrame, rate);
-  const { major, minor } = tickPositions(pxPerFrame, rate, width);
+  const range = useVisibleRange(width);
+  const { major, minor } = tickPositions(pxPerFrame, rate, width, range);
   let d = "";
   for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
   const labels = major.map((f) => {
@@ -116,15 +121,23 @@ export function Ruler({
 }) {
   const t = useT();
   const mode = useRef<"seek" | "measure" | null>(null);
+  // What the playhead or the span can land on, taken when the press starts; not the playhead itself.
+  const targets = useRef<SnapTarget[]>([]);
 
   const frameAt = (event: PointerEvent<SVGSVGElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
-    return Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame)));
+    return Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame), targets.current, { alt: event.altKey, guide: true }));
+  };
+
+  const release = () => {
+    mode.current = null;
+    setSnapGuide(null);
   };
 
   const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
+    targets.current = snapTargets([], ["playhead"]);
     const frame = frameAt(event);
     if (event.shiftKey) {
       mode.current = "measure";
@@ -152,8 +165,8 @@ export function Ruler({
       aria-label={t("timeline.ruler")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={() => (mode.current = null)}
-      onPointerCancel={() => (mode.current = null)}
+      onPointerUp={release}
+      onPointerCancel={release}
     >
       <RulerSpan pxPerFrame={pxPerFrame} />
       {grid ? (

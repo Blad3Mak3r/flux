@@ -5,7 +5,7 @@
 use serde::Deserialize;
 
 use super::error::{ProjectError, Result};
-use super::model::AudioClip;
+use super::model::{AudioClip, ENVELOPE_TICKS_PER_FRAME, EnvPoint, FadeCurve};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,11 +72,20 @@ pub fn apply(
             }
             edited.length = Some(frame - clip.start);
             edited.fade_out = 0;
+            edited.fade_out_curve = FadeCurve::Linear;
             let mut second = AudioClip::new(new_id(), clip.asset.clone(), frame);
             second.gain_db = clip.gain_db;
+            second.name = clip.name.clone();
             second.offset = clip.offset + frame - clip.start;
             second.length = Some(end - frame);
             second.fade_out = clip.fade_out;
+            second.fade_out_curve = clip.fade_out_curve;
+            // The points are counted from the file, so both halves read them where they were.
+            let cut = clip.offset + frame - clip.start;
+            let ticks = |frames: u64| frames * ENVELOPE_TICKS_PER_FRAME;
+            edited.envelope = envelope_within(&clip.envelope, ticks(clip.offset), ticks(cut));
+            second.envelope =
+                envelope_within(&clip.envelope, ticks(cut), ticks(clip.offset + length));
             fit_fades(&mut edited, asset_frames);
             fit_fades(&mut second, asset_frames);
             return Ok(vec![edited, second]);
@@ -84,6 +93,18 @@ pub fn apply(
     }
     fit_fades(&mut edited, asset_frames);
     Ok(vec![edited])
+}
+
+/// The points that shape the envelope between `from` and `to` ticks of the file: those inside, and
+/// the nearest one on each side, which the line to the first and from the last still leans on.
+fn envelope_within(points: &[EnvPoint], from: u64, to: u64) -> Vec<EnvPoint> {
+    let first = points
+        .partition_point(|point| point.at <= from)
+        .saturating_sub(1);
+    let last = points
+        .partition_point(|point| point.at < to)
+        .min(points.len().saturating_sub(1));
+    points.get(first..=last).unwrap_or_default().to_vec()
 }
 
 /// Keeps the fades inside the clip: the second one gives way to the first.
@@ -186,6 +207,85 @@ mod tests {
         assert_eq!(second.id, "c2");
         // Both halves measure the asset from the same frame.
         assert_eq!(first.start - first.offset, second.start - second.offset);
+    }
+
+    #[test]
+    fn split_should_give_both_halves_the_name_of_the_clip() {
+        let named = AudioClip {
+            name: Some("Intro".into()),
+            ..clip()
+        };
+        let halves = apply(&named, ClipOp::Split, 400, ASSET, || "c2".into()).unwrap();
+        assert!(
+            halves
+                .iter()
+                .all(|half| half.name.as_deref() == Some("Intro"))
+        );
+    }
+
+    #[test]
+    fn split_should_keep_each_fade_curve_with_its_own_half() {
+        let shaped = AudioClip {
+            fade_in: 20,
+            fade_out: 100,
+            fade_in_curve: FadeCurve::SCurve,
+            fade_out_curve: FadeCurve::Exponential,
+            ..clip()
+        };
+        let halves = apply(&shaped, ClipOp::Split, 400, ASSET, || "c2".into()).unwrap();
+        let [first, second] = &halves[..] else {
+            panic!("expected two clips")
+        };
+        assert_eq!(
+            (first.fade_in_curve, first.fade_out_curve),
+            (FadeCurve::SCurve, FadeCurve::Linear)
+        );
+        assert_eq!(
+            (second.fade_in_curve, second.fade_out_curve),
+            (FadeCurve::Linear, FadeCurve::Exponential)
+        );
+    }
+
+    fn point(frames: u64, gain_db: f32) -> EnvPoint {
+        EnvPoint {
+            at: frames * ENVELOPE_TICKS_PER_FRAME,
+            gain_db,
+            curve: Default::default(),
+        }
+    }
+
+    #[test]
+    fn split_should_give_each_half_the_envelope_points_that_shape_it() {
+        // The file starts at frame 100 (the clip is untrimmed); the cut is at frame 400, 300 frames in.
+        let shaped = AudioClip {
+            envelope: vec![
+                point(0, -60.0),
+                point(100, 0.0),
+                point(500, -6.0),
+                point(900, 0.0),
+            ],
+            ..clip()
+        };
+        let halves = apply(&shaped, ClipOp::Split, 400, ASSET, || "c2".into()).unwrap();
+        let [first, second] = &halves[..] else {
+            panic!("expected two clips")
+        };
+        let at = |clip: &AudioClip| -> Vec<u64> {
+            clip.envelope
+                .iter()
+                .map(|p| p.at / ENVELOPE_TICKS_PER_FRAME)
+                .collect()
+        };
+        // First half: 0..300 of the file, plus the point after it that the line runs to.
+        assert_eq!(at(first), [0, 100, 500]);
+        // Second half: from 300, with the point before it that the line starts from.
+        assert_eq!(at(second), [100, 500, 900]);
+    }
+
+    #[test]
+    fn split_should_leave_a_clip_without_an_envelope_without_one() {
+        let halves = apply(&clip(), ClipOp::Split, 400, ASSET, || "c2".into()).unwrap();
+        assert!(halves.iter().all(|half| half.envelope.is_empty()));
     }
 
     #[test]
