@@ -23,7 +23,8 @@ Projects use the `.fxtc` extension. A `.fxtc` is a **zip container** holding:
 
 - `project.json` — the full project description: one or more **timelines** (each with its own tracks, audio and notes,
   frame rate and start offset), the audio assets they share, and the output configuration (MTC/LTC settings, device
-  preferences). Only one timeline plays at a time. The backend owns the timeline operations (add, rename, remove,
+  preferences, OSC destinations). Tracks are audio, notes, **MIDI** (timed messages to a port) or **OSC** (timed
+  messages to a destination). Only one timeline plays at a time. The backend owns the timeline operations (add, rename, remove,
   select the active one, set its timecode); the UI only shows the project it answers with.
 - The **audio files** used by the project's tracks, bundled in the archive so a project is self-contained and portable.
 
@@ -34,7 +35,7 @@ code is `src-tauri/crates/flux-project/`.
 
 The backend writes a rotating `flux.log` in the app's log folder and the Help menu opens that folder or exports a zip
 with the logs and a report of the system and devices. Use `log::info!`/`warn!`/`error!` for events, and **never log
-from an audio callback or `flux-audio`/`flux-ltc`/`flux-click`/`flux-mtc`**: count in an atomic and let the `flux-log`
+from an audio callback or `flux-audio`/`flux-ltc`/`flux-click`/`flux-mtc`/`flux-midi`/`flux-osc`**: count in an atomic and let the `flux-log`
 lane write it. See [docs/diagnostics.md](docs/diagnostics.md).
 
 ## Stack

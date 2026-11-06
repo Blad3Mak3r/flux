@@ -35,7 +35,8 @@ QLab's cue and show-control model combined with a REAPER-style timeline and trac
 
 - Today the app can: open, save and import audio into `.fxtc` projects with several timelines; edit audio and notes tracks on a timeline and play the audio mixed on the audio device's clock; detect the tempo of songs and click a metronome; generate LTC and MTC; run a transport (play, pause, stop, seek); and run the show in a read-only Live view driven by cues the backend derives from the project.
 - Outputs are set up in the Setup dialog: the programme's audio device and channels, an Edit-only preview device, the metronome, any number of LTC outputs (each with its own device, channel, level and latency offset) and any number of MTC outputs (each a MIDI port, with same-named ports told apart, and a latency offset). Devices are stored as name hints and a missing one is explained, never fatal.
-- Not built yet: firing cues other than audio (video, Art-Net, MIDI keys, OSC are planned as new track kinds) and chasing an external timecode.
+- Cue tracks fire from the same clock: MIDI tracks (notes, control and program change, MIDI Show Control, SysEx) to a chosen MIDI port, and OSC tracks (UDP) to destinations defined in Preferences. Seeking never replays the events jumped over.
+- Not built yet: firing video or Art-Net cues and chasing an external timecode.
 - Internationalisation is a requirement from the start. English is the default and Spanish is the second language. No user-facing string is hard-coded.
 - The UI must be legible in the dark and from a distance: the current timecode has to read at a glance.
 - Undecided: the LTC edge default beyond the shipped one (the level is set per output), supported audio formats beyond wav, aiff, flac, mp3 and ogg, a non-drop 29.97 rate, which further track kinds come after audio and notes, and release and packaging.
