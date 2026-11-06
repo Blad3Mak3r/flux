@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { FrameRate } from "../project/types";
 import { barTickPositions, frameX, tickPositions } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
+import { useVisibleRange } from "../timeline/useVisibleRange";
 
 /**
  * The vertical lines behind the lanes. They come from the same tick list and the same pixel
@@ -20,13 +21,15 @@ export function Graticule({
   /** The beat grid to draw lines on, or `null` for the timecode ticks. */
   grid: BeatGrid | null;
 }) {
+  const { from, to } = useVisibleRange(width);
   const { major, minor } = useMemo(() => {
+    const range = { from, to };
     const ticks = grid
-      ? (({ major, minor }) => ({ major: major.map((tick) => tick.frame), minor }))(barTickPositions(pxPerFrame, grid, width))
-      : tickPositions(pxPerFrame, rate, width);
+      ? (({ major, minor }) => ({ major: major.map((tick) => tick.frame), minor }))(barTickPositions(pxPerFrame, grid, width, range))
+      : tickPositions(pxPerFrame, rate, width, range);
     const path = (frames: number[]) => frames.map((f) => `M${frameX(f, pxPerFrame) + 0.5} 0V1`).join("");
     return { major: path(ticks.major), minor: path(ticks.minor) };
-  }, [width, pxPerFrame, rate, grid]);
+  }, [width, pxPerFrame, rate, grid, from, to]);
 
   return (
     <svg

@@ -6,6 +6,7 @@ import { setSnapGuide } from "../state/ui";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
 import { barTickPositions, frameX, pickTicks, tickPositions } from "../timeline/scale";
+import { useVisibleRange } from "../timeline/useVisibleRange";
 import type { BeatGrid } from "../timeline/scale";
 import type { SnapTarget } from "../timeline/snap";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
@@ -20,7 +21,8 @@ const BarTicks = memo(function BarTicks({
   pxPerFrame: number;
   grid: BeatGrid;
 }) {
-  const { major, minor } = barTickPositions(pxPerFrame, grid, width);
+  const range = useVisibleRange(width);
+  const { major, minor } = barTickPositions(pxPerFrame, grid, width, range);
   let d = "";
   for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
   for (const { frame } of major) d += `M${frameX(frame, pxPerFrame) + 0.5} ${RULER_H - 16}V${RULER_H}`;
@@ -49,7 +51,8 @@ const RulerTicks = memo(function RulerTicks({
   start: number;
 }) {
   const ticks = pickTicks(pxPerFrame, rate);
-  const { major, minor } = tickPositions(pxPerFrame, rate, width);
+  const range = useVisibleRange(width);
+  const { major, minor } = tickPositions(pxPerFrame, rate, width, range);
   let d = "";
   for (const f of minor) d += `M${frameX(f, pxPerFrame) + 0.5} ${RULER_H - 7}V${RULER_H}`;
   const labels = major.map((f) => {

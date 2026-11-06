@@ -95,3 +95,57 @@ test("the grid covers the whole width, to the last bar", () => {
   const last = Math.max(...major.map((t) => t.frame), ...minor);
   assert.ok(last * 0.5 >= width - beatFrames(GRID) * 0.5 * 8 - 1);
 });
+
+import { visibleRange } from "./scale.ts";
+
+test("the ticks of a range are the ones of the whole that fall in it, for every zoom and rate", () => {
+  for (const rate of ["fps24", "fps25", "fps2997Drop", "fps30"]) {
+    for (const zoom of [0.04, 0.37, 1.6, 7.3, 40]) {
+      const width = 90_000;
+      const whole = tickPositions(zoom, rate, width);
+      const range = { from: 20_480, to: 31_744 };
+      const part = tickPositions(zoom, rate, width, range);
+      // The first tick may sit up to a frame before the range, which is harmless: the range has a margin.
+      const inRange = (f) => f * zoom > range.from - zoom && f <= Math.ceil(range.to / zoom);
+      assert.deepEqual(part.major, whole.major.filter(inRange), `${rate} ${zoom} major`);
+      assert.deepEqual(part.minor, whole.minor.filter(inRange), `${rate} ${zoom} minor`);
+    }
+  }
+});
+
+test("the bar ticks of a range hold every tick of the whole inside it, and nothing but ticks of the whole near it", () => {
+  const grid = { bpm: 117, beatsPerBar: 4, fps: 25 };
+  const beatPx = (zoom) => beatFrames(grid) * zoom;
+  for (const zoom of [0.1, 1.6, 12]) {
+    const width = 120_000;
+    const whole = barTickPositions(zoom, grid, width);
+    const range = { from: 30_720, to: 40_960 };
+    const part = barTickPositions(zoom, grid, width, range);
+    const inside = (f) => f * zoom >= range.from && f * zoom <= range.to;
+    const near = (f) => f * zoom >= range.from - beatPx(zoom) && f * zoom <= range.to + beatPx(zoom);
+    for (const tick of whole.major.filter((t) => inside(t.frame))) assert.ok(part.major.some((t) => t.frame === tick.frame), `${zoom} major ${tick.label}`);
+    for (const f of whole.minor.filter(inside)) assert.ok(part.minor.includes(f), `${zoom} minor ${f}`);
+    for (const tick of part.major) {
+      assert.ok(whole.major.some((t) => t.frame === tick.frame && t.label === tick.label), `${zoom} extra major`);
+      assert.ok(near(tick.frame), `${zoom} major out of range`);
+    }
+    for (const f of part.minor) {
+      assert.ok(whole.minor.includes(f), `${zoom} extra minor`);
+      assert.ok(near(f), `${zoom} minor out of range`);
+    }
+  }
+});
+
+test("a range with no tick in it is empty, and one past the end of the timeline too", () => {
+  assert.deepEqual(tickPositions(1.6, "fps25", 5000, { from: 9000, to: 9000 }), { major: [], minor: [] });
+});
+
+test("the visible range is the view plus a screenful each side, in chunks, inside the timeline", () => {
+  assert.deepEqual(visibleRange(0, 1500, 900_000), { from: 0, to: 3072 });
+  const mid = visibleRange(100_000, 1500, 900_000);
+  assert.ok(mid.from <= 100_000 - 1500 && mid.to >= 100_000 + 3000);
+  assert.equal(mid.from % 1024, 0);
+  assert.equal(mid.to % 1024, 0);
+  assert.deepEqual(visibleRange(0, 1500, 800), { from: 0, to: 800 });
+  assert.deepEqual(visibleRange(100_000, 1500, 100_000), { from: 98_304, to: 100_000 });
+});
