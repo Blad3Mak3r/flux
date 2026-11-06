@@ -15,13 +15,29 @@ use crate::mixer::span;
 use flux_audio::ENGINE_RATE;
 use flux_core::Clock;
 use flux_core::Timecode;
-use flux_project::{AudioAsset, FrameRate, Project, Timeline, TrackKind};
+use flux_project::{AudioAsset, FrameRate, MidiMessage, OscArg, Project, Timeline, TrackKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CueKind {
     Audio,
     Note,
+    Midi,
+    Osc,
+}
+
+/// What a MIDI or OSC cue sends, for the UI to name in the user's language. The numbers and
+/// notation that go with it are in [`Cue::detail`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CueAction {
+    NoteOn,
+    NoteOff,
+    ControlChange,
+    ProgramChange,
+    Msc,
+    SysEx,
+    Osc,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -36,6 +52,10 @@ pub struct Cue {
     pub name: String,
     /// The whole text of a note.
     pub text: Option<String>,
+    /// What a MIDI or OSC cue sends.
+    pub action: Option<CueAction>,
+    /// Its notation, e.g. `C4 · ch 1 · vel 100` or `/cue/1/start 1`: not a sentence, so not translated.
+    pub detail: Option<String>,
     pub track_id: String,
     pub track_name: String,
     pub color: Option<String>,
@@ -146,6 +166,8 @@ impl CueList {
                 kind,
                 name: name.to_owned(),
                 text: None,
+                action: None,
+                detail: None,
                 track_id: track.id.clone(),
                 track_name: track.name.clone(),
                 color: track.color.clone(),
@@ -172,6 +194,25 @@ impl CueList {
                             clip.start,
                             length,
                         ));
+                    }
+                }
+                TrackKind::Midi { events, .. } => {
+                    for event in events {
+                        let (action, detail, length) = describe_midi(&event.message);
+                        end = end.max(clock.frames_to_samples(event.at + length.unwrap_or(0)));
+                        let mut item = cue(&event.id, CueKind::Midi, "", event.at, length);
+                        item.action = Some(action);
+                        item.detail = Some(detail);
+                        cues.push(item);
+                    }
+                }
+                TrackKind::Osc { events, .. } => {
+                    for event in events {
+                        end = end.max(clock.frames_to_samples(event.at));
+                        let mut item = cue(&event.id, CueKind::Osc, "", event.at, None);
+                        item.action = Some(CueAction::Osc);
+                        item.detail = Some(describe_osc(&event.address, &event.args));
+                        cues.push(item);
                     }
                 }
                 TrackKind::Notes { notes } => {
@@ -277,6 +318,94 @@ impl CueList {
     }
 }
 
+const NOTE_NAMES: [&str; 12] = [
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+];
+
+/// `60` is `C4`, as most consoles and keyboards label it.
+fn note_name(note: u8) -> String {
+    format!(
+        "{}{}",
+        NOTE_NAMES[usize::from(note % 12)],
+        i16::from(note / 12) - 1
+    )
+}
+
+/// The action, notation and length (frames, only for a note that releases itself) of a message.
+fn describe_midi(message: &MidiMessage) -> (CueAction, String, Option<u64>) {
+    match message {
+        MidiMessage::NoteOn {
+            channel,
+            note,
+            velocity,
+            length,
+        } => (
+            CueAction::NoteOn,
+            format!("{} · ch {channel} · vel {velocity}", note_name(*note)),
+            *length,
+        ),
+        MidiMessage::NoteOff { channel, note } => (
+            CueAction::NoteOff,
+            format!("{} · ch {channel}", note_name(*note)),
+            None,
+        ),
+        MidiMessage::ControlChange {
+            channel,
+            controller,
+            value,
+        } => (
+            CueAction::ControlChange,
+            format!("CC {controller} = {value} · ch {channel}"),
+            None,
+        ),
+        MidiMessage::ProgramChange { channel, program } => (
+            CueAction::ProgramChange,
+            format!("{program} · ch {channel}"),
+            None,
+        ),
+        MidiMessage::Msc {
+            command, cue, list, ..
+        } => {
+            let mut text = format!("{command:?}").to_uppercase();
+            if let Some(cue) = cue {
+                text = format!("{text} {cue}");
+                if let Some(list) = list {
+                    text = format!("{text} · L{list}");
+                }
+            }
+            (CueAction::Msc, text, None)
+        }
+        MidiMessage::SysEx { data } => {
+            const SHOWN: usize = 8;
+            let mut text = data
+                .iter()
+                .take(SHOWN)
+                .map(|byte| format!("{byte:02X}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if data.len() > SHOWN {
+                text.push_str(" …");
+            }
+            (CueAction::SysEx, text, None)
+        }
+    }
+}
+
+fn describe_osc(address: &str, args: &[OscArg]) -> String {
+    let mut text = address.to_owned();
+    for arg in args {
+        text.push(' ');
+        match arg {
+            OscArg::Int(value) => text.push_str(&value.to_string()),
+            OscArg::Float(value) => text.push_str(&value.to_string()),
+            OscArg::String(value) => text.push_str(&format!("\"{value}\"")),
+            OscArg::Bool(true) => text.push('T'),
+            OscArg::Bool(false) => text.push('F'),
+        }
+    }
+    text
+}
+
 /// Where cue `index` stops being shown. Only notes are shown over time: one with a length for that
 /// long, one without until the next note of its track that starts later, or for the rest of the show.
 fn shown_until(cues: &[Cue], index: usize) -> Option<u64> {
@@ -318,7 +447,7 @@ impl SharedCues {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flux_project::{AudioClip, Note, Track};
+    use flux_project::{AudioClip, MidiEvent, Note, OscEvent, Track};
 
     /// One second of 25 fps video at the engine rate.
     const SECOND: u64 = ENGINE_RATE as u64;
@@ -389,6 +518,106 @@ mod tests {
 
     fn ids(list: &CueList) -> Vec<&str> {
         list.cues().iter().map(|cue| cue.id.as_str()).collect()
+    }
+
+    fn midi_track(id: &str, muted: bool, events: Vec<MidiEvent>) -> Track {
+        track(id, muted, TrackKind::Midi { port: None, events })
+    }
+
+    fn midi(id: &str, at: u64, message: MidiMessage) -> MidiEvent {
+        MidiEvent {
+            id: id.into(),
+            at,
+            message,
+        }
+    }
+
+    #[test]
+    fn a_midi_note_should_be_a_cue_with_its_notation_and_a_length() {
+        let mut p = project(false);
+        p.timelines[0].tracks.push(midi_track(
+            "t3",
+            false,
+            vec![midi(
+                "e1",
+                10,
+                MidiMessage::NoteOn {
+                    channel: 1,
+                    note: 60,
+                    velocity: 100,
+                    length: Some(5),
+                },
+            )],
+        ));
+        let cue = cue_named(&list(&p), "e1");
+        assert_eq!(cue.kind, CueKind::Midi);
+        assert_eq!(cue.action, Some(CueAction::NoteOn));
+        assert_eq!(cue.detail.as_deref(), Some("C4 · ch 1 · vel 100"));
+        assert_eq!(cue.length, Some(5));
+        assert_eq!(cue.frame, 110);
+    }
+
+    #[test]
+    fn an_osc_cue_should_show_its_address_and_arguments() {
+        let mut p = project(false);
+        p.timelines[0].tracks.push(track(
+            "t3",
+            false,
+            TrackKind::Osc {
+                destination: None,
+                events: vec![OscEvent {
+                    id: "o1".into(),
+                    at: 20,
+                    address: "/cue/1/start".into(),
+                    args: vec![
+                        OscArg::Int(1),
+                        OscArg::Float(0.5),
+                        OscArg::String("a".into()),
+                        OscArg::Bool(true),
+                    ],
+                }],
+            },
+        ));
+        let cue = cue_named(&list(&p), "o1");
+        assert_eq!(cue.kind, CueKind::Osc);
+        assert_eq!(cue.detail.as_deref(), Some("/cue/1/start 1 0.5 \"a\" T"));
+    }
+
+    #[test]
+    fn midi_cues_should_be_instant_unless_a_note_has_a_length_and_muted_with_their_track() {
+        let mut p = project(false);
+        p.timelines[0].tracks.push(midi_track(
+            "t3",
+            true,
+            vec![midi(
+                "e1",
+                10,
+                MidiMessage::ProgramChange {
+                    channel: 2,
+                    program: 12,
+                },
+            )],
+        ));
+        let l = list(&p);
+        let state = l.state_at(115);
+        let at = l.cues().iter().position(|c| c.id == "e1").unwrap();
+        assert_eq!(state.statuses[at], CueStatus::Muted);
+        assert_eq!(cue_named(&l, "e1").length, None);
+    }
+
+    #[test]
+    fn describing_midi_should_name_notes_and_msc_commands() {
+        assert_eq!(note_name(60), "C4");
+        assert_eq!(note_name(0), "C-1");
+        assert_eq!(note_name(61), "C#4");
+        let msc = MidiMessage::Msc {
+            device_id: 127,
+            format: 1,
+            command: flux_project::MscCommand::Go,
+            cue: Some("12.5".into()),
+            list: Some("2".into()),
+        };
+        assert_eq!(describe_midi(&msc).1, "GO 12.5 · L2");
     }
 
     #[test]
