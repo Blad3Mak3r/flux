@@ -5,6 +5,7 @@
 //! UI refreshes after a hot-plug. A device that is missing is a normal outcome (`None`), never an
 //! error, so opening a project can never fail because of hardware.
 
+use std::collections::HashSet;
 use std::io;
 
 use cpal::traits::{DeviceTrait, HostTrait};
@@ -79,14 +80,15 @@ pub fn list_audio() -> Vec<AudioDevice> {
         .collect()
 }
 
-/// Named outputs of the default host; on ALSA only those that pass [`is_listed`]. Other hosts (JACK, ...) only repeat
-/// the same hardware under another API, so they are left out.
+/// Named outputs of the default host, each name once; on ALSA only those that pass [`is_listed`].
+/// Other hosts (JACK, ...) only repeat the same hardware under another API, so they are left out.
 fn output_devices() -> Vec<(String, cpal::Device)> {
     let host = cpal::default_host();
     let alsa = host.id().name() == "ALSA";
     let Ok(outputs) = host.output_devices() else {
         return Vec::new();
     };
+    let mut seen = HashSet::new();
     outputs
         .filter(|device| {
             !alsa
@@ -95,16 +97,18 @@ fn output_devices() -> Vec<(String, cpal::Device)> {
                     .is_ok_and(|description| is_listed(description.driver()))
         })
         .filter_map(|device| Some((device_name(&device)?, device)))
+        // ALSA names one card twice (`plughw:CARD=PCH,...` and `plughw:CARD=0,...`).
+        .filter(|(name, _)| seen.insert(name.clone()))
         .collect()
 }
 
 /// Whether an ALSA device is a choice a person would make. WASAPI, CoreAudio and the like already give
 /// one entry per output, but ALSA lists every plugin of every card (`hw:`, `front:`, `surround51:`,
-/// `hdmi:`, `null`, ...) under the same name: only `plughw:`, one per physical device that converts
-/// whatever format or rate the project needs, and the `pipewire` / `pulse` servers stay. `default` is
-/// left out because the picker's "System default" already is it.
+/// `hdmi:`, `null`, ...) under the same name: only `plughw:` stays, one per physical device that
+/// converts whatever format or rate the project needs. The sound servers (`pipewire`, `pulse`,
+/// `default`) are left out because the picker's "System default" already goes through them.
 fn is_listed(pcm_id: Option<&str>) -> bool {
-    pcm_id.is_some_and(|pcm| pcm.starts_with("plughw:") || matches!(pcm, "pipewire" | "pulse"))
+    pcm_id.is_some_and(|pcm| pcm.starts_with("plughw:"))
 }
 
 pub fn list_midi() -> Result<Vec<MidiPort>, DeviceError> {
@@ -231,12 +235,7 @@ mod tests {
 
     #[test]
     fn is_listed_should_keep_one_entry_per_physical_alsa_output() {
-        for pcm in [
-            "plughw:CARD=PCH,DEV=0",
-            "plughw:CARD=1,DEV=0",
-            "pipewire",
-            "pulse",
-        ] {
+        for pcm in ["plughw:CARD=PCH,DEV=0", "plughw:CARD=1,DEV=0"] {
             assert!(is_listed(Some(pcm)), "{pcm}");
         }
         for pcm in [
@@ -247,6 +246,8 @@ mod tests {
             "hdmi:CARD=HDMI,DEV=0",
             "iec958:CARD=PCH,DEV=0",
             "default",
+            "pipewire",
+            "pulse",
             "null",
             "samplerate",
         ] {
