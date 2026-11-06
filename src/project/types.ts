@@ -131,6 +131,25 @@ export interface OscDestination {
   port: number;
 }
 
+/** How the gain moves from one envelope point to the next. */
+export type EnvCurve = "linear" | "smooth" | "fast" | "slow" | "hold";
+
+/** One breakpoint of a clip's volume envelope. */
+export interface EnvPoint {
+  /** Thousandths of a frame from the start of the clip's audio file, so moving or trimming the clip leaves it be. */
+  at: number;
+  /** -60 (silence) to +6. */
+  gainDb: number;
+  /** How the gain gets from this point to the next; absent is a straight line. */
+  curve?: EnvCurve;
+}
+
+/** Envelope points per frame. */
+export const ENVELOPE_TICKS_PER_FRAME = 1000;
+export const ENVELOPE_MIN_DB = -60;
+export const ENVELOPE_MAX_DB = 6;
+export const MAX_ENVELOPE_POINTS = 256;
+
 /** How the gain of a fade runs between silence and full level. */
 export type FadeCurve = "linear" | "equalPower" | "sCurve" | "exponential";
 
@@ -154,6 +173,8 @@ export interface AudioClip {
   fadeInCurve?: FadeCurve;
   /** Shape of the fade out; absent is a straight line. */
   fadeOutCurve?: FadeCurve;
+  /** The volume drawn over the clip; absent is none. */
+  envelope?: EnvPoint[];
 }
 
 /**

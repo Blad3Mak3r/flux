@@ -20,9 +20,11 @@ pub use events::{
 };
 pub use flux_core::FrameRate;
 pub use model::{
-    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, FORMAT_VERSION, FadeCurve,
-    LtcOutput, MAX_BPM, MAX_CLIP_NAME, MAX_OFFSET_MS, MIN_BPM, Meta, MetronomeOutput, MtcOutput,
-    Note, OutputConfig, Project, Tempo, TimecodeSettings, Timeline, Track, TrackKind,
+    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, ENVELOPE_MAX_DB,
+    ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, EnvPoint, FORMAT_VERSION, FadeCurve,
+    LtcOutput, MAX_BPM, MAX_CLIP_NAME, MAX_ENVELOPE_POINTS, MAX_OFFSET_MS, MIN_BPM, Meta,
+    MetronomeOutput, MtcOutput, Note, OutputConfig, Project, Tempo, TimecodeSettings, Timeline,
+    Track, TrackKind,
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, OffsetKind, ProjectState, Session};

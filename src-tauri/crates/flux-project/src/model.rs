@@ -186,6 +186,47 @@ pub enum FadeCurve {
     Exponential,
 }
 
+/// How the gain moves from one envelope point to the next.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EnvCurve {
+    /// A straight line between the two points, in dB.
+    #[default]
+    Linear,
+    /// Eases out of the first point and into the second.
+    Smooth,
+    /// Moves quickly at first and settles into the second point.
+    Fast,
+    /// Stays near the first point and moves late.
+    Slow,
+    /// Keeps the first point's gain, then steps to the second just before it (a few ms of ramp, never a click).
+    Hold,
+}
+
+/// One breakpoint of a clip's volume envelope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvPoint {
+    /// Where the point is, in 1/1000 of a frame from the start of the clip's audio file. Counted
+    /// from the file and not from the clip, so moving or trimming the clip leaves it where it is.
+    pub at: u64,
+    /// Gain at the point; [`ENVELOPE_MIN_DB`] is silence.
+    pub gain_db: f32,
+    /// How the gain gets from this point to the next; absent is a straight line.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub curve: EnvCurve,
+}
+
+/// Envelope points per frame: positions are finer than a frame.
+pub const ENVELOPE_TICKS_PER_FRAME: u64 = 1000;
+
+/// The most points a clip's envelope can have.
+pub const MAX_ENVELOPE_POINTS: usize = 256;
+
+/// The lowest and highest gain an envelope point can have, in dB. The lowest is silence.
+pub const ENVELOPE_MIN_DB: f32 = -60.0;
+pub const ENVELOPE_MAX_DB: f32 = 6.0;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioClip {
@@ -215,6 +256,11 @@ pub struct AudioClip {
     /// Shape of the fade out; absent is a straight line.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub fade_out_curve: FadeCurve,
+    /// The volume drawn over the clip, from the first point to the last; absent is none. It
+    /// multiplies `gain_db` and the fades. Before the first point and after the last the gain is
+    /// that of the nearest point.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub envelope: Vec<EnvPoint>,
 }
 
 fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
@@ -236,6 +282,7 @@ impl AudioClip {
             fade_out: 0,
             fade_in_curve: FadeCurve::Linear,
             fade_out_curve: FadeCurve::Linear,
+            envelope: Vec::new(),
         }
     }
 
@@ -458,6 +505,7 @@ fn validate_track<'a>(
                         clip.id
                     )));
                 }
+                check_envelope(clip)?;
                 if clip.length == Some(0) {
                     return Err(ProjectError::Invalid(format!(
                         "clip {} plays no time; leave the length out instead",
@@ -506,6 +554,36 @@ fn validate_track<'a>(
                 event.validate()?;
             }
         }
+    }
+    Ok(())
+}
+
+/// An envelope has at most [`MAX_ENVELOPE_POINTS`] points, in order, each within the range of gains.
+fn check_envelope(clip: &AudioClip) -> Result<()> {
+    let invalid =
+        |why: &str| ProjectError::Invalid(format!("the envelope of clip {} {why}", clip.id));
+    if clip.envelope.len() > MAX_ENVELOPE_POINTS {
+        return Err(invalid(&format!(
+            "has more than {MAX_ENVELOPE_POINTS} points"
+        )));
+    }
+    if clip
+        .envelope
+        .windows(2)
+        .any(|pair| pair[0].at >= pair[1].at)
+    {
+        return Err(invalid(
+            "must have its points in order, none at the same place",
+        ));
+    }
+    if clip
+        .envelope
+        .iter()
+        .any(|point| !(ENVELOPE_MIN_DB..=ENVELOPE_MAX_DB).contains(&point.gain_db))
+    {
+        return Err(invalid(&format!(
+            "has a gain outside {ENVELOPE_MIN_DB} to {ENVELOPE_MAX_DB} dB"
+        )));
     }
     Ok(())
 }
@@ -925,6 +1003,86 @@ pub(super) mod tests {
         assert_eq!(json["fadeInCurve"], "sCurve");
         assert_eq!(json["fadeOutCurve"], "equalPower");
         assert_eq!(serde_json::from_value::<AudioClip>(json).unwrap(), clip);
+    }
+
+    fn envelope_clip(points: &[(u64, f32)]) -> AudioClip {
+        AudioClip {
+            envelope: points
+                .iter()
+                .map(|&(at, gain_db)| EnvPoint {
+                    at,
+                    gain_db,
+                    curve: EnvCurve::Linear,
+                })
+                .collect(),
+            ..AudioClip::new("c1", "a1", 0)
+        }
+    }
+
+    #[test]
+    fn clip_without_an_envelope_should_serialize_without_one() {
+        let json = serde_json::to_value(AudioClip::new("c1", "a1", 0)).unwrap();
+        assert!(json.get("envelope").is_none());
+    }
+
+    #[test]
+    fn envelope_should_round_trip_and_leave_a_straight_line_unnamed() {
+        let mut clip = envelope_clip(&[(0, -60.0), (2000, 0.0)]);
+        clip.envelope[1].curve = EnvCurve::Smooth;
+        let json = serde_json::to_value(&clip).unwrap();
+        assert!(json["envelope"][0].get("curve").is_none());
+        assert_eq!(json["envelope"][1]["curve"], "smooth");
+        assert_eq!(json["envelope"][1]["gainDb"], 0.0);
+        assert_eq!(serde_json::from_value::<AudioClip>(json).unwrap(), clip);
+    }
+
+    fn project_with(clip: AudioClip) -> Project {
+        let mut project = sample_project();
+        let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind else {
+            panic!("the first track is audio");
+        };
+        clips[0] = AudioClip {
+            id: clips[0].id.clone(),
+            asset: clips[0].asset.clone(),
+            ..clip
+        };
+        project
+    }
+
+    #[test]
+    fn validate_should_accept_an_envelope_in_order_and_in_range() {
+        let clip = envelope_clip(&[(0, ENVELOPE_MIN_DB), (500, 0.0), (900, ENVELOPE_MAX_DB)]);
+        assert!(project_with(clip).validate().is_ok());
+    }
+
+    #[test]
+    fn validate_should_reject_an_envelope_out_of_order_or_out_of_range() {
+        for points in [
+            vec![(500, 0.0), (500, -3.0)],
+            vec![(900, 0.0), (500, -3.0)],
+            vec![(0, ENVELOPE_MIN_DB - 1.0)],
+            vec![(0, ENVELOPE_MAX_DB + 1.0)],
+            vec![(0, f32::NAN)],
+        ] {
+            let shown = format!("{points:?}");
+            assert!(
+                project_with(envelope_clip(&points)).validate().is_err(),
+                "{shown} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_should_reject_an_envelope_with_too_many_points() {
+        let points: Vec<(u64, f32)> = (0..=MAX_ENVELOPE_POINTS as u64)
+            .map(|at| (at, 0.0))
+            .collect();
+        assert!(project_with(envelope_clip(&points)).validate().is_err());
+        assert!(
+            project_with(envelope_clip(&points[..MAX_ENVELOPE_POINTS]))
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
