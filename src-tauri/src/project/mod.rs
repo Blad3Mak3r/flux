@@ -14,8 +14,8 @@ pub use clips::ClipOp;
 pub use error::{ProjectError, Result};
 pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, FORMAT_VERSION, FrameRate,
-    LtcOutput, MAX_BPM, MIN_BPM, Meta, MetronomeOutput, MtcOutput, Note, OutputConfig, Project,
-    Tempo, TimecodeSettings, Timeline, Track, TrackKind,
+    LtcOutput, MAX_BPM, MAX_OFFSET_MS, MIN_BPM, Meta, MetronomeOutput, MtcOutput, Note,
+    OutputConfig, Project, Tempo, TimecodeSettings, Timeline, Track, TrackKind,
 };
 pub use preview::{AudioStamp, Preview};
-pub use session::{Document, ProjectState, Session};
+pub use session::{Document, OffsetKind, ProjectState, Session};

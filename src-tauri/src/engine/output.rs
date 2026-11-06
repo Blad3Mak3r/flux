@@ -2210,6 +2210,7 @@ mod tests {
             device_name: device.into(),
             channel,
             level: None,
+            offset_ms: None,
         }
     }
 

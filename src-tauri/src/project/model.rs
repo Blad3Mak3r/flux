@@ -278,7 +278,13 @@ pub struct LtcOutput {
     /// Peak level of the signal, linear from 0 to 1; absent is [`DEFAULT_LTC_LEVEL`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level: Option<f32>,
+    /// Latency compensation in ms, positive = emitted earlier; absent is 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_ms: Option<i32>,
 }
+
+/// The largest latency offset of an output, in ms either way.
+pub const MAX_OFFSET_MS: i32 = 1000;
 
 /// The LTC level of an output that does not set one: half scale, -6 dBFS.
 pub const DEFAULT_LTC_LEVEL: f32 = 0.5;
@@ -291,6 +297,9 @@ pub struct MtcOutput {
     /// them. Tells apart two interfaces of the same model.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub port_index: usize,
+    /// Latency compensation in ms, positive = emitted earlier; absent is 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset_ms: Option<i32>,
 }
 
 impl Project {
@@ -413,6 +422,15 @@ fn validate_track<'a>(
     Ok(())
 }
 
+fn check_offset(offset_ms: Option<i32>) -> Result<()> {
+    if offset_ms.is_some_and(|ms| ms.abs() > MAX_OFFSET_MS) {
+        return Err(ProjectError::Invalid(format!(
+            "the offset must be within {MAX_OFFSET_MS} ms either way"
+        )));
+    }
+    Ok(())
+}
+
 impl OutputConfig {
     /// Channels are 1-based and a programme channel may be listed only once.
     fn validate(&self) -> Result<()> {
@@ -423,6 +441,10 @@ impl OutputConfig {
                     "the LTC level must be between 0 and 1".into(),
                 ));
             }
+            check_offset(ltc.offset_ms)?;
+        }
+        for mtc in &self.mtc {
+            check_offset(mtc.offset_ms)?;
         }
         if let Some(metronome) = &self.metronome {
             if !metronome.gain_db.is_finite() {
@@ -599,10 +621,12 @@ pub(super) mod tests {
                     device_name: "Main Interface".into(),
                     channel: 3,
                     level: Some(0.25),
+                    offset_ms: Some(-12),
                 }],
                 mtc: vec![MtcOutput {
                     port_name: "IAC Driver Bus 1".into(),
                     port_index: 1,
+                    offset_ms: Some(30),
                 }],
                 preview: None,
                 metronome: Some(MetronomeOutput {
@@ -649,8 +673,8 @@ pub(super) mod tests {
         "output": {
             "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
             "metronome": { "deviceName": "Band Monitor", "channels": [3, 4], "gainDb": -6.0 },
-            "ltc": [{ "deviceName": "Main Interface", "channel": 3, "level": 0.25 }],
-            "mtc": [{ "portName": "IAC Driver Bus 1", "portIndex": 1 }]
+            "ltc": [{ "deviceName": "Main Interface", "channel": 3, "level": 0.25, "offsetMs": -12 }],
+            "mtc": [{ "portName": "IAC Driver Bus 1", "portIndex": 1, "offsetMs": 30 }]
         }
     }"##;
 
@@ -1009,6 +1033,28 @@ pub(super) mod tests {
             project.output.ltc[0].level = Some(level);
             assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
         }
+    }
+
+    #[test]
+    fn validate_should_reject_an_offset_beyond_the_limit() {
+        for ms in [MAX_OFFSET_MS + 1, -MAX_OFFSET_MS - 1] {
+            let mut project = sample_project();
+            project.output.ltc[0].offset_ms = Some(ms);
+            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+            let mut project = sample_project();
+            project.output.mtc[0].offset_ms = Some(ms);
+            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        }
+    }
+
+    #[test]
+    fn offset_should_be_left_out_when_unset() {
+        let mut project = sample_project();
+        project.output.ltc[0].offset_ms = None;
+        project.output.mtc[0].offset_ms = None;
+        let json = serde_json::to_value(&project).unwrap();
+        assert!(json["output"]["ltc"][0].get("offsetMs").is_none());
+        assert!(json["output"]["mtc"][0].get("offsetMs").is_none());
     }
 
     #[test]
