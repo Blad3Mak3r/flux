@@ -388,6 +388,11 @@ export const es: Record<MessageKey, string> = {
   "delete.confirm": "Eliminar archivo",
 
   "status.ready": "Listo",
+  "editor.loading.title": "Preparando el editor",
+  "editor.loading.project": "Abriendo el proyecto…",
+  "editor.loading.audio": "Preparando las formas de onda y los tempos…",
+  "editor.loading.outputs": "Conectando y comprobando las salidas…",
+  "editor.loading.cues": "Preparando las cues de Live…",
   "status.analysing": "Leyendo el audio…",
   "status.analysed": "Audio listo",
   "status.saved": "Guardado {name}",
