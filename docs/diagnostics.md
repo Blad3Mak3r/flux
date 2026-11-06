@@ -49,6 +49,7 @@ real-time pace check (`clock_unpaced`) covers a device that runs ahead of the cl
 | Open log folder | `diagnostics_open_log_dir` | Opens the log folder in the system's file manager. |
 | Export diagnostics… | `diagnostics_export(path)` | Writes a zip to `path` (the UI asks with the save dialog): `report.txt` and every log file. |
 
-`report.txt` holds the app version, OS, export time, log folder, the audio devices and MIDI ports the system lists, and
-the `OutputInfo` of the running output (or `not running`). The zip is written to a temporary file and renamed, so a
+`report.txt` holds the app version, OS, export time, log folder, the graphics settings (what is saved and what this run
+started the webview with), the audio devices and MIDI ports the system lists, and the `OutputInfo` of the running output
+(or `not running`). The zip is written to a temporary file and renamed, so a
 failed export leaves any file already there as it was.
