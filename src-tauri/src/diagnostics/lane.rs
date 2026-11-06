@@ -79,6 +79,10 @@ impl LogLane {
                 faults.mtc_errors - self.reported.mtc_errors,
                 "MIDI messages not sent",
             ),
+            (
+                faults.cue_errors - self.reported.cue_errors,
+                "cue messages not sent",
+            ),
         ];
         let parts: Vec<String> = new
             .into_iter()

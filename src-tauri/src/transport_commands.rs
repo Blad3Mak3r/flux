@@ -311,10 +311,13 @@ pub async fn output_set_clips(
     let updated = tauri::async_runtime::spawn_blocking(move || {
         let timeline = active_timeline(&session, &project)?;
         let list = cue_list(&project, timeline, &session, &audio);
-        let Programme { set, warnings } = programme(&project, timeline, &session, &audio, &list);
-        match lock(&state).as_ref() {
+        let Programme { set, mut warnings } =
+            programme(&project, timeline, &session, &audio, &list);
+        match lock(&state).as_mut() {
             Some(running) => {
                 running.cues.replace(list);
+                // The cue tracks follow the edit too (their schedules, and any new port).
+                warnings.extend(running.output.set_events(timeline, &project.output.osc));
                 running.output.set_clips(set).map(|()| warnings)
             }
             None => Err(OutputError::NotRunning),
