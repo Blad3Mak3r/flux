@@ -1,8 +1,10 @@
 import { memo, useRef, useState } from "react";
-import type { KeyboardEvent, MouseEvent, PointerEvent } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
+import type { ClipOp } from "../project/api";
 import type { AudioClip, Note, Track } from "../project/types";
 import { moveTo, muteTrack, setGain } from "../state/actions";
+import { editClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapFrame } from "../state/snap";
 import { useDoc } from "../state/store";
@@ -119,10 +121,88 @@ function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFram
   return { shown: position + delta, handlers };
 }
 
-/** Length in frames of a clip whose audio has been read, else the guess. */
-export function clipLength(audio: { seconds: number } | undefined, fps: number, guess: number): number {
-  return audio ? Math.round(audio.seconds * fps) : guess;
+/**
+ * Length in frames of a clip: the trim the backend wrote, else the whole audio once it has been
+ * read, else the guess. (The backend always writes a length when it moves the start.)
+ */
+export function clipLength(
+  clip: AudioClip,
+  audio: { seconds: number } | undefined,
+  fps: number,
+  guess: number,
+): number {
+  return clip.length ?? (audio ? Math.round(audio.seconds * fps) : guess);
 }
+
+type HandleProps = ReturnType<typeof useHandle>["handlers"];
+
+/**
+ * Drag one handle of a clip to a frame of the timeline. Only the frame is decided here: the backend
+ * works out what it means (a trim, a fade) and its answer replaces the clip, so a drag is one step
+ * of undo. The handle shows where it was dropped until the answer arrives.
+ */
+function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
+  const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
+  const originX = useRef<number | null>(null);
+  const at = drag?.from === frame ? drag.to : frame;
+
+  const handlers = {
+    onPointerDown(event: PointerEvent<HTMLElement>) {
+      if (event.button !== 0) return;
+      event.stopPropagation(); // The clip underneath would start moving.
+      event.currentTarget.setPointerCapture(event.pointerId);
+      originX.current = event.clientX;
+      select({ kind: "clip", id });
+    },
+    onPointerMove(event: PointerEvent<HTMLElement>) {
+      if (originX.current === null) return;
+      const frames = Math.round((event.clientX - originX.current) / pxPerFrame);
+      setDrag({ from: frame, to: Math.max(0, snapFrame(frame + frames)) });
+    },
+    onPointerUp() {
+      originX.current = null;
+      if (drag && drag.to !== frame) void editClip(id, op, drag.to).finally(() => setDrag(null));
+      else setDrag(null);
+    },
+    onKeyDown(event: KeyboardEvent<HTMLElement>) {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      event.stopPropagation();
+      const step = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 25 : 1);
+      void editClip(id, op, Math.max(0, frame + step));
+    },
+  };
+  return { at, handlers };
+}
+
+/** A grip on a clip: its edges trim it, the squares at the top corners set its fades. */
+function ClipHandle({
+  edge,
+  label,
+  style,
+  handlers,
+}: {
+  edge: "start" | "end" | "fadeIn" | "fadeOut";
+  label: string;
+  style?: CSSProperties;
+  handlers: HandleProps;
+}) {
+  return (
+    <span
+      className="clip-handle"
+      data-edge={edge}
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      title={label}
+      style={style}
+      {...handlers}
+    />
+  );
+}
+
+/** Pixels the fade handle is wide; its centre sits where the fade ends. */
+const FADE_HANDLE_PX = 8;
 
 function ClipBlock({
   track,
@@ -155,7 +235,19 @@ function ClipBlock({
   const selected = useUi((ui) => ui.selection?.id === clip.id);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
-  const width = Math.max(24, clipLength(audio, fps, guessLength) * pxPerFrame);
+  const length = clipLength(clip, audio, fps, guessLength);
+  const end = clip.start + length;
+  const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame);
+  const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame);
+  const fadeIn = useHandle(clip.id, "fadeIn", clip.start + (clip.fadeIn ?? 0), pxPerFrame);
+  const fadeOut = useHandle(clip.id, "fadeOut", end - (clip.fadeOut ?? 0), pxPerFrame);
+  // While a handle is dragged the box follows it; the waveform keeps its place on the timeline.
+  const left = trimStart.at + (shown - clip.start);
+  const width = Math.max(24, (trimEnd.at - trimStart.at) * pxPerFrame);
+  const waveWidth = Math.max(24, length * pxPerFrame);
+  const fadeInPx = Math.min(width, Math.max(0, (fadeIn.at - trimStart.at) * pxPerFrame));
+  const fadeOutPx = Math.min(width, Math.max(0, (trimEnd.at - fadeOut.at) * pxPerFrame));
+  const height = rowHeight - 12;
   return (
     <div
       className="clip"
@@ -164,27 +256,50 @@ function ClipBlock({
       aria-pressed={selected}
       data-selected={selected}
       data-muted={muted}
-      style={{ left: frameX(shown, pxPerFrame), width, height: rowHeight - 12 }}
+      style={{ left: frameX(left, pxPerFrame), width, height }}
       onContextMenu={(event) => {
         select({ kind: "clip", id: clip.id });
         menuAtPointer(event, audioMenu(t, track, clip));
       }}
       {...pointer}
     >
-      <ClipWave
-        seed={clip.asset}
-        width={width}
-        height={rowHeight - 12}
-        color="currentColor"
-        peaks={audio?.peaks}
-        pxPerSecond={pxPerFrame * fps}
-        tint={tint}
-      />
+      <span className="clip-wave-shift" style={{ left: (clip.start - trimStart.at) * pxPerFrame }}>
+        <ClipWave
+          seed={clip.asset}
+          width={waveWidth}
+          height={height}
+          color="currentColor"
+          peaks={audio?.peaks}
+          pxPerSecond={pxPerFrame * fps}
+          startSeconds={(clip.offset ?? 0) / fps}
+          tint={tint}
+        />
+      </span>
+      {(fadeInPx > 0 || fadeOutPx > 0) && (
+        <svg className="clip-fades" width={width} height={height} aria-hidden="true">
+          {fadeInPx > 0 && <polyline points={`0,${height} ${fadeInPx},0`} />}
+          {fadeOutPx > 0 && <polyline points={`${width - fadeOutPx},0 ${width},${height}`} />}
+        </svg>
+      )}
       <span className="clip-label">
         {name}
         {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
         {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
       </span>
+      <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
+      <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
+      <ClipHandle
+        edge="fadeIn"
+        label={t("clip.fadeIn", { name })}
+        style={{ left: fadeInPx - FADE_HANDLE_PX / 2 }}
+        handlers={fadeIn.handlers}
+      />
+      <ClipHandle
+        edge="fadeOut"
+        label={t("clip.fadeOut", { name })}
+        style={{ left: width - fadeOutPx - FADE_HANDLE_PX / 2 }}
+        handlers={fadeOut.handlers}
+      />
     </div>
   );
 }

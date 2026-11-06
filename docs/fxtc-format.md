@@ -41,7 +41,19 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 Track kinds:
 
-- `{ "type": "audio", "clips": [{ id, asset, start, gainDb }] }` — `asset` is the id of an entry in `assets`.
+- `{ "type": "audio", "clips": [{ id, asset, start, gainDb, offset?, length?, fadeIn?, fadeOut? }] }` — `asset` is
+  the id of an entry in `assets`. The four optional fields trim and fade the clip, are counted in **frames at the
+  timeline's rate** like `start`, and are added without a version bump (a clip without them plays the whole asset with a
+  hard start and cut):
+  - `offset`: frames of the asset skipped at the start of the clip (trim in). Absent is 0.
+  - `length`: frames of the asset the clip plays (trim out), at least 1. Absent means up to the end of the asset; one
+    that reaches past it is cut at the end of the asset. The app always writes it when `offset` is not 0.
+  - `fadeIn` / `fadeOut`: frames to rise from silence at the start / fall to silence at the end, linearly. Absent is 0.
+    They are kept inside the clip, and `fadeOut` gives way to `fadeIn`.
+
+  `start` is where the clip sounds; the asset's first frame would sit at `start - offset`. A frame is rarely a whole
+  number of samples (29.97 fps), so the player converts that one frame to samples and reads the asset from there. Two
+  clips cut from one another share that frame, so a clip split in two plays back sample for sample like the original.
 - `{ "type": "notes", "notes": [{ id, at, length?, text }] }` — text for the operator at frame `at` (counted from the
   timeline origin). `text` may have several lines. A note is shown for `length` frames (at least 1) or, when `length` is
   absent, until the next note of its track starts. Other kinds of track (video, Art-Net, MIDI keys, OSC) will be added as

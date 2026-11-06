@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde::Serialize;
 
 use crate::audio::ENGINE_RATE;
+use crate::engine::mixer::span;
 use crate::engine::timecode::Timecode;
 use crate::engine::transport::Clock;
 use crate::project::{AudioAsset, FrameRate, Project, Timeline, TrackKind};
@@ -161,9 +162,9 @@ impl CueList {
                         let Some(asset) = project.assets.iter().find(|a| a.id == clip.asset) else {
                             continue;
                         };
-                        let samples = length_of(asset);
-                        end = end.max(clock.frames_to_samples(clip.start) + samples.unwrap_or(0));
-                        let length = samples.map(|samples| clock.samples_to_frames(samples));
+                        let played = length_of(asset).map(|samples| span(clip, &clock, samples));
+                        end = end.max(played.map_or(clock.frames_to_samples(clip.start), |s| s.to));
+                        let length = played.map(|s| clock.samples_to_frames(s.to - s.from));
                         cues.push(cue(
                             &clip.id,
                             CueKind::Audio,
@@ -334,12 +335,7 @@ mod tests {
     }
 
     fn clip(id: &str, start: u64) -> AudioClip {
-        AudioClip {
-            id: id.into(),
-            asset: "a1".into(),
-            start,
-            gain_db: 0.0,
-        }
+        AudioClip::new(id, "a1", start)
     }
 
     fn note(id: &str, at: u64, length: Option<u64>, text: &str) -> Note {
@@ -450,6 +446,26 @@ mod tests {
         let cue = list(&project(false)).cues()[0].clone();
         assert_eq!(cue.length, Some(50));
         assert_eq!(cue.duration.as_deref(), Some("00:00:02:00"));
+    }
+
+    #[test]
+    fn build_should_take_the_trimmed_length_and_end_of_a_clip() {
+        let mut project = project(false);
+        let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind else {
+            panic!("the first track is audio")
+        };
+        // The 2 s asset is 50 frames; 10 are skipped and 20 of the 40 left are played.
+        let c1 = clips.iter_mut().find(|clip| clip.id == "c1").unwrap();
+        c1.offset = 10;
+        c1.length = Some(20);
+        let list = list(&project);
+        assert_eq!(cue_named(&list, "c1").length, Some(20));
+        assert_eq!(
+            cue_named(&list, "c1").duration.as_deref(),
+            Some("00:00:00:20")
+        );
+        // The second clip still ends the show: it is later than the first.
+        assert_eq!(list.end_samples(), 100 * 1920 + 50 * 1920);
     }
 
     #[test]

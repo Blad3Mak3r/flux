@@ -2695,3 +2695,85 @@ input:disabled {
     padding-inline: 12px;
   }
 }
+
+/* Trimming and fading a clip. The wave keeps its place on the timeline while an edge is dragged; the
+   box around it, clipped by `overflow: hidden`, follows the pointer. */
+.clip-wave-shift {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.clip-wave-shift .clip-wave {
+  inset: auto;
+  top: 0;
+  left: 0;
+}
+
+.clip-fades {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.clip-fades polyline {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+/* The grips show on a hovered or selected clip, and always on the one with the keyboard focus. Each
+   has a shape of its own: a notch on the edges, a square at the corners. */
+.clip-handle {
+  position: absolute;
+  opacity: 0;
+}
+
+.clip:hover .clip-handle,
+.clip[data-selected="true"] .clip-handle,
+.clip-handle:focus-visible {
+  opacity: 1;
+}
+
+.clip-handle[data-edge="start"],
+.clip-handle[data-edge="end"] {
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.clip-handle[data-edge="start"] {
+  left: 0;
+}
+
+.clip-handle[data-edge="end"] {
+  right: 0;
+}
+
+.clip-handle[data-edge="start"]::after,
+.clip-handle[data-edge="end"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 2px;
+  height: 16px;
+  margin-top: -8px;
+  background: var(--ink);
+}
+
+.clip-handle[data-edge="fadeIn"],
+.clip-handle[data-edge="fadeOut"] {
+  top: 0;
+  width: 8px;
+  height: 8px;
+  background: oklch(0.175 0.024 205);
+  border: 1px solid var(--ink);
+  cursor: ew-resize;
+}
+
+.clip-handle:focus-visible {
+  outline: 1px solid var(--ink-dim);
+  outline-offset: -1px;
+}

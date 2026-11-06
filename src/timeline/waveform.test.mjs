@@ -19,7 +19,7 @@ function recorder() {
   };
 }
 
-const job = { seed: "asset", width: 4, height: 20, dpr: 2, color: "#66d5ba", pxPerSecond: 2 };
+const job = { seed: "asset", width: 4, height: 20, dpr: 2, color: "#66d5ba", pxPerSecond: 2, startSeconds: 0 };
 
 test("renderWave sets up the context before drawing", () => {
   const context = recorder();
@@ -44,6 +44,14 @@ test("renderWave draws one column per pixel from the lowest low and highest high
   assert.equal(width, 1);
   assert.ok(Math.abs(top - (10 - (64 / 127) * 7)) < 1e-9);
   assert.ok(Math.abs(top + height - (10 + (64 / 128) * 7)) < 1e-9);
+});
+
+test("renderWave draws a clip trimmed in from the part of the audio where it starts", () => {
+  const context = recorder();
+  // The second pair is the first one the clip shows when it skips one second.
+  renderWave(context, { ...job, startSeconds: 1 }, { values: [-128, 127, -64, 64], perSecond: 1 });
+  assert.equal(context.rects.length, 4 - 2);
+  assert.ok(context.rects[0][2] === 1 && context.rects[0][1] > 3);
 });
 
 test("renderWave stops where the audio ends", () => {

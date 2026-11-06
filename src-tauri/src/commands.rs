@@ -10,9 +10,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tauri::{AppHandle, State};
 
-use crate::audio::SharedAudio;
+use crate::audio::{ENGINE_RATE, SharedAudio};
+use crate::engine::transport::Clock;
+use crate::live_commands::samples_of;
 use crate::project::{
-    AudioAsset, Document, FrameRate, Project, ProjectError, ProjectState, Result, Session,
+    AudioAsset, ClipOp, Document, FrameRate, Project, ProjectError, ProjectState, Result, Session,
 };
 use crate::recents;
 use crate::transport_commands::{SharedOutput, is_playing, release};
@@ -204,6 +206,35 @@ pub async fn timeline_set_timecode(
         s.set_timecode(frame_rate, start)
     })
     .await
+}
+
+/// Trims, fades or splits a clip of the active timeline at a frame of it; the answer is the project
+/// with the edit made. The length of the clip's asset comes from its decoded audio.
+#[tauri::command]
+pub async fn clip_edit(
+    session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
+    project: Project,
+    id: String,
+    op: ClipOp,
+    frame: u64,
+) -> Result<ProjectState> {
+    let (session, audio) = (Arc::clone(&session), Arc::clone(&audio));
+    tauri::async_runtime::spawn_blocking(move || {
+        let (asset, rate) = {
+            let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+            s.update(project);
+            s.clip_asset(&id)?
+        };
+        let samples = samples_of(&session, &audio, &asset).ok_or_else(|| {
+            ProjectError::Invalid(format!("the audio of {} cannot be read", asset.name))
+        })?;
+        let asset_frames = Clock::new(ENGINE_RATE, rate).samples_to_frames(samples);
+        let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+        s.edit_clip(&id, op, frame, asset_frames)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
 
 /// Registers an audio file; the returned asset is for the frontend to add to its project.

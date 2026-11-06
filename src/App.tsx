@@ -15,6 +15,7 @@ import { useDevices } from "./devices/useDevices";
 import { SetupDialog } from "./setup/SetupDialog";
 import { I18nProvider, useT } from "./i18n";
 import { deleteSelection } from "./state/actions";
+import { splitAtPlayhead } from "./state/clips";
 import { activeTimeline, isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
@@ -169,6 +170,11 @@ function Shell() {
         if (useUi.getState().view !== "edit") return;
         event.preventDefault();
         addNoteAt(t);
+      } else if (key === "s") {
+        // Like notes, clips are cut in the editor only.
+        if (useUi.getState().view !== "edit") return;
+        event.preventDefault();
+        void splitAtPlayhead();
       } else if (key === "i") {
         void importAudioFiles();
       } else if (event.key === "Delete" || event.key === "Backspace") {

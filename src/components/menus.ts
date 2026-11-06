@@ -7,6 +7,7 @@ import type { Cue } from "../live/api";
 import type { AudioClip, Note, Track } from "../project/types";
 import { deleteSelection, deleteTrack, muteTrack, reorderTrack, setGain } from "../state/actions";
 import { activeTimeline } from "../state/doc";
+import { splitAtPlayhead } from "../state/clips";
 import { findItem } from "../state/edit";
 import { dispatch, useDoc } from "../state/store";
 import { isPlaying } from "../transport/store";
@@ -97,6 +98,7 @@ function editMenu(t: Translate): MenuItem[] {
     { label: t("menu.undo"), shortcut: mod("Z"), disabled: doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
     { label: t("menu.redo"), shortcut: mod("⇧+Z"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
     "-",
+    { label: t("menu.split"), shortcut: "S", disabled: ui.view !== "edit" || ui.selection?.kind !== "clip", run: () => void splitAtPlayhead() },
     { label: t("menu.delete"), shortcut: "Del", disabled: !ui.selection, run: deleteSelection },
     { label: t("menu.deselect"), shortcut: "Esc", disabled: !ui.selection, run: () => select(null) },
   ];
@@ -232,7 +234,12 @@ const deleteNote = (id: string) => () => {
 export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuItem[] {
   const { start } = activeTimeline(useDoc.getState()).timecode;
   return [
-    ...(clip ? [{ label: t("context.goToStart"), run: () => seek(start + clip.start) }] : []),
+    ...(clip
+      ? [
+          { label: t("context.goToStart"), run: () => seek(start + clip.start) },
+          { label: t("menu.split"), shortcut: "S", run: () => void splitAtPlayhead() },
+        ]
+      : []),
     muteItem(t, track),
     { label: t("context.resetVolume"), disabled: (track.gainDb ?? 0) === 0, run: () => setGain(track.id, 0) },
     "-",

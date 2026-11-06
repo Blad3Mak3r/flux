@@ -89,6 +89,14 @@ export interface AudioClip {
   asset: string;
   start: number;
   gainDb: number;
+  /** Frames of the asset skipped at the start of the clip (trim in); absent is 0. */
+  offset?: number;
+  /** Frames of the asset the clip plays (trim out); absent means up to the end of the asset. */
+  length?: number;
+  /** Frames the clip takes to rise from silence; absent is 0. */
+  fadeIn?: number;
+  /** Frames the clip takes to fall to silence; absent is 0. */
+  fadeOut?: number;
 }
 
 /**

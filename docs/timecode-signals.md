@@ -62,7 +62,7 @@ one clock and cannot drift apart. Nothing in it allocates or locks.
   on top). A show with no end (no clips and no cues, or everything at the origin) never stops by itself, so the
   generators can run without a programme. A seek past the end goes to the end (playing from there stops at once).
   The end can change while playing: `output_set_clips` sends a new one with the clips, and an end that moved away
-  is simply not reached. A clip's end uses its exact decoded length; muted tracks count, so muting does not move
+  is simply not reached. A clip's end uses its exact decoded length, shortened by its `length` when it has one; muted tracks count, so muting does not move
   the end of the show. The end comes from `CueList::end_samples` and travels in `ClipSet::with_end`.
 - `epoch()` changes whenever playback starts or the position jumps (start, stop, seek) but not on pause. Generators
   compare it with the last epoch they saw and call `resync`.
@@ -93,7 +93,7 @@ user. After the last timeline nothing changes and the show stays where it ended.
 The Live view runs the timeline on stage, and the backend does all of its thinking; the UI only draws what it is
 sent. A **cue** is not stored in the project: every clip of an audio track and every note of a notes track is one,
 so the `.fxtc` format does not change. `CueList::build` derives the list, ordered by frame (cues at the same frame keep
-the order of their tracks) and numbered from 1. A clip's length comes from its decoded audio; a file that cannot be read
+the order of their tracks) and numbered from 1. A clip's length comes from its decoded audio, trimmed by its `offset` and `length`; a file that cannot be read
 gives a cue without length, never an error. `Cue.frame` is the absolute timecode frame, so the UI seeks to it as it is.
 
 `CueList::state_at(frame)` gives the `LiveState` for a position. Each cue is `pending`, `next` (the first cue still to
@@ -255,7 +255,10 @@ The music is decoded once and mixed in the same callback that renders LTC, on th
 - **Mixing** (`mixer.rs`): clips of tracks that are not muted, placed by `Clock::frames_to_samples(clip.start)`, with
   `gainDb` as `10^(dB/20)`. The callback mixes in chunks of 256 frames held on the stack, adds the clips, clamps to
   -1..1 and writes left and right to `output.audio.channels` (one channel receives the mono sum); LTC then writes its
-  own channel. A clip whose audio cannot be read is skipped and reported in `OutputInfo.warnings`, never an error.
+  own channel. A clip plays from `Clock::frames_to_samples(start)` up to its `length` (or the end of its audio),
+  reading its audio from the `offset`; `mixer::span` gives that range and the cues use it too, so both agree. A
+  `fadeIn` / `fadeOut` is a linear gain per sample: silent on the first sample of a fade in and the last of a fade out.
+  A clip whose audio cannot be read is skipped and reported in `OutputInfo.warnings`, never an error.
 - **Track gain and levels** (`mixer.rs`): each track's clips are summed, multiplied by the track's fader (`gainDb`
   absent is 0 dB, `-60` or less is silence) and added to the programme, so a clip sounds at track gain times clip
   gain. The fader lives in an atomic that `output_set_track_gain(trackId, gainDb)` writes without rebuilding the

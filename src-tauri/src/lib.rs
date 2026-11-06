@@ -37,6 +37,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::project_document,
             commands::project_sync,
+            commands::clip_edit,
             commands::timeline_add,
             commands::timeline_rename,
             commands::timeline_remove,
