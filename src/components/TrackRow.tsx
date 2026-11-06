@@ -3,13 +3,13 @@ import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "rea
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
 import type { AudioClip, MidiEvent, Note, OscEvent, Track } from "../project/types";
-import { moveTo, muteTrack, setGain } from "../state/actions";
+import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
 import { editClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapFrame } from "../state/snap";
 import { useDoc } from "../state/store";
-import { menuAtPointer, select, useUi } from "../state/ui";
+import { menuAtPointer, rename, select, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
@@ -18,6 +18,7 @@ import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { Fader } from "./Fader";
+import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
 import { MidiIcon, MuteIcon, NoteIcon, OscIcon, WaveIcon } from "./icons";
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu } from "./menus";
@@ -48,6 +49,7 @@ export const TrackHeader = memo(function TrackHeader({
 }) {
   const t = useT();
   const audio = track.kind.type === "audio";
+  const renaming = useUi((ui) => ui.renaming?.kind === "track" && ui.renaming.id === track.id);
   return (
     <div
       className="track-header"
@@ -68,9 +70,22 @@ export const TrackHeader = memo(function TrackHeader({
           {KIND_ICONS[track.kind.type]}
           <span className="visually-hidden">{t(`track.kind.${track.kind.type}`)}</span>
         </span>
-        <span className="track-name" title={track.name}>
-          {track.name}
-        </span>
+        {renaming ? (
+          <InlineName
+            value={track.name}
+            label={t("track.rename", { name: track.name })}
+            onCommit={(text) => nameTrack(track.id, text)}
+            onDone={() => rename(null)}
+          />
+        ) : (
+          <span
+            className="track-name"
+            title={track.name}
+            onDoubleClick={() => rename({ kind: "track", id: track.id })}
+          >
+            {track.name}
+          </span>
+        )}
         {track.muted && <span className="track-muted-tag">{t("track.muted")}</span>}
         <button
           type="button"
@@ -248,6 +263,7 @@ function ClipBlock({
   // Each clip asks the stores for its own slice: a selection or a decoded waveform elsewhere
   // does not re-render it.
   const selected = useUi((ui) => ui.selection?.id === clip.id);
+  const renaming = useUi((ui) => ui.renaming?.kind === "clip" && ui.renaming.id === clip.id);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
@@ -276,6 +292,7 @@ function ClipBlock({
         select({ kind: "clip", id: clip.id });
         menuAtPointer(event, audioMenu(t, track, clip));
       }}
+      onDoubleClick={() => rename({ kind: "clip", id: clip.id })}
       {...pointer}
     >
       <span className="clip-wave-shift" style={{ left: (clip.start - trimStart.at) * pxPerFrame }}>
@@ -296,11 +313,22 @@ function ClipBlock({
           {fadeOutPx > 0 && <polyline points={`${width - fadeOutPx},0 ${width},${height}`} />}
         </svg>
       )}
-      <span className="clip-label">
-        {name}
-        {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
-        {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
-      </span>
+      {renaming ? (
+        <span className="clip-label">
+          <InlineName
+            value={name}
+            label={t("clip.rename", { name })}
+            onCommit={(text) => nameClip(clip.id, text)}
+            onDone={() => rename(null)}
+          />
+        </span>
+      ) : (
+        <span className="clip-label">
+          {name}
+          {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
+          {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
+        </span>
+      )}
       <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
       <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
       <ClipHandle
@@ -442,7 +470,7 @@ export const TrackLane = memo(function TrackLane({
               key={clip.id}
               track={track}
               clip={clip}
-              name={assetNames[clip.asset] ?? clip.asset}
+              name={clip.name ?? assetNames[clip.asset] ?? clip.asset}
               guessLength={guessLength}
               muted={track.muted}
               rowHeight={height}

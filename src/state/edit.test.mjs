@@ -12,6 +12,8 @@ import {
   moveTrack,
   removeItem,
   removeTrack,
+  renameClip,
+  renameTrack,
   setAssetBpm,
   setNoteLength,
   setTempo,
@@ -440,4 +442,31 @@ test("a tempo found for an opened file is no edit: no history, and the document 
   // A tempo the file already has is not replaced, and an unknown asset changes nothing.
   assert.equal(docReducer(after, { type: "derivedBpm", id: "a1", bpm: 90 }), after);
   assert.equal(docReducer(after, { type: "derivedBpm", id: "zzz", bpm: 90 }), after);
+});
+
+test("renameTrack trims the name, keeps the input intact, and refuses a blank one", () => {
+  const before = project();
+  const after = renameTrack(before, TL, "t1", "  Click  ");
+  assert.equal(after.timelines[0].tracks[0].name, "Click");
+  assert.equal(before.timelines[0].tracks[0].name, "Backing");
+  assert.equal(renameTrack(before, TL, "t1", "   "), before);
+  assert.equal(renameTrack(before, TL, "t1", "Backing"), before);
+  assert.equal(renameTrack(before, TL, "missing", "x"), before);
+});
+
+test("renameTrack cuts a long name to 64 characters, counting characters and not code units", () => {
+  const name = renameTrack(project(), TL, "t1", "🎵".repeat(80)).timelines[0].tracks[0].name;
+  assert.equal(Array.from(name).length, 64);
+});
+
+test("renameClip names a clip, and a blank name takes the name away again", () => {
+  const base = project();
+  const { project: withClip, id: clipId } = addAudioClip(base, TL, { id: "a1", name: "song", file: "audio/song.wav" }, 0);
+  const named = renameClip(withClip, TL, clipId, " Intro ");
+  assert.equal(findItem(named, clipId).clip.name, "Intro");
+  assert.equal(findItem(withClip, clipId).clip.name, undefined);
+  const cleared = renameClip(named, TL, clipId, "  ");
+  assert.equal("name" in findItem(cleared, clipId).clip, false);
+  assert.equal(renameClip(cleared, TL, clipId, ""), cleared);
+  assert.equal(renameClip(withClip, TL, "missing", "x"), withClip);
 });

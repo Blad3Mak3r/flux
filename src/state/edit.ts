@@ -215,6 +215,35 @@ export function setTrackGain(project: Project, timeline: string, trackId: string
   });
 }
 
+/** The most characters a track or clip name can have (the backend refuses a clip name above it). */
+export const MAX_NAME = 64;
+
+/** `name` without the spaces around it, cut to `MAX_NAME` characters (not UTF-16 units). */
+const tidyName = (name: string) => Array.from(name.trim()).slice(0, MAX_NAME).join("");
+
+/** Renames a track. A blank name changes nothing: a track always has one to show. */
+export function renameTrack(project: Project, timeline: string, trackId: string, name: string): Project {
+  const target = trackOf(project, timeline, trackId);
+  const next = tidyName(name);
+  if (!target || next === "" || next === target.name) return project;
+  return mapTracks(project, timeline, (track) => (track.id === trackId ? { ...track, name: next } : track));
+}
+
+/** Names a clip. A blank name takes the name away, so the clip goes by its audio file's name again. */
+export function renameClip(project: Project, timeline: string, id: string, name: string): Project {
+  const found = findItem(project, id);
+  if (found?.kind !== "clip") return project;
+  const next = tidyName(name);
+  if ((found.clip.name ?? "") === next) return project;
+  const { name: _previous, ...rest } = found.clip;
+  const clip: AudioClip = next === "" ? rest : { ...rest, name: next };
+  return mapTracks(project, timeline, (track) =>
+    track.kind.type === "audio" && track.kind.clips.some((c) => c.id === id)
+      ? { ...track, kind: { type: "audio", clips: track.kind.clips.map((c) => (c.id === id ? clip : c)) } }
+      : track,
+  );
+}
+
 /** Sets the colour a track is drawn in; `null` returns to the default, stored as no value. */
 export function setTrackColor(project: Project, timeline: string, trackId: string, color: string | null): Project {
   const target = trackOf(project, timeline, trackId);

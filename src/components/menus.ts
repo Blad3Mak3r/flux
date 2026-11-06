@@ -6,7 +6,7 @@ import type { MessageKey, Translate } from "../i18n/messages";
 import type { Cue } from "../live/api";
 import type { AudioClip, Note, Track } from "../project/types";
 import { addCueEvent, addCueTrack, removeCueEvent } from "../state/cues";
-import { deleteSelection, deleteTrack, muteTrack, reorderTrack, setGain } from "../state/actions";
+import { deleteSelection, deleteTrack, muteTrack, renameSelectedTrack, reorderTrack, setGain } from "../state/actions";
 import { activeTimeline } from "../state/doc";
 import { splitAtPlayhead } from "../state/clips";
 import { findItem } from "../state/edit";
@@ -22,6 +22,7 @@ import {
 import {
   askRemoveTimeline,
   openSetup,
+  rename,
   select,
   setView,
   toggleFollow,
@@ -62,6 +63,11 @@ const snapItem = (t: Translate): MenuItem => ({
   label: t("context.snap"),
   checked: useUi.getState().snap,
   run: toggleSnap,
+});
+
+const renameTrackItem = (t: Translate, track: Track): MenuItem => ({
+  label: t("menu.renameTrack"),
+  run: () => rename({ kind: "track", id: track.id }),
 });
 
 const muteItem = (t: Translate, track: Track): MenuItem => ({
@@ -117,6 +123,12 @@ function trackMenu(t: Translate): MenuItem[] {
     { label: t("menu.addMidiTrack"), disabled: !editing, run: () => void addCueTrack("midi", t("track.kind.midi")) },
     { label: t("menu.addOscTrack"), disabled: !editing, run: () => void addCueTrack("osc", t("track.kind.osc")) },
     "-",
+    {
+      label: t("menu.renameTrack"),
+      shortcut: "F2",
+      disabled: !editing || !track,
+      run: renameSelectedTrack,
+    },
     {
       label: t(track?.muted ? "menu.unmuteTrack" : "menu.muteTrack"),
       disabled: !track,
@@ -250,8 +262,10 @@ export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuIte
       ? [
           { label: t("context.goToStart"), run: () => seek(start + clip.start) },
           { label: t("menu.split"), shortcut: "S", run: () => void splitAtPlayhead() },
+          { label: t("context.renameClip"), run: () => rename({ kind: "clip", id: clip.id }) },
         ]
       : []),
+    renameTrackItem(t, track),
     muteItem(t, track),
     { label: t("context.resetVolume"), disabled: (track.gainDb ?? 0) === 0, run: () => setGain(track.id, 0) },
     "-",
@@ -276,6 +290,7 @@ export function noteMenu(t: Translate, track: Track, note: Note): MenuItem[] {
 export function notesTrackMenu(t: Translate, track: Track): MenuItem[] {
   return [
     { label: t("menu.addNote"), run: () => addNoteAt(t, currentFrame(), track.id) },
+    renameTrackItem(t, track),
     muteItem(t, track),
     "-",
     { label: t("menu.deleteTrack"), run: () => deleteTrack(track.id) },
@@ -292,6 +307,7 @@ export function cueTrackMenu(t: Translate, track: Track): MenuItem[] {
       label: t(kind === "osc" ? "context.addOscHere" : "context.addMidiHere"),
       run: () => void addCueEvent(kind, currentFrame(), t(`track.kind.${kind}`), track.id),
     },
+    renameTrackItem(t, track),
     muteItem(t, track),
     "-",
     { label: t("menu.deleteTrack"), run: () => deleteTrack(track.id) },

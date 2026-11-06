@@ -2895,3 +2895,22 @@ input:disabled {
   outline: 1px solid var(--ink-dim);
   outline-offset: -1px;
 }
+
+/* A track or clip name typed in place: the text keeps its size and weight, on a field of its own. */
+.inline-name {
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+}
+
+.clip .inline-name {
+  height: 20px;
+  font-size: 11px;
+}

@@ -13,6 +13,12 @@ export type View = "edit" | "live";
 /** What the ruler counts: timecode, or bars and beats from the timeline's tempo. */
 export type RulerMode = "time" | "bars";
 
+/** A track name or a clip name being typed in place. */
+export interface Renaming {
+  kind: "track" | "clip";
+  id: string;
+}
+
 export interface Selected {
   kind: "clip" | "note" | "event";
   id: string;
@@ -46,6 +52,8 @@ export interface OpenMenu {
 
 interface UiState {
   selection: Selected | null;
+  /** The name being edited in place, if any. */
+  renaming: Renaming | null;
   collapsed: boolean;
   view: View;
   ruler: RulerMode;
@@ -116,6 +124,7 @@ function readView(): View {
 
 export const useUi = create<UiState>()(() => ({
   selection: null,
+  renaming: null,
   collapsed: readCollapsed(),
   view: readView(),
   ruler: readRuler(),
@@ -136,6 +145,11 @@ const get = useUi.getState;
 
 export function select(selection: Selected | null): void {
   set({ selection });
+}
+
+/** Opens the name of a track or a clip for typing; `null` closes it. */
+export function rename(renaming: Renaming | null): void {
+  set({ renaming });
 }
 
 export function setCollapsed(collapsed: boolean): void {

@@ -14,7 +14,7 @@ import { hasNativeWindow } from "./components/WindowControls";
 import { useDevices } from "./devices/useDevices";
 import { SetupDialog } from "./setup/SetupDialog";
 import { I18nProvider, useT } from "./i18n";
-import { deleteSelection } from "./state/actions";
+import { deleteSelection, renameSelectedTrack } from "./state/actions";
 import { splitAtPlayhead } from "./state/clips";
 import { activeTimeline, isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
@@ -175,6 +175,11 @@ function Shell() {
         if (useUi.getState().view !== "edit") return;
         event.preventDefault();
         void splitAtPlayhead();
+      } else if (event.key === "F2") {
+        // Names are typed in the editor; Live only reads the show.
+        if (useUi.getState().view !== "edit") return;
+        event.preventDefault();
+        renameSelectedTrack();
       } else if (key === "i") {
         void importAudioFiles();
       } else if (event.key === "Delete" || event.key === "Backspace") {

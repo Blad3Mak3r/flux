@@ -10,6 +10,8 @@ import type { Selected } from "../state/ui";
 import { MAX_BPM, MIN_BPM } from "../project/types";
 import {
   findItem,
+  renameClip,
+  renameTrack,
   setAssetBpm,
   setNoteLength,
   setTrackColor,
@@ -69,6 +71,31 @@ function TrackColorField({
   );
 }
 
+/** The name of the track an item is on, which the track header also types in place. */
+function TrackNameField({
+  project,
+  timeline,
+  track,
+  onEdit,
+}: {
+  project: Project;
+  timeline: string;
+  track: Track;
+  onEdit: (project: Project) => void;
+}) {
+  const t = useT();
+  return (
+    <TextField
+      // Another track starts the field over, so a half-typed name never lands on it.
+      key={track.id}
+      label={t("track.name")}
+      value={track.name}
+      validate={(text) => (text.trim() === "" ? t("field.nameRequired") : null)}
+      onCommit={(text) => onEdit(renameTrack(project, timeline, track.id, text))}
+    />
+  );
+}
+
 function SelectionPanel({
   project,
   timeline,
@@ -102,6 +129,14 @@ function SelectionPanel({
           <dt>{t("clip.track")}</dt>
           <dd>{track.name}</dd>
         </dl>
+        <TextField
+          key={clip.id}
+          label={t("clip.label")}
+          hint={t("clip.label.hint", { file: asset?.name ?? clip.asset })}
+          value={clip.name ?? ""}
+          onCommit={(text) => onEdit(renameClip(project, timeline.id, clip.id, text))}
+        />
+        <TrackNameField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
         <TimecodeField
           label={t("clip.start")}
           frame={start + clip.start}
@@ -181,6 +216,7 @@ function SelectionPanel({
   return (
     <div className="panel-body">
       <h3>{t("note.title")}</h3>
+      <TrackNameField project={project} timeline={timeline.id} track={found.track} onEdit={onEdit} />
       <TextAreaField
         // A new note is selected to be written: it opens with the cursor in the text.
         key={note.id}
