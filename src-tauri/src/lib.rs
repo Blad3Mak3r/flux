@@ -2,6 +2,7 @@ mod audio_commands;
 mod commands;
 mod device_commands;
 mod diagnostics;
+mod graphics;
 mod live_commands;
 mod recents;
 mod startup;
@@ -24,6 +25,8 @@ fn prefer_x11_under_wsl() {
 pub fn run() {
     #[cfg(target_os = "linux")]
     prefer_x11_under_wsl();
+    // Before the first window: the webview reads these once, when it starts.
+    graphics::apply_early();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -34,6 +37,7 @@ pub fn run() {
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
             diagnostics::start(app.handle());
+            log::info!("{}", graphics::describe());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -65,6 +69,9 @@ pub fn run() {
             device_commands::devices_list_midi,
             device_commands::devices_find_audio,
             device_commands::devices_find_midi,
+            graphics::graphics_get,
+            graphics::graphics_set,
+            graphics::graphics_restart,
             diagnostics::diagnostics_open_log_dir,
             diagnostics::diagnostics_export,
             live_commands::live_cues,
