@@ -186,8 +186,8 @@ pub struct AudioClip {
     pub fade_out: u64,
 }
 
-fn is_zero(value: &u64) -> bool {
-    *value == 0
+fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
 }
 
 impl AudioClip {
@@ -291,10 +291,6 @@ pub struct MtcOutput {
     /// them. Tells apart two interfaces of the same model.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub port_index: usize,
-}
-
-fn is_zero(value: &usize) -> bool {
-    *value == 0
 }
 
 impl Project {
