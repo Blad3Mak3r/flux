@@ -179,6 +179,9 @@ pub struct AudioClip {
     pub asset: String,
     pub start: u64,
     pub gain_db: f32,
+    /// The name the clip goes by in the timeline and in Live; absent means the asset's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// Frames of the asset skipped at the start of the clip (trim in); absent is 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub offset: u64,
@@ -205,6 +208,7 @@ impl AudioClip {
             asset: asset.into(),
             start,
             gain_db: 0.0,
+            name: None,
             offset: 0,
             length: None,
             fade_in: 0,
@@ -300,6 +304,9 @@ pub struct LtcOutput {
 
 /// The largest latency offset of an output, in ms either way.
 pub const MAX_OFFSET_MS: i32 = 1000;
+
+/// The most characters a clip's own name can have.
+pub const MAX_CLIP_NAME: usize = 64;
 
 /// The LTC level of an output that does not set one: half scale, -6 dBFS.
 pub const DEFAULT_LTC_LEVEL: f32 = 0.5;
@@ -420,6 +427,14 @@ fn validate_track<'a>(
         TrackKind::Audio { clips } => {
             for clip in clips {
                 ensure_unique(item_ids, "clip/note id", &clip.id)?;
+                if let Some(name) = &clip.name
+                    && (name.trim().is_empty() || name.chars().count() > MAX_CLIP_NAME)
+                {
+                    return Err(ProjectError::Invalid(format!(
+                        "clip {} needs a name of 1 to {MAX_CLIP_NAME} characters; leave it out instead",
+                        clip.id
+                    )));
+                }
                 if clip.length == Some(0) {
                     return Err(ProjectError::Invalid(format!(
                         "clip {} plays no time; leave the length out instead",
@@ -854,6 +869,41 @@ pub(super) mod tests {
         assert_eq!(json["offset"], 30);
         assert_eq!(json["fadeIn"], 5);
         assert_eq!(serde_json::from_value::<AudioClip>(json).unwrap(), clip);
+    }
+
+    #[test]
+    fn clip_without_a_name_should_serialize_without_one() {
+        let json = serde_json::to_value(AudioClip::new("c1", "a1", 0)).unwrap();
+        assert!(json.get("name").is_none());
+    }
+
+    #[test]
+    fn named_clip_should_round_trip() {
+        let clip = AudioClip {
+            name: Some("Intro".into()),
+            ..AudioClip::new("c1", "a1", 0)
+        };
+        let json = serde_json::to_value(&clip).unwrap();
+        assert_eq!(json["name"], "Intro");
+        assert_eq!(serde_json::from_value::<AudioClip>(json).unwrap(), clip);
+    }
+
+    #[test]
+    fn validate_should_reject_a_blank_or_too_long_clip_name() {
+        for name in ["", "   ", &"x".repeat(MAX_CLIP_NAME + 1)] {
+            let mut project = sample_project();
+            let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind else {
+                panic!("the first track is audio");
+            };
+            clips[0].name = Some(name.into());
+            assert!(project.validate().is_err(), "{name:?} should be refused");
+        }
+        let mut project = sample_project();
+        let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind else {
+            panic!("the first track is audio");
+        };
+        clips[0].name = Some("x".repeat(MAX_CLIP_NAME));
+        assert!(project.validate().is_ok());
     }
 
     #[test]

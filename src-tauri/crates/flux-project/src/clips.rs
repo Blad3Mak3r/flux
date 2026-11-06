@@ -74,6 +74,7 @@ pub fn apply(
             edited.fade_out = 0;
             let mut second = AudioClip::new(new_id(), clip.asset.clone(), frame);
             second.gain_db = clip.gain_db;
+            second.name = clip.name.clone();
             second.offset = clip.offset + frame - clip.start;
             second.length = Some(end - frame);
             second.fade_out = clip.fade_out;
@@ -186,6 +187,20 @@ mod tests {
         assert_eq!(second.id, "c2");
         // Both halves measure the asset from the same frame.
         assert_eq!(first.start - first.offset, second.start - second.offset);
+    }
+
+    #[test]
+    fn split_should_give_both_halves_the_name_of_the_clip() {
+        let named = AudioClip {
+            name: Some("Intro".into()),
+            ..clip()
+        };
+        let halves = apply(&named, ClipOp::Split, 400, ASSET, || "c2".into()).unwrap();
+        assert!(
+            halves
+                .iter()
+                .all(|half| half.name.as_deref() == Some("Intro"))
+        );
     }
 
     #[test]

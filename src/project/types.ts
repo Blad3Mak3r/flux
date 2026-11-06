@@ -137,6 +137,8 @@ export interface AudioClip {
   asset: string;
   start: number;
   gainDb: number;
+  /** The name the clip goes by in the timeline and in Live; absent means the asset's name. */
+  name?: string;
   /** Frames of the asset skipped at the start of the clip (trim in); absent is 0. */
   offset?: number;
   /** Frames of the asset the clip plays (trim out); absent means up to the end of the asset. */

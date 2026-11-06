@@ -21,8 +21,8 @@ pub use events::{
 pub use flux_core::FrameRate;
 pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, FORMAT_VERSION, LtcOutput,
-    MAX_BPM, MAX_OFFSET_MS, MIN_BPM, Meta, MetronomeOutput, MtcOutput, Note, OutputConfig, Project,
-    Tempo, TimecodeSettings, Timeline, Track, TrackKind,
+    MAX_BPM, MAX_CLIP_NAME, MAX_OFFSET_MS, MIN_BPM, Meta, MetronomeOutput, MtcOutput, Note,
+    OutputConfig, Project, Tempo, TimecodeSettings, Timeline, Track, TrackKind,
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, OffsetKind, ProjectState, Session};

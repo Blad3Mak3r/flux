@@ -43,8 +43,10 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 Track kinds:
 
-- `{ "type": "audio", "clips": [{ id, asset, start, gainDb, offset?, length?, fadeIn?, fadeOut? }] }` — `asset` is
-  the id of an entry in `assets`. The four optional fields trim and fade the clip, are counted in **frames at the
+- `{ "type": "audio", "clips": [{ id, asset, start, gainDb, name?, offset?, length?, fadeIn?, fadeOut? }] }` —
+  `asset` is the id of an entry in `assets`. `name` is the name the clip goes by in the timeline and in Live (1 to 64
+  characters, not blank, anything else is rejected on open and save); absent means the asset's name. Added without a
+  version bump. The four optional fields below trim and fade the clip, are counted in **frames at the
   timeline's rate** like `start`, and are added without a version bump (a clip without them plays the whole asset with a
   hard start and cut):
   - `offset`: frames of the asset skipped at the start of the clip (trim in). Absent is 0.
