@@ -5,6 +5,7 @@ mod clips;
 mod cue_ops;
 mod error;
 mod events;
+mod item_ops;
 pub(crate) mod meta;
 mod migrate;
 mod model;
@@ -19,6 +20,7 @@ pub use events::{
     MidiEvent, MidiMessage, MidiPortRef, MscCommand, OscArg, OscDestination, OscEvent,
 };
 pub use flux_core::FrameRate;
+pub use item_ops::{Fade, ItemOp, MAX_TRACK_NAME};
 pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, ENVELOPE_MAX_DB,
     ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, EnvPoint, FORMAT_VERSION, FadeCurve,
