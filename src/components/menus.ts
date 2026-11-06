@@ -37,6 +37,7 @@ import {
 import type { MenuItem } from "../state/ui";
 import {
   addNoteAt,
+  closeDocument,
   importAudioFiles,
   newDocument,
   openDocument,
@@ -113,6 +114,7 @@ function fileMenu(t: Translate): MenuItem[] {
     "-",
     { label: t("menu.save"), shortcut: mod("S"), run: () => void saveDocument(false) },
     { label: t("menu.saveAs"), shortcut: mod("⇧+S"), run: () => void saveDocument(true) },
+    { label: t("menu.close"), shortcut: mod("W"), run: closeDocument },
     "-",
     {
       label: t("menu.import"),

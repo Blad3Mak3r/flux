@@ -1993,8 +1993,8 @@ input:disabled {
 
 .recent-open {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "name meta" "path meta";
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-areas: "badge name meta" "badge path meta";
   align-items: center;
   column-gap: 16px;
   min-width: 0;
@@ -2004,6 +2004,25 @@ input:disabled {
   border-radius: 2px;
   text-align: left;
   transition: background-color 120ms var(--ease);
+}
+
+.welcome-titlebar-spacer {
+  flex: 1 1 0;
+  align-self: stretch;
+}
+
+.project-badge {
+  grid-area: badge;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, var(--phosphor-dim), var(--graticule-major));
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
 .recent-open:hover:not(:disabled) {

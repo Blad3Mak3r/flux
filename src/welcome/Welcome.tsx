@@ -6,6 +6,7 @@ import { WindowControls, hasNativeWindow } from "../components/WindowControls";
 import { I18nProvider, useI18n } from "../i18n";
 import { errorMessage, pickProjectPath } from "../project/api";
 import { openEditor, projectDelete, recentsForget, recentsList } from "./api";
+import { projectInitials } from "./initials";
 import type { RecentShow } from "./api";
 
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
@@ -74,11 +75,8 @@ function Welcome() {
     <div className="welcome">
       <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
         <BrandMark />
-        {hasNativeWindow() && (
-          <div className="menu-end">
-            <WindowControls />
-          </div>
-        )}
+        <span className="welcome-titlebar-spacer" data-tauri-drag-region />
+        {hasNativeWindow() && <WindowControls />}
       </nav>
 
       <main className="welcome-body">
@@ -114,6 +112,7 @@ function Welcome() {
                       aria-label={t("welcome.openName", { name })}
                       onClick={() => openShow(show.path)}
                     >
+                      <span className="project-badge" aria-hidden="true">{projectInitials(name)}</span>
                       <span className="recent-name">{name}</span>
                       <span className="recent-path" title={show.path}>{show.path}</span>
                       <span className="recent-meta">
