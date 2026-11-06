@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
 use super::clips::{self, ClipOp};
+use super::cue_ops::{self, CueEdited, CueOp};
 use super::error::{ProjectError, Result};
 use super::model::{
     AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, Timeline, TrackKind,
@@ -295,6 +296,16 @@ impl Session {
         })
     }
 
+    /// Edits the MIDI and OSC tracks and the OSC destinations (see [`CueOp`]).
+    pub fn cue_edit(&mut self, op: CueOp) -> Result<CueEdited> {
+        let mut id = None;
+        let state = self.change(|project, active| {
+            id = cue_ops::apply(project, active, op)?;
+            Ok(())
+        })?;
+        Ok(CueEdited { state, id })
+    }
+
     /// Sets the latency offset of the LTC or MTC output at `index` to the ms in `text`. 0 is stored
     /// as no offset, so the file stays as it was before the setting existed.
     pub fn set_output_offset(
@@ -436,7 +447,7 @@ fn unknown_timeline(id: &str) -> ProjectError {
 fn audio_clips(timeline: &Timeline) -> impl Iterator<Item = &AudioClip> {
     timeline.tracks.iter().flat_map(|track| match &track.kind {
         TrackKind::Audio { clips } => clips.as_slice(),
-        TrackKind::Notes { .. } => &[],
+        _ => &[],
     })
 }
 

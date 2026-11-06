@@ -2,7 +2,9 @@
 
 mod archive;
 mod clips;
+mod cue_ops;
 mod error;
+mod events;
 pub(crate) mod meta;
 mod migrate;
 mod model;
@@ -11,7 +13,11 @@ mod session;
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
 pub use clips::{ClipOp, apply as apply_clip_op};
+pub use cue_ops::{CueEdited, CueOp, CueTrackKind};
 pub use error::{ProjectError, Result};
+pub use events::{
+    MidiEvent, MidiMessage, MidiPortRef, MscCommand, OscArg, OscDestination, OscEvent,
+};
 pub use flux_core::FrameRate;
 pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, FORMAT_VERSION, LtcOutput,

@@ -40,6 +40,7 @@ pub fn run() {
             commands::project_document,
             commands::project_sync,
             commands::clip_edit,
+            commands::cue_edit,
             commands::output_set_offset,
             commands::timeline_add,
             commands::timeline_rename,
