@@ -51,6 +51,21 @@ export const NoteIcon = () => (
   </Icon>
 );
 
+/** A DIN socket: the connector of a MIDI port. */
+export const MidiIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M5 6.5 h0.01 M8 4.8 h0.01 M11 6.5 h0.01" />
+  </Icon>
+);
+
+/** A message on a wire: OSC. */
+export const OscIcon = () => (
+  <Icon>
+    <path d="M2 8 H4 L6 3.5 L9 12.5 L11 8 H14" />
+  </Icon>
+);
+
 export const MuteIcon = ({ on }: { on: boolean }) => (
   <Icon>
     <path d="M2.5 6 H5 L8.5 3 V13 L5 10 H2.5 Z" fill="currentColor" stroke="none" />

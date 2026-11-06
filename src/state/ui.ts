@@ -14,7 +14,7 @@ export type View = "edit" | "live";
 export type RulerMode = "time" | "bars";
 
 export interface Selected {
-  kind: "clip" | "note";
+  kind: "clip" | "note" | "event";
   id: string;
 }
 

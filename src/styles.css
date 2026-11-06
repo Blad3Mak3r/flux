@@ -728,6 +728,7 @@ input:disabled {
 .side-add {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 8px;
   border-top: 1px solid var(--rule-strong);
@@ -735,7 +736,7 @@ input:disabled {
 
 .side-add button {
   display: flex;
-  flex: 1;
+  flex: 1 1 40%;
   align-items: center;
   justify-content: center;
   gap: 4px;
@@ -1186,6 +1187,114 @@ input:disabled {
 
 .note[data-selected="true"] {
   border-left-width: 2px;
+}
+
+/* A MIDI or OSC event is a line at its frame with a tag that names what it sends. MIDI tags are
+   solid and OSC tags dashed, so the kind never rides on colour alone. */
+.cue-event {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--trace-c);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.cue-event-body {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 220px;
+  padding: 2px 8px 2px 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  background-color: color-mix(in oklch, var(--trace-c) 18%, oklch(0.2 0.03 205));
+  border: 1px solid var(--trace-c-dim);
+  border-left: 0;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.cue-event[data-kind="osc"] .cue-event-body {
+  background-image: none;
+  background-color: oklch(0.2 0.03 205);
+  border-style: dashed;
+}
+
+.cue-event-tag {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.cue-event-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-dim);
+  font-family: var(--font-measure);
+}
+
+.cue-event[data-selected="true"] .cue-event-body {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.cue-event[data-selected="true"] {
+  border-left-width: 2px;
+}
+
+.cue-event:focus-visible .cue-event-body {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.lane[data-muted="true"] .cue-event {
+  border-left-style: dashed;
+  opacity: 0.7;
+}
+
+/* The arguments of an OSC message: a type, a value and a way to drop it, one per line. */
+.osc-args {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.osc-args legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.osc-args ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.osc-arg {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.osc-arg input {
+  min-width: 0;
 }
 
 /* A muted track keeps its shape but is drawn hollow. */
@@ -2566,6 +2675,15 @@ input:disabled {
     color-mix(in oklch, var(--cue-c) 55%, transparent) 0 2px,
     transparent 2px 5px
   );
+}
+
+.cue-kind[data-kind="midi"] {
+  background-color: var(--cue-c-dim);
+}
+
+.cue-kind[data-kind="osc"] {
+  background-color: var(--screen);
+  border-style: dashed;
 }
 
 /* Lamps say the state by shape as well as colour: filled, hollow or dashed, beside a printed word. */

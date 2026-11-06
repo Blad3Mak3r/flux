@@ -7,6 +7,8 @@ import type {
   AudioAsset,
   AudioClip,
   FrameRate,
+  MidiEvent,
+  OscEvent,
   OutputConfig,
   Project,
   Note,
@@ -19,7 +21,7 @@ import { DEFAULT_TEMPO, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/t
 export function emptyProject(name: string, frameRate: FrameRate): Project {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   return {
-    formatVersion: 4,
+    formatVersion: 5,
     name,
     meta: { id: crypto.randomUUID(), createdAt: now, modifiedAt: now, createdWith: "", savedWith: "" },
     assets: [],
@@ -54,7 +56,9 @@ function mapTracks(project: Project, timeline: string, change: (track: Track) =>
 
 export type Found =
   | { kind: "clip"; track: Track; clip: AudioClip }
-  | { kind: "note"; track: Track; note: Note };
+  | { kind: "note"; track: Track; note: Note }
+  | { kind: "midiEvent"; track: Track; event: MidiEvent }
+  | { kind: "oscEvent"; track: Track; event: OscEvent };
 
 /** Finds a clip or a note by its id, which is unique in the whole project. */
 export function findItem(project: Project, id: string): Found | null {
@@ -62,9 +66,15 @@ export function findItem(project: Project, id: string): Found | null {
     if (track.kind.type === "audio") {
       const clip = track.kind.clips.find((c) => c.id === id);
       if (clip) return { kind: "clip", track, clip };
-    } else {
+    } else if (track.kind.type === "notes") {
       const note = track.kind.notes.find((n) => n.id === id);
       if (note) return { kind: "note", track, note };
+    } else if (track.kind.type === "midi") {
+      const event = track.kind.events.find((e) => e.id === id);
+      if (event) return { kind: "midiEvent", track, event };
+    } else {
+      const event = track.kind.events.find((e) => e.id === id);
+      if (event) return { kind: "oscEvent", track, event };
     }
   }
   return null;
@@ -121,9 +131,8 @@ export function moveItem(project: Project, timeline: string, id: string, positio
   const at = Math.max(0, Math.round(position));
   const found = findItem(project, id);
   if (!found) return project;
-  return found.kind === "clip"
-    ? updateClip(project, timeline, id, { start: at })
-    : updateNote(project, timeline, id, { at });
+  if (found.kind === "clip") return updateClip(project, timeline, id, { start: at });
+  return found.kind === "note" ? updateNote(project, timeline, id, { at }) : project;
 }
 
 /**
@@ -138,6 +147,7 @@ export function removeItem(project: Project, timeline: string, id: string): Proj
         ? { ...track, kind: { type: "audio", clips: clips.filter((c) => c.id !== id) } }
         : track;
     }
+    if (track.kind.type !== "notes") return track;
     const { notes } = track.kind;
     return notes.some((n) => n.id === id)
       ? { ...track, kind: { type: "notes", notes: notes.filter((n) => n.id !== id) } }

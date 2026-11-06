@@ -17,6 +17,7 @@ import {
   updateNote,
 } from "../state/edit";
 import { TRACK_COLORS } from "../timeline/palette";
+import { MidiEventPanel, OscEventPanel } from "./CueEventPanel";
 import { TextAreaField, TextField, TimecodeField } from "./fields";
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
 import { MOD_KEY } from "./menus";
@@ -158,6 +159,21 @@ function SelectionPanel({
           {t("inspector.delete")}
         </button>
       </div>
+    );
+  }
+
+  if (found.kind === "midiEvent") {
+    return <MidiEventPanel track={found.track} event={found.event} start={start} rate={frameRate} />;
+  }
+  if (found.kind === "oscEvent") {
+    return (
+      <OscEventPanel
+        track={found.track}
+        event={found.event}
+        start={start}
+        rate={frameRate}
+        destinations={project.output.osc ?? []}
+      />
     );
   }
 

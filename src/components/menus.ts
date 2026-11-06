@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MessageKey, Translate } from "../i18n/messages";
 import type { Cue } from "../live/api";
 import type { AudioClip, Note, Track } from "../project/types";
+import { addCueEvent, addCueTrack, removeCueEvent } from "../state/cues";
 import { deleteSelection, deleteTrack, muteTrack, reorderTrack, setGain } from "../state/actions";
 import { activeTimeline } from "../state/doc";
 import { splitAtPlayhead } from "../state/clips";
@@ -113,6 +114,8 @@ function trackMenu(t: Translate): MenuItem[] {
   return [
     { label: t("menu.addSong"), shortcut: "I", run: () => void importAudioFiles() },
     { label: t("menu.addNote"), shortcut: "N", disabled: !editing, run: () => addNoteAt(t) },
+    { label: t("menu.addMidiTrack"), disabled: !editing, run: () => void addCueTrack("midi", t("track.kind.midi")) },
+    { label: t("menu.addOscTrack"), disabled: !editing, run: () => void addCueTrack("osc", t("track.kind.osc")) },
     "-",
     {
       label: t(track?.muted ? "menu.unmuteTrack" : "menu.muteTrack"),
@@ -281,12 +284,49 @@ export function notesTrackMenu(t: Translate, track: Track): MenuItem[] {
   ];
 }
 
-/** Empty timeline; on a notes lane `here` is the frame under the pointer. */
-export function emptyMenu(t: Translate, here?: { frame: number; trackId: string }): MenuItem[] {
+/** A MIDI or OSC track: its header offers an event at the playhead and the track's own actions. */
+export function cueTrackMenu(t: Translate, track: Track): MenuItem[] {
+  const kind = track.kind.type === "osc" ? "osc" : "midi";
   return [
-    here
-      ? { label: t("context.addNoteHere"), run: () => addNoteAt(t, here.frame, here.trackId) }
-      : { label: t("menu.addNote"), run: () => addNoteAt(t) },
+    {
+      label: t(kind === "osc" ? "context.addOscHere" : "context.addMidiHere"),
+      run: () => void addCueEvent(kind, currentFrame(), t(`track.kind.${kind}`), track.id),
+    },
+    muteItem(t, track),
+    "-",
+    { label: t("menu.deleteTrack"), run: () => deleteTrack(track.id) },
+    "-",
+    snapItem(t),
+  ];
+}
+
+/** One MIDI or OSC event on its lane. */
+export function eventMenu(t: Translate, track: Track, id: string, at: number): MenuItem[] {
+  const { start } = activeTimeline(useDoc.getState()).timecode;
+  return [
+    { label: t("context.goToEvent"), run: () => seek(start + at) },
+    muteItem(t, track),
+    "-",
+    { label: t("context.deleteEvent"), run: () => void removeCueEvent(id) },
+    "-",
+    snapItem(t),
+  ];
+}
+
+/** Empty timeline; on a notes, MIDI or OSC lane `here` is the frame under the pointer. */
+export function emptyMenu(
+  t: Translate,
+  here?: { frame: number; trackId: string; kind: "notes" | "midi" | "osc" },
+): MenuItem[] {
+  return [
+    here?.kind === "midi" || here?.kind === "osc"
+      ? {
+          label: t(here.kind === "osc" ? "context.addOscHere" : "context.addMidiHere"),
+          run: () => void addCueEvent(here.kind as "midi" | "osc", here.frame, t(`track.kind.${here.kind as "midi" | "osc"}`), here.trackId),
+        }
+      : here
+        ? { label: t("context.addNoteHere"), run: () => addNoteAt(t, here.frame, here.trackId) }
+        : { label: t("menu.addNote"), run: () => addNoteAt(t) },
     { label: t("menu.importAudio"), run: () => void importAudioFiles() },
     "-",
     snapItem(t),

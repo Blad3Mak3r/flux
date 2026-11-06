@@ -17,8 +17,17 @@ export interface OutputInfo {
   mtc: MtcInfo[];
   /** Where the metronome plays; `null` when the project has no metronome output. */
   metronome: MetronomeInfo | null;
+  /** One entry per MIDI port and OSC destination the cue tracks of the timeline send to. */
+  cues: CueInfo[];
   /** Things that did not stop the output, e.g. a missing MIDI port. */
   warnings: string[];
+}
+
+/** How one destination of the cue tracks ended up; when it did not open, `target` is the name the project holds. */
+export interface CueInfo {
+  kind: "midi" | "osc";
+  target: string;
+  ok: boolean;
 }
 
 /** How one LTC output ended up; when it did not open, `device` is the name the project holds. */

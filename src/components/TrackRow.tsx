@@ -2,8 +2,9 @@ import { memo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
-import type { AudioClip, Note, Track } from "../project/types";
+import type { AudioClip, MidiEvent, Note, OscEvent, Track } from "../project/types";
 import { moveTo, muteTrack, setGain } from "../state/actions";
+import { addCueEvent, moveCueEvent } from "../state/cues";
 import { editClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapFrame } from "../state/snap";
@@ -18,8 +19,8 @@ import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { Fader } from "./Fader";
 import { LevelMeter } from "./LevelMeter";
-import { MuteIcon, NoteIcon, WaveIcon } from "./icons";
-import { audioMenu, emptyMenu, noteMenu, notesTrackMenu } from "./menus";
+import { MidiIcon, MuteIcon, NoteIcon, OscIcon, WaveIcon } from "./icons";
+import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu } from "./menus";
 
 /** Length shown for a clip whose audio length is not known yet (10 s at the project rate). */
 const GUESS_SECONDS = 10;
@@ -27,6 +28,13 @@ const GUESS_SECONDS = 10;
 export function laneHeight(track: Track): number {
   return track.kind.type === "audio" ? AUDIO_LANE_H : NOTES_LANE_H;
 }
+
+const KIND_ICONS = {
+  audio: <WaveIcon />,
+  notes: <NoteIcon />,
+  midi: <MidiIcon />,
+  osc: <OscIcon />,
+} as const;
 
 export const TrackHeader = memo(function TrackHeader({
   track,
@@ -48,12 +56,17 @@ export const TrackHeader = memo(function TrackHeader({
       data-audio={audio}
       data-colored={track.color !== undefined}
       data-dragging={dragging}
-      onContextMenu={(event) => menuAtPointer(event, audio ? audioMenu(t, track) : notesTrackMenu(t, track))}
+      onContextMenu={(event) =>
+        menuAtPointer(
+          event,
+          audio ? audioMenu(t, track) : track.kind.type === "notes" ? notesTrackMenu(t, track) : cueTrackMenu(t, track),
+        )
+      }
     >
       <div className="track-head-row" onPointerDown={(event) => onGrab(event, track.id)}>
-        <span className="track-kind" title={t(audio ? "track.kind.audio" : "track.kind.notes")}>
-          {audio ? <WaveIcon /> : <NoteIcon />}
-          <span className="visually-hidden">{t(audio ? "track.kind.audio" : "track.kind.notes")}</span>
+        <span className="track-kind" title={t(`track.kind.${track.kind.type}`)}>
+          {KIND_ICONS[track.kind.type]}
+          <span className="visually-hidden">{t(`track.kind.${track.kind.type}`)}</span>
         </span>
         <span className="track-name" title={track.name}>
           {track.name}
@@ -87,6 +100,8 @@ export const TrackHeader = memo(function TrackHeader({
 
 /** Drag an item sideways in whole frames; commit once on release so undo takes one step. */
 function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFrame: number) {
+  // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
+  const move = kind === "event" ? moveCueEvent : moveTo;
   const [delta, setDelta] = useState(0);
   const origin = useRef<{ x: number; position: number } | null>(null);
 
@@ -105,7 +120,7 @@ function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFram
       setDelta(target - origin.current.position);
     },
     onPointerUp() {
-      if (origin.current && delta !== 0) moveTo(id, origin.current.position + delta);
+      if (origin.current && delta !== 0) void move(id, origin.current.position + delta);
       origin.current = null;
       setDelta(0);
     },
@@ -114,7 +129,7 @@ function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFram
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         event.stopPropagation();
-        moveTo(id, Math.max(0, position + (event.key === "ArrowLeft" ? -step : step)));
+        void move(id, Math.max(0, position + (event.key === "ArrowLeft" ? -step : step)));
       }
     },
   };
@@ -343,6 +358,41 @@ function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPe
   );
 }
 
+/**
+ * A MIDI or OSC event on its lane: a line at its frame with a tag naming what it sends (an OSC
+ * event also shows its address). MIDI tags are solid and OSC tags dashed, so the kind never rides
+ * on colour alone.
+ */
+function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEvent | OscEvent; pxPerFrame: number }) {
+  const t = useT();
+  const { shown, handlers: pointer } = useDrag(event.id, "event", event.at, pxPerFrame);
+  const selected = useUi((ui) => ui.selection?.id === event.id);
+  const osc = "address" in event;
+  const tag = t(osc ? "event.tag.osc" : (`event.tag.${event.message.type}` as const));
+  return (
+    <div
+      className="cue-event"
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      data-selected={selected}
+      data-muted={track.muted}
+      data-kind={osc ? "osc" : "midi"}
+      style={{ left: frameX(shown, pxPerFrame) }}
+      onContextMenu={(menu) => {
+        select({ kind: "event", id: event.id });
+        menuAtPointer(menu, eventMenu(t, track, event.id, event.at));
+      }}
+      {...pointer}
+    >
+      <span className="cue-event-body">
+        <span className="cue-event-tag">{tag}</span>
+        {osc && <span className="cue-event-detail">{event.address}</span>}
+      </span>
+    </div>
+  );
+}
+
 export const TrackLane = memo(function TrackLane({
   track,
   assetNames,
@@ -360,11 +410,14 @@ export const TrackLane = memo(function TrackLane({
 }) {
   const t = useT();
   const height = laneHeight(track);
-  // A double click on the empty part of a notes lane writes a note there.
+  // A double click on the empty part of a notes, MIDI or OSC lane adds one there.
   const addHere = (event: MouseEvent<HTMLDivElement>) => {
-    if (track.kind.type !== "notes" || event.target !== event.currentTarget) return;
+    const kind = track.kind.type;
+    if (kind === "audio" || event.target !== event.currentTarget) return;
     const { start } = activeTimeline(useDoc.getState()).timecode;
-    addNoteAt(t, start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame)), track.id);
+    const frame = start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame));
+    if (kind === "notes") addNoteAt(t, frame, track.id);
+    else void addCueEvent(kind, frame, t(`track.kind.${kind}`), track.id);
   };
   return (
     <div
@@ -377,7 +430,10 @@ export const TrackLane = memo(function TrackLane({
       onContextMenu={(event) => {
         const { start } = activeTimeline(useDoc.getState()).timecode;
         const frame = start + Math.max(0, Math.round((event.clientX - event.currentTarget.getBoundingClientRect().left) / pxPerFrame));
-        menuAtPointer(event, emptyMenu(t, track.kind.type === "notes" ? { frame, trackId: track.id } : undefined));
+        menuAtPointer(
+          event,
+          emptyMenu(t, track.kind.type === "audio" ? undefined : { frame, trackId: track.id, kind: track.kind.type }),
+        );
       }}
     >
       {track.kind.type === "audio"
@@ -395,9 +451,13 @@ export const TrackLane = memo(function TrackLane({
               pxPerFrame={pxPerFrame}
             />
           ))
-        : track.kind.notes.map((note) => (
-            <NoteBlock key={note.id} track={track} note={note} pxPerFrame={pxPerFrame} />
-          ))}
+        : track.kind.type === "notes"
+          ? track.kind.notes.map((note) => (
+              <NoteBlock key={note.id} track={track} note={note} pxPerFrame={pxPerFrame} />
+            ))
+          : track.kind.events.map((event) => (
+              <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
+            ))}
     </div>
   );
 });
