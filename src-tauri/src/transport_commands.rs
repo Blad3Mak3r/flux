@@ -19,16 +19,16 @@ use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::audio::SharedAudio;
 use crate::audio_commands::load;
 use crate::commands::SharedSession;
 use crate::diagnostics::{self, LogLane};
-use crate::engine::cues::{CueList, LiveState, SharedCues};
-use crate::engine::mixer::{self, Programme, TrackPeak};
-use crate::engine::output::{Output, OutputError, OutputInfo, Position};
-use crate::engine::transport::{Command, TransportState};
 use crate::live_commands::{active_timeline, cue_list};
-use crate::project::{Project, Tempo, Timeline};
+use flux_audio::SharedAudio;
+use flux_engine::cues::{CueList, LiveState, SharedCues};
+use flux_engine::mixer::{self, Programme, TrackPeak};
+use flux_engine::output::{Output, OutputError, OutputInfo, Position};
+use flux_engine::transport::{Command, TransportState};
+use flux_project::{Project, Tempo, Timeline};
 
 const LANE_INTERVAL: Duration = Duration::from_millis(33);
 
@@ -436,7 +436,7 @@ pub fn transport_position(state: State<'_, SharedOutput>) -> Option<Position> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::cues::Countdown;
+    use flux_engine::cues::Countdown;
 
     fn at(frame: u64) -> Position {
         Position {

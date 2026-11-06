@@ -1,6 +1,6 @@
 //! Tauri commands of the Live view: the cues of the open project and where the show stands.
 //!
-//! The cue list is derived from the project (see [`crate::engine::cues`]) and the length of each
+//! The cue list is derived from the project (see [`flux_engine::cues`]) and the length of each
 //! clip comes from its decoded audio, so these commands run on the blocking pool, where decoding
 //! belongs. While an output runs, the same state streams from its live lane
 //! (`transport_commands`); these commands serve the time before the first Play, when the playhead
@@ -11,11 +11,11 @@ use std::sync::{Arc, PoisonError};
 
 use tauri::State;
 
-use crate::audio::{AudioError, ENGINE_RATE, SharedAudio};
 use crate::audio_commands::load;
 use crate::commands::SharedSession;
-use crate::engine::cues::{Cue, CueList, LiveState};
-use crate::project::{AudioAsset, Project, ProjectError, Timeline};
+use flux_audio::{AudioError, ENGINE_RATE, SharedAudio};
+use flux_engine::cues::{Cue, CueList, LiveState};
+use flux_project::{AudioAsset, Project, ProjectError, Timeline};
 
 /// The samples (at the engine rate) of an asset's audio, found the cheapest way: the audio already
 /// decoded, else the length stored with its waveform, and only then by decoding it, which for a song

@@ -1,11 +1,8 @@
-pub mod audio;
 mod audio_commands;
 mod commands;
-pub mod devices;
+mod device_commands;
 mod diagnostics;
-pub mod engine;
 mod live_commands;
-pub mod project;
 mod recents;
 mod startup;
 mod transport_commands;
@@ -32,7 +29,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::SharedSession::default())
-        .manage(audio::SharedAudio::default())
+        .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
@@ -62,11 +59,11 @@ pub fn run() {
             windows::window_open_editor,
             audio_commands::audio_analyze,
             audio_commands::audio_detect_bpm,
-            devices::devices_list_hosts,
-            devices::devices_list_audio,
-            devices::devices_list_midi,
-            devices::devices_find_audio,
-            devices::devices_find_midi,
+            device_commands::devices_list_hosts,
+            device_commands::devices_list_audio,
+            device_commands::devices_list_midi,
+            device_commands::devices_find_audio,
+            device_commands::devices_find_midi,
             diagnostics::diagnostics_open_log_dir,
             diagnostics::diagnostics_export,
             live_commands::live_cues,

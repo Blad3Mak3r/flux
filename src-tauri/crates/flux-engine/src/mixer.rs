@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::Serialize;
 
-use super::transport::Clock;
-use crate::audio::{AudioError, Decoded, ENGINE_RATE};
-use crate::project::{AudioAsset, AudioClip, Project, Timeline, TrackKind};
+use flux_audio::{AudioError, Decoded, ENGINE_RATE};
+use flux_core::Clock;
+use flux_project::{AudioAsset, AudioClip, Project, Timeline, TrackKind};
 
 /// Frames mixed at a time, on the stack: the callback must not allocate.
 pub const MIX_CHUNK: usize = 256;
@@ -383,7 +383,7 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{AudioClip, FrameRate, Track};
+    use flux_project::{AudioClip, ClipOp, FrameRate, Track, apply_clip_op};
 
     fn audio(left: i16, right: i16, frames: usize) -> Arc<Decoded> {
         Arc::new(Decoded {
@@ -779,5 +779,54 @@ mod tests {
         let peaks = programme.set.levels().take_peaks();
         assert_eq!(peaks.len(), 1, "the muted track has no meter");
         assert_eq!(peaks[0].id, "t1");
+    }
+
+    /// Mixes `clips` of `asset` (a ramp, so every sample is different) for the first `frames`
+    /// frames of the timeline, at 29.97 fps, where a frame is not a whole number of samples.
+    fn mixed(clips: &[AudioClip], asset: &Arc<Decoded>, frames: u64) -> Vec<f32> {
+        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop);
+        let players = clips
+            .iter()
+            .map(|clip| ClipPlayer {
+                span: span(clip, &clock, asset.frames() as u64),
+                audio: Arc::clone(asset),
+                gain: 1.0,
+                track: 0,
+            })
+            .collect();
+        let set = ClipSet::new(players, vec![("t1".into(), 1.0)]);
+        let samples = clock.frames_to_samples(frames) as usize;
+        let (mut left, mut right) = (vec![0.0; samples], vec![0.0; samples]);
+        set.mix(0, &mut left, &mut right);
+        left
+    }
+
+    #[test]
+    fn split_should_play_back_exactly_like_the_clip_it_came_from() {
+        // Four seconds of a ramp that wraps, so no two neighbouring samples are alike.
+        let asset = Arc::new(Decoded {
+            samples: (0..192_000usize)
+                .flat_map(|i| [(i % 30_000) as i16, 0])
+                .collect(),
+            source_rate: ENGINE_RATE,
+        });
+        let asset_frames =
+            Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop).samples_to_frames(192_000);
+        // Trimmed in and faded, then cut at frames that do not fall on a whole sample.
+        let mut original = AudioClip::new("c1", "a1", 7);
+        original.offset = 13;
+        original.length = Some(80);
+        original.fade_in = 10;
+        original.fade_out = 12;
+        // Cuts clear of the fades, which stay with the half that holds them.
+        for cut in [20, 33, 61] {
+            let halves =
+                apply_clip_op(&original, ClipOp::Split, cut, asset_frames, || "c2".into()).unwrap();
+            assert_eq!(
+                mixed(&halves, &asset, 100),
+                mixed(std::slice::from_ref(&original), &asset, 100),
+                "cut at {cut}"
+            );
+        }
     }
 }

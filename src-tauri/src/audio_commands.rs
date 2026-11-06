@@ -6,9 +6,9 @@ use std::sync::{Arc, PoisonError};
 
 use tauri::State;
 
-use crate::audio::{AudioError, Decoded, PEAKS_PER_SECOND, SharedAudio, decode, detect_bpm, peaks};
 use crate::commands::SharedSession;
-use crate::project::{AudioAsset, AudioStamp, Preview};
+use flux_audio::{AudioError, Decoded, PEAKS_PER_SECOND, SharedAudio, decode, detect_bpm, peaks};
+use flux_project::{AudioAsset, AudioStamp, Preview};
 
 /// The decoded audio of `asset`, decoding it the first time and remembering it afterwards.
 pub fn load(
@@ -111,7 +111,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::project::{FrameRate, Session};
+    use flux_project::{FrameRate, Session};
 
     /// One second of a 48 kHz mono 16-bit WAV with a ramp, so its peaks are not silence.
     fn wav(seconds: u32) -> Vec<u8> {

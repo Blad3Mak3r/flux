@@ -2,9 +2,18 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::project::FrameRate;
+/// The four rates MTC can express; LTC supports them too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FrameRate {
+    Fps24,
+    Fps25,
+    Fps2997Drop,
+    Fps30,
+}
 
 /// Frames in 10 minutes of 29.97 drop-frame: 2 frames are dropped in every minute except each tenth.
 const DF_FRAMES_PER_10_MIN: u64 = 17_982;

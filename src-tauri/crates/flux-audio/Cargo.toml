@@ -1,0 +1,13 @@
+[package]
+name = "flux-audio"
+version = "0.1.0"
+description = "Audio files as the engine plays them: decoding, waveform peaks and tempo detection"
+edition = "2024"
+
+[dependencies]
+flux-core = { path = "../flux-core" }
+flux-project = { path = "../flux-project" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2.0.21"
+symphonia = { version = "0.6.1", features = ["mp3", "aiff"] }
+rubato = "5.0.1"

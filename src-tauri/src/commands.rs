@@ -10,15 +10,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tauri::{AppHandle, State};
 
-use crate::audio::{ENGINE_RATE, SharedAudio};
-use crate::engine::transport::Clock;
 use crate::live_commands::samples_of;
-use crate::project::{
+use crate::recents;
+use crate::transport_commands::{SharedOutput, is_playing, release};
+use flux_audio::{ENGINE_RATE, SharedAudio};
+use flux_core::Clock;
+use flux_project::{
     AudioAsset, ClipOp, Document, FrameRate, OffsetKind, Project, ProjectError, ProjectState,
     Result, Session,
 };
-use crate::recents;
-use crate::transport_commands::{SharedOutput, is_playing, release};
 
 pub type SharedSession = Arc<Mutex<Session>>;
 

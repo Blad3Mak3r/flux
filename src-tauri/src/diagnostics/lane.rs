@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use log::Level;
 
-use crate::engine::output::{Faults, Position};
+use flux_engine::output::{Faults, Position};
 
 /// Faults are logged at most this often, so a device that keeps failing does not flood the log.
 const FAULT_INTERVAL: Duration = Duration::from_secs(1);
@@ -92,7 +92,7 @@ impl LogLane {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::transport::TransportState;
+    use flux_engine::transport::TransportState;
 
     fn at(state: TransportState) -> Position {
         Position {

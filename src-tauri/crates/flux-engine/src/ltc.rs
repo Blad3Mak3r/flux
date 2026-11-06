@@ -2,9 +2,9 @@
 //!
 //! Pure functions and a small stateful encoder, with no I/O, so it is tested without hardware.
 
-use super::timecode::Timecode;
-use super::transport::Clock;
-use crate::project::FrameRate;
+use flux_core::Clock;
+use flux_core::Timecode;
+use flux_project::FrameRate;
 
 pub const BITS_PER_FRAME: usize = 80;
 

@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::project::{ProjectError, ProjectMeta, read_meta};
+use flux_project::{ProjectError, ProjectMeta, read_meta};
 
 const FILE_NAME: &str = "recent.json";
 const MAX_RECENTS: usize = 12;

@@ -23,10 +23,11 @@ use super::ltc::{LtcConfig, LtcStream};
 use super::metronome::{ClickOut, SharedMetronome};
 use super::mixer::{ClipSet, MIX_CHUNK, Programme, SharedLevels};
 use super::mtc::MtcScheduler;
-use super::transport::{Clock, Command, Transport, TransportState};
-use crate::audio::ENGINE_RATE;
+use super::transport::{Command, Transport, TransportState};
 use crate::devices;
-use crate::project::{
+use flux_audio::ENGINE_RATE;
+use flux_core::Clock;
+use flux_project::{
     DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, Project, ProjectError, Tempo, Timeline,
 };
 
@@ -1563,7 +1564,7 @@ fn run_mtc(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::ltc::{LtcConfig, LtcStream};
+    use crate::ltc::{LtcConfig, LtcStream};
 
     const RATE: FrameRate = FrameRate::Fps25;
 
@@ -1805,8 +1806,8 @@ mod tests {
         assert_eq!(pick_config(&[range(2, SampleFormat::F32)], 8, 48_000), None);
     }
 
-    use crate::audio::Decoded;
-    use crate::engine::mixer::ClipPlayer;
+    use crate::mixer::ClipPlayer;
+    use flux_audio::Decoded;
 
     /// A clip of constant stereo samples, as 16-bit values, that starts at the timeline origin.
     fn clip(left: i16, right: i16, frames: usize) -> ClipSet {

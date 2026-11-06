@@ -16,9 +16,9 @@ use zip::result::ZipError;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-use crate::devices;
-use crate::engine::output::OutputInfo;
 use crate::transport_commands::{SharedOutput, running_info};
+use flux_engine::devices;
+use flux_engine::output::OutputInfo;
 
 /// Starts the log file and writes the first line. When the log folder cannot be used the app
 /// goes on without a log: a show must not fail to start because of it.

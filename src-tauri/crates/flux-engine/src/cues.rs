@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::Serialize;
 
-use crate::audio::ENGINE_RATE;
-use crate::engine::mixer::span;
-use crate::engine::timecode::Timecode;
-use crate::engine::transport::Clock;
-use crate::project::{AudioAsset, FrameRate, Project, Timeline, TrackKind};
+use crate::mixer::span;
+use flux_audio::ENGINE_RATE;
+use flux_core::Clock;
+use flux_core::Timecode;
+use flux_project::{AudioAsset, FrameRate, Project, Timeline, TrackKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -318,7 +318,7 @@ impl SharedCues {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::project::{AudioClip, Note, Track};
+    use flux_project::{AudioClip, Note, Track};
 
     /// One second of 25 fps video at the engine rate.
     const SECOND: u64 = ENGINE_RATE as u64;

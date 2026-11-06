@@ -10,12 +10,13 @@ mod preview;
 mod session;
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
-pub use clips::ClipOp;
+pub use clips::{ClipOp, apply as apply_clip_op};
 pub use error::{ProjectError, Result};
+pub use flux_core::FrameRate;
 pub use model::{
-    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, FORMAT_VERSION, FrameRate,
-    LtcOutput, MAX_BPM, MAX_OFFSET_MS, MIN_BPM, Meta, MetronomeOutput, MtcOutput, Note,
-    OutputConfig, Project, Tempo, TimecodeSettings, Timeline, Track, TrackKind,
+    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, FORMAT_VERSION, LtcOutput,
+    MAX_BPM, MAX_OFFSET_MS, MIN_BPM, Meta, MetronomeOutput, MtcOutput, Note, OutputConfig, Project,
+    Tempo, TimecodeSettings, Timeline, Track, TrackKind,
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, OffsetKind, ProjectState, Session};

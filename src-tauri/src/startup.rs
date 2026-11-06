@@ -11,11 +11,11 @@ use std::io;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::devices;
-use crate::engine::ltc::{LtcConfig, LtcStream};
-use crate::engine::mtc::{full_frame, quarter_frames};
-use crate::engine::timecode::Timecode;
-use crate::project::FrameRate;
+use flux_core::Timecode;
+use flux_engine::devices;
+use flux_engine::ltc::{LtcConfig, LtcStream};
+use flux_engine::mtc::{full_frame, quarter_frames};
+use flux_project::FrameRate;
 
 const EVENT: &str = "startup-step";
 
