@@ -111,6 +111,14 @@ pub async fn window_open_editor(app: AppHandle, path: Option<PathBuf>) -> Result
     Ok(())
 }
 
+/// Replaces the editor with the welcome window after its frontend has resolved unsaved changes.
+#[tauri::command]
+pub async fn window_close_editor(app: AppHandle) -> Result<(), String> {
+    build(&app, WELCOME, "index.html?view=welcome")?;
+    close(&app, EDITOR);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

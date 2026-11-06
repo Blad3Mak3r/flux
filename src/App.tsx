@@ -22,6 +22,7 @@ import { dispatch, useDoc } from "./state/store";
 import { ask, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
 import {
   addNoteAt,
+  closeDocument,
   importAudioFiles,
   newDocument,
   openDocument,
@@ -131,6 +132,7 @@ function Shell() {
           : key === "s" ? (event.shiftKey ? "saveAs" : "save")
           : key === "o" ? "open"
           : key === "n" ? "new"
+          : key === "w" ? "close"
           : key === "b" ? "toggleInspector"
           : key === "," ? "setup"
           : key === "pageup" ? "previousTimeline"
@@ -147,6 +149,7 @@ function Shell() {
         else if (action === "saveAs") void saveDocument(true);
         else if (action === "open") openDocument();
         else if (action === "new") newDocument(t);
+        else if (action === "close") closeDocument();
         else if (action === "toggleInspector") toggleInspector();
         else if (action === "setup") openSetup();
         else if (action === "previousTimeline" || action === "nextTimeline") {

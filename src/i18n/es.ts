@@ -7,6 +7,7 @@ export const es: Record<MessageKey, string> = {
   "menu.open": "Abrir…",
   "menu.save": "Guardar",
   "menu.saveAs": "Guardar como…",
+  "menu.close": "Cerrar",
   "menu.import": "Importar",
   "menu.importAudio": "Importar audio…",
   "menu.audio": "Audio",

@@ -58,6 +58,7 @@ pub fn run() {
             startup::startup_run,
             windows::window_show_welcome,
             windows::window_open_editor,
+            windows::window_close_editor,
             audio_commands::audio_analyze,
             audio_commands::audio_detect_bpm,
             device_commands::devices_list_hosts,
