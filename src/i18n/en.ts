@@ -240,6 +240,7 @@ export const en = {
   "out.ltcDevice": "LTC device",
   "out.ltcChannel": "LTC channel",
   "out.ltcLevel": "LTC level (0–1)",
+  "out.offset": "Offset (ms, + earlier)",
   "out.mtcPort": "MIDI port",
   "out.refresh": "Refresh devices",
   "out.runningOn": "Running on {device} at {rate} Hz",

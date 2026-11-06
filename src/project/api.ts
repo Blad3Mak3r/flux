@@ -81,6 +81,13 @@ export type ClipOp = "trimStart" | "trimEnd" | "fadeIn" | "fadeOut" | "split";
 export const clipEdit = (project: Project, id: string, op: ClipOp, frame: number) =>
   invoke<ProjectState>("clip_edit", { project, id, op, frame });
 
+/** Which kind of timecode output a setting is for. */
+export type OutputKind = "ltc" | "mtc";
+
+/** Sets the latency offset of an output to the ms typed; the backend parses, checks and answers with the project. */
+export const outputSetOffset = (project: Project, kind: OutputKind, index: number, text: string) =>
+  invoke<ProjectState>("output_set_offset", { project, kind, index, text });
+
 /**
  * Saves to `path`, or asks for one when it is `null` (first save, or "Save as").
  * Resolves to the path written and the project metadata the backend recorded, or `null` when the

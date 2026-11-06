@@ -108,6 +108,18 @@ test("setProgrammeDevice moves the LTC outputs that shared the old device, and o
   assert.deepEqual(setProgrammeDevice(before, "Mono", 1).audio, { deviceName: "Mono", channels: [1] });
 });
 
+test("setProgrammeDevice and setMtcPort keep the level and offset of the row they move", () => {
+  const before = { ...output(), ltc: [{ deviceName: "Main", channel: 8, level: 0.25, offsetMs: 12 }] };
+  assert.deepEqual(setProgrammeDevice(before, "Other", 4).ltc[0], {
+    deviceName: "Other",
+    channel: 4,
+    level: 0.25,
+    offsetMs: 12,
+  });
+  const mtc = { ...output(), mtc: [{ portName: "Hub", portIndex: 1, offsetMs: -5 }] };
+  assert.deepEqual(setMtcPort(mtc, 0, portKey({ portName: "Bus" })).mtc[0], { portName: "Bus", offsetMs: -5 });
+});
+
 test("stepSection wraps round and skips the section that is not available", () => {
   assert.equal(isAvailable("video"), false);
   assert.equal(stepSection("project", 1), "audio");

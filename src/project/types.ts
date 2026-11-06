@@ -140,10 +140,14 @@ export interface LtcOutputConfig {
   channel: number;
   /** Peak level of the signal, linear from 0 to 1; 0.5 when absent. */
   level?: number;
+  /** Latency offset in ms, positive = emitted earlier; 0 when absent. The backend sets it. */
+  offsetMs?: number;
 }
 
 export interface MtcOutputConfig {
   portName: string;
   /** Which of the ports with this name it is, counting from 0 in the system's order; 0 when absent. */
   portIndex?: number;
+  /** Latency offset in ms, positive = emitted earlier; 0 when absent. The backend sets it. */
+  offsetMs?: number;
 }

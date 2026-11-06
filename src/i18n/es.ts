@@ -245,6 +245,7 @@ export const es: Record<MessageKey, string> = {
   "out.ltcDevice": "Dispositivo de LTC",
   "out.ltcChannel": "Canal de LTC",
   "out.ltcLevel": "Nivel de LTC (0–1)",
+  "out.offset": "Desfase (ms, + antes)",
   "out.mtcPort": "Puerto MIDI",
   "out.refresh": "Actualizar dispositivos",
   "out.runningOn": "Activa en {device} a {rate} Hz",
