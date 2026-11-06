@@ -20,6 +20,10 @@ let drawing = 0;
 const latest = new WeakMap<HTMLCanvasElement, number>();
 const targets = new Map<number, HTMLCanvasElement>();
 const laneOf = new WeakMap<HTMLCanvasElement, Lane>();
+/** Canvases a worker is drawing now. It gets one request at a time, so a stale one is never drawn. */
+const busy = new Set<HTMLCanvasElement>();
+/** The newest request for a busy canvas; the ones before it were never sent. */
+const waiting = new Map<HTMLCanvasElement, { job: WaveJob; peaks: Peaks | undefined; id: number }>();
 
 const keyOf = new WeakMap<Peaks, number>();
 let keys = 0;
@@ -52,8 +56,13 @@ function start(): Lane[] {
     worker.onmessage = ({ data }: MessageEvent<WaveReply>) => {
       const canvas = targets.get(data.id);
       targets.delete(data.id);
-      if (!canvas || latest.get(canvas) !== data.id) return data.bitmap.close();
-      canvas.getContext("bitmaprenderer")?.transferFromImageBitmap(data.bitmap);
+      if (!canvas) return data.bitmap.close();
+      busy.delete(canvas);
+      const next = waiting.get(canvas);
+      waiting.delete(canvas);
+      if (latest.get(canvas) === data.id) canvas.getContext("bitmaprenderer")?.transferFromImageBitmap(data.bitmap);
+      else data.bitmap.close();
+      if (next) send(canvas, next.job, next.peaks, next.id);
     };
     worker.onerror = (event) => console.error("waveform worker:", event.message);
     return { worker, has: new Set<number>() };
@@ -78,23 +87,31 @@ function keyFor(peaks: Peaks, lane: Lane): number {
   return key;
 }
 
-/**
- * Draws `job` on `canvas` in a worker and shows it when it is done. Returns what to call when a newer
- * drawing, or the end of the canvas, makes this one pointless.
- */
-export function drawInWorker(canvas: HTMLCanvasElement, job: WaveJob, peaks: Peaks | undefined): () => void {
+function send(canvas: HTMLCanvasElement, job: WaveJob, peaks: Peaks | undefined, id: number): void {
   lanes ??= start();
   let lane = laneOf.get(canvas);
   if (!lane) {
     lane = lanes[next++ % lanes.length];
     laneOf.set(canvas, lane);
   }
-  const id = ++drawing;
-  latest.set(canvas, id);
+  busy.add(canvas);
   targets.set(id, canvas);
   lane.worker.postMessage({ type: "draw", id, job, peaks: peaks ? keyFor(peaks, lane) : null } satisfies WaveRequest);
+}
+
+/**
+ * Draws `job` on `canvas` in a worker and shows it when it is done. A canvas is drawn one request at
+ * a time and only the newest waits its turn, so zooming fast does not queue a drawing for every step.
+ * Returns what to call when a newer drawing, or the end of the canvas, makes this one pointless.
+ */
+export function drawInWorker(canvas: HTMLCanvasElement, job: WaveJob, peaks: Peaks | undefined): () => void {
+  const id = ++drawing;
+  latest.set(canvas, id);
+  if (busy.has(canvas)) waiting.set(canvas, { job, peaks, id });
+  else send(canvas, job, peaks, id);
   return () => {
-    // Superseded or unmounted: its reply, if it still comes, is closed instead of drawn.
+    // Superseded or unmounted: a reply for it is closed instead of drawn, and one not yet sent is not sent.
     if (latest.get(canvas) === id) latest.delete(canvas);
+    if (waiting.get(canvas)?.id === id) waiting.delete(canvas);
   };
 }

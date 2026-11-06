@@ -324,6 +324,7 @@ function ClipBlock({
           seed={clip.asset}
           width={waveWidth}
           height={height}
+          origin={frameX(clip.start, pxPerFrame)}
           color="currentColor"
           peaks={audio?.peaks}
           pxPerSecond={pxPerFrame * fps}

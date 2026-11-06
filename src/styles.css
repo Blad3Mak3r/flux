@@ -1098,7 +1098,7 @@ input:disabled {
 
 .clip-wave {
   position: absolute;
-  inset: 0;
+  top: 0;
   opacity: 0.8;
 }
 

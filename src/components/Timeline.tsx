@@ -13,7 +13,7 @@ import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
 import { GUESS_SECONDS, clipLength } from "../timeline/clip";
-import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
+import { RULER_H, patchReadout, setViewport, useReadout } from "../timeline/layout";
 import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
@@ -127,6 +127,7 @@ export function Timeline() {
     if (!box) return;
     const measure = () => {
       setViewWidth(box.clientWidth);
+      setViewport({ left: box.scrollLeft, width: box.clientWidth });
       setScrollbarHeight(box.offsetHeight - box.clientHeight);
     };
     const observer = new ResizeObserver(measure);
@@ -301,6 +302,7 @@ export function Timeline() {
           className="screen-scroll"
           ref={scroller}
           onScroll={(event) => {
+            setViewport({ left: event.currentTarget.scrollLeft });
             if (headers.current) headers.current.scrollTop = event.currentTarget.scrollTop;
           }}
           onPointerDown={(event) => event.target === event.currentTarget && select(null)}
