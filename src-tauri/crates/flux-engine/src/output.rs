@@ -764,17 +764,21 @@ pub struct Output {
     threads: Vec<JoinHandle<()>>,
     /// The threads that fire the MIDI and OSC cue tracks.
     cues: CueRoutes,
+    /// Whether the cue tracks fire at all. Auditioning in Edit on a preview device does not.
+    fire_cues: bool,
     info: OutputInfo,
 }
 
 impl Output {
     /// Opens the devices a project's `output` section names and starts the stream, stopped at
     /// the timeline start. The audio device is required because its clock drives everything; a
-    /// missing MIDI port only produces a warning.
+    /// missing MIDI port only produces a warning. With `fire_cues` off (an audition) the MIDI and OSC
+    /// tracks stay silent.
     pub fn start(
         project: &Project,
         timeline: &Timeline,
         programme: Programme,
+        fire_cues: bool,
     ) -> Result<Self, OutputError> {
         let output = &project.output;
         let driver = output.driver.as_deref();
@@ -1016,7 +1020,11 @@ impl Output {
 
         // The cue tracks: one thread per MIDI port and per OSC destination.
         let mut cues = CueRoutes::new(clock, Arc::clone(&shared), Arc::clone(&stop));
-        let cue_info = cues.apply(timeline, &output.osc, &mut warnings);
+        let cue_info = if fire_cues {
+            cues.apply(timeline, &output.osc, &mut warnings)
+        } else {
+            Vec::new()
+        };
 
         let info = OutputInfo {
             device: audio.device,
@@ -1041,6 +1049,7 @@ impl Output {
             stop,
             threads,
             cues,
+            fire_cues,
             info,
         })
     }
@@ -1050,7 +1059,9 @@ impl Output {
     /// reasons for those that could not be.
     pub fn set_events(&mut self, timeline: &Timeline, osc: &[OscDestination]) -> Vec<String> {
         let mut warnings = Vec::new();
-        self.cues.apply(timeline, osc, &mut warnings);
+        if self.fire_cues {
+            self.cues.apply(timeline, osc, &mut warnings);
+        }
         warnings
     }
 

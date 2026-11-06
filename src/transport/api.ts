@@ -83,9 +83,10 @@ export interface OutputLanes {
  * Opens the devices the project's `output` names; replaces a running output. Position, levels and
  * the state of the show come over one channel each, which live as long as this output does, so the
  * meters can never hold up the timecode. With `advance`, the backend makes the next timeline the
- * active one when the show runs to its end (see `bindTimelineAdvance`).
+ * active one when the show runs to its end (see `bindTimelineAdvance`). With `audition` the MIDI and
+ * OSC cue tracks stay silent: Edit is auditioning on a preview device.
  */
-export function startOutput(project: Project, advance: boolean, lanes: OutputLanes): Promise<OutputInfo> {
+export function startOutput(project: Project, advance: boolean, audition: boolean, lanes: OutputLanes): Promise<OutputInfo> {
   const position = new Channel<Position>();
   position.onmessage = lanes.onPosition;
   const levels = new Channel<TrackPeak[]>();
@@ -95,6 +96,7 @@ export function startOutput(project: Project, advance: boolean, lanes: OutputLan
   return invoke<OutputInfo>("output_start", {
     project,
     advance,
+    audition,
     onPosition: position,
     onLevels: levels,
     onLive: live,

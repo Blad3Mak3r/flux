@@ -164,7 +164,8 @@ async function open(force = false): Promise<void> {
   }
   // In Live a show that runs to its end hands over to the next timeline, stopped.
   const advance = useUi.getState().view === "live";
-  const info = await api.startOutput(forView(doc.project), advance, lanes(++run));
+  const audition = useUi.getState().view === "edit" && doc.project.output.preview !== undefined;
+  const info = await api.startOutput(forView(doc.project), advance, audition, lanes(++run));
   openedFor = signature(doc);
   openedStart = timecode.start;
   openedTimeline = id;

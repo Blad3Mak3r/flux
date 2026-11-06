@@ -141,6 +141,7 @@ share its thread and schedule.
   `at + length`.
 - **Edits while playing.** `output_set_clips` also replaces the schedules (`Output::set_events`), carrying on from the
   position, and opens a port or destination that is new. A track muted or left without an output goes quiet.
+- **Audition.** With `audition` set on `output_start` no cue thread is opened and `set_events` does nothing.
 - **Timeline hand-over.** The output is rebuilt for the next timeline, so its threads stop and release their notes.
 - A MIDI port or OSC host that cannot be opened is a warning in `OutputInfo.warnings`, with its state in
   `OutputInfo.cues` (`{ kind, target, ok }`); the project still plays. OSC is UDP only for now, one connected socket per
@@ -200,7 +201,7 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
+| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `audition` (Edit on a preview device: the MIDI and OSC cue tracks stay silent), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |

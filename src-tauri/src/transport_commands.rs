@@ -245,6 +245,7 @@ pub async fn output_start(
     audio: State<'_, SharedAudio>,
     project: Project,
     advance: bool,
+    audition: bool,
     on_position: Channel<Position>,
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
@@ -257,7 +258,7 @@ pub async fn output_start(
         let timeline = active_timeline(&session, &project)?;
         let list = cue_list(&project, timeline, &session, &audio);
         let programme = programme(&project, timeline, &session, &audio, &list);
-        let output = Output::start(&project, timeline, programme)?;
+        let output = Output::start(&project, timeline, programme, !audition)?;
         let info = output.info().clone();
         diagnostics::output_started(&info);
         let cues = SharedCues::new(list);
