@@ -2,8 +2,9 @@ import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useRef, useState } from "react";
 import symbol from "../assets/fxtc-symbol.svg";
 import { useT } from "../i18n";
+import { CloseIcon } from "./icons";
 
-/** Who made Flux and which build this is. Mounted while shown; Escape or Close unmounts it. */
+/** Who made Flux and which build this is. Mounted while shown; Escape or the X unmounts it. */
 export function AboutDialog({ onClose }: { onClose: () => void }) {
   const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
@@ -17,15 +18,13 @@ export function AboutDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <dialog ref={ref} className="dialog about" onClose={onClose} aria-labelledby="about-title">
+      <button type="button" className="icon-button" aria-label={t("about.close")} title={t("about.close")} onClick={() => ref.current?.close()}>
+        <CloseIcon />
+      </button>
       <img src={symbol} alt="" draggable={false} />
       <h2 id="about-title">{t("app.title")}</h2>
-      <p>{version ? t("about.version", { version }) : null}</p>
+      {version ? <p>{t("about.version", { version })}</p> : null}
       <p>{t("about.developer", { name: "BladeMaker" })}</p>
-      <div className="button-row">
-        <button type="button" className="button" onClick={() => ref.current?.close()} autoFocus>
-          {t("about.close")}
-        </button>
-      </div>
     </dialog>
   );
 }

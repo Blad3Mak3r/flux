@@ -187,14 +187,23 @@ input:disabled {
 
 .brand-button {
   display: flex;
+  align-items: center;
   padding: 0;
   background: none;
   border: 0;
   cursor: pointer;
 }
 
+/* The menu bar's own button rule gives every button 10px of padding: the symbol would sit that far
+   in from the bar's edge. Pull the hover box out so the symbol itself lines up with the bar. */
+.menubar .brand-button {
+  margin-left: -6px;
+  padding: 0 6px;
+}
+
 .dialog.about {
-  min-width: 300px;
+  width: 280px;
+  padding: 28px 24px 22px;
   text-align: center;
 }
 
@@ -204,17 +213,24 @@ input:disabled {
 }
 
 .dialog.about img {
-  height: 56px;
+  height: 36px;
   width: auto;
   margin-bottom: 14px;
 }
 
-.dialog.about p {
+.dialog.about h2 {
   margin-bottom: 4px;
 }
 
-.dialog.about .button-row {
-  margin-top: 14px;
+.dialog.about p {
+  margin-bottom: 0;
+  font-size: 12px;
+}
+
+.dialog.about .icon-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
 }
 
 .doc-name {
