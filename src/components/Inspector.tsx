@@ -20,7 +20,8 @@ import {
 } from "../state/edit";
 import { TRACK_COLORS } from "../timeline/palette";
 import { MidiEventPanel, OscEventPanel } from "./CueEventPanel";
-import { TextAreaField, TextField, TimecodeField } from "./fields";
+import { FADE_CURVES } from "../audio/fade";
+import { SelectField, TextAreaField, TextField, TimecodeField } from "./fields";
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
 import { MOD_KEY } from "./menus";
 
@@ -151,6 +152,27 @@ function SelectionPanel({
           validate={(text) => (Number.isFinite(Number(text)) && text.trim() !== "" ? null : t("field.numberInvalid"))}
           onCommit={(text) => onEdit(updateClip(project, timeline.id, clip.id, { gainDb: Number(text) }))}
         />
+        {[
+          { label: t("clip.fadeInCurve"), key: "fadeInCurve", length: clip.fadeIn },
+          { label: t("clip.fadeOutCurve"), key: "fadeOutCurve", length: clip.fadeOut },
+        ].map(({ label, key, length }) => (
+          <SelectField
+            key={key}
+            label={label}
+            value={clip[key as "fadeInCurve" | "fadeOutCurve"] ?? "linear"}
+            disabled={!length}
+            hint={length ? undefined : t("clip.fadeCurve.none")}
+            onChange={(curve) =>
+              onEdit(updateClip(project, timeline.id, clip.id, { [key]: curve === "linear" ? undefined : curve }))
+            }
+          >
+            {FADE_CURVES.map((curve) => (
+              <option key={curve} value={curve}>
+                {t(`fade.curve.${curve}`)}
+              </option>
+            ))}
+          </SelectField>
+        ))}
         {!audio[clip.asset]?.peaks && <p className="field-note">{t("clip.lengthGuess")}</p>}
         {asset && (
           <>

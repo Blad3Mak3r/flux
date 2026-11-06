@@ -171,6 +171,21 @@ pub enum TrackKind {
     },
 }
 
+/// How the gain of a fade runs between silence and full level.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FadeCurve {
+    /// Amplitude rises in a straight line.
+    #[default]
+    Linear,
+    /// A quarter of a sine: keeps the power even when it crosses another clip that fades the other way.
+    EqualPower,
+    /// Slow at both ends and quick in the middle.
+    SCurve,
+    /// The square of the line: quiet for longer, which sounds even for a fade out.
+    Exponential,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioClip {
@@ -194,6 +209,12 @@ pub struct AudioClip {
     /// Frames the clip takes to fall to silence at its end; absent is 0 (a hard cut).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub fade_out: u64,
+    /// Shape of the fade in; absent is a straight line.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_in_curve: FadeCurve,
+    /// Shape of the fade out; absent is a straight line.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_out_curve: FadeCurve,
 }
 
 fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
@@ -213,6 +234,8 @@ impl AudioClip {
             length: None,
             fade_in: 0,
             fade_out: 0,
+            fade_in_curve: FadeCurve::Linear,
+            fade_out_curve: FadeCurve::Linear,
         }
     }
 
@@ -875,6 +898,33 @@ pub(super) mod tests {
     fn clip_without_a_name_should_serialize_without_one() {
         let json = serde_json::to_value(AudioClip::new("c1", "a1", 0)).unwrap();
         assert!(json.get("name").is_none());
+    }
+
+    #[test]
+    fn clip_without_fade_curves_should_serialize_without_them() {
+        let clip = AudioClip {
+            fade_in: 5,
+            ..AudioClip::new("c1", "a1", 0)
+        };
+        let json = serde_json::to_value(&clip).unwrap();
+        for field in ["fadeInCurve", "fadeOutCurve"] {
+            assert!(json.get(field).is_none(), "{field} should be left out");
+        }
+    }
+
+    #[test]
+    fn fade_curves_should_round_trip_under_their_camel_case_names() {
+        let clip = AudioClip {
+            fade_in: 5,
+            fade_out: 8,
+            fade_in_curve: FadeCurve::SCurve,
+            fade_out_curve: FadeCurve::EqualPower,
+            ..AudioClip::new("c1", "a1", 0)
+        };
+        let json = serde_json::to_value(&clip).unwrap();
+        assert_eq!(json["fadeInCurve"], "sCurve");
+        assert_eq!(json["fadeOutCurve"], "equalPower");
+        assert_eq!(serde_json::from_value::<AudioClip>(json).unwrap(), clip);
     }
 
     #[test]

@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use flux_audio::{AudioError, Decoded, ENGINE_RATE};
 use flux_core::Clock;
-use flux_project::{AudioAsset, AudioClip, Project, Timeline, TrackKind};
+use flux_project::{AudioAsset, AudioClip, FadeCurve, Project, Timeline, TrackKind};
 
 /// Frames mixed at a time, on the stack: the callback must not allocate.
 pub const MIX_CHUNK: usize = 256;
@@ -34,6 +34,8 @@ pub struct Span {
     pub fade_in: u64,
     /// Samples the clip takes to fall to silence.
     pub fade_out: u64,
+    pub fade_in_curve: FadeCurve,
+    pub fade_out_curve: FadeCurve,
 }
 
 /// Where `clip` sounds, given the samples of its asset: trimmed by its offset and length, and never
@@ -58,6 +60,19 @@ pub fn span(clip: &AudioClip, clock: &Clock, asset_samples: u64) -> Span {
         to,
         fade_in: fade(clip.fade_in),
         fade_out: fade(clip.fade_out),
+        fade_in_curve: clip.fade_in_curve,
+        fade_out_curve: clip.fade_out_curve,
+    }
+}
+
+/// The gain of a fade `x` of the way up from silence (0 is silent, 1 is full): the same shape
+/// whether the clip is rising or falling, because a fade out is read from its end.
+pub fn fade_shape(curve: FadeCurve, x: f32) -> f32 {
+    match curve {
+        FadeCurve::Linear => x,
+        FadeCurve::EqualPower => (x * std::f32::consts::FRAC_PI_2).sin(),
+        FadeCurve::SCurve => 0.5 - 0.5 * (x * std::f32::consts::PI).cos(),
+        FadeCurve::Exponential => x * x,
     }
 }
 
@@ -81,6 +96,8 @@ impl ClipPlayer {
             to: start + audio.frames() as u64,
             fade_in: 0,
             fade_out: 0,
+            fade_in_curve: FadeCurve::Linear,
+            fade_out_curve: FadeCurve::Linear,
         };
         Self {
             audio,
@@ -97,11 +114,11 @@ impl ClipPlayer {
         let mut gain = 1.0;
         let since_start = at - span.from;
         if since_start < span.fade_in {
-            gain = since_start as f32 / span.fade_in as f32;
+            gain = fade_shape(span.fade_in_curve, since_start as f32 / span.fade_in as f32);
         }
         let until_end = span.to - at - 1;
         if until_end < span.fade_out {
-            gain *= until_end as f32 / span.fade_out as f32;
+            gain *= fade_shape(span.fade_out_curve, until_end as f32 / span.fade_out as f32);
         }
         gain
     }
@@ -463,6 +480,64 @@ mod tests {
         let (left, _) = mix(&clips, 17_279, 1921);
 
         assert_eq!((left[0], left[960], left[1920]), (0.5, 0.25, 0.0));
+    }
+
+    #[test]
+    fn fade_shape_should_run_from_silence_to_full_level_on_every_curve() {
+        for curve in [
+            FadeCurve::Linear,
+            FadeCurve::EqualPower,
+            FadeCurve::SCurve,
+            FadeCurve::Exponential,
+        ] {
+            assert_eq!(fade_shape(curve, 0.0), 0.0, "{curve:?} starts silent");
+            assert!(
+                (fade_shape(curve, 1.0) - 1.0).abs() < 1e-6,
+                "{curve:?} ends full"
+            );
+            let mut last = 0.0;
+            for step in 1..=100 {
+                let gain = fade_shape(curve, step as f32 / 100.0);
+                assert!(gain >= last, "{curve:?} never falls on the way up");
+                last = gain;
+            }
+        }
+    }
+
+    #[test]
+    fn fade_shape_should_hit_the_known_midpoints() {
+        assert_eq!(fade_shape(FadeCurve::Linear, 0.5), 0.5);
+        assert!((fade_shape(FadeCurve::EqualPower, 0.5) - 0.707_106_8).abs() < 1e-6);
+        assert!((fade_shape(FadeCurve::SCurve, 0.5) - 0.5).abs() < 1e-6);
+        assert_eq!(fade_shape(FadeCurve::Exponential, 0.5), 0.25);
+    }
+
+    #[test]
+    fn mix_should_shape_a_fade_in_with_its_curve() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+            clip.fade_in = 1;
+            clip.fade_in_curve = FadeCurve::Exponential;
+        });
+
+        let (left, _) = mix(&clips, 0, 1922);
+
+        // Half way up the fade the line would give 0.25 (half of 0.5); the square gives a quarter of that.
+        assert_eq!((left[0], left[960], left[1920]), (0.0, 0.125, 0.5));
+    }
+
+    #[test]
+    fn mix_should_shape_a_fade_out_with_its_own_curve_and_end_in_silence() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+            clip.fade_out = 1;
+            clip.fade_out_curve = FadeCurve::EqualPower;
+            clip.fade_in_curve = FadeCurve::Exponential;
+        });
+
+        let (left, _) = mix(&clips, 17_279, 1921);
+
+        assert_eq!(left[0], 0.5);
+        assert!((left[960] - 0.5 * 0.707_106_8).abs() < 1e-4);
+        assert_eq!(left[1920], 0.0);
     }
 
     #[test]

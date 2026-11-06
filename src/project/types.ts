@@ -131,6 +131,9 @@ export interface OscDestination {
   port: number;
 }
 
+/** How the gain of a fade runs between silence and full level. */
+export type FadeCurve = "linear" | "equalPower" | "sCurve" | "exponential";
+
 export interface AudioClip {
   id: string;
   /** Id of an entry in `Project.assets`. */
@@ -147,6 +150,10 @@ export interface AudioClip {
   fadeIn?: number;
   /** Frames the clip takes to fall to silence; absent is 0. */
   fadeOut?: number;
+  /** Shape of the fade in; absent is a straight line. */
+  fadeInCurve?: FadeCurve;
+  /** Shape of the fade out; absent is a straight line. */
+  fadeOutCurve?: FadeCurve;
 }
 
 /**

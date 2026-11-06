@@ -5,7 +5,7 @@
 use serde::Deserialize;
 
 use super::error::{ProjectError, Result};
-use super::model::AudioClip;
+use super::model::{AudioClip, FadeCurve};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,12 +72,14 @@ pub fn apply(
             }
             edited.length = Some(frame - clip.start);
             edited.fade_out = 0;
+            edited.fade_out_curve = FadeCurve::Linear;
             let mut second = AudioClip::new(new_id(), clip.asset.clone(), frame);
             second.gain_db = clip.gain_db;
             second.name = clip.name.clone();
             second.offset = clip.offset + frame - clip.start;
             second.length = Some(end - frame);
             second.fade_out = clip.fade_out;
+            second.fade_out_curve = clip.fade_out_curve;
             fit_fades(&mut edited, asset_frames);
             fit_fades(&mut second, asset_frames);
             return Ok(vec![edited, second]);
@@ -200,6 +202,29 @@ mod tests {
             halves
                 .iter()
                 .all(|half| half.name.as_deref() == Some("Intro"))
+        );
+    }
+
+    #[test]
+    fn split_should_keep_each_fade_curve_with_its_own_half() {
+        let shaped = AudioClip {
+            fade_in: 20,
+            fade_out: 100,
+            fade_in_curve: FadeCurve::SCurve,
+            fade_out_curve: FadeCurve::Exponential,
+            ..clip()
+        };
+        let halves = apply(&shaped, ClipOp::Split, 400, ASSET, || "c2".into()).unwrap();
+        let [first, second] = &halves[..] else {
+            panic!("expected two clips")
+        };
+        assert_eq!(
+            (first.fade_in_curve, first.fade_out_curve),
+            (FadeCurve::SCurve, FadeCurve::Linear)
+        );
+        assert_eq!(
+            (second.fade_in_curve, second.fade_out_curve),
+            (FadeCurve::Linear, FadeCurve::Exponential)
         );
     }
 

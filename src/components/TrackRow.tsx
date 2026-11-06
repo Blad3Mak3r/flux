@@ -14,6 +14,7 @@ import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
 import { clipLength } from "../timeline/clip";
+import { fadePoints } from "../audio/fade";
 import { traceStyle } from "../timeline/palette";
 import type { SnapTarget } from "../timeline/snap";
 import { frameX } from "../timeline/scale";
@@ -303,8 +304,13 @@ function ClipBlock({
       </span>
       {(fadeInPx > 0 || fadeOutPx > 0) && (
         <svg className="clip-fades" width={width} height={height} aria-hidden="true">
-          {fadeInPx > 0 && <polyline points={`0,${height} ${fadeInPx},0`} />}
-          {fadeOutPx > 0 && <polyline points={`${width - fadeOutPx},0 ${width},${height}`} />}
+          {fadeInPx > 0 && <polyline points={fadePoints(clip.fadeInCurve ?? "linear", "in", fadeInPx, height)} />}
+          {fadeOutPx > 0 && (
+            <polyline
+              transform={`translate(${width - fadeOutPx} 0)`}
+              points={fadePoints(clip.fadeOutCurve ?? "linear", "out", fadeOutPx, height)}
+            />
+          )}
         </svg>
       )}
       {renaming ? (

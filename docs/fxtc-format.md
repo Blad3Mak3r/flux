@@ -43,17 +43,22 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 Track kinds:
 
-- `{ "type": "audio", "clips": [{ id, asset, start, gainDb, name?, offset?, length?, fadeIn?, fadeOut? }] }` —
+- `{ "type": "audio", "clips": [{ id, asset, start, gainDb, name?, offset?, length?, fadeIn?, fadeOut?, fadeInCurve?, fadeOutCurve? }] }` —
   `asset` is the id of an entry in `assets`. `name` is the name the clip goes by in the timeline and in Live (1 to 64
   characters, not blank, anything else is rejected on open and save); absent means the asset's name. Added without a
-  version bump. The four optional fields below trim and fade the clip, are counted in **frames at the
+  version bump. The optional fields below trim and fade the clip, are counted in **frames at the
   timeline's rate** like `start`, and are added without a version bump (a clip without them plays the whole asset with a
   hard start and cut):
   - `offset`: frames of the asset skipped at the start of the clip (trim in). Absent is 0.
   - `length`: frames of the asset the clip plays (trim out), at least 1. Absent means up to the end of the asset; one
     that reaches past it is cut at the end of the asset. The app always writes it when `offset` is not 0.
-  - `fadeIn` / `fadeOut`: frames to rise from silence at the start / fall to silence at the end, linearly. Absent is 0.
+  - `fadeIn` / `fadeOut`: frames to rise from silence at the start / fall to silence at the end. Absent is 0.
     They are kept inside the clip, and `fadeOut` gives way to `fadeIn`.
+  - `fadeInCurve` / `fadeOutCurve`: the shape of each fade, one of `"linear"` (a straight line in amplitude; absent
+    means this), `"equalPower"` (a quarter sine, `sin(x·π/2)`), `"sCurve"` (`0.5 − 0.5·cos(x·π)`) or `"exponential"`
+    (`x²`), where `x` is how far up from silence the fade is, 0 to 1; a fade out is read from its end. Added without a
+    version bump; any other value is rejected on open. When a clip is split, each half keeps the curve of the fade
+    it keeps.
 
   `start` is where the clip sounds; the asset's first frame would sit at `start - offset`. A frame is rarely a whole
   number of samples (29.97 fps), so the player converts that one frame to samples and reads the asset from there. Two
