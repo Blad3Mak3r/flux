@@ -30,6 +30,13 @@ Projects use the `.fxtc` extension. A `.fxtc` is a **zip container** holding:
 The full spec (layout, fields, versioning, device-name hints) is in [docs/fxtc-format.md](docs/fxtc-format.md); the
 code is `src-tauri/src/project/`.
 
+## Logging and diagnostics
+
+The backend writes a rotating `flux.log` in the app's log folder and the Help menu opens that folder or exports a zip
+with the logs and a report of the system and devices. Use `log::info!`/`warn!`/`error!` for events, and **never log
+from an audio callback or `flux-audio`/`flux-ltc`/`flux-click`/`flux-mtc`**: count in an atomic and let the `flux-log`
+lane write it. See [docs/diagnostics.md](docs/diagnostics.md).
+
 ## Stack
 
 - Rust + Tauri v2 for the backend (`src-tauri/`).

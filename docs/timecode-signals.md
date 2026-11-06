@@ -203,6 +203,13 @@ No command runs on the main thread, which belongs to the window and its event lo
 | `flux-click` | The metronome callback, when the metronome plays on a device nothing else uses. Never allocates or waits. |
 | `flux-mtc` | MIDI Timecode quarter frames. |
 | `flux-position`, `flux-live`, `flux-levels` | The three lanes above. |
+| `flux-advance` | With `advance` on: sees the show end and makes the next timeline the active one. |
+| `flux-log` | Writes the log for the output (see [diagnostics.md](diagnostics.md)): transport and device changes, and the fault counters. |
+
+**Nothing logs from `flux-audio`, `flux-ltc`, `flux-click` or `flux-mtc`**: writing a file waits. Their error callbacks and
+send failures only bump atomic counters (`SharedClock::faults`: `xruns`, `stream_errors`, `mtc_errors`) and raise the
+`lost` flags, and the `flux-log` lane turns the changes into log lines. A dropout (`ErrorKind::Xrun`) is counted and
+does not mark the device as lost; any other stream error does.
 
 Commands that set the transport only enqueue a message for the audio callback, so two of them issued back to back
 from the UI are not guaranteed to run in order; the UI awaits the ones that depend on each other (Play waits for the
