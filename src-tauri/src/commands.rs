@@ -14,7 +14,8 @@ use crate::audio::{ENGINE_RATE, SharedAudio};
 use crate::engine::transport::Clock;
 use crate::live_commands::samples_of;
 use crate::project::{
-    AudioAsset, ClipOp, Document, FrameRate, Project, ProjectError, ProjectState, Result, Session,
+    AudioAsset, ClipOp, Document, FrameRate, OffsetKind, Project, ProjectError, ProjectState,
+    Result, Session,
 };
 use crate::recents;
 use crate::transport_commands::{SharedOutput, is_playing, release};
@@ -241,6 +242,23 @@ pub async fn clip_edit(
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Sets the latency offset of an LTC or MTC output to the ms typed; the answer is the project with
+/// it set, or the reason it was refused.
+#[tauri::command]
+pub async fn output_set_offset(
+    session: State<'_, SharedSession>,
+    project: Project,
+    kind: OffsetKind,
+    index: usize,
+    text: String,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.set_output_offset(kind, index, &text)
+    })
+    .await
 }
 
 /// Registers an audio file; the returned asset is for the frontend to add to its project.

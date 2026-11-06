@@ -83,7 +83,8 @@ export function addMtc(output: OutputConfig, ports: string[]): OutputConfig {
 /** Points the MTC output at the port a {@link portKey} stands for. */
 export function setMtcPort(output: OutputConfig, index: number, key: string): OutputConfig {
   const [portName, portIndex] = splitPortKey(key);
-  const mtc = portIndex > 0 ? { portName, portIndex } : { portName };
+  const { portIndex: _previous, ...rest } = output.mtc[index] ?? { portName };
+  const mtc = portIndex > 0 ? { ...rest, portName, portIndex } : { ...rest, portName };
   return { ...output, mtc: output.mtc.map((other, i) => (i === index ? mtc : other)) };
 }
 
@@ -102,7 +103,9 @@ export function setProgrammeDevice(output: OutputConfig, deviceName: string, cha
     ...output,
     audio: { deviceName, channels: channelCount >= 2 ? [1, 2] : [1] },
     ltc: output.ltc.map((ltc) =>
-      ltc.deviceName === before ? { deviceName, channel: Math.min(ltc.channel, Math.max(1, channelCount)) } : ltc,
+      ltc.deviceName === before
+        ? { ...ltc, deviceName, channel: Math.min(ltc.channel, Math.max(1, channelCount)) }
+        : ltc,
     ),
   };
 }

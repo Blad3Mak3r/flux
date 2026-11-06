@@ -7,6 +7,7 @@ import type { Locale, MessageKey } from "../i18n";
 import type { FrameRate, OutputConfig } from "../project/types";
 import { edit } from "../state/actions";
 import { setName, setOutput } from "../state/edit";
+import { setOutputOffset } from "../state/output";
 import { useDoc, useTimeline } from "../state/store";
 import { renameTimeline, setTimecode } from "../state/timelines";
 import { reconnect } from "../transport/playback";
@@ -384,6 +385,13 @@ export function LtcPage({ devices }: { devices: Devices }) {
                 }}
                 onCommit={(text) => change(updateLtc(output, index, { level: Number(text) }))}
               />
+              <TextField
+                label={`${name}: ${t("out.offset")}`}
+                value={String(ltc.offsetMs ?? 0)}
+                inputMode="numeric"
+                monospace
+                onCommit={(text) => void setOutputOffset("ltc", index, text)}
+              />
             </OutputRow>
           );
         })}
@@ -445,6 +453,13 @@ export function MtcPage({ devices }: { devices: Devices }) {
                   </option>
                 ))}
               </RowSelect>
+              <TextField
+                label={`${name}: ${t("out.offset")}`}
+                value={String(mtc.offsetMs ?? 0)}
+                inputMode="numeric"
+                monospace
+                onCommit={(text) => void setOutputOffset("mtc", index, text)}
+              />
             </OutputRow>
           );
         })}

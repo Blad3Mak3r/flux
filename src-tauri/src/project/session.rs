@@ -3,7 +3,7 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
@@ -61,6 +61,14 @@ fn first_timeline(project: &Project) -> String {
         .first()
         .map(|timeline| timeline.id.clone())
         .unwrap_or_default()
+}
+
+/// Which kind of timecode output a setting is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OffsetKind {
+    Ltc,
+    Mtc,
 }
 
 /// A project and the timeline that is active in it: what the window shows after the backend
@@ -286,6 +294,31 @@ impl Session {
         })
     }
 
+    /// Sets the latency offset of the LTC or MTC output at `index` to the ms in `text`. 0 is stored
+    /// as no offset, so the file stays as it was before the setting existed.
+    pub fn set_output_offset(
+        &mut self,
+        kind: OffsetKind,
+        index: usize,
+        text: &str,
+    ) -> Result<ProjectState> {
+        let ms: i32 = text
+            .trim()
+            .parse()
+            .map_err(|_| ProjectError::Invalid(format!("{text:?} is not a whole number of ms")))?;
+        let offset = (ms != 0).then_some(ms);
+        self.change(|project, _| {
+            let output = &mut project.output;
+            let slot = match kind {
+                OffsetKind::Ltc => output.ltc.get_mut(index).map(|ltc| &mut ltc.offset_ms),
+                OffsetKind::Mtc => output.mtc.get_mut(index).map(|mtc| &mut mtc.offset_ms),
+            };
+            *slot.ok_or_else(|| ProjectError::Invalid(format!("there is no output {index}")))? =
+                offset;
+            Ok(())
+        })
+    }
+
     /// Applies `edit` to a copy of the project and the active id, and keeps the result only when it
     /// is still a valid project, so a refused change leaves the document as it was.
     fn change(
@@ -468,6 +501,60 @@ mod tests {
             .read_to_end(&mut bytes)
             .unwrap();
         bytes
+    }
+
+    /// A session whose project has one LTC and one MTC output.
+    fn session_with_outputs() -> Session {
+        let mut session = Session::default();
+        let mut project = session.new_project("Show", FrameRate::Fps25);
+        project.output.ltc.push(crate::project::LtcOutput {
+            device_name: "Main".into(),
+            channel: 3,
+            level: None,
+            offset_ms: None,
+        });
+        project.output.mtc.push(crate::project::MtcOutput {
+            port_name: "Bus".into(),
+            port_index: 0,
+            offset_ms: None,
+        });
+        session.update(project);
+        session
+    }
+
+    #[test]
+    fn set_output_offset_should_store_the_ms_of_each_kind() {
+        let mut session = session_with_outputs();
+        session
+            .set_output_offset(OffsetKind::Ltc, 0, " -12 ")
+            .unwrap();
+        let state = session.set_output_offset(OffsetKind::Mtc, 0, "30").unwrap();
+        assert_eq!(state.project.output.ltc[0].offset_ms, Some(-12));
+        assert_eq!(state.project.output.mtc[0].offset_ms, Some(30));
+    }
+
+    #[test]
+    fn set_output_offset_should_store_zero_as_no_offset() {
+        let mut session = session_with_outputs();
+        session.set_output_offset(OffsetKind::Ltc, 0, "5").unwrap();
+        let state = session.set_output_offset(OffsetKind::Ltc, 0, "0").unwrap();
+        assert_eq!(state.project.output.ltc[0].offset_ms, None);
+    }
+
+    #[test]
+    fn set_output_offset_should_refuse_bad_text_index_or_range_and_keep_the_document() {
+        let mut session = session_with_outputs();
+        let before = session.document().unwrap();
+        for (kind, index, text) in [
+            (OffsetKind::Ltc, 0, "abc"),
+            (OffsetKind::Ltc, 0, ""),
+            (OffsetKind::Ltc, 0, "1.5"),
+            (OffsetKind::Ltc, 1, "5"),
+            (OffsetKind::Mtc, 0, "1001"),
+        ] {
+            assert!(session.set_output_offset(kind, index, text).is_err());
+        }
+        assert_eq!(session.document().unwrap(), before);
     }
 
     #[test]

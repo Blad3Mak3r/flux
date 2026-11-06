@@ -60,6 +60,11 @@ impl Clock {
         self.ticks_to_samples(frames, 1)
     }
 
+    /// `ms` milliseconds as samples, negative when `ms` is.
+    pub fn ms_to_samples(&self, ms: i32) -> i64 {
+        i64::from(ms) * i64::from(self.sample_rate()) / 1000
+    }
+
     pub fn samples_to_frames(&self, samples: u64) -> u64 {
         self.samples_to_ticks(samples, 1)
     }

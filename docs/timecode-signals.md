@@ -158,8 +158,8 @@ drum patterns, not on a library of real recordings.
 ## Defaults and open decisions
 
 `LtcConfig::default()` is 48 kHz, level 0.5 (-6 dBFS) and a one-sample edge. These can become project settings later.
-Whether the LTC word should lead the video frame by some offset is not decided: today frame N starts exactly where
-the transport reaches frame N.
+With no offset set, frame N starts exactly where the transport reaches frame N. Each LTC and MTC output can run ahead
+of or behind the transport by an offset of its own (below).
 
 ## Output and transport commands (`output.rs`, `transport_commands.rs`)
 
@@ -227,8 +227,8 @@ output to open) and sends dragged seeks and faders one at a time, newest value l
   wall clock like MTC) and plays LTC from there. It starts the LTC stream over at the master's position when the
   transport seeks, stops or resumes, or when the two differ by a frame or more, which at 50 ppm of clock difference
   is about every 13 minutes at 25 fps. That start-over costs one LTC frame of silence and a jump of a frame.
-  There is no latency compensation: the two devices' output delays are not measured, so LTC and the music can be
-  offset by the difference between them (ms), which an LTC offset setting would fix. If the LTC device is missing or
+  The two devices' output delays are not measured, so LTC and the music can be offset by the difference between them
+  (ms); the output's `offsetMs` (see Latency offset) compensates it by hand. If the LTC device is missing or
   cannot be opened, the output still starts without LTC and `warnings` says so (like MTC); if it fails while
   running, `Position.ltcLost` is set.
 - The audio device's sample clock is the master. The callback owns the `Transport`, drains commands with
@@ -242,8 +242,17 @@ output to open) and sends dragged seeks and faders one at a time, newest value l
 - The audio device always provides the clock, so an MTC-only project still opens one (the default output).
 - A park can still overshoot by the system's timer resolution (about 15 ms on Windows unless it is raised), and a quarter
   frame that falls due in that time goes out late; the spin only removes the jitter of the last 200 µs.
-- Each LTC output has its own level (`output.ltc[].level`): one generator per stream runs at full scale and every channel
+- Each LTC output has its own level (`output.ltc[].level`): one generator runs at full scale and every channel
   it is written to applies its output's level.
+- **Latency offset.** Each LTC and MTC output has an optional `offsetMs` (whole ms, within ±1000, positive = emitted
+  earlier). What goes out when the transport is at position `p` is the timecode of `p + offset`; the displayed time and
+  the transport are untouched, and 0 or absent behaves as before. `LtcStream::with_offset` and
+  `MtcScheduler::with_offset` apply it inside the generator, so seeks, stops and resumes (which all `resync`) and the
+  follower's tracking need no special case. LTC before the timeline origin (a negative offset near 0) is silent until the
+  timecode reaches it. A stream has one generator per distinct offset, so LTC outputs that share an offset share one;
+  a device and channel listed twice plays once with the first output's level and offset, and a repeated MIDI port keeps
+  the first entry's offset. The Setup dialog sends the typed text to the `output_set_offset` command (kind, index, text);
+  the backend parses it, checks the range, stores 0 as no offset and answers with the project, which the UI shows.
 
 ## Programme audio (`audio/`, `engine/mixer.rs`)
 

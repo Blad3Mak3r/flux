@@ -273,16 +273,59 @@ pub struct LtcTap {
 
 impl LtcTap {
     /// The tap for a project output: a 1-based channel and its level.
-    fn new((channel, level): (u16, f32)) -> Self {
+    fn new(send: LtcSend) -> Self {
         Self {
-            channel: usize::from(channel) - 1,
-            gain: level,
+            channel: usize::from(send.channel) - 1,
+            gain: send.level,
         }
     }
 }
 
+/// One LTC output as the streams need it: where it goes, how loud and how far ahead.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LtcSend {
+    /// 1-based interface channel.
+    channel: u16,
+    /// Linear peak level.
+    level: f32,
+    /// Latency offset in ms, positive = earlier.
+    offset_ms: i32,
+}
+
+/// Groups outputs into one [`LtcChannel`] per distinct offset: outputs with the same offset share
+/// a generator, as outputs on one device always did.
+fn ltc_lanes(
+    sends: &[LtcSend],
+    config: LtcConfig,
+    rate: FrameRate,
+    start: u64,
+    clock: Clock,
+) -> Vec<LtcChannel> {
+    let mut lanes: Vec<(i32, LtcChannel)> = Vec::new();
+    for &send in sends {
+        let at = lanes
+            .iter()
+            .position(|(offset_ms, _)| *offset_ms == send.offset_ms)
+            .unwrap_or_else(|| {
+                let stream = LtcStream::new(config, rate, start, 0)
+                    .with_offset(clock.ms_to_samples(send.offset_ms));
+                lanes.push((
+                    send.offset_ms,
+                    LtcChannel {
+                        stream,
+                        channels: Vec::new(),
+                    },
+                ));
+                lanes.len() - 1
+            });
+        lanes[at].1.channels.push(LtcTap::new(send));
+    }
+    lanes.into_iter().map(|(_, lane)| lane).collect()
+}
+
 /// The LTC generator and the interface channels it goes to. One signal feeds every channel, so
-/// two LTC outputs on one device cost a single generator; each channel has a level of its own.
+/// two LTC outputs on one device with the same offset cost a single generator; each channel has a
+/// level of its own.
 #[derive(Debug)]
 pub struct LtcChannel {
     pub stream: LtcStream,
@@ -298,7 +341,8 @@ pub struct Renderer {
     clips: Arc<ClipSet>,
     /// Zero-based interface channels the programme goes to: left then right, or one for both.
     programme: Vec<usize>,
-    ltc: Option<LtcChannel>,
+    /// One lane per distinct latency offset.
+    ltc: Vec<LtcChannel>,
     /// The metronome, when it plays on the programme's device.
     click: Option<ClickOut>,
     channels: usize,
@@ -313,7 +357,7 @@ impl Renderer {
         messages: Receiver<Message>,
         clips: Arc<ClipSet>,
         programme: Vec<usize>,
-        ltc: Option<LtcChannel>,
+        ltc: impl IntoIterator<Item = LtcChannel>,
         channels: usize,
         shared: Arc<SharedClock>,
     ) -> Self {
@@ -324,7 +368,7 @@ impl Renderer {
             messages,
             clips,
             programme,
-            ltc,
+            ltc: ltc.into_iter().collect(),
             click: None,
             channels,
             shared,
@@ -351,8 +395,8 @@ impl Renderer {
         }
         if self.transport.epoch() != self.seen_epoch {
             self.seen_epoch = self.transport.epoch();
-            if let Some(ltc) = &mut self.ltc {
-                ltc.stream.resync(self.transport.position_samples());
+            for lane in &mut self.ltc {
+                lane.stream.resync(self.transport.position_samples());
             }
         }
 
@@ -428,9 +472,9 @@ impl Renderer {
                         }
                     }
                 }
-                if let Some(ltc) = &mut self.ltc {
-                    let sample = ltc.stream.next_sample();
-                    for tap in &ltc.channels {
+                for lane in &mut self.ltc {
+                    let sample = lane.stream.next_sample();
+                    for tap in &lane.channels {
                         frame[tap.channel] = T::from_sample(sample * tap.gain);
                     }
                 }
@@ -456,14 +500,14 @@ impl Fill for Renderer {
 /// frame or more away, or the master seeks.
 #[derive(Debug)]
 pub struct LtcFollower {
-    stream: LtcStream,
-    outputs: Vec<LtcTap>,
+    /// One lane per distinct latency offset; none when the stream plays only the click.
+    lanes: Vec<LtcChannel>,
     channels: usize,
     clock: Clock,
     shared: Arc<SharedClock>,
     /// The last position read; kept when the master is publishing and the read is skipped.
     snapshot: Snapshot,
-    /// The transport position of the next sample `stream` writes. `None` until synchronised, and
+    /// The transport position of the next sample the lanes write. `None` until synchronised, and
     /// after the transport stops playing.
     next: Option<u64>,
     seen_epoch: u64,
@@ -477,16 +521,14 @@ pub struct LtcFollower {
 
 impl LtcFollower {
     pub fn new(
-        stream: LtcStream,
-        outputs: Vec<LtcTap>,
+        lanes: Vec<LtcChannel>,
         channels: usize,
         clock: Clock,
         shared: Arc<SharedClock>,
     ) -> Self {
         let snapshot = shared.load();
         Self {
-            stream,
-            outputs,
+            lanes,
             channels,
             clock,
             shared,
@@ -526,7 +568,9 @@ impl LtcFollower {
                 .is_some_and(|next| next.abs_diff(target) < one_frame);
         if !in_step {
             self.seen_epoch = snapshot.epoch;
-            self.stream.resync(target);
+            for lane in &mut self.lanes {
+                lane.stream.resync(target);
+            }
             self.next = Some(target);
         }
 
@@ -553,9 +597,11 @@ impl LtcFollower {
                         frame[channel] = T::from_sample(click[at].clamp(-1.0, 1.0));
                     }
                 }
-                let sample = self.stream.next_sample();
-                for tap in &self.outputs {
-                    frame[tap.channel] = T::from_sample(sample * tap.gain);
+                for lane in &mut self.lanes {
+                    let sample = lane.stream.next_sample();
+                    for tap in &lane.channels {
+                        frame[tap.channel] = T::from_sample(sample * tap.gain);
+                    }
                 }
             }
         }
@@ -800,7 +846,7 @@ impl Output {
             needed,
             programme: programme_channels,
             clips: Arc::clone(&clips),
-            ltc: levels_of(&shared_ltc),
+            ltc: sends_of(&shared_ltc),
             click: click_for(ClickPlace::Programme),
             ltc_config,
             rate,
@@ -839,7 +885,7 @@ impl Output {
         for (index, group) in own_ltc.into_iter().enumerate() {
             let spec = LtcSpec {
                 device_hint: group.device.clone(),
-                ltc: levels_of(&group.slots),
+                ltc: sends_of(&group.slots),
                 click: click_for(ClickPlace::Group(index)),
                 config: ltc_config,
                 rate,
@@ -916,7 +962,8 @@ impl Output {
                 Ok((at, _, _)) if by_port.contains_key(&at) => mtc_info[by_port[&at]].clone(),
                 Ok((at, name, connection)) => {
                     by_port.insert(at, here);
-                    let scheduler = MtcScheduler::new(clock, rate, start);
+                    let scheduler = MtcScheduler::new(clock, rate, start)
+                        .with_offset(clock.ms_to_samples(mtc.offset_ms.unwrap_or(0)));
                     let (shared, stop) = (Arc::clone(&shared), Arc::clone(&stop));
                     let spawned = thread::Builder::new()
                         .name("flux-mtc".into())
@@ -1041,8 +1088,8 @@ struct AudioSpec {
     /// 1-based interface channels of the programme.
     programme: Vec<u16>,
     clips: Arc<ClipSet>,
-    /// 1-based channels and their levels. Empty when LTC is off or plays on devices of its own.
-    ltc: Vec<(u16, f32)>,
+    /// The LTC outputs on this stream. Empty when LTC is off or plays on devices of its own.
+    ltc: Vec<LtcSend>,
     /// The metronome, when it plays on this stream.
     click: Option<ClickSpec>,
     ltc_config: LtcConfig,
@@ -1058,8 +1105,8 @@ struct AudioInfo {
 
 struct LtcSpec {
     device_hint: String,
-    /// 1-based channels and their levels. Empty when the stream plays only the metronome.
-    ltc: Vec<(u16, f32)>,
+    /// The LTC outputs on this device. Empty when the stream plays only the metronome.
+    ltc: Vec<LtcSend>,
     /// The metronome, when it plays on this device.
     click: Option<ClickSpec>,
     config: LtcConfig,
@@ -1116,6 +1163,8 @@ struct LtcSlot {
     channel: u16,
     /// Linear peak level: the first output that asked for this slot sets it.
     level: f32,
+    /// Latency offset in ms, set by the first output like the level.
+    offset_ms: i32,
     /// Positions in the project's `output.ltc`. More than one when the same device and channel is
     /// listed twice, which plays once.
     outputs: Vec<usize>,
@@ -1137,11 +1186,15 @@ struct LtcGroup {
     slots: Vec<LtcSlot>,
 }
 
-/// Each slot's 1-based channel and its level.
-fn levels_of(slots: &[LtcSlot]) -> Vec<(u16, f32)> {
+/// What each slot sends: its 1-based channel, level and offset.
+fn sends_of(slots: &[LtcSlot]) -> Vec<LtcSend> {
     slots
         .iter()
-        .map(|slot| (slot.channel, slot.level))
+        .map(|slot| LtcSend {
+            channel: slot.channel,
+            level: slot.level,
+            offset_ms: slot.offset_ms,
+        })
         .collect()
 }
 
@@ -1178,6 +1231,7 @@ fn plan_ltc(
             None => slots.push(LtcSlot {
                 channel: output.channel,
                 level: output.level.unwrap_or(DEFAULT_LTC_LEVEL),
+                offset_ms: output.offset_ms.unwrap_or(0),
                 outputs: vec![index],
             }),
         }
@@ -1279,10 +1333,13 @@ fn open_stream(
     let opened = open_device(&spec.device_hint, spec.needed, rate)?;
     let channels = opened.channels;
 
-    let ltc = (!spec.ltc.is_empty()).then(|| LtcChannel {
-        stream: LtcStream::new(spec.ltc_config, spec.rate, spec.start, 0),
-        channels: spec.ltc.iter().copied().map(LtcTap::new).collect(),
-    });
+    let ltc = ltc_lanes(
+        &spec.ltc,
+        spec.ltc_config,
+        spec.rate,
+        spec.start,
+        spec.clock,
+    );
     // Channels beyond what the device opened cannot be written to.
     let programme = spec
         .programme
@@ -1323,7 +1380,7 @@ fn open_ltc_stream(
     let needed = spec
         .ltc
         .iter()
-        .map(|&(channel, _)| channel)
+        .map(|send| send.channel)
         .chain(
             spec.click
                 .iter()
@@ -1333,8 +1390,7 @@ fn open_ltc_stream(
         .unwrap_or(1);
     let opened = open_device(&spec.device_hint, needed, rate)?;
     let follower = LtcFollower::new(
-        LtcStream::new(spec.config, spec.rate, spec.start, 0),
-        spec.ltc.iter().copied().map(LtcTap::new).collect(),
+        ltc_lanes(&spec.ltc, spec.config, spec.rate, spec.start, spec.clock),
         usize::from(opened.channels),
         spec.clock,
         Arc::clone(&shared),
@@ -2010,16 +2066,22 @@ mod tests {
         assert!(shared.is_unpaced());
     }
 
+    /// One LTC lane running `offset` samples ahead of the transport, on `taps`.
+    fn lane(offset: i64, taps: Vec<LtcTap>) -> Vec<LtcChannel> {
+        if taps.is_empty() {
+            return Vec::new();
+        }
+        vec![LtcChannel {
+            stream: LtcStream::new(config(), RATE, 0, 0).with_offset(offset),
+            channels: taps,
+        }]
+    }
+
     /// A follower writing mono LTC on channel 0, and the clock it follows.
     fn follower() -> (LtcFollower, Arc<SharedClock>) {
         let shared = Arc::new(SharedClock::new());
-        let follower = LtcFollower::new(
-            LtcStream::new(config(), RATE, 0, 0),
-            vec![tap(0, 1.0)],
-            1,
-            clock(),
-            Arc::clone(&shared),
-        );
+        let follower =
+            LtcFollower::new(lane(0, vec![tap(0, 1.0)]), 1, clock(), Arc::clone(&shared));
         (follower, shared)
     }
 
@@ -2056,13 +2118,8 @@ mod tests {
     #[test]
     fn follower_should_play_the_masters_position_on_its_channel_only() {
         let shared = Arc::new(SharedClock::new());
-        let mut follower = LtcFollower::new(
-            LtcStream::new(config(), RATE, 0, 0),
-            vec![tap(2, 1.0)],
-            4,
-            clock(),
-            Arc::clone(&shared),
-        );
+        let mut follower =
+            LtcFollower::new(lane(0, vec![tap(2, 1.0)]), 4, clock(), Arc::clone(&shared));
         master_at(&shared, TransportState::Playing, 1, 5_000);
         let mut buffer = [0.0f32; 4 * 4_000];
         follower.render(&mut buffer, 0);
@@ -2146,6 +2203,116 @@ mod tests {
         follower.render(&mut buffer, 0);
 
         assert_eq!(buffer, ltc_from(1_000, 1_000)[..]);
+    }
+
+    /// 1 ms is 48 samples at the engine rate.
+    const AHEAD: i64 = 480;
+
+    #[test]
+    fn follower_should_play_the_position_plus_its_offset() {
+        let shared = Arc::new(SharedClock::new());
+        let mut follower = LtcFollower::new(
+            lane(AHEAD, vec![tap(0, 1.0)]),
+            1,
+            clock(),
+            Arc::clone(&shared),
+        );
+        let mut buffer = [0.0f32; 4_000];
+        master_at(&shared, TransportState::Playing, 1, 5_000);
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, ltc_from(5_000 + AHEAD as u64, 4_000)[..]);
+
+        // A seek starts over from the new position, still shifted.
+        master_at(&shared, TransportState::Playing, 2, 30_000);
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, ltc_from(30_000 + AHEAD as u64, 4_000)[..]);
+
+        // So does resuming after a pause.
+        master_at(&shared, TransportState::Paused, 2, 31_000);
+        follower.render(&mut buffer, 0);
+        master_at(&shared, TransportState::Playing, 2, 31_000);
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, ltc_from(31_000 + AHEAD as u64, 4_000)[..]);
+    }
+
+    #[test]
+    fn follower_should_play_a_negative_offset_behind_the_position() {
+        let shared = Arc::new(SharedClock::new());
+        let mut follower = LtcFollower::new(
+            lane(-AHEAD, vec![tap(0, 1.0)]),
+            1,
+            clock(),
+            Arc::clone(&shared),
+        );
+        let mut buffer = [0.0f32; 4_000];
+        master_at(&shared, TransportState::Playing, 1, 5_000);
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, ltc_from(5_000 - AHEAD as u64, 4_000)[..]);
+    }
+
+    #[test]
+    fn render_should_shift_ltc_by_the_offset_across_a_seek_and_a_stop() {
+        let (tx, rx) = mpsc::channel();
+        let ltc = LtcChannel {
+            stream: LtcStream::new(config(), RATE, 0, 0).with_offset(AHEAD),
+            channels: vec![tap(0, 1.0)],
+        };
+        let mut renderer = Renderer::new(
+            Transport::new(clock(), 0),
+            rx,
+            Arc::new(ClipSet::default()),
+            Vec::new(),
+            Some(ltc),
+            1,
+            Arc::new(SharedClock::new()),
+        );
+        let mut buffer = [0.0f32; 1_000];
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut buffer, 10);
+        assert_eq!(buffer, ltc_from(AHEAD as u64, 1_000)[..]);
+
+        // Frame 10 starts at sample 19 200.
+        tx.send(Message::Transport(Command::Seek(10))).unwrap();
+        renderer.render(&mut buffer, 20);
+        assert_eq!(buffer, ltc_from(19_200 + AHEAD as u64, 1_000)[..]);
+
+        // Stop goes back to the origin, and playing again starts the shifted signal over.
+        tx.send(Message::Transport(Command::Stop)).unwrap();
+        renderer.render(&mut buffer, 30);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut buffer, 40);
+        assert_eq!(buffer, ltc_from(AHEAD as u64, 1_000)[..]);
+    }
+
+    #[test]
+    fn ltc_lanes_should_share_a_generator_between_outputs_with_the_same_offset() {
+        let send = |channel, offset_ms| LtcSend {
+            channel,
+            level: 1.0,
+            offset_ms,
+        };
+        let lanes = ltc_lanes(
+            &[send(1, 0), send(2, 5), send(3, 0)],
+            config(),
+            RATE,
+            0,
+            clock(),
+        );
+        assert_eq!(lanes.len(), 2);
+        assert_eq!(lanes[0].channels.len(), 2);
+        assert_eq!(lanes[1].channels.len(), 1);
+        assert!(ltc_lanes(&[], config(), RATE, 0, clock()).is_empty());
+    }
+
+    #[test]
+    fn plan_ltc_should_take_the_offset_of_the_first_output_on_a_slot() {
+        let mut early = ltc_out("Main", 3);
+        early.offset_ms = Some(20);
+        let mut late = ltc_out("Main", 3);
+        late.offset_ms = Some(-20);
+        let plan = plan_ltc(&[early, late, ltc_out("Main", 4)], "Main", loosely);
+        let offsets: Vec<_> = sends_of(&plan.shared).iter().map(|s| s.offset_ms).collect();
+        assert_eq!(offsets, vec![20, 0]);
     }
 
     #[test]
@@ -2252,18 +2419,18 @@ mod tests {
         let mut loud = ltc_out("Main", 3);
         loud.level = Some(1.0);
         let plan = plan_ltc(&[quiet, loud, ltc_out("Main", 4)], "Main", loosely);
-        assert_eq!(
-            levels_of(&plan.shared),
-            vec![(3, 0.25), (4, DEFAULT_LTC_LEVEL)]
-        );
+        let levels: Vec<_> = sends_of(&plan.shared)
+            .iter()
+            .map(|s| (s.channel, s.level))
+            .collect();
+        assert_eq!(levels, vec![(3, 0.25), (4, DEFAULT_LTC_LEVEL)]);
     }
 
     #[test]
     fn follower_should_put_one_ltc_signal_on_every_channel_it_is_given() {
         let shared = Arc::new(SharedClock::new());
         let mut follower = LtcFollower::new(
-            LtcStream::new(config(), RATE, 0, 0),
-            vec![tap(0, 1.0), tap(2, 1.0)],
+            lane(0, vec![tap(0, 1.0), tap(2, 1.0)]),
             3,
             clock(),
             Arc::clone(&shared),
@@ -2282,6 +2449,7 @@ mod tests {
             device_name: device.into(),
             channel,
             level: None,
+            offset_ms: None,
         }
     }
 
@@ -2294,6 +2462,7 @@ mod tests {
         LtcSlot {
             channel,
             level: DEFAULT_LTC_LEVEL,
+            offset_ms: 0,
             outputs: outputs.to_vec(),
         }
     }
@@ -2336,7 +2505,7 @@ mod tests {
         assert_eq!(plan.shared, vec![slot(3, &[0, 1])]);
         assert_eq!(plan.own.len(), 1);
         assert_eq!(plan.own[0].slots, vec![slot(1, &[2, 3])]);
-        assert_eq!(levels_of(&plan.shared), vec![(3, DEFAULT_LTC_LEVEL)]);
+        assert_eq!(sends_of(&plan.shared).len(), 1);
     }
 
     #[test]
@@ -2467,8 +2636,7 @@ mod tests {
     fn clicking_follower(ltc: bool) -> (LtcFollower, Arc<SharedClock>) {
         let shared = Arc::new(SharedClock::new());
         let follower = LtcFollower::new(
-            LtcStream::new(config(), RATE, 0, 0),
-            if ltc { vec![tap(0, 1.0)] } else { Vec::new() },
+            lane(0, if ltc { vec![tap(0, 1.0)] } else { Vec::new() }),
             2,
             clock(),
             Arc::clone(&shared),
