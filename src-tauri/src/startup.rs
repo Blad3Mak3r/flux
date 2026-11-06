@@ -84,7 +84,7 @@ impl Step {
 
 fn run_step(id: StepId) -> Step {
     match id {
-        StepId::Audio => Step::found(id, devices::list_audio().len()),
+        StepId::Audio => Step::found(id, devices::list_audio(None).len()),
         StepId::Midi => match devices::list_midi() {
             Ok(ports) => Step::found(id, ports.len()),
             Err(err) => Step::checked(id, Err(err.to_string())),

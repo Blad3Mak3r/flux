@@ -231,6 +231,11 @@ pub struct Note {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputConfig {
+    /// The audio API every audio device below is opened through (`"ALSA"`, `"PipeWire"`, `"JACK"`,
+    /// `"WASAPI"`, `"CoreAudio"`, ...). Absent is the system's default one, which is also what plays
+    /// when this machine does not have the named driver.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
     /// Where the project's audio clips are played.
     pub audio: Option<AudioOutput>,
     /// Where the Edit view auditions the clips, when it should not use `audio`. Edit then sends
@@ -613,6 +618,7 @@ pub(super) mod tests {
                 ],
             }],
             output: OutputConfig {
+                driver: Some("PipeWire".into()),
                 audio: Some(AudioOutput {
                     device_name: "Main Interface".into(),
                     channels: vec![1, 2],
@@ -671,6 +677,7 @@ pub(super) mod tests {
             }
         ] }],
         "output": {
+            "driver": "PipeWire",
             "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
             "metronome": { "deviceName": "Band Monitor", "channels": [3, 4], "gainDb": -6.0 },
             "ltc": [{ "deviceName": "Main Interface", "channel": 3, "level": 0.25, "offsetMs": -12 }],
