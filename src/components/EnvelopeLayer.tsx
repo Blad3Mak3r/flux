@@ -32,6 +32,25 @@ interface Drag {
 }
 
 /**
+ * Adds a point to the envelope of `clip` where the pointer is, given the pixel where the clip's
+ * box starts and the frame at its left edge. A double click reaches the clip, not the layer drawn
+ * in it, because the clip holds the pointer.
+ */
+export function addEnvelopePoint(
+  clip: AudioClip,
+  box: { left: number; top: number; height: number; frame: number; pxPerFrame: number },
+  clientX: number,
+  clientY: number,
+): void {
+  const timeline = box.frame + (clientX - box.left) / box.pxPerFrame;
+  const snapped = snapFrame(Math.round(timeline), snapTargets([clip.id]));
+  const frame = snapped !== Math.round(timeline) ? snapped : timeline;
+  const at = (frame - clip.start + (clip.offset ?? 0)) * ENVELOPE_TICKS_PER_FRAME;
+  const position = Math.min(1, Math.max(0, 1 - (clientY - box.top) / box.height));
+  setClipEnvelope(clip.id, insertPoint(clip.envelope ?? [], at, faderToDb(position)));
+}
+
+/**
  * The volume drawn over a clip. The line shows when the clip has an envelope; on the selected clip
  * its points can be dragged (Shift for fine steps, Alt to turn the magnet the other way, Esc to
  * cancel), added or removed with a double click, and moved with the arrow keys. Points are counted
@@ -67,13 +86,16 @@ export function EnvelopeLayer({
 
   const xOf = (at: number) => (shown - offset + at / ENVELOPE_TICKS_PER_FRAME - left) * pxPerFrame;
   const yOf = (db: number) => (1 - dbToFader(db)) * height;
-  const dbAt = (y: number) => faderToDb(Math.min(1, Math.max(0, 1 - y / height)));
 
   if (points.length === 0 && !selected) return null;
 
-  const line = envelopeLine(points)
-    .map(({ at, db }) => `${Math.round(xOf(at) * 100) / 100},${Math.round(yOf(db) * 100) / 100}`)
-    .join(" ");
+  // Before the first point and after the last the gain stays at theirs, so the line runs flat to the edges.
+  const vertices = envelopeLine(points).map(({ at, db }) => [xOf(at), yOf(db)]);
+  if (vertices.length > 0) {
+    vertices.unshift([0, vertices[0][1]]);
+    vertices.push([width, vertices[vertices.length - 1][1]]);
+  }
+  const line = vertices.map(([x, y]) => `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`).join(" ");
 
   const finish = (commit: boolean) => {
     if (commit && draft) setClipEnvelope(clip.id, draft);
@@ -151,16 +173,6 @@ export function EnvelopeLayer({
     }
   };
 
-  const onAdd = (event: MouseEvent<SVGRectElement>) => {
-    event.stopPropagation();
-    const box = event.currentTarget.getBoundingClientRect();
-    const timeline = left + (event.clientX - box.left) / pxPerFrame;
-    const snapped = snapFrame(Math.round(timeline), snapTargets([clip.id]));
-    const frame = snapped !== Math.round(timeline) ? snapped : timeline;
-    const at = (frame - clip.start + offset) * ENVELOPE_TICKS_PER_FRAME;
-    setClipEnvelope(clip.id, insertPoint(stored, at, dbAt(event.clientY - box.top)));
-  };
-
   const onPointMenu = (event: MouseEvent<SVGRectElement>, index: number) => {
     const items: MenuItem[] = [
       ...ENVELOPE_CURVES.map((curve): MenuItem => ({
@@ -176,7 +188,6 @@ export function EnvelopeLayer({
 
   return (
     <svg className="clip-envelope" width={width} height={height} data-active={selected} aria-hidden={!selected}>
-      {selected && <rect className="envelope-hit" width={width} height={height} onDoubleClick={onAdd} />}
       {points.length > 0 && <polyline className="envelope-line" points={line} />}
       {selected &&
         points.map((point, index) => {

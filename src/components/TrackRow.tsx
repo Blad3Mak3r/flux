@@ -20,7 +20,7 @@ import type { SnapTarget } from "../timeline/snap";
 import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
-import { EnvelopeLayer } from "./EnvelopeLayer";
+import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
@@ -259,6 +259,7 @@ function ClipBlock({
   // does not re-render it.
   const selected = useUi((ui) => ui.selection?.id === clip.id);
   const renaming = useUi((ui) => ui.renaming?.kind === "clip" && ui.renaming.id === clip.id);
+  const labelRef = useRef<HTMLSpanElement>(null);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
@@ -287,6 +288,34 @@ function ClipBlock({
       onContextMenu={(event) => {
         select({ kind: "clip", id: clip.id });
         menuAtPointer(event, audioMenu(t, track, clip));
+      }}
+      // The clip holds the pointer while it is pressed, so a double click lands here and not on what
+      // is under it: on the name it renames the clip, elsewhere on a selected clip it adds a point.
+      onDoubleClick={(event) => {
+        const label = labelRef.current?.getBoundingClientRect();
+        const onLabel =
+          label !== undefined &&
+          event.clientX >= label.left &&
+          event.clientX <= label.right &&
+          event.clientY >= label.top &&
+          event.clientY <= label.bottom;
+        if (onLabel) {
+          rename({ kind: "clip", id: clip.id });
+        } else if (selected) {
+          const box = event.currentTarget.getBoundingClientRect();
+          addEnvelopePoint(
+            clip,
+            {
+              left: box.left + event.currentTarget.clientLeft,
+              top: box.top + event.currentTarget.clientTop,
+              height,
+              frame: left,
+              pxPerFrame,
+            },
+            event.clientX,
+            event.clientY,
+          );
+        }
       }}
       {...pointer}
     >
@@ -332,7 +361,7 @@ function ClipBlock({
           />
         </span>
       ) : (
-        <span className="clip-label" onDoubleClick={() => rename({ kind: "clip", id: clip.id })}>
+        <span className="clip-label" ref={labelRef}>
           {name}
           {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
           {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}

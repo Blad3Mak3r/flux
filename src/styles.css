@@ -2985,16 +2985,10 @@ input:disabled {
   stroke-linejoin: round;
 }
 
-.envelope-hit {
-  fill: transparent;
-}
-
-.envelope-hit,
 .envelope-point {
   pointer-events: none;
 }
 
-.clip-envelope[data-active="true"] .envelope-hit,
 .clip-envelope[data-active="true"] .envelope-point {
   pointer-events: all;
 }

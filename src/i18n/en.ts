@@ -230,7 +230,6 @@ export const en = {
   "clip.name": "Audio file",
   "clip.start": "Start",
   "clip.gain": "Gain (dB)",
-  "clip.track": "Track",
   "clip.lengthGuess": "Length and waveform are placeholders until clip playback is available.",
   "clip.bpm": "Tempo (BPM)",
   "clip.bpm.hint": "Found in the audio. Type another value, or leave it empty to forget it.",

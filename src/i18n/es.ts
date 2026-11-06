@@ -233,7 +233,6 @@ export const es: Record<MessageKey, string> = {
   "clip.name": "Archivo de audio",
   "clip.start": "Inicio",
   "clip.gain": "Ganancia (dB)",
-  "clip.track": "Pista",
   "clip.lengthGuess":
     "La duración y la forma de onda son provisionales hasta que exista la reproducción de clips.",
   "clip.bpm": "Tempo (BPM)",

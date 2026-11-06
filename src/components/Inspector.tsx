@@ -127,8 +127,6 @@ function SelectionPanel({
         <dl className="facts">
           <dt>{t("clip.name")}</dt>
           <dd>{asset?.name ?? clip.asset}</dd>
-          <dt>{t("clip.track")}</dt>
-          <dd>{track.name}</dd>
         </dl>
         <TextField
           key={clip.id}
