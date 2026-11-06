@@ -227,6 +227,8 @@ export const en = {
   "timeline.confirm.title": "Delete “{name}”?",
   "timeline.confirm.body": "Its tracks are removed from the project, and the audio no other timeline uses. You can undo this.",
 
+  "out.driver": "Audio driver",
+  "out.driverMissing": "{name} (not available)",
   "out.audioDevice": "Audio device",
   "out.programme": "Programme output",
   "out.previewDevice": "Preview device (Edit)",
@@ -263,6 +265,7 @@ export const en = {
   "setup.section.general": "General",
   "setup.section.video": "Video",
   "setup.soon": "Coming soon",
+  "setup.audio.driverNote": "Every audio device below belongs to this driver. Leave the system's one unless your interface needs another.",
   "setup.audio.note": "This device plays the project and provides the clock that LTC and MTC follow.",
   "setup.audio.previewNote": "Edit plays here and sends no timecode. Live always uses the programme device.",
   "setup.ltc.intro": "Each LTC output sends the timecode as an audio signal on one channel of an interface.",

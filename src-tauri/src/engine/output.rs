@@ -763,6 +763,7 @@ impl Output {
         programme: Programme,
     ) -> Result<Self, OutputError> {
         let output = &project.output;
+        let driver = output.driver.as_deref();
         // An empty device name is the system's default output, so a project without any device
         // chosen still plays. A project written before `output.audio` existed carries the
         // programme on the first LTC device.
@@ -782,7 +783,7 @@ impl Output {
         let LtcPlan {
             shared: shared_ltc,
             own: own_ltc,
-        } = plan_ltc(&output.ltc, &device_hint, same_device);
+        } = plan_ltc(&output.ltc, &device_hint, |a, b| same_device(driver, a, b));
         // The metronome has an output of its own. It plays on the programme's stream when it names
         // the programme's device, on the stream of an LTC device it shares, or else on a stream
         // of its own: no device is opened twice.
@@ -792,11 +793,11 @@ impl Output {
             } else {
                 metronome.channels.clone()
             };
-            let place = if same_device(&metronome.device_name, &device_hint) {
+            let place = if same_device(driver, &metronome.device_name, &device_hint) {
                 ClickPlace::Programme
             } else if let Some(group) = own_ltc
                 .iter()
-                .position(|group| same_device(&group.device, &metronome.device_name))
+                .position(|group| same_device(driver, &group.device, &metronome.device_name))
             {
                 ClickPlace::Group(group)
             } else {
@@ -842,6 +843,7 @@ impl Output {
         let levels = SharedLevels::new(clips.levels());
 
         let spec = AudioSpec {
+            driver: output.driver.clone(),
             device_hint,
             needed,
             programme: programme_channels,
@@ -884,6 +886,7 @@ impl Output {
         });
         for (index, group) in own_ltc.into_iter().enumerate() {
             let spec = LtcSpec {
+                driver: output.driver.clone(),
                 device_hint: group.device.clone(),
                 ltc: sends_of(&group.slots),
                 click: click_for(ClickPlace::Group(index)),
@@ -919,6 +922,7 @@ impl Output {
             let device = click.as_ref().map(|(device, _, _)| device.clone());
             let device = device.unwrap_or_default();
             let spec = LtcSpec {
+                driver: output.driver.clone(),
                 device_hint: device.clone(),
                 ltc: Vec::new(),
                 click: Some(spec),
@@ -1083,6 +1087,8 @@ fn prune_clip_sets(sets: &mut Vec<Arc<ClipSet>>) {
 }
 
 struct AudioSpec {
+    /// The audio API `device_hint` is looked up on; `None` is the system's default.
+    driver: Option<String>,
     device_hint: String,
     needed: u16,
     /// 1-based interface channels of the programme.
@@ -1104,6 +1110,7 @@ struct AudioInfo {
 }
 
 struct LtcSpec {
+    driver: Option<String>,
     device_hint: String,
     /// The LTC outputs on this device. Empty when the stream plays only the metronome.
     ltc: Vec<LtcSend>,
@@ -1150,9 +1157,10 @@ impl ClickSpec {
 
 /// Whether two device name hints open the same audio device. Different hints can: an empty one is
 /// the system's default output, and names match loosely.
-fn same_device(a: &str, b: &str) -> bool {
-    let name =
-        |hint: &str| devices::open_audio(hint).and_then(|device| devices::device_name(&device));
+fn same_device(driver: Option<&str>, a: &str, b: &str) -> bool {
+    let name = |hint: &str| {
+        devices::open_audio(hint, driver).and_then(|device| devices::device_name(&device))
+    };
     a == b || matches!((name(a), name(b)), (Some(a), Some(b)) if a == b)
 }
 
@@ -1287,8 +1295,13 @@ struct OpenedDevice {
 }
 
 /// Opens the device `hint` names with the fewest channels that cover `needed`, at `rate`.
-fn open_device(hint: &str, needed: u16, rate: u32) -> Result<OpenedDevice, OutputError> {
-    let device = devices::open_audio(hint).ok_or_else(|| {
+fn open_device(
+    hint: &str,
+    driver: Option<&str>,
+    needed: u16,
+    rate: u32,
+) -> Result<OpenedDevice, OutputError> {
+    let device = devices::open_audio(hint, driver).ok_or_else(|| {
         if hint.is_empty() {
             OutputError::NoDefaultDevice
         } else {
@@ -1330,7 +1343,7 @@ fn open_stream(
     shared: Arc<SharedClock>,
 ) -> Result<(cpal::Stream, AudioInfo), OutputError> {
     let rate = spec.ltc_config.sample_rate;
-    let opened = open_device(&spec.device_hint, spec.needed, rate)?;
+    let opened = open_device(&spec.device_hint, spec.driver.as_deref(), spec.needed, rate)?;
     let channels = opened.channels;
 
     let ltc = ltc_lanes(
@@ -1388,7 +1401,7 @@ fn open_ltc_stream(
         )
         .max()
         .unwrap_or(1);
-    let opened = open_device(&spec.device_hint, needed, rate)?;
+    let opened = open_device(&spec.device_hint, spec.driver.as_deref(), needed, rate)?;
     let follower = LtcFollower::new(
         ltc_lanes(&spec.ltc, spec.config, spec.rate, spec.start, spec.clock),
         usize::from(opened.channels),

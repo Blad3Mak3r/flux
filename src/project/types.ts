@@ -114,6 +114,8 @@ export interface Note {
 
 /** Devices are stored by name hint only, never by OS identifier. */
 export interface OutputConfig {
+  /** The audio driver (API) the audio devices below belong to, e.g. "PipeWire". Absent: the system's default one. */
+  driver?: string;
   /** Where the project's audio clips play. `channels` are 1-based, e.g. `[1, 2]`. */
   audio: { deviceName: string; channels: number[] } | null;
   /** Where the Edit view auditions the clips instead of `audio`, with no timecode. Absent: Edit plays like Live. */
