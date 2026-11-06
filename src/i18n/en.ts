@@ -250,7 +250,6 @@ export const en = {
   "out.midiUnavailable": "MIDI is unavailable on this system.",
   "out.desktopOnly": "Audio and MIDI output need the desktop app.",
   "out.noDevices": "No audio output devices found.",
-  "out.channels": "{count} ch",
 
   "setup.title": "Preferences",
   "setup.close": "Close preferences",

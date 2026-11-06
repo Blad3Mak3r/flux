@@ -153,8 +153,8 @@ function DeviceOptions({ current, devices }: { current: string; devices: Devices
         <option value={current}>{t("out.notConnected", { name: current })}</option>
       )}
       {devices.audio.map((d) => (
-        <option key={`${d.host}:${d.name}`} value={d.name}>
-          {d.name} · {d.host} · {t("out.channels", { count: d.outputChannels })}
+        <option key={d.name} value={d.name}>
+          {d.name}
         </option>
       ))}
     </>

@@ -255,7 +255,6 @@ export const es: Record<MessageKey, string> = {
   "out.midiUnavailable": "MIDI no está disponible en este sistema.",
   "out.desktopOnly": "La salida de audio y MIDI necesita la aplicación de escritorio.",
   "out.noDevices": "No se han encontrado dispositivos de salida de audio.",
-  "out.channels": "{count} can.",
 
   "setup.title": "Preferencias",
   "setup.close": "Cerrar las preferencias",

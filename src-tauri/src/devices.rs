@@ -34,8 +34,6 @@ impl Serialize for DeviceError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioDevice {
-    /// Audio API the device was found through (ALSA, JACK, WASAPI, CoreAudio, ...).
-    pub host: String,
     pub name: String,
     pub output_channels: u16,
     /// Standard rates the device supports.
@@ -50,60 +48,63 @@ pub struct MidiPort {
     pub name: String,
 }
 
-/// Opens the output device a project's name hint refers to, looking in the default host first.
-/// An empty hint is the system's default output.
+/// Opens the output device a project's name hint refers to. An empty hint is the system's default
+/// output. It looks in the same list the UI offers, so what is listed is exactly what can be opened.
 pub fn open_audio(hint: &str) -> Option<cpal::Device> {
     if hint.is_empty() {
         return cpal::default_host().default_output_device();
     }
-    let default_host = cpal::default_host().id();
-    let mut hosts = cpal::available_hosts();
-    hosts.sort_by_key(|id| *id != default_host);
-
-    let devices: Vec<(String, cpal::Device)> = hosts
-        .into_iter()
-        .filter_map(|id| cpal::host_from_id(id).ok()?.output_devices().ok())
-        .flatten()
-        .filter_map(|device| Some((device_name(&device)?, device)))
-        .collect();
+    let devices = output_devices();
     find_by_name(hint, &devices, 0, |(name, _)| name).map(|(_, device)| device.clone())
 }
 
-/// Every output device of every audio host available, the default host's first.
+/// The output devices worth offering: one per physical output of the default audio host.
 pub fn list_audio() -> Vec<AudioDevice> {
-    let default_host = cpal::default_host().id();
-    let mut hosts = cpal::available_hosts();
-    hosts.sort_by_key(|id| *id != default_host);
-
-    let mut devices = Vec::new();
-    for id in hosts {
-        let Ok(host) = cpal::host_from_id(id) else {
-            continue;
-        };
-        let default_name = host
-            .default_output_device()
-            .and_then(|device| device_name(&device));
-        let Ok(outputs) = host.output_devices() else {
-            continue;
-        };
-        for device in outputs {
+    let host = cpal::default_host();
+    let default_name = host
+        .default_output_device()
+        .and_then(|device| device_name(&device));
+    output_devices()
+        .into_iter()
+        .filter_map(|(name, device)| {
             // A device that vanishes or cannot be probed mid-listing is skipped, not fatal.
-            let Some(name) = device_name(&device) else {
-                continue;
-            };
-            let Some((output_channels, sample_rates)) = output_capabilities(&device) else {
-                continue;
-            };
-            devices.push(AudioDevice {
-                host: id.name().to_owned(),
-                is_default: id == default_host && default_name.as_deref() == Some(name.as_str()),
+            let (output_channels, sample_rates) = output_capabilities(&device)?;
+            Some(AudioDevice {
+                is_default: default_name.as_deref() == Some(name.as_str()),
                 name,
                 output_channels,
                 sample_rates,
-            });
-        }
-    }
-    devices
+            })
+        })
+        .collect()
+}
+
+/// Named outputs of the default host; on ALSA only those that pass [`is_listed`]. Other hosts (JACK, ...) only repeat
+/// the same hardware under another API, so they are left out.
+fn output_devices() -> Vec<(String, cpal::Device)> {
+    let host = cpal::default_host();
+    let alsa = host.id().name() == "ALSA";
+    let Ok(outputs) = host.output_devices() else {
+        return Vec::new();
+    };
+    outputs
+        .filter(|device| {
+            !alsa
+                || device
+                    .description()
+                    .is_ok_and(|description| is_listed(description.driver()))
+        })
+        .filter_map(|device| Some((device_name(&device)?, device)))
+        .collect()
+}
+
+/// Whether an ALSA device is a choice a person would make. WASAPI, CoreAudio and the like already give
+/// one entry per output, but ALSA lists every plugin of every card (`hw:`, `front:`, `surround51:`,
+/// `hdmi:`, `null`, ...) under the same name: only `plughw:`, one per physical device that converts
+/// whatever format or rate the project needs, and the `pipewire` / `pulse` servers stay. `default` is
+/// left out because the picker's "System default" already is it.
+fn is_listed(pcm_id: Option<&str>) -> bool {
+    pcm_id.is_some_and(|pcm| pcm.starts_with("plughw:") || matches!(pcm, "pipewire" | "pulse"))
 }
 
 pub fn list_midi() -> Result<Vec<MidiPort>, DeviceError> {
@@ -226,6 +227,36 @@ mod tests {
 
     fn find<'a>(hint: &str, items: &'a [MidiPort]) -> Option<&'a str> {
         find_by_name(hint, items, 0, |p| &p.name).map(|p| p.name.as_str())
+    }
+
+    #[test]
+    fn is_listed_should_keep_one_entry_per_physical_alsa_output() {
+        for pcm in [
+            "plughw:CARD=PCH,DEV=0",
+            "plughw:CARD=1,DEV=0",
+            "pipewire",
+            "pulse",
+        ] {
+            assert!(is_listed(Some(pcm)), "{pcm}");
+        }
+        for pcm in [
+            "hw:CARD=PCH,DEV=0",
+            "sysdefault:CARD=PCH",
+            "front:CARD=PCH,DEV=0",
+            "surround51:CARD=PCH,DEV=0",
+            "hdmi:CARD=HDMI,DEV=0",
+            "iec958:CARD=PCH,DEV=0",
+            "default",
+            "null",
+            "samplerate",
+        ] {
+            assert!(!is_listed(Some(pcm)), "{pcm}");
+        }
+    }
+
+    #[test]
+    fn is_listed_should_drop_an_alsa_device_without_a_pcm_id() {
+        assert!(!is_listed(None));
     }
 
     #[test]

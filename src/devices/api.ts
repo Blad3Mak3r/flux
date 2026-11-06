@@ -3,8 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 // Mirrors src-tauri/src/devices.rs. Nothing is cached on the backend: call a list again to refresh.
 
 export interface AudioDevice {
-  /** Audio API the device was found through (ALSA, JACK, WASAPI, CoreAudio, ...). */
-  host: string;
   name: string;
   outputChannels: number;
   /** Standard rates the device supports. */
