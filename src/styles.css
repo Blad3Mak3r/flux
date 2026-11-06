@@ -1104,7 +1104,8 @@ input:disabled {
 
 .clip-label {
   position: absolute;
-  top: 3px;
+  /* Under the row of the fade grips (10px and a border), so a fade never draws its grip over the name. */
+  top: 13px;
   left: 4px;
   max-width: calc(100% - 8px);
   padding: 1px 6px;
@@ -2884,11 +2885,25 @@ input:disabled {
 .clip-handle[data-edge="fadeIn"],
 .clip-handle[data-edge="fadeOut"] {
   top: 0;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   background: oklch(0.175 0.024 205);
   border: 1px solid var(--ink);
   cursor: ew-resize;
+}
+
+/* The click lands on a square much larger than the one drawn, so a corner is easy to hit with the
+   mouse. It is above the trim grips and the clip, and the clip's edge cuts it where it ends. */
+.clip-handle[data-edge="fadeIn"]::before,
+.clip-handle[data-edge="fadeOut"]::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+
+.clip-handle[data-edge="fadeIn"]:hover,
+.clip-handle[data-edge="fadeOut"]:hover {
+  background: var(--ink);
 }
 
 .clip-handle:focus-visible {

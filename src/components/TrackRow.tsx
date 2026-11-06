@@ -227,8 +227,19 @@ function ClipHandle({
   );
 }
 
-/** Pixels the fade handle is wide; its centre sits where the fade ends. */
-const FADE_HANDLE_PX = 8;
+/**
+ * Pixels the fade handle is wide; its centre sits where the fade ends, but it never leaves the clip,
+ * so with no fade it sits whole in the corner instead of half outside it. What takes the click is
+ * larger than what is drawn (see `.clip-handle[data-edge="fadeIn"]::before`).
+ */
+const FADE_HANDLE_PX = 10;
+
+/**
+ * Where the fade handle starts, in pixels from the left of a clip `width` wide, for a fade ending at
+ * `end`. Handles sit inside the clip's 1px border, so its room is two pixels less than `width`.
+ */
+const fadeHandleLeft = (end: number, width: number) =>
+  Math.min(Math.max(end - FADE_HANDLE_PX / 2, 0), Math.max(0, width - 2 - FADE_HANDLE_PX));
 
 function ClipBlock({
   track,
@@ -373,13 +384,13 @@ function ClipBlock({
       <ClipHandle
         edge="fadeIn"
         label={t("clip.fadeIn", { name })}
-        style={{ left: fadeInPx - FADE_HANDLE_PX / 2 }}
+        style={{ left: fadeHandleLeft(fadeInPx, width) }}
         handlers={fadeIn.handlers}
       />
       <ClipHandle
         edge="fadeOut"
         label={t("clip.fadeOut", { name })}
-        style={{ left: width - fadeOutPx - FADE_HANDLE_PX / 2 }}
+        style={{ left: fadeHandleLeft(width - fadeOutPx, width) }}
         handlers={fadeOut.handlers}
       />
     </div>
