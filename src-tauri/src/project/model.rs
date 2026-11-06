@@ -172,6 +172,45 @@ pub struct AudioClip {
     pub asset: String,
     pub start: u64,
     pub gain_db: f32,
+    /// Frames of the asset skipped at the start of the clip (trim in); absent is 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub offset: u64,
+    /// Frames of the asset the clip plays (trim out); absent means up to the end of the asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+    /// Frames the clip takes to rise from silence; absent is 0 (a hard start).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_in: u64,
+    /// Frames the clip takes to fall to silence at its end; absent is 0 (a hard cut).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_out: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+impl AudioClip {
+    /// A clip that plays the whole asset from `start`, at 0 dB.
+    pub fn new(id: impl Into<String>, asset: impl Into<String>, start: u64) -> Self {
+        Self {
+            id: id.into(),
+            asset: asset.into(),
+            start,
+            gain_db: 0.0,
+            offset: 0,
+            length: None,
+            fade_in: 0,
+            fade_out: 0,
+        }
+    }
+
+    /// How many frames of an asset of `asset_frames` the clip plays: its length, but never past
+    /// the end of the asset.
+    pub fn played_frames(&self, asset_frames: u64) -> u64 {
+        let rest = asset_frames.saturating_sub(self.offset);
+        self.length.map_or(rest, |length| length.min(rest))
+    }
 }
 
 /// A note at a point of the timeline. It is shown from `at` for `length` frames, or until the next
@@ -335,6 +374,12 @@ fn validate_track<'a>(
         TrackKind::Audio { clips } => {
             for clip in clips {
                 ensure_unique(item_ids, "clip/note id", &clip.id)?;
+                if clip.length == Some(0) {
+                    return Err(ProjectError::Invalid(format!(
+                        "clip {} plays no time; leave the length out instead",
+                        clip.id
+                    )));
+                }
                 if !asset_ids.contains(clip.asset.as_str()) {
                     return Err(ProjectError::Invalid(format!(
                         "clip {} references unknown asset {}",
@@ -500,10 +545,8 @@ pub(super) mod tests {
                         color: Some("#5cd0ea".into()),
                         kind: TrackKind::Audio {
                             clips: vec![AudioClip {
-                                id: "c1".into(),
-                                asset: "a1".into(),
-                                start: 120,
                                 gain_db: -3.5,
+                                ..AudioClip::new("c1", "a1", 120)
                             }],
                         },
                     },
@@ -620,6 +663,39 @@ pub(super) mod tests {
                 .get("length")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn clip_without_a_trim_or_fades_should_serialize_without_them() {
+        let json = serde_json::to_value(AudioClip::new("c1", "a1", 0)).unwrap();
+        for field in ["offset", "length", "fadeIn", "fadeOut"] {
+            assert!(json.get(field).is_none(), "{field} should be left out");
+        }
+    }
+
+    #[test]
+    fn trimmed_and_faded_clip_should_round_trip() {
+        let clip = AudioClip {
+            offset: 30,
+            length: Some(200),
+            fade_in: 5,
+            fade_out: 10,
+            ..AudioClip::new("c1", "a1", 120)
+        };
+        let json = serde_json::to_value(&clip).unwrap();
+        assert_eq!(json["offset"], 30);
+        assert_eq!(json["fadeIn"], 5);
+        assert_eq!(serde_json::from_value::<AudioClip>(json).unwrap(), clip);
+    }
+
+    #[test]
+    fn validate_should_reject_a_clip_that_plays_no_time() {
+        let mut project = sample_project();
+        let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind else {
+            panic!("the first track is audio");
+        };
+        clips[0].length = Some(0);
+        assert!(project.validate().is_err());
     }
 
     #[test]
@@ -812,12 +888,7 @@ pub(super) mod tests {
     #[test]
     fn used_assets_should_count_the_clips_of_every_timeline() {
         let mut project = two_timelines();
-        let clip = AudioClip {
-            id: "c2".into(),
-            asset: "a1".into(),
-            start: 0,
-            gain_db: 0.0,
-        };
+        let clip = AudioClip::new("c2", "a1", 0);
         project.timelines[1].tracks.push(Track {
             id: "t4".into(),
             name: "Backing".into(),

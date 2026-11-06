@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use super::transport::Clock;
 use crate::audio::{AudioError, Decoded, ENGINE_RATE};
-use crate::project::{AudioAsset, Project, Timeline, TrackKind};
+use crate::project::{AudioAsset, AudioClip, Project, Timeline, TrackKind};
 
 /// Frames mixed at a time, on the stack: the callback must not allocate.
 pub const MIX_CHUNK: usize = 256;
@@ -19,16 +19,92 @@ pub const MIX_CHUNK: usize = 256;
 /// A track fader at or below this is silence (the fader's "-inf" end).
 pub const SILENT_DB: f32 = -60.0;
 
+/// Where a clip sounds, in samples of the timeline counted from its origin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Span {
+    /// Where the first sample of the asset would sit. Negative when the clip is trimmed so far in
+    /// that the asset would begin before the origin. Both halves of a split share it, which is
+    /// what makes them read the very same samples as the clip they came from.
+    pub origin: i64,
+    /// First sample that sounds.
+    pub from: u64,
+    /// One past the last sample that sounds.
+    pub to: u64,
+    /// Samples the clip takes to rise from silence.
+    pub fade_in: u64,
+    /// Samples the clip takes to fall to silence.
+    pub fade_out: u64,
+}
+
+/// Where `clip` sounds, given the samples of its asset: trimmed by its offset and length, and never
+/// past the end of the asset. A frame is rarely a whole number of samples, so every boundary is
+/// converted from frames on its own instead of being summed from shorter lengths.
+pub fn span(clip: &AudioClip, clock: &Clock, asset_samples: u64) -> Span {
+    let from = clock.frames_to_samples(clip.start);
+    let origin = if clip.start >= clip.offset {
+        clock.frames_to_samples(clip.start - clip.offset) as i64
+    } else {
+        -(clock.frames_to_samples(clip.offset - clip.start) as i64)
+    };
+    let asset_end = u64::try_from(origin.saturating_add(asset_samples as i64)).unwrap_or(0);
+    let to = clip.length.map_or(asset_end, |length| {
+        clock.frames_to_samples(clip.start + length).min(asset_end)
+    });
+    let to = to.max(from);
+    let fade = |frames: u64| (clock.frames_to_samples(clip.start + frames) - from).min(to - from);
+    Span {
+        origin,
+        from,
+        to,
+        fade_in: fade(clip.fade_in),
+        fade_out: fade(clip.fade_out),
+    }
+}
+
 /// One clip placed on the timeline.
 #[derive(Debug, Clone)]
 pub struct ClipPlayer {
     pub audio: Arc<Decoded>,
-    /// Sample of the timeline, counted from its origin, where the clip begins.
-    pub start: u64,
+    pub span: Span,
     /// Linear gain.
     pub gain: f32,
     /// Index into the clip set's tracks.
     pub track: usize,
+}
+
+impl ClipPlayer {
+    /// A clip that plays the whole of `audio` from the sample `start`.
+    pub fn new(audio: Arc<Decoded>, start: u64, gain: f32, track: usize) -> Self {
+        let span = Span {
+            origin: start as i64,
+            from: start,
+            to: start + audio.frames() as u64,
+            fade_in: 0,
+            fade_out: 0,
+        };
+        Self {
+            audio,
+            span,
+            gain,
+            track,
+        }
+    }
+
+    /// The gain of the fades at the sample `at` of the timeline, which must be inside the span:
+    /// silent at the first sample of a fade in and at the last of a fade out.
+    fn fade_gain(&self, at: u64) -> f32 {
+        let span = &self.span;
+        let mut gain = 1.0;
+        let since_start = at - span.from;
+        if since_start < span.fade_in {
+            gain = since_start as f32 / span.fade_in as f32;
+        }
+        let until_end = span.to - at - 1;
+        if until_end < span.fade_out {
+            gain *= until_end as f32 / span.fade_out as f32;
+        }
+        gain
+    }
 }
 
 /// An `f32` the audio callback and the other threads share without locks. Only non-negative
@@ -194,15 +270,14 @@ impl ClipSet {
             let mut track_left = [0.0f32; MIX_CHUNK];
             let mut track_right = [0.0f32; MIX_CHUNK];
             for clip in self.clips.iter().filter(|clip| clip.track == index) {
-                let clip_end = clip.start + clip.audio.frames() as u64;
-                let from = position.max(clip.start);
-                let to = window_end.min(clip_end);
+                let from = position.max(clip.span.from);
+                let to = window_end.min(clip.span.to);
                 for at in from..to {
-                    let source = ((at - clip.start) * 2) as usize;
+                    let source = ((at as i64 - clip.span.origin) * 2) as usize;
                     let out = (at - position) as usize;
-                    track_left[out] += f32::from(clip.audio.samples[source]) * SCALE * clip.gain;
-                    track_right[out] +=
-                        f32::from(clip.audio.samples[source + 1]) * SCALE * clip.gain;
+                    let gain = SCALE * clip.gain * clip.fade_gain(at);
+                    track_left[out] += f32::from(clip.audio.samples[source]) * gain;
+                    track_right[out] += f32::from(clip.audio.samples[source + 1]) * gain;
                 }
             }
 
@@ -287,8 +362,8 @@ pub fn build(
             }
             match load(asset) {
                 Ok(audio) => clips.push(ClipPlayer {
+                    span: span(clip, &clock, audio.frames() as u64),
                     audio,
-                    start: clock.frames_to_samples(clip.start),
                     gain: gain_from_db(clip.gain_db),
                     track: index,
                 }),
@@ -323,18 +398,85 @@ mod tests {
     }
 
     fn player(audio: Arc<Decoded>, start: u64, gain: f32) -> ClipPlayer {
-        ClipPlayer {
-            audio,
-            start,
-            gain,
-            track: 0,
-        }
+        ClipPlayer::new(audio, start, gain, 0)
     }
 
     fn mix(set: &ClipSet, position: u64, frames: usize) -> (Vec<f32>, Vec<f32>) {
         let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
         set.mix(position, &mut left, &mut right);
         (left, right)
+    }
+
+    /// Samples that count up from 0, so a mixed sample says which sample of the asset it is.
+    fn ramp(frames: usize) -> Arc<Decoded> {
+        Arc::new(Decoded {
+            samples: (0..frames).flat_map(|i| [i as i16, i as i16]).collect(),
+            source_rate: ENGINE_RATE,
+        })
+    }
+
+    /// `audio` as a clip at the timeline origin, at 25 fps (1920 samples a frame), edited by `edit`.
+    fn trimmed(audio: Arc<Decoded>, edit: impl FnOnce(&mut AudioClip)) -> ClipSet {
+        let mut clip = AudioClip::new("c1", "a1", 0);
+        edit(&mut clip);
+        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+        let span = span(&clip, &clock, audio.frames() as u64);
+        set(vec![ClipPlayer {
+            audio,
+            span,
+            gain: 1.0,
+            track: 0,
+        }])
+    }
+
+    #[test]
+    fn mix_should_start_a_trimmed_clip_after_its_offset() {
+        let clips = trimmed(ramp(19_200), |clip| clip.offset = 2);
+
+        let (left, _) = mix(&clips, 0, 2);
+
+        assert_eq!(left, [3840.0 * SCALE, 3841.0 * SCALE]);
+    }
+
+    #[test]
+    fn mix_should_stop_a_trimmed_clip_at_its_length() {
+        let clips = trimmed(ramp(19_200), |clip| clip.length = Some(3));
+
+        let (left, _) = mix(&clips, 5758, 4);
+
+        assert_eq!(left, [5758.0 * SCALE, 5759.0 * SCALE, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn mix_should_ramp_a_fade_in_up_from_silence() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| clip.fade_in = 1);
+
+        let (left, _) = mix(&clips, 0, 1922);
+
+        assert_eq!((left[0], left[960], left[1920]), (0.0, 0.25, 0.5));
+    }
+
+    #[test]
+    fn mix_should_ramp_a_fade_out_down_to_silence() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| clip.fade_out = 1);
+
+        let (left, _) = mix(&clips, 17_279, 1921);
+
+        assert_eq!((left[0], left[960], left[1920]), (0.5, 0.25, 0.0));
+    }
+
+    #[test]
+    fn mix_should_fade_a_trimmed_clip_from_the_edges_of_what_sounds() {
+        let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+            clip.offset = 2;
+            clip.length = Some(4);
+            clip.fade_in = 1;
+        });
+
+        let (left, _) = mix(&clips, 0, 3);
+
+        assert_eq!(left[0], 0.0);
+        assert!(left[2] > 0.0);
     }
 
     #[test]
@@ -423,10 +565,8 @@ mod tests {
 
     fn clip(id: &str, asset: &str, start: u64, gain_db: f32) -> AudioClip {
         AudioClip {
-            id: id.into(),
-            asset: asset.into(),
-            start,
             gain_db,
+            ..AudioClip::new(id, asset, start)
         }
     }
 
@@ -443,7 +583,7 @@ mod tests {
         assert_eq!(programme.set.len(), 1);
         let placed = &programme.set.clips[0];
         // 25 frames at 25 fps is one second.
-        assert_eq!(placed.start, 48_000);
+        assert_eq!(placed.span.from, 48_000);
         assert!(
             (placed.gain - 0.501_187).abs() < 1e-5,
             "gain {}",

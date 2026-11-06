@@ -7,9 +7,11 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
+use super::clips::{self, ClipOp};
 use super::error::{ProjectError, Result};
 use super::model::{
-    AUDIO_DIR, AudioAsset, FORMAT_VERSION, FrameRate, Project, Timeline, check_asset_path,
+    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, FrameRate, Project, Timeline, TrackKind,
+    check_asset_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
 
@@ -241,16 +243,56 @@ impl Session {
         })
     }
 
+    /// The asset a clip of the active timeline plays, and the frame rate of that timeline.
+    pub fn clip_asset(&self, clip_id: &str) -> Result<(AudioAsset, FrameRate)> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let project = &document.project;
+        let timeline = self.active_timeline(project)?;
+        let clip = audio_clips(timeline)
+            .find(|clip| clip.id == clip_id)
+            .ok_or_else(|| unknown_clip(clip_id))?;
+        let asset = project
+            .assets
+            .iter()
+            .find(|asset| asset.id == clip.asset)
+            .ok_or_else(|| ProjectError::Invalid(format!("unknown asset {}", clip.asset)))?;
+        Ok((asset.clone(), timeline.timecode.frame_rate))
+    }
+
+    /// Trims, fades or splits a clip of the active timeline (see [`ClipOp`]) at `frame`. The asset
+    /// it plays lasts `asset_frames`.
+    pub fn edit_clip(
+        &mut self,
+        clip_id: &str,
+        op: ClipOp,
+        frame: u64,
+        asset_frames: u64,
+    ) -> Result<ProjectState> {
+        self.change(|project, active| {
+            let timeline = timeline_mut(project, active)?;
+            for track in &mut timeline.tracks {
+                let TrackKind::Audio { clips } = &mut track.kind else {
+                    continue;
+                };
+                if let Some(index) = clips.iter().position(|clip| clip.id == clip_id) {
+                    let edited = clips::apply(&clips[index], op, frame, asset_frames, || {
+                        Uuid::new_v4().to_string()
+                    })?;
+                    clips.splice(index..=index, edited);
+                    return Ok(());
+                }
+            }
+            Err(unknown_clip(clip_id))
+        })
+    }
+
     /// Applies `edit` to a copy of the project and the active id, and keeps the result only when it
     /// is still a valid project, so a refused change leaves the document as it was.
     fn change(
         &mut self,
         edit: impl FnOnce(&mut Project, &mut String) -> Result<()>,
     ) -> Result<ProjectState> {
-        let document = self
-            .document
-            .as_mut()
-            .ok_or_else(|| ProjectError::Invalid("no project is open".into()))?;
+        let document = self.document.as_mut().ok_or_else(no_project)?;
         let mut project = document.project.clone();
         let mut active = document.active.clone();
         edit(&mut project, &mut active)?;
@@ -345,12 +387,27 @@ impl Session {
     }
 }
 
+fn no_project() -> ProjectError {
+    ProjectError::Invalid("no project is open".into())
+}
+
 fn no_timeline() -> ProjectError {
     ProjectError::Invalid("a project needs a timeline".into())
 }
 
 fn unknown_timeline(id: &str) -> ProjectError {
     ProjectError::Invalid(format!("unknown timeline: {id}"))
+}
+
+fn audio_clips(timeline: &Timeline) -> impl Iterator<Item = &AudioClip> {
+    timeline.tracks.iter().flat_map(|track| match &track.kind {
+        TrackKind::Audio { clips } => clips.as_slice(),
+        TrackKind::Notes { .. } => &[],
+    })
+}
+
+fn unknown_clip(id: &str) -> ProjectError {
+    ProjectError::Invalid(format!("there is no clip {id}"))
 }
 
 fn timeline_mut<'a>(project: &'a mut Project, id: &str) -> Result<&'a mut Timeline> {
@@ -395,12 +452,7 @@ mod tests {
             gain_db: None,
             color: None,
             kind: TrackKind::Audio {
-                clips: vec![AudioClip {
-                    id: "c1".into(),
-                    asset: asset.id.clone(),
-                    start: 0,
-                    gain_db: 0.0,
-                }],
+                clips: vec![AudioClip::new("c1", asset.id.clone(), 0)],
             },
         });
         project.assets.push(asset);

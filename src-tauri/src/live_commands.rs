@@ -20,7 +20,11 @@ use crate::project::{AudioAsset, Project, ProjectError, Timeline};
 /// The samples (at the engine rate) of an asset's audio, found the cheapest way: the audio already
 /// decoded, else the length stored with its waveform, and only then by decoding it, which for a song
 /// takes seconds.
-fn samples_of(session: &SharedSession, audio: &SharedAudio, asset: &AudioAsset) -> Option<u64> {
+pub(crate) fn samples_of(
+    session: &SharedSession,
+    audio: &SharedAudio,
+    asset: &AudioAsset,
+) -> Option<u64> {
     if let Some(decoded) = audio.get(&asset.id) {
         return u64::try_from(decoded.frames()).ok();
     }

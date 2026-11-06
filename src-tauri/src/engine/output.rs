@@ -1657,15 +1657,15 @@ mod tests {
     /// A clip of constant stereo samples, as 16-bit values, that starts at the timeline origin.
     fn clip(left: i16, right: i16, frames: usize) -> ClipSet {
         ClipSet::new(
-            vec![ClipPlayer {
-                audio: Arc::new(Decoded {
+            vec![ClipPlayer::new(
+                Arc::new(Decoded {
                     samples: (0..frames).flat_map(|_| [left, right]).collect(),
                     source_rate: ENGINE_RATE,
                 }),
-                start: 0,
-                gain: 1.0,
-                track: 0,
-            }],
+                0,
+                1.0,
+                0,
+            )],
             vec![("t1".into(), 1.0)],
         )
     }
@@ -1753,15 +1753,15 @@ mod tests {
     fn render_should_clamp_a_programme_that_is_too_loud() {
         let loud = ClipSet::new(
             vec![
-                ClipPlayer {
-                    audio: Arc::new(Decoded {
+                ClipPlayer::new(
+                    Arc::new(Decoded {
                         samples: vec![i16::MAX; 20],
                         source_rate: ENGINE_RATE,
                     }),
-                    start: 0,
-                    gain: 1.0,
-                    track: 0,
-                };
+                    0,
+                    1.0,
+                    0,
+                );
                 3
             ],
             vec![("t1".into(), 1.0)],
