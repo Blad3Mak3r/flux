@@ -14,7 +14,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
@@ -22,6 +22,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::audio::SharedAudio;
 use crate::audio_commands::load;
 use crate::commands::SharedSession;
+use crate::diagnostics::{self, LogLane};
 use crate::engine::cues::{CueList, LiveState, SharedCues};
 use crate::engine::mixer::{self, Programme, TrackPeak};
 use crate::engine::output::{Output, OutputError, OutputInfo, Position};
@@ -93,8 +94,13 @@ impl Advance {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .next_timeline();
-        if let Ok(Some(state)) = next {
-            let _ = self.app.emit(TIMELINE_ADVANCED, state);
+        match next {
+            Ok(Some(state)) => {
+                log::info!("show ended, the next timeline is the active one");
+                let _ = self.app.emit(TIMELINE_ADVANCED, state);
+            }
+            Ok(None) => log::info!("show ended"),
+            Err(err) => log::warn!("show ended, the next timeline could not be selected: {err}"),
         }
     }
 }
@@ -170,6 +176,14 @@ impl Running {
             })?;
         }
 
+        let reader = running.output.reader();
+        let mut log = LogLane::default();
+        running.spawn_lane("flux-log", move || {
+            for (level, line) in log.next(reader.position(), reader.faults(), Instant::now()) {
+                log::log!(level, "{line}");
+            }
+        })?;
+
         let levels = running.output.levels();
         let mut lane = LevelsLane::new();
         running.spawn_lane("flux-levels", move || {
@@ -236,7 +250,7 @@ pub async fn output_start(
     on_live: Channel<LiveState>,
 ) -> Result<OutputInfo, OutputError> {
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
-    tauri::async_runtime::spawn_blocking(move || {
+    let started = tauri::async_runtime::spawn_blocking(move || {
         let previous = lock(&state).take();
         drop(previous);
 
@@ -245,6 +259,7 @@ pub async fn output_start(
         let programme = programme(&project, timeline, &session, &audio, &list);
         let output = Output::start(&project, timeline, programme)?;
         let info = output.info().clone();
+        diagnostics::output_started(&info);
         let cues = SharedCues::new(list);
         // With `advance`, the show running to its end makes the next timeline the active one.
         let advance = advance.then(|| Advance {
@@ -262,7 +277,11 @@ pub async fn output_start(
         Ok(info)
     })
     .await
-    .map_err(|err| OutputError::Stream(err.to_string()))?
+    .map_err(|err| OutputError::Stream(err.to_string()))?;
+    if let Err(err) = &started {
+        log::error!("output could not start: {err}");
+    }
+    started
 }
 
 /// The audio of the timeline's clips, decoding what has not been decoded yet, and where the show
@@ -289,7 +308,7 @@ pub async fn output_set_clips(
     project: Project,
 ) -> Result<Vec<String>, OutputError> {
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
-    tauri::async_runtime::spawn_blocking(move || {
+    let updated = tauri::async_runtime::spawn_blocking(move || {
         let timeline = active_timeline(&session, &project)?;
         let list = cue_list(&project, timeline, &session, &audio);
         let Programme { set, warnings } = programme(&project, timeline, &session, &audio, &list);
@@ -302,7 +321,12 @@ pub async fn output_set_clips(
         }
     })
     .await
-    .map_err(|err| OutputError::Stream(err.to_string()))?
+    .map_err(|err| OutputError::Stream(err.to_string()))?;
+    match &updated {
+        Ok(warnings) => diagnostics::log_warnings(warnings),
+        Err(err) => log::warn!("the clips could not be sent to the output: {err}"),
+    }
+    updated
 }
 
 /// Moves one track's fader on the running output, without rebuilding the programme, so it can
@@ -343,6 +367,13 @@ pub fn is_playing(state: &SharedOutput) -> bool {
         .is_some_and(|running| running.output.reader().position().state == TransportState::Playing)
 }
 
+/// How the running output ended up, for the diagnostics.
+pub fn running_info(state: &SharedOutput) -> Option<OutputInfo> {
+    lock(state)
+        .as_ref()
+        .map(|running| running.output.info().clone())
+}
+
 /// Closes the running output, if any. Taken first and dropped after: stopping waits for threads,
 /// and the lock must be free for the `transport_*` commands, which run on the main thread, in the
 /// meantime.
@@ -350,7 +381,11 @@ pub async fn release(state: &SharedOutput) {
     let state = Arc::clone(state);
     let _ = tauri::async_runtime::spawn_blocking(move || {
         let previous = lock(&state).take();
+        let running = previous.is_some();
         drop(previous);
+        if running {
+            log::info!("output stopped");
+        }
     })
     .await;
 }
