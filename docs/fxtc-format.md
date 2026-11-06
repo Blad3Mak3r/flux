@@ -101,7 +101,7 @@ Nothing is cached, so calling a list command again is the refresh after a hot-pl
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `devices_list_audio` | | Output devices of every audio host: `{ host, name, outputChannels, sampleRates, isDefault }`. |
+| `devices_list_audio` | | Output devices of the default audio host, one per physical output: `{ name, outputChannels, sampleRates, isDefault }`. On ALSA only `plughw:` devices and the `pipewire` / `pulse` servers are listed, not the `hw:`, `front:`, `surround*:`, `hdmi:` ... variants of the same card. |
 | `devices_list_midi` | | MIDI output ports: `{ name }`. Fails if the system has no MIDI support. |
 | `devices_find_audio` | `name` | The matching audio device, or `null` when it is not connected. |
 | `devices_find_midi` | `name` | The matching MIDI port, or `null` when it is not connected (or MIDI is unavailable). |
