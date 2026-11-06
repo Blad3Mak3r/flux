@@ -307,6 +307,10 @@ The music is decoded once and mixed in the same callback that renders LTC, on th
   reading its audio from the `offset`; `mixer::span` gives that range and the cues use it too, so both agree. A
   `fadeIn` / `fadeOut` is a gain per sample shaped by `fadeInCurve` / `fadeOutCurve` (`mixer::fade_shape`; linear when
   absent): silent on the first sample of a fade in and the last of a fade out, whatever the curve.
+  A clip's `envelope` is placed on the timeline when the programme is built (`mixer::Envelope`, points in samples
+  from the audio file's origin, gains linear) and multiplies the fades and the clip gain per sample, with no allocation
+  or lock in the callback: a binary search over at most 256 points. Segments run in dB, or in amplitude when a point
+  is silence; `hold` steps to the next point over 4 ms. Before the first point and after the last the gain is theirs.
   A clip whose audio cannot be read is skipped and reported in `OutputInfo.warnings`, never an error.
 - **Track gain and levels** (`mixer.rs`): each track's clips are summed, multiplied by the track's fader (`gainDb`
   absent is 0 dB, `-60` or less is silence) and added to the programme, so a clip sounds at track gain times clip
