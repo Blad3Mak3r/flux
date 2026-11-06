@@ -38,6 +38,7 @@ import {
   saveDocument,
 } from "../state/workflows";
 import { nominalFps } from "../timecode";
+import { exportDiagnosticsFile, openLogFolder } from "../state/diagnostics";
 import { seek, stop, toggle } from "../transport/playback";
 import { currentFrame } from "../transport/store";
 import { hasNativeWindow } from "./WindowControls";
@@ -214,6 +215,13 @@ function transportMenu(t: Translate): MenuItem[] {
   ];
 }
 
+function helpMenu(t: Translate): MenuItem[] {
+  return [
+    { label: t("menu.openLogs"), run: () => void openLogFolder() },
+    { label: t("menu.exportDiagnostics"), run: () => void exportDiagnosticsFile() },
+  ];
+}
+
 export const BAR_MENUS: { id: string; label: MessageKey; items: (t: Translate) => MenuItem[] }[] = [
   { id: "file", label: "menu.file", items: fileMenu },
   { id: "edit", label: "menu.edit", items: editMenu },
@@ -221,6 +229,7 @@ export const BAR_MENUS: { id: string; label: MessageKey; items: (t: Translate) =
   { id: "timeline", label: "menu.timeline", items: timelineBarMenu },
   { id: "view", label: "menu.view", items: viewMenu },
   { id: "transport", label: "menu.transport", items: transportMenu },
+  { id: "help", label: "menu.help", items: helpMenu },
 ];
 
 // ---- Right click ----

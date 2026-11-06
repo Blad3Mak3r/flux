@@ -2,6 +2,7 @@ pub mod audio;
 mod audio_commands;
 mod commands;
 pub mod devices;
+mod diagnostics;
 pub mod engine;
 mod live_commands;
 pub mod project;
@@ -34,10 +35,15 @@ pub fn run() {
         .manage(audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
+        .setup(|app| {
+            diagnostics::start(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::project_document,
             commands::project_sync,
             commands::clip_edit,
+            commands::output_set_offset,
             commands::timeline_add,
             commands::timeline_rename,
             commands::timeline_remove,
@@ -60,6 +66,8 @@ pub fn run() {
             devices::devices_list_midi,
             devices::devices_find_audio,
             devices::devices_find_midi,
+            diagnostics::diagnostics_open_log_dir,
+            diagnostics::diagnostics_export,
             live_commands::live_cues,
             live_commands::live_state,
             transport_commands::output_start,

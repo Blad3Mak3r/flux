@@ -14,7 +14,8 @@ use crate::audio::{ENGINE_RATE, SharedAudio};
 use crate::engine::transport::Clock;
 use crate::live_commands::samples_of;
 use crate::project::{
-    AudioAsset, ClipOp, Document, FrameRate, Project, ProjectError, ProjectState, Result, Session,
+    AudioAsset, ClipOp, Document, FrameRate, OffsetKind, Project, ProjectError, ProjectState,
+    Result, Session,
 };
 use crate::recents;
 use crate::transport_commands::{SharedOutput, is_playing, release};
@@ -27,11 +28,15 @@ where
     F: FnOnce(&mut Session) -> Result<T> + Send + 'static,
 {
     let session = Arc::clone(session);
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         op(&mut session.lock().unwrap_or_else(PoisonError::into_inner))
     })
     .await
-    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?;
+    if let Err(err) = &result {
+        log::warn!("project command failed: {err}");
+    }
+    result
 }
 
 /// The document being edited, or `None` before one was started. A window that was reloaded asks for
@@ -60,6 +65,7 @@ pub async fn project_new(
     frame_rate: FrameRate,
 ) -> Result<ProjectState> {
     audio.clear();
+    log::info!("new project {name:?}");
     run(&session, move |s| {
         let project = s.new_project(&name, frame_rate);
         Ok(ProjectState {
@@ -87,6 +93,7 @@ pub async fn project_open(
         })
     })
     .await?;
+    log::info!("opened {}", opened.display());
     recents::remember(&app, &opened);
     Ok(state)
 }
@@ -237,12 +244,30 @@ pub async fn clip_edit(
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
 
+/// Sets the latency offset of an LTC or MTC output to the ms typed; the answer is the project with
+/// it set, or the reason it was refused.
+#[tauri::command]
+pub async fn output_set_offset(
+    session: State<'_, SharedSession>,
+    project: Project,
+    kind: OffsetKind,
+    index: usize,
+    text: String,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.set_output_offset(kind, index, &text)
+    })
+    .await
+}
+
 /// Registers an audio file; the returned asset is for the frontend to add to its project.
 #[tauri::command]
 pub async fn project_import_audio(
     session: State<'_, SharedSession>,
     path: PathBuf,
 ) -> Result<AudioAsset> {
+    log::info!("importing audio {}", path.display());
     run(&session, move |s| s.import_audio(&path)).await
 }
 
@@ -255,6 +280,7 @@ pub async fn project_save(
 ) -> Result<Project> {
     let saved = path.clone();
     let project = run(&session, move |s| s.save(&project, &path)).await?;
+    log::info!("saved {}", saved.display());
     recents::remember(&app, &saved);
     Ok(project)
 }
@@ -266,6 +292,7 @@ pub async fn project_delete(app: AppHandle, path: PathBuf) -> Result<()> {
     tauri::async_runtime::spawn_blocking(move || delete_show(&path))
         .await
         .map_err(|err| ProjectError::Io(io::Error::other(err)))??;
+    log::info!("deleted {}", deleted.display());
     recents::remove(&app, &deleted);
     Ok(())
 }
