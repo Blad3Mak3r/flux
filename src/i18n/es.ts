@@ -203,6 +203,7 @@ export const es: Record<MessageKey, string> = {
   "menu.addNote": "Añadir nota",
   "field.timecodeInvalid": "No es un timecode válido con esta velocidad de fotogramas.",
   "field.numberInvalid": "Introduce un número.",
+  "field.levelInvalid": "Introduce un nivel de 0 a 1.",
 
   "project.name": "Nombre",
   "project.frameRate": "Velocidad de fotogramas",
@@ -238,6 +239,7 @@ export const es: Record<MessageKey, string> = {
   "out.notConnected": "{name} (no conectado)",
   "out.ltcDevice": "Dispositivo de LTC",
   "out.ltcChannel": "Canal de LTC",
+  "out.ltcLevel": "Nivel de LTC (0–1)",
   "out.mtcPort": "Puerto MIDI",
   "out.refresh": "Actualizar dispositivos",
   "out.runningOn": "Activa en {device} a {rate} Hz",

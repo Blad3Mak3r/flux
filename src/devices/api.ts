@@ -29,7 +29,7 @@ export function findAudioDevice(name: string): Promise<AudioDevice | null> {
   return invoke<AudioDevice | null>("devices_find_audio", { name });
 }
 
-/** Resolves a project's stored name hint; `null` means the port is not connected. */
-export function findMidiPort(name: string): Promise<MidiPort | null> {
-  return invoke<MidiPort | null>("devices_find_midi", { name });
+/** Resolves a project's stored name hint, the `index`-th port of that name; `null` means it is not connected. */
+export function findMidiPort(name: string, index = 0): Promise<MidiPort | null> {
+  return invoke<MidiPort | null>("devices_find_midi", { name, index });
 }

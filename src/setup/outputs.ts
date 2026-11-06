@@ -46,11 +46,45 @@ export function removeLtc(output: OutputConfig, index: number): OutputConfig {
   return { ...output, ltc: output.ltc.filter((_, i) => i !== index) };
 }
 
+/** The LTC level of an output that sets none, as the backend reads it. */
+export const DEFAULT_LTC_LEVEL = 0.5;
+
+/** An MTC output's port as one string, `""` when none is chosen: the value of its select. */
+export const portKey = ({ portName, portIndex = 0 }: MtcOutputConfig): string =>
+  portName === "" ? "" : `${portIndex}|${portName}`;
+
+/** The name and index a {@link portKey} stands for. */
+export function splitPortKey(key: string): [string, number] {
+  const at = key.indexOf("|");
+  return at < 0 ? [key, 0] : [key.slice(at + 1), Number(key.slice(0, at))];
+}
+
+/** Each listed port with its place among the ports of the same name (0 for the first). */
+export function portChoices(names: string[]): MtcOutputConfig[] {
+  return names.map((portName, at) => {
+    const portIndex = names.slice(0, at).filter((name) => name === portName).length;
+    return portIndex > 0 ? { portName, portIndex } : { portName };
+  });
+}
+
+/** How the picker names a port: ports that share a name are told apart by their number, "Port (2)". */
+export function portLabel(choice: MtcOutputConfig, choices: MtcOutputConfig[]): string {
+  const shared = choices.filter((other) => other.portName === choice.portName).length > 1;
+  return shared ? `${choice.portName} (${(choice.portIndex ?? 0) + 1})` : choice.portName;
+}
+
 /** A new MTC output on the first listed port that no other MTC output uses yet, or none chosen. */
 export function addMtc(output: OutputConfig, ports: string[]): OutputConfig {
-  const used = output.mtc.map((mtc) => mtc.portName);
-  const portName = ports.find((port) => !used.includes(port)) ?? "";
-  return { ...output, mtc: [...output.mtc, { portName }] };
+  const used = output.mtc.map(portKey);
+  const mtc = portChoices(ports).find((choice) => !used.includes(portKey(choice))) ?? { portName: "" };
+  return { ...output, mtc: [...output.mtc, mtc] };
+}
+
+/** Points the MTC output at the port a {@link portKey} stands for. */
+export function setMtcPort(output: OutputConfig, index: number, key: string): OutputConfig {
+  const [portName, portIndex] = splitPortKey(key);
+  const mtc = portIndex > 0 ? { portName, portIndex } : { portName };
+  return { ...output, mtc: output.mtc.map((other, i) => (i === index ? mtc : other)) };
 }
 
 export function updateMtc(output: OutputConfig, index: number, change: Partial<MtcOutputConfig>): OutputConfig {

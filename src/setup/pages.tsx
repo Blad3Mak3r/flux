@@ -16,16 +16,20 @@ import {
   addMtc,
   clearMetronome,
   clearPreview,
+  DEFAULT_LTC_LEVEL,
   isConnected,
+  portChoices,
+  portKey,
+  portLabel,
   removeLtc,
   removeMtc,
   setMetronomeChannels,
   setMetronomeDevice,
   setMetronomeGain,
+  setMtcPort,
   setPreviewDevice,
   setProgrammeDevice,
   updateLtc,
-  updateMtc,
 } from "./outputs";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
@@ -369,6 +373,17 @@ export function LtcPage({ devices }: { devices: Devices }) {
                   </option>
                 ))}
               </RowSelect>
+              <TextField
+                label={`${name}: ${t("out.ltcLevel")}`}
+                value={String(ltc.level ?? DEFAULT_LTC_LEVEL)}
+                inputMode="decimal"
+                monospace
+                validate={(text) => {
+                  const level = Number(text);
+                  return text.trim() !== "" && level >= 0 && level <= 1 ? null : t("field.levelInvalid");
+                }}
+                onCommit={(text) => change(updateLtc(output, index, { level: Number(text) }))}
+              />
             </OutputRow>
           );
         })}
@@ -394,6 +409,8 @@ export function MtcPage({ devices }: { devices: Devices }) {
   const info = useTransport((transport) => transport.info);
   const reported = info && info.mtc.length === output.mtc.length ? info.mtc : [];
   const ports = devices.midi.map((port) => port.name);
+  const choices = portChoices(ports);
+  const listed = choices.map(portKey);
   return (
     <div className="setup-fields">
       <p className="setup-intro">{t("setup.mtc.intro")}</p>
@@ -403,7 +420,8 @@ export function MtcPage({ devices }: { devices: Devices }) {
         {output.mtc.map((mtc, index) => {
           const name = t("setup.mtc.name", { number: index + 1 });
           // A row with no port chosen has nothing to be missing.
-          const connected = mtc.portName === "" || ports.includes(mtc.portName);
+          const key = portKey(mtc);
+          const connected = key === "" || listed.includes(key);
           const state = rowState(reported[index], connected);
           return (
             <OutputRow
@@ -414,16 +432,16 @@ export function MtcPage({ devices }: { devices: Devices }) {
             >
               <RowSelect
                 label={`${name}: ${t("out.mtcPort")}`}
-                value={mtc.portName}
-                onChange={(portName) => change(updateMtc(output, index, { portName }))}
+                value={key}
+                onChange={(picked) => change(setMtcPort(output, index, picked))}
               >
                 <option value="">{t("out.choose")}</option>
-                {mtc.portName !== "" && !connected && (
-                  <option value={mtc.portName}>{t("out.notConnected", { name: mtc.portName })}</option>
+                {key !== "" && !connected && (
+                  <option value={key}>{t("out.notConnected", { name: portLabel(mtc, choices) })}</option>
                 )}
-                {devices.midi.map((port) => (
-                  <option key={port.name} value={port.name}>
-                    {port.name}
+                {choices.map((choice) => (
+                  <option key={portKey(choice)} value={portKey(choice)}>
+                    {portLabel(choice, choices)}
                   </option>
                 ))}
               </RowSelect>

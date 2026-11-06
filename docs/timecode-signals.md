@@ -227,12 +227,16 @@ output to open) and sends dragged seeks and faders one at a time, newest value l
 - The audio device's sample clock is the master. The callback owns the `Transport`, drains commands with
   `try_recv`, renders LTC into its channel, advances the position and publishes it with `try_lock`: it never
   allocates or waits. A reader holding the lock only makes it skip one update.
-- MTC runs on a thread that polls every millisecond. It reads the published position and extrapolates with the wall
-  clock (at most 100 ms), so quarter frames are not quantised to the audio buffer. It sends a full frame whenever the
-  transport epoch changes. A missing MIDI port becomes a warning in `OutputInfo`; the audio side still starts.
+- MTC runs on a thread that parks until shortly before each quarter frame is due (1 ms at most per park) and spins for the
+  last 200 µs, so the message goes out when it falls due and not up to a timer tick later. It reads the published position
+  and extrapolates with the wall clock (at most 100 ms), so quarter frames are not quantised to the audio buffer. It sends
+  a full frame whenever the transport epoch changes. A missing MIDI port becomes a warning in `OutputInfo`; the audio side
+  still starts. Every MTC output has a thread of its own; two ports with the same name are told apart by `portIndex`.
 - The audio device always provides the clock, so an MTC-only project still opens one (the default output).
-- On Windows `thread::park_timeout(1 ms)` may sleep for the system timer resolution (about 15 ms), which jitters MTC
-  quarter frames; raising the timer resolution is a follow-up.
+- A park can still overshoot by the system's timer resolution (about 15 ms on Windows unless it is raised), and a quarter
+  frame that falls due in that time goes out late; the spin only removes the jitter of the last 200 µs.
+- Each LTC output has its own level (`output.ltc[].level`): one generator per stream runs at full scale and every channel
+  it is written to applies its output's level.
 
 ## Programme audio (`audio/`, `engine/mixer.rs`)
 

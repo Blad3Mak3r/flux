@@ -66,7 +66,7 @@ pub fn open_audio(hint: &str) -> Option<cpal::Device> {
         .flatten()
         .filter_map(|device| Some((device_name(&device)?, device)))
         .collect();
-    find_by_name(hint, &devices, |(name, _)| name).map(|(_, device)| device.clone())
+    find_by_name(hint, &devices, 0, |(name, _)| name).map(|(_, device)| device.clone())
 }
 
 /// Every output device of every audio host available, the default host's first.
@@ -131,14 +131,27 @@ fn output_capabilities(device: &cpal::Device) -> Option<(u16, Vec<u32>)> {
     Some((channels, rates))
 }
 
-/// Finds the item a stored name hint refers to: an exact match first, then one that ignores case,
+/// Finds the item a stored name hint refers to: exact matches first, then those that ignore case,
 /// surrounding whitespace and the trailing `client:port` numbers ALSA appends to MIDI port names
-/// (they change when devices are re-plugged).
-pub fn find_by_name<'a, T>(hint: &str, items: &'a [T], name: impl Fn(&T) -> &str) -> Option<&'a T> {
-    items.iter().find(|item| name(item) == hint).or_else(|| {
-        let hint = normalize(hint);
-        items.iter().find(|item| normalize(name(item)) == hint)
-    })
+/// (they change when devices are re-plugged). Several items can share a name (two interfaces of
+/// one model): `index` picks among the matches, in list order, and an index past the last gives `None`.
+pub fn find_by_name<'a, T>(
+    hint: &str,
+    items: &'a [T],
+    index: usize,
+    name: impl Fn(&T) -> &str,
+) -> Option<&'a T> {
+    items
+        .iter()
+        .filter(|item| name(item) == hint)
+        .nth(index)
+        .or_else(|| {
+            let hint = normalize(hint);
+            items
+                .iter()
+                .filter(|item| normalize(name(item)) == hint)
+                .nth(index)
+        })
 }
 
 fn normalize(name: &str) -> String {
@@ -183,16 +196,19 @@ pub async fn devices_list_midi() -> Result<Vec<MidiPort>, DeviceError> {
 /// The audio device a project's name hint refers to, or `null` when it is not connected.
 #[tauri::command]
 pub async fn devices_find_audio(name: String) -> Result<Option<AudioDevice>, DeviceError> {
-    blocking(move || Ok(find_by_name(&name, &list_audio(), |d| &d.name).cloned())).await
+    blocking(move || Ok(find_by_name(&name, &list_audio(), 0, |d| &d.name).cloned())).await
 }
 
 /// The MIDI port a project's name hint refers to, or `null` when it is not connected. A system
 /// without MIDI support has no ports, so that also resolves to `null` instead of an error.
 #[tauri::command]
-pub async fn devices_find_midi(name: String) -> Result<Option<MidiPort>, DeviceError> {
+pub async fn devices_find_midi(
+    name: String,
+    index: usize,
+) -> Result<Option<MidiPort>, DeviceError> {
     blocking(move || {
         let ports = list_midi().unwrap_or_default();
-        Ok(find_by_name(&name, &ports, |p| &p.name).cloned())
+        Ok(find_by_name(&name, &ports, index, |p| &p.name).cloned())
     })
     .await
 }
@@ -209,7 +225,7 @@ mod tests {
     }
 
     fn find<'a>(hint: &str, items: &'a [MidiPort]) -> Option<&'a str> {
-        find_by_name(hint, items, |p| &p.name).map(|p| p.name.as_str())
+        find_by_name(hint, items, 0, |p| &p.name).map(|p| p.name.as_str())
     }
 
     #[test]
@@ -244,6 +260,22 @@ mod tests {
     fn find_by_name_should_prefer_an_exact_match() {
         let items = ports(&["synth", "Synth"]);
         assert_eq!(find("Synth", &items), Some("Synth"));
+    }
+
+    #[test]
+    fn find_by_name_should_tell_ports_with_the_same_name_apart_by_index() {
+        let items = ports(&["Hub", "Other", "Hub"]);
+        let at = |index| find_by_name("Hub", &items, index, |p| &p.name);
+        assert!(at(0).is_some_and(|p| std::ptr::eq(p, &items[0])));
+        assert!(at(1).is_some_and(|p| std::ptr::eq(p, &items[2])));
+        assert!(at(2).is_none());
+    }
+
+    #[test]
+    fn find_by_name_should_count_loose_matches_when_the_hint_is_not_exact() {
+        let items = ports(&["hub 20:0", "Hub 28:0"]);
+        let found = find_by_name("Hub 14:0", &items, 1, |p| &p.name);
+        assert!(found.is_some_and(|p| std::ptr::eq(p, &items[1])));
     }
 
     #[test]

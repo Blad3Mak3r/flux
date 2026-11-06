@@ -199,6 +199,7 @@ export const en = {
   "menu.addNote": "Add note",
   "field.timecodeInvalid": "Not a valid timecode at this frame rate.",
   "field.numberInvalid": "Enter a number.",
+  "field.levelInvalid": "Enter a level from 0 to 1.",
 
   "project.name": "Name",
   "project.frameRate": "Frame rate",
@@ -233,6 +234,7 @@ export const en = {
   "out.notConnected": "{name} (not connected)",
   "out.ltcDevice": "LTC device",
   "out.ltcChannel": "LTC channel",
+  "out.ltcLevel": "LTC level (0–1)",
   "out.mtcPort": "MIDI port",
   "out.refresh": "Refresh devices",
   "out.runningOn": "Running on {device} at {rate} Hz",
