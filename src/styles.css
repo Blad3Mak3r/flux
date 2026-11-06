@@ -2969,3 +2969,56 @@ input:disabled {
 .snap-guide:not([data-kind="grid"]) {
   border-left-style: dashed;
 }
+
+/* ---- Volume envelope: the line over a clip, and on the selected one its square points ---- */
+
+.clip-envelope {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.envelope-line {
+  fill: none;
+  stroke: var(--phosphor);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.envelope-hit {
+  fill: transparent;
+}
+
+.envelope-hit,
+.envelope-point {
+  pointer-events: none;
+}
+
+.clip-envelope[data-active="true"] .envelope-hit,
+.clip-envelope[data-active="true"] .envelope-point {
+  pointer-events: all;
+}
+
+.envelope-point {
+  fill: var(--screen);
+  stroke: var(--phosphor);
+  stroke-width: 1.5;
+  cursor: ns-resize;
+}
+
+.envelope-point[data-active="true"],
+.envelope-point:focus-visible {
+  fill: var(--phosphor);
+  outline: none;
+}
+
+.envelope-point:focus-visible {
+  stroke: var(--ink);
+}
+
+.envelope-readout {
+  fill: var(--ink);
+  font-family: var(--font-measure);
+  font-size: 11px;
+  pointer-events: none;
+}

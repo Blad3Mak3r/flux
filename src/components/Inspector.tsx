@@ -1,7 +1,7 @@
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { Project, Timeline, Track } from "../project/types";
-import { deleteSelection, edit, setTimelineTempo } from "../state/actions";
+import { deleteSelection, edit, setClipEnvelope, setTimelineTempo } from "../state/actions";
 import { detectTempo } from "../state/audio";
 import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
@@ -173,6 +173,12 @@ function SelectionPanel({
             ))}
           </SelectField>
         ))}
+        <p className="field-note">{t("envelope.hint")}</p>
+        {clip.envelope && clip.envelope.length > 0 && (
+          <button type="button" className="button" onClick={() => setClipEnvelope(clip.id, [])}>
+            {t("envelope.remove")}
+          </button>
+        )}
         {!audio[clip.asset]?.peaks && <p className="field-note">{t("clip.lengthGuess")}</p>}
         {asset && (
           <>

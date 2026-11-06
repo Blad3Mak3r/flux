@@ -20,6 +20,7 @@ import type { SnapTarget } from "../timeline/snap";
 import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
+import { EnvelopeLayer } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
@@ -287,7 +288,6 @@ function ClipBlock({
         select({ kind: "clip", id: clip.id });
         menuAtPointer(event, audioMenu(t, track, clip));
       }}
-      onDoubleClick={() => rename({ kind: "clip", id: clip.id })}
       {...pointer}
     >
       <span className="clip-wave-shift" style={{ left: (clip.start - trimStart.at) * pxPerFrame }}>
@@ -313,6 +313,15 @@ function ClipBlock({
           )}
         </svg>
       )}
+      <EnvelopeLayer
+        clip={clip}
+        shown={shown}
+        left={left}
+        width={width}
+        height={height}
+        pxPerFrame={pxPerFrame}
+        selected={selected}
+      />
       {renaming ? (
         <span className="clip-label">
           <InlineName
@@ -323,7 +332,7 @@ function ClipBlock({
           />
         </span>
       ) : (
-        <span className="clip-label">
+        <span className="clip-label" onDoubleClick={() => rename({ kind: "clip", id: clip.id })}>
           {name}
           {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
           {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}

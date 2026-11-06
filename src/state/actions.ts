@@ -1,7 +1,7 @@
 // Edits to the open document, built from the latest project at the moment they run. Each is one
 // stable function, so it can be handed to any component without a closure over a stale project.
 
-import type { Project, Tempo } from "../project/types";
+import type { EnvPoint, Project, Tempo } from "../project/types";
 import { activeTimeline } from "./doc";
 import { dispatch, useDoc } from "./store";
 import {
@@ -15,6 +15,7 @@ import {
   setTempo,
   setTrackGain,
   toggleMute,
+  updateClip,
 } from "./edit";
 import { removeCueEvent } from "./cues";
 import { rename, select, useUi } from "./ui";
@@ -31,6 +32,9 @@ export const moveTo = (id: string, position: number) => editWith((p, tl) => move
 export const reorderTrack = (trackId: string, to: number) => editWith((p, tl) => moveTrack(p, tl, trackId, to));
 export const muteTrack = (trackId: string) => editWith((p, tl) => toggleMute(p, tl, trackId));
 export const nameTrack = (trackId: string, name: string) => editWith((p, tl) => renameTrack(p, tl, trackId, name));
+/** Sets the volume envelope of a clip; no points take it away. One call is one step of undo. */
+export const setClipEnvelope = (id: string, envelope: EnvPoint[]) =>
+  editWith((p, tl) => updateClip(p, tl, id, { envelope: envelope.length > 0 ? envelope : undefined }));
 export const nameClip = (id: string, name: string) => editWith((p, tl) => renameClip(p, tl, id, name));
 export const setGain = (trackId: string, gainDb: number) =>
   editWith((p, tl) => setTrackGain(p, tl, trackId, gainDb));
