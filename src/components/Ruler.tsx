@@ -2,6 +2,7 @@ import { memo, useRef } from "react";
 import type { PointerEvent } from "react";
 import { useT } from "../i18n";
 import { snapFrame, snapTargets } from "../state/snap";
+import { setSnapGuide } from "../state/ui";
 import type { FrameRate } from "../project/types";
 import { formatFrames } from "../timecode";
 import { barTickPositions, frameX, pickTicks, tickPositions } from "../timeline/scale";
@@ -122,7 +123,12 @@ export function Ruler({
 
   const frameAt = (event: PointerEvent<SVGSVGElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
-    return Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame), targets.current));
+    return Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame), targets.current, { alt: event.altKey, guide: true }));
+  };
+
+  const release = () => {
+    mode.current = null;
+    setSnapGuide(null);
   };
 
   const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
@@ -156,8 +162,8 @@ export function Ruler({
       aria-label={t("timeline.ruler")}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={() => (mode.current = null)}
-      onPointerCancel={() => (mode.current = null)}
+      onPointerUp={release}
+      onPointerCancel={release}
     >
       <RulerSpan pxPerFrame={pxPerFrame} />
       {grid ? (

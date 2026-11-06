@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
 import { TimelineStrip } from "./TimelineStrip";
 import { FollowToggle } from "./FollowToggle";
+import { SnapControl } from "./SnapControl";
 import { TempoBar } from "./TempoBar";
 import type { Timeline as TimelineData } from "../project/types";
 import { menuAtPointer, select, setZoom, useUi, zoomBy } from "../state/ui";
@@ -76,6 +77,23 @@ function HoverLine({ pxPerFrame }: { pxPerFrame: number }) {
     });
   }, [pxPerFrame]);
   return <div ref={line} className="hover-line" hidden />;
+}
+
+/**
+ * Where the magnet is holding the item or the playhead being dragged, across all lanes. Solid on a
+ * line of the grid, dashed on something else, so the kind does not ride on a colour.
+ */
+function SnapGuideLine({ pxPerFrame }: { pxPerFrame: number }) {
+  const guide = useUi((ui) => ui.snapGuide);
+  if (!guide) return null;
+  return (
+    <div
+      className="snap-guide"
+      data-kind={guide.kind}
+      style={{ transform: `translateX(${frameX(guide.frame, pxPerFrame)}px)` }}
+      aria-hidden="true"
+    />
+  );
 }
 
 export function Timeline() {
@@ -206,6 +224,7 @@ export function Timeline() {
         </h2>
         <TimelineStrip />
         <TempoBar />
+        <SnapControl />
         <FollowToggle />
         <ViewSwitch />
       </div>
@@ -328,6 +347,7 @@ export function Timeline() {
 
             <SpanShade pxPerFrame={pxPerFrame} />
             <HoverLine pxPerFrame={pxPerFrame} />
+            <SnapGuideLine pxPerFrame={pxPerFrame} />
             <Playhead start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
           </div>
         </div>

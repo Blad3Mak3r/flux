@@ -20,10 +20,13 @@ import {
   stepTimeline,
 } from "../state/timelines";
 import {
+  GRID_STEPS,
   askRemoveTimeline,
   openSetup,
   rename,
   select,
+  setGridStep,
+  setSnapSource,
   setView,
   toggleFollow,
   toggleInspector,
@@ -61,9 +64,35 @@ function selectedTrack(): Track | null {
 /** The magnet, ticked while it is on. Every menu of the timeline offers it. */
 const snapItem = (t: Translate): MenuItem => ({
   label: t("context.snap"),
+  shortcut: "G",
   checked: useUi.getState().snap,
   run: toggleSnap,
 });
+
+/** What the magnet pulls onto and how fine its grid is: the menu of the Snap control. */
+export function snapMenu(t: Translate): MenuItem[] {
+  const { snapSources, gridStep } = useUi.getState();
+  const source = (key: keyof typeof snapSources): MenuItem => ({
+    label: t(`snap.source.${key}`),
+    checked: snapSources[key],
+    run: () => setSnapSource(key, !snapSources[key]),
+  });
+  return [
+    snapItem(t),
+    "-",
+    { label: t("snap.to"), disabled: true, run: () => {} },
+    source("grid"),
+    source("items"),
+    source("playhead"),
+    "-",
+    { label: t("snap.grid"), disabled: true, run: () => {} },
+    ...GRID_STEPS.map((step): MenuItem => ({
+      label: t(`snap.step.${step}`),
+      checked: gridStep === step,
+      run: () => setGridStep(step),
+    })),
+  ];
+}
 
 const renameTrackItem = (t: Translate, track: Track): MenuItem => ({
   label: t("menu.renameTrack"),

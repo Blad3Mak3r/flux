@@ -19,6 +19,24 @@ export interface Renaming {
   id: string;
 }
 
+/** How far apart the lines the magnet snaps to are: those on the ruler at this zoom, or a fixed step. */
+export type GridStep = "auto" | "frame" | "second" | "beat" | "bar";
+
+export const GRID_STEPS: readonly GridStep[] = ["auto", "frame", "second", "beat", "bar"];
+
+/** What the magnet pulls onto: the grid, the edges of clips and notes (and the origin), the playhead. */
+export interface SnapSources {
+  grid: boolean;
+  items: boolean;
+  playhead: boolean;
+}
+
+/** Where the magnet is holding an item or a point right now, for the guide line; `kind` is what it holds on to. */
+export interface SnapGuide {
+  frame: number;
+  kind: "grid" | "items" | "playhead" | "origin";
+}
+
 export interface Selected {
   kind: "clip" | "note" | "event";
   id: string;
@@ -59,6 +77,10 @@ interface UiState {
   ruler: RulerMode;
   /** Clips, notes and the playhead snap onto the vertical lines of the grid when dragged near one. */
   snap: boolean;
+  snapSources: SnapSources;
+  gridStep: GridStep;
+  /** Set while a drag is held by the magnet; the guide line follows it. */
+  snapGuide: SnapGuide | null;
   /** The timeline scrolls to keep the playhead in view while the show plays. */
   follow: boolean;
   /** The user scrolled by hand while following: it stays put until they say otherwise. */
@@ -89,6 +111,33 @@ const VIEW_KEY = "flux.view";
 const FOLLOW_KEY = "flux.follow";
 const RULER_KEY = "flux.ruler";
 const SNAP_KEY = "flux.snap";
+const SNAP_SOURCES_KEY = "flux.snap.sources";
+const GRID_STEP_KEY = "flux.snap.grid";
+
+function readSnapSources(): SnapSources {
+  const all = { grid: true, items: true, playhead: true };
+  try {
+    const stored = JSON.parse(localStorage.getItem(SNAP_SOURCES_KEY) ?? "null");
+    return stored && typeof stored === "object"
+      ? {
+          grid: stored.grid !== false,
+          items: stored.items !== false,
+          playhead: stored.playhead !== false,
+        }
+      : all;
+  } catch {
+    return all;
+  }
+}
+
+function readGridStep(): GridStep {
+  try {
+    const stored = localStorage.getItem(GRID_STEP_KEY);
+    return GRID_STEPS.find((step) => step === stored) ?? "auto";
+  } catch {
+    return "auto";
+  }
+}
 
 function readSnap(): boolean {
   try {
@@ -129,6 +178,9 @@ export const useUi = create<UiState>()(() => ({
   view: readView(),
   ruler: readRuler(),
   snap: readSnap(),
+  snapSources: readSnapSources(),
+  gridStep: readGridStep(),
+  snapGuide: null,
   follow: readFollow(),
   detached: false,
   zoom: DEFAULT_PX_PER_FRAME,
@@ -191,6 +243,33 @@ export function toggleSnap(): void {
   } catch {
     // Not remembered, still works.
   }
+}
+
+/** Turns one of the things the magnet pulls onto on or off. */
+export function setSnapSource(source: keyof SnapSources, on: boolean): void {
+  const snapSources = { ...get().snapSources, [source]: on };
+  set({ snapSources });
+  try {
+    localStorage.setItem(SNAP_SOURCES_KEY, JSON.stringify(snapSources));
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+export function setGridStep(gridStep: GridStep): void {
+  set({ gridStep });
+  try {
+    localStorage.setItem(GRID_STEP_KEY, gridStep);
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+/** Shows the guide line at `guide`, or hides it. A guide that has not moved is not written again. */
+export function setSnapGuide(guide: SnapGuide | null): void {
+  const current = get().snapGuide;
+  if (current === guide || (current && guide && current.frame === guide.frame && current.kind === guide.kind)) return;
+  set({ snapGuide: guide });
 }
 
 /** The Follow control: it turns following on, or off; after a manual scroll it takes the view back. */

@@ -19,7 +19,7 @@ import { splitAtPlayhead } from "./state/clips";
 import { activeTimeline, isDirty } from "./state/doc";
 import { bindDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, useUi, zoomBy } from "./state/ui";
+import { ask, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
 import {
   addNoteAt,
   importAudioFiles,
@@ -175,6 +175,11 @@ function Shell() {
         if (useUi.getState().view !== "edit") return;
         event.preventDefault();
         void splitAtPlayhead();
+      } else if (key === "g") {
+        // The magnet is for placing things: Live only reads the show.
+        if (useUi.getState().view !== "edit") return;
+        event.preventDefault();
+        toggleSnap();
       } else if (event.key === "F2") {
         // Names are typed in the editor; Live only reads the show.
         if (useUi.getState().view !== "edit") return;

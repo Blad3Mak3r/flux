@@ -2914,3 +2914,58 @@ input:disabled {
   height: 20px;
   font-size: 11px;
 }
+
+/* ---- Snap: the magnet's control and the guide line it draws while it holds a drag ---- */
+
+.snap-control {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+}
+
+.snap-toggle,
+.snap-options {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-dim);
+}
+
+.snap-toggle {
+  gap: 8px;
+  padding: 0 8px 0 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.snap-options {
+  padding: 0 6px;
+}
+
+.snap-toggle:hover,
+.snap-options:hover {
+  background: var(--panel-hi);
+}
+
+.snap-toggle[aria-pressed="true"] {
+  color: var(--ink);
+}
+
+.snap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  width: 0;
+  border-left: 1px solid var(--ink);
+  pointer-events: none;
+}
+
+.snap-guide:not([data-kind="grid"]) {
+  border-left-style: dashed;
+}

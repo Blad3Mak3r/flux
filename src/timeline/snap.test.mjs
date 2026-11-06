@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { lineSpacing, barTickPositions, tickPositions } from "./scale.ts";
-import { SNAP_PX, collectTargets, nearestTarget, snapMove, snapPoint, snapToSpacing } from "./snap.ts";
+import { SNAP_PX, collectTargets, fixedSpacing, nearestTarget, snapMove, snapPoint, snapToSpacing } from "./snap.ts";
 
 test("a position near a line goes onto it, and one far from it stays", () => {
   // Lines every 25 frames at 2 px a frame: 8 px is 4 frames.
@@ -136,4 +136,19 @@ test("a block with nothing in reach stays put and shows no guide", () => {
 test("a block with no length snaps by its start only", () => {
   const targets = collectTargets([{ id: "a", start: 60 }], { sources: new Set(["items"]) });
   assert.deepEqual(snapMove(58, 0, targets, null, 2), { frame: 60, start: 60, source: "items", guide: 60 });
+});
+
+test("a fixed grid step has the same spacing at every zoom", () => {
+  const tempo = { bpm: 120, beatsPerBar: 4, fps: 25 };
+  assert.equal(fixedSpacing("frame", tempo), 1);
+  assert.equal(fixedSpacing("second", tempo), 25);
+  // 120 BPM is two beats a second.
+  assert.equal(fixedSpacing("beat", tempo), 12.5);
+  assert.equal(fixedSpacing("bar", tempo), 50);
+  assert.equal(fixedSpacing("second", { ...tempo, fps: 30_000 / 1_001 }), 30_000 / 1_001);
+});
+
+test("a beat that is not a whole frame snaps to a whole frame", () => {
+  const beat = fixedSpacing("beat", { bpm: 120, beatsPerBar: 4, fps: 25 });
+  assert.deepEqual(snapPoint(36, [], beat, 4), { frame: Math.round(37.5), source: "grid" });
 });

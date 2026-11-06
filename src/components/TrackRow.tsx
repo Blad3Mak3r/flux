@@ -9,7 +9,7 @@ import { editClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
 import { useDoc } from "../state/store";
-import { menuAtPointer, rename, select, useUi } from "../state/ui";
+import { menuAtPointer, rename, select, setSnapGuide, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
@@ -134,12 +134,13 @@ function useDrag(id: string, kind: Selected["kind"], position: number, length: n
       const frames = Math.round((event.clientX - origin.current.x) / pxPerFrame);
       // With the magnet on, the item's start or end lands on the closest grid line, item or the
       // playhead when it is near one.
-      const target = Math.max(0, snapBlockStart(origin.current.position + frames, length, origin.current.targets));
+      const target = Math.max(0, snapBlockStart(origin.current.position + frames, length, origin.current.targets, { alt: event.altKey }));
       setDelta(target - origin.current.position);
     },
     onPointerUp() {
       if (origin.current && delta !== 0) void move(id, origin.current.position + delta);
       origin.current = null;
+      setSnapGuide(null);
       setDelta(0);
     },
     onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -179,10 +180,11 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (originX.current === null) return;
       const frames = Math.round((event.clientX - originX.current) / pxPerFrame);
-      setDrag({ from: frame, to: Math.max(0, snapFrame(frame + frames, targets.current)) });
+      setDrag({ from: frame, to: Math.max(0, snapFrame(frame + frames, targets.current, { alt: event.altKey, guide: true })) });
     },
     onPointerUp() {
       originX.current = null;
+      setSnapGuide(null);
       if (drag && drag.to !== frame) void editClip(id, op, drag.to).finally(() => setDrag(null));
       else setDrag(null);
     },
