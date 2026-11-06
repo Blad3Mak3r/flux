@@ -104,7 +104,7 @@ fn update(app: &AppHandle, change: impl FnOnce(&mut Vec<Recent>)) {
     change(&mut list);
     // The list is a convenience: failing to save it must never fail opening or saving a show.
     if let Err(err) = store(&file, &list) {
-        eprintln!("could not save the recent shows: {err}");
+        log::warn!("could not save the recent shows: {err}");
     }
 }
 
