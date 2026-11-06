@@ -28,11 +28,15 @@ where
     F: FnOnce(&mut Session) -> Result<T> + Send + 'static,
 {
     let session = Arc::clone(session);
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         op(&mut session.lock().unwrap_or_else(PoisonError::into_inner))
     })
     .await
-    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?;
+    if let Err(err) = &result {
+        log::warn!("project command failed: {err}");
+    }
+    result
 }
 
 /// The document being edited, or `None` before one was started. A window that was reloaded asks for
@@ -61,6 +65,7 @@ pub async fn project_new(
     frame_rate: FrameRate,
 ) -> Result<ProjectState> {
     audio.clear();
+    log::info!("new project {name:?}");
     run(&session, move |s| {
         let project = s.new_project(&name, frame_rate);
         Ok(ProjectState {
@@ -88,6 +93,7 @@ pub async fn project_open(
         })
     })
     .await?;
+    log::info!("opened {}", opened.display());
     recents::remember(&app, &opened);
     Ok(state)
 }
@@ -261,6 +267,7 @@ pub async fn project_import_audio(
     session: State<'_, SharedSession>,
     path: PathBuf,
 ) -> Result<AudioAsset> {
+    log::info!("importing audio {}", path.display());
     run(&session, move |s| s.import_audio(&path)).await
 }
 
@@ -273,6 +280,7 @@ pub async fn project_save(
 ) -> Result<Project> {
     let saved = path.clone();
     let project = run(&session, move |s| s.save(&project, &path)).await?;
+    log::info!("saved {}", saved.display());
     recents::remember(&app, &saved);
     Ok(project)
 }
@@ -284,6 +292,7 @@ pub async fn project_delete(app: AppHandle, path: PathBuf) -> Result<()> {
     tauri::async_runtime::spawn_blocking(move || delete_show(&path))
         .await
         .map_err(|err| ProjectError::Io(io::Error::other(err)))??;
+    log::info!("deleted {}", deleted.display());
     recents::remove(&app, &deleted);
     Ok(())
 }

@@ -149,6 +149,20 @@ pub struct SharedClock {
     unpaced: AtomicBool,
     /// How many times the show ran to its end by itself (not stopped by the user).
     shows_ended: AtomicU64,
+    /// The faults the streams and the MTC thread report. Only counted here: a lane thread reads
+    /// them and writes the log, because nothing on those threads may wait for a file.
+    faults: [AtomicU64; 3],
+}
+
+/// What a [`SharedClock`] counts going wrong.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Faults {
+    /// Buffers the device under- or overran, which are heard as a dropout.
+    pub xruns: u64,
+    /// Other errors of a stream. They mark the device as lost.
+    pub stream_errors: u64,
+    /// MIDI messages that could not be sent.
+    pub mtc_errors: u64,
 }
 
 impl SharedClock {
@@ -165,6 +179,34 @@ impl SharedClock {
             ltc_lost: AtomicBool::new(false),
             unpaced: AtomicBool::new(false),
             shows_ended: AtomicU64::new(0),
+            faults: Default::default(),
+        }
+    }
+
+    /// A stream reported an error. Safe to call from the error callback: it only touches atomics.
+    /// A dropout is counted and the device stays in use; any other error loses the device, or the
+    /// LTC device when `ltc`.
+    pub fn stream_failed(&self, kind: cpal::ErrorKind, ltc: bool) {
+        if kind == cpal::ErrorKind::Xrun {
+            self.faults[0].fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        self.faults[1].fetch_add(1, Ordering::Relaxed);
+        let lost = if ltc { &self.ltc_lost } else { &self.lost };
+        lost.store(true, Ordering::Relaxed);
+    }
+
+    /// A MIDI message could not be sent.
+    fn mtc_failed(&self) {
+        self.faults[2].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn faults(&self) -> Faults {
+        let [xruns, stream_errors, mtc_errors] = &self.faults;
+        Faults {
+            xruns: xruns.load(Ordering::Relaxed),
+            stream_errors: stream_errors.load(Ordering::Relaxed),
+            mtc_errors: mtc_errors.load(Ordering::Relaxed),
         }
     }
 
@@ -674,6 +716,11 @@ impl PositionReader {
     /// the position alone cannot (a stop from the user looks the same).
     pub fn shows_ended(&self) -> u64 {
         self.shared.shows_ended()
+    }
+
+    /// What went wrong on the streams and the MIDI port since the output started.
+    pub fn faults(&self) -> Faults {
+        self.shared.faults()
     }
 
     pub fn position(&self) -> Position {
@@ -1310,10 +1357,9 @@ fn open_stream(
         Arc::clone(&shared),
     )
     .with_click(spec.click.as_ref().map(|click| click.out(channels)));
-    let lost = Arc::clone(&shared);
+    let failed = Arc::clone(&shared);
     let stream = start_stream(&opened, rate, renderer, shared, move |err| {
-        eprintln!("flux: audio stream error: {err}");
-        lost.lost.store(true, Ordering::Relaxed);
+        failed.stream_failed(err.kind(), false);
     })?;
     Ok((
         stream,
@@ -1350,10 +1396,9 @@ fn open_ltc_stream(
         Arc::clone(&shared),
     )
     .with_click(spec.click.as_ref().map(|click| click.out(opened.channels)));
-    let lost = Arc::clone(&shared);
+    let failed = Arc::clone(&shared);
     let stream = start_stream(&opened, rate, follower, shared, move |err| {
-        eprintln!("flux: LTC stream error: {err}");
-        lost.ltc_lost.store(true, Ordering::Relaxed);
+        failed.stream_failed(err.kind(), true);
     })?;
     Ok((stream, opened.name))
 }
@@ -1471,12 +1516,16 @@ fn run_mtc(
         let position = snapshot.estimated_position(now, clock);
         if seen_epoch != Some(snapshot.epoch) {
             seen_epoch = Some(snapshot.epoch);
-            let _ = connection.send(&scheduler.resync(position));
+            if connection.send(&scheduler.resync(position)).is_err() {
+                shared.mtc_failed();
+            }
         }
         let mut wait = MtcWait::Park(MTC_TICK);
         if snapshot.state == TransportState::Playing {
             scheduler.poll(position, |message| {
-                let _ = connection.send(&message);
+                if connection.send(&message).is_err() {
+                    shared.mtc_failed();
+                }
             });
             let samples = scheduler.next_due().saturating_sub(position);
             let until_due = Duration::from_nanos(
@@ -1976,6 +2025,29 @@ mod tests {
         let mut watch = PaceWatch::default();
         assert_eq!(watch.observe(0, 480), None);
         assert_eq!(watch.observe(500_000_000, 480 * 300), None);
+    }
+
+    #[test]
+    fn stream_failed_should_count_an_xrun_without_losing_the_device() {
+        let clock = SharedClock::new();
+
+        clock.stream_failed(cpal::ErrorKind::Xrun, false);
+        clock.stream_failed(cpal::ErrorKind::Xrun, true);
+
+        assert_eq!(clock.faults().xruns, 2);
+        assert_eq!(clock.faults().stream_errors, 0);
+        assert!(!clock.is_lost() && !clock.is_ltc_lost());
+    }
+
+    #[test]
+    fn stream_failed_should_lose_the_device_that_failed() {
+        let clock = SharedClock::new();
+
+        clock.stream_failed(cpal::ErrorKind::DeviceNotAvailable, true);
+
+        assert_eq!(clock.faults().stream_errors, 1);
+        assert!(clock.is_ltc_lost());
+        assert!(!clock.is_lost());
     }
 
     #[test]

@@ -31,6 +31,7 @@ cpal = "0.18.2"
 midir = "0.11.1"
 symphonia = { version = "0.6.1", features = ["mp3", "aiff"] }
 rubato = "5.0.1"
+log = { version = "0.4", features = ["std"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
