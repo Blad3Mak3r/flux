@@ -35,7 +35,7 @@ function contentEnd(timeline: TimelineData, audio: Record<string, AssetAudio>, f
   let end = 0;
   for (const track of timeline.tracks) {
     if (track.kind.type === "audio") {
-      for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(audio[clip.asset], fps, guess));
+      for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(clip, audio[clip.asset], fps, guess));
     } else {
       for (const note of track.kind.notes) end = Math.max(end, note.at + (note.length ?? 25));
     }

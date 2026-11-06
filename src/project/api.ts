@@ -74,6 +74,13 @@ export const timelineMove = (project: Project, id: string, to: number) =>
 export const timelineSetTimecode = (project: Project, frameRate: FrameRate, start: number) =>
   invoke<ProjectState>("timeline_set_timecode", { project, frameRate, start });
 
+/** What can be done to a clip; the backend decides how (see `project/clips.rs`). */
+export type ClipOp = "trimStart" | "trimEnd" | "fadeIn" | "fadeOut" | "split";
+
+/** Trims, fades or splits a clip of the active timeline at `frame` of it; answers with the project as it is now. */
+export const clipEdit = (project: Project, id: string, op: ClipOp, frame: number) =>
+  invoke<ProjectState>("clip_edit", { project, id, op, frame });
+
 /**
  * Saves to `path`, or asks for one when it is `null` (first save, or "Save as").
  * Resolves to the path written and the project metadata the backend recorded, or `null` when the

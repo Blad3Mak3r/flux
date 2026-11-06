@@ -20,6 +20,8 @@ export interface WaveJob {
   dpr: number;
   color: string;
   pxPerSecond: number;
+  /** Seconds of the audio the drawing starts at, for a clip that is trimmed in. */
+  startSeconds: number;
 }
 
 /** Requests the page sends a waveform worker, and what comes back. */
@@ -55,13 +57,17 @@ function seeded(seed: string): () => number {
 }
 
 /** One column of pixels per peak window it covers: the lowest low and the highest high. */
-function drawPeaks(context: Context2D, { values, perSecond }: PeakData, { width, height, pxPerSecond }: WaveJob) {
+function drawPeaks(
+  context: Context2D,
+  { values, perSecond }: PeakData,
+  { width, height, pxPerSecond, startSeconds }: WaveJob,
+) {
   const pairs = values.length / 2;
   const mid = height / 2;
   const reach = mid - 3;
   for (let x = 0; x < width; x += 1) {
-    const first = Math.floor((x / pxPerSecond) * perSecond);
-    const last = Math.max(first + 1, Math.ceil(((x + 1) / pxPerSecond) * perSecond));
+    const first = Math.floor((startSeconds + x / pxPerSecond) * perSecond);
+    const last = Math.max(first + 1, Math.ceil((startSeconds + (x + 1) / pxPerSecond) * perSecond));
     if (first >= pairs) break;
     let low = 127;
     let high = -128;
