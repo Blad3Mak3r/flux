@@ -3,7 +3,7 @@
 // clip comes from it.
 
 import type { EnvCurve, EnvPoint } from "../project/types";
-import { ENVELOPE_MAX_DB, ENVELOPE_MIN_DB, MAX_ENVELOPE_POINTS } from "../project/types.ts";
+import { ENVELOPE_MAX_DB, ENVELOPE_MIN_DB } from "../project/types.ts";
 
 export const ENVELOPE_CURVES: readonly EnvCurve[] = ["linear", "smooth", "fast", "slow", "hold"];
 
@@ -70,41 +70,20 @@ export function envelopeLine(points: readonly EnvPoint[], steps = 12): { at: num
   return line;
 }
 
-export const clampEnvelopeDb = (db: number) =>
-  Math.min(Math.max(Math.round(db * 10) / 10, ENVELOPE_MIN_DB), ENVELOPE_MAX_DB);
-
 /**
- * `points` with one more at `at` ticks, in its place in the order. The same list comes back when
- * there is a point there already or the envelope is full.
+ * `points` with the point `index` shown at `at` and `gainDb` while it is dragged: between its
+ * neighbours and inside the range of gains, so the line does not cross itself. This is only what is
+ * drawn until the mouse is released; the backend decides where the point lands (`item_ops.rs`).
  */
-export function insertPoint(points: readonly EnvPoint[], at: number, gainDb: number): EnvPoint[] {
-  const place = Math.max(0, Math.round(at));
-  if (points.length >= MAX_ENVELOPE_POINTS || points.some((point) => point.at === place)) return [...points];
-  const point: EnvPoint = { at: place, gainDb: clampEnvelopeDb(gainDb) };
-  const index = points.findIndex((other) => other.at > place);
-  return index === -1 ? [...points, point] : [...points.slice(0, index), point, ...points.slice(index)];
-}
-
-/** `points` with the point `index` moved to `at` ticks and `gainDb`, kept between its neighbours. */
-export function movePoint(points: readonly EnvPoint[], index: number, at: number, gainDb: number): EnvPoint[] {
+export function previewMove(points: readonly EnvPoint[], index: number, at: number, gainDb: number): EnvPoint[] {
   const current = points[index];
   if (!current) return [...points];
-  const before = points[index - 1]?.at ?? -1;
-  const after = points[index + 1]?.at ?? Number.POSITIVE_INFINITY;
-  const place = Math.min(Math.max(Math.round(at), before + 1), after - 1);
-  const moved: EnvPoint = { ...current, at: Math.max(0, place), gainDb: clampEnvelopeDb(gainDb) };
+  const low = (points[index - 1]?.at ?? -1) + 1;
+  const high = (points[index + 1]?.at ?? Number.POSITIVE_INFINITY) - 1;
+  const moved: EnvPoint = {
+    ...current,
+    at: Math.max(0, Math.min(Math.max(Math.round(at), low), high)),
+    gainDb: Math.min(Math.max(gainDb, ENVELOPE_MIN_DB), ENVELOPE_MAX_DB),
+  };
   return points.map((point, i) => (i === index ? moved : point));
-}
-
-export function removePoint(points: readonly EnvPoint[], index: number): EnvPoint[] {
-  return points.filter((_, i) => i !== index);
-}
-
-/** The point `index` with the curve to the next point; a straight line is stored as no value. */
-export function setPointCurve(points: readonly EnvPoint[], index: number, curve: EnvCurve): EnvPoint[] {
-  return points.map((point, i) => {
-    if (i !== index) return point;
-    const { curve: _previous, ...rest } = point;
-    return curve === "linear" ? rest : { ...rest, curve };
-  });
 }

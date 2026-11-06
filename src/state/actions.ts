@@ -1,7 +1,7 @@
 // Edits to the open document, built from the latest project at the moment they run. Each is one
 // stable function, so it can be handed to any component without a closure over a stale project.
 
-import type { EnvPoint, Project, Tempo } from "../project/types";
+import type { Project, Tempo } from "../project/types";
 import { activeTimeline } from "./doc";
 import { dispatch, useDoc } from "./store";
 import {
@@ -10,14 +10,12 @@ import {
   moveTrack,
   removeItem,
   removeTrack,
-  renameClip,
-  renameTrack,
   setTempo,
   setTrackGain,
   toggleMute,
-  updateClip,
 } from "./edit";
 import { removeCueEvent } from "./cues";
+import { editItem } from "./items";
 import { rename, select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
@@ -31,11 +29,10 @@ export const editWith = (change: (project: Project, timeline: string) => Project
 export const moveTo = (id: string, position: number) => editWith((p, tl) => moveItem(p, tl, id, position));
 export const reorderTrack = (trackId: string, to: number) => editWith((p, tl) => moveTrack(p, tl, trackId, to));
 export const muteTrack = (trackId: string) => editWith((p, tl) => toggleMute(p, tl, trackId));
-export const nameTrack = (trackId: string, name: string) => editWith((p, tl) => renameTrack(p, tl, trackId, name));
-/** Sets the volume envelope of a clip; no points take it away. One call is one step of undo. */
-export const setClipEnvelope = (id: string, envelope: EnvPoint[]) =>
-  editWith((p, tl) => updateClip(p, tl, id, { envelope: envelope.length > 0 ? envelope : undefined }));
-export const nameClip = (id: string, name: string) => editWith((p, tl) => renameClip(p, tl, id, name));
+/** Renames a track; the backend trims the name and refuses a blank one. */
+export const nameTrack = (id: string, name: string) => editItem({ op: "renameTrack", id, name });
+/** Names a clip; a blank name takes it away, so the clip goes by its audio file's name again. */
+export const nameClip = (id: string, name: string) => editItem({ op: "renameClip", id, name });
 export const setGain = (trackId: string, gainDb: number) =>
   editWith((p, tl) => setTrackGain(p, tl, trackId, gainDb));
 

@@ -2,18 +2,10 @@ import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import { dbToFader, faderToDb, formatDb } from "../audio/level";
-import {
-  ENVELOPE_CURVES,
-  clampEnvelopeDb,
-  envelopeLine,
-  insertPoint,
-  movePoint,
-  removePoint,
-  setPointCurve,
-} from "../audio/envelope";
+import { ENVELOPE_CURVES, envelopeLine, previewMove } from "../audio/envelope";
 import { ENVELOPE_TICKS_PER_FRAME } from "../project/types";
 import type { AudioClip, EnvPoint } from "../project/types";
-import { setClipEnvelope } from "../state/actions";
+import { editItem } from "../state/items";
 import { snapFrame, snapTargets } from "../state/snap";
 import { menuAtPointer, setSnapGuide } from "../state/ui";
 import type { MenuItem } from "../state/ui";
@@ -45,9 +37,9 @@ export function addEnvelopePoint(
   const timeline = box.frame + (clientX - box.left) / box.pxPerFrame;
   const snapped = snapFrame(Math.round(timeline), snapTargets([clip.id]));
   const frame = snapped !== Math.round(timeline) ? snapped : timeline;
-  const at = (frame - clip.start + (clip.offset ?? 0)) * ENVELOPE_TICKS_PER_FRAME;
+  const at = Math.round((frame - clip.start + (clip.offset ?? 0)) * ENVELOPE_TICKS_PER_FRAME);
   const position = Math.min(1, Math.max(0, 1 - (clientY - box.top) / box.height));
-  setClipEnvelope(clip.id, insertPoint(clip.envelope ?? [], at, faderToDb(position)));
+  void editItem({ op: "addEnvelopePoint", id: clip.id, at, gainDb: faderToDb(position) });
 }
 
 /**
@@ -55,7 +47,8 @@ export function addEnvelopePoint(
  * its points can be dragged (Shift for fine steps, Alt to turn the magnet the other way, Esc to
  * cancel), added or removed with a double click, and moved with the arrow keys. Points are counted
  * from the start of the audio file, so the clip moving or being trimmed leaves them where they are.
- * A drag is held here and handed over once, on release, so it is one step of undo.
+ * A drag is held here and handed over once, on release, so it is one step of undo; the backend
+ * decides where the point lands, and the drag shows where it was dropped until it answers.
  */
 export function EnvelopeLayer({
   clip,
@@ -98,11 +91,17 @@ export function EnvelopeLayer({
   const line = vertices.map(([x, y]) => `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`).join(" ");
 
   const finish = (commit: boolean) => {
-    if (commit && draft) setClipEnvelope(clip.id, draft);
+    const dropped = drag.current;
+    const moved = dropped && draft?.[dropped.index];
     drag.current = null;
-    setDraft(null);
     setActive(null);
     setSnapGuide(null);
+    if (commit && dropped && moved) {
+      const op = { op: "moveEnvelopePoint", id: clip.id, index: dropped.index, at: moved.at, gainDb: moved.gainDb } as const;
+      void editItem(op).finally(() => setDraft(null));
+    } else {
+      setDraft(null);
+    }
   };
 
   const onPointDown = (event: PointerEvent<SVGRectElement>, index: number) => {
@@ -138,7 +137,7 @@ export function EnvelopeLayer({
     }
     const at = (timeline - clip.start + offset) * ENVELOPE_TICKS_PER_FRAME;
     const position = dbToFader(start.db) - ((event.clientY - start.y) / height) * fine;
-    setDraft(movePoint(stored, start.index, at, faderToDb(Math.min(1, Math.max(0, position)))));
+    setDraft(previewMove(stored, start.index, at, faderToDb(Math.min(1, Math.max(0, position)))));
   };
 
   const onPointUp = () => {
@@ -164,12 +163,18 @@ export function EnvelopeLayer({
     if (event.key === "Delete" || event.key === "Backspace") {
       event.stopPropagation();
       event.preventDefault();
-      setClipEnvelope(clip.id, removePoint(stored, index));
+      void editItem({ op: "removeEnvelopePoint", id: clip.id, index });
     } else if (step[event.key]) {
       event.stopPropagation();
       event.preventDefault();
       const [frames, db] = step[event.key];
-      setClipEnvelope(clip.id, movePoint(stored, index, point.at + frames * ENVELOPE_TICKS_PER_FRAME, point.gainDb + db));
+      void editItem({
+        op: "moveEnvelopePoint",
+        id: clip.id,
+        index,
+        at: point.at + frames * ENVELOPE_TICKS_PER_FRAME,
+        gainDb: point.gainDb + db,
+      });
     }
   };
 
@@ -178,10 +183,12 @@ export function EnvelopeLayer({
       ...ENVELOPE_CURVES.map((curve): MenuItem => ({
         label: t(`envelope.curve.${curve}`),
         checked: (stored[index].curve ?? "linear") === curve,
-        run: () => setClipEnvelope(clip.id, setPointCurve(stored, index, curve)),
+        run: () => {
+          if ((stored[index].curve ?? "linear") !== curve) void editItem({ op: "setEnvelopeCurve", id: clip.id, index, curve });
+        },
       })),
       "-",
-      { label: t("envelope.removePoint"), run: () => setClipEnvelope(clip.id, removePoint(stored, index)) },
+      { label: t("envelope.removePoint"), run: () => void editItem({ op: "removeEnvelopePoint", id: clip.id, index }) },
     ];
     menuAtPointer(event, items);
   };
@@ -219,13 +226,13 @@ export function EnvelopeLayer({
                 onKeyDown={(event) => onPointKey(event, index)}
                 onDoubleClick={(event) => {
                   event.stopPropagation();
-                  setClipEnvelope(clip.id, removePoint(stored, index));
+                  void editItem({ op: "removeEnvelopePoint", id: clip.id, index });
                 }}
                 onContextMenu={(event) => onPointMenu(event, index)}
               />
               {active === index && (
                 <text className="envelope-readout" x={Math.min(x + 8, width - 44)} y={Math.max(y - 6, 12)}>
-                  {formatDb(clampEnvelopeDb(point.gainDb))} dB
+                  {formatDb(point.gainDb)} dB
                 </text>
               )}
             </g>

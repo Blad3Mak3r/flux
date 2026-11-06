@@ -160,7 +160,6 @@ export const es: Record<MessageKey, string> = {
   "clip.rename": "Nombre de {name}",
   "clip.label": "Nombre",
   "clip.label.hint": "Déjalo vacío para usar el nombre del archivo de audio, {file}.",
-  "field.nameRequired": "Una pista necesita un nombre.",
   "track.mute": "Silenciar {name}",
   "track.gain": "Volumen {name}",
   "track.gain.value": "{value} dB",

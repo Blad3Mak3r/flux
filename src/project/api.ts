@@ -1,6 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AudioAsset, FrameRate, MidiMessage, MidiPortRef, OscArg, Project, ProjectState } from "./types";
+import type {
+  AudioAsset,
+  EnvCurve,
+  FadeCurve,
+  FrameRate,
+  MidiMessage,
+  MidiPortRef,
+  OscArg,
+  Project,
+  ProjectState,
+} from "./types";
 
 /** The document the backend holds for the window: the project, where it lives and how it started. */
 export interface BackendDocument {
@@ -80,6 +90,19 @@ export type ClipOp = "trimStart" | "trimEnd" | "fadeIn" | "fadeOut" | "split";
 /** Trims, fades or splits a clip of the active timeline at `frame` of it; answers with the project as it is now. */
 export const clipEdit = (project: Project, id: string, op: ClipOp, frame: number) =>
   invoke<ProjectState>("clip_edit", { project, id, op, frame });
+
+/** What can be done to the names of tracks and clips, a clip's fade curves and its volume envelope; the backend decides how (see `project/item_ops.rs`). Envelope positions are in thousandths of a frame from the start of the audio file. */
+export type ItemOp =
+  | { op: "renameTrack"; id: string; name: string }
+  | { op: "renameClip"; id: string; name: string }
+  | { op: "setFadeCurve"; id: string; fade: "in" | "out"; curve: FadeCurve }
+  | { op: "addEnvelopePoint"; id: string; at: number; gainDb: number }
+  | { op: "moveEnvelopePoint"; id: string; index: number; at: number; gainDb: number }
+  | { op: "removeEnvelopePoint"; id: string; index: number }
+  | { op: "setEnvelopeCurve"; id: string; index: number; curve: EnvCurve }
+  | { op: "clearEnvelope"; id: string };
+
+export const itemEdit = (project: Project, op: ItemOp) => invoke<ProjectState>("item_edit", { project, op });
 
 /** Which kind of cue track an operation is about. */
 export type CueTrackKind = "midi" | "osc";

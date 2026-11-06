@@ -159,7 +159,6 @@ export const en = {
   "clip.rename": "Name of {name}",
   "clip.label": "Name",
   "clip.label.hint": "Leave it empty to use the audio file name, {file}.",
-  "field.nameRequired": "A track needs a name.",
   "track.mute": "Mute {name}",
   "track.gain": "Volume {name}",
   "track.gain.value": "{value} dB",
