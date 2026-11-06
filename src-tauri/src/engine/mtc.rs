@@ -75,6 +75,9 @@ pub struct MtcScheduler {
     start: u64,
     /// Quarter frame to send next, counted from the timeline origin.
     next_quarter: u64,
+    /// Samples the timecode runs ahead of the transport: what goes out at position `p` is the
+    /// timecode of `p + offset`. Negative runs behind.
+    offset: i64,
 }
 
 impl MtcScheduler {
@@ -84,13 +87,22 @@ impl MtcScheduler {
             rate,
             start,
             next_quarter: 0,
+            offset: 0,
         }
+    }
+
+    /// Sends the timecode `offset` samples ahead of the transport (behind when negative), to make
+    /// up for the delay of the port and the receiver.
+    pub fn with_offset(mut self, offset: i64) -> Self {
+        self.offset = offset;
+        self
     }
 
     /// Restarts at transport position `position` (samples since the timeline origin), after a
     /// start or a seek. Returns the full-frame message to send now; quarter frames resume at the
     /// next group of eight, because a receiver needs a group to begin at piece 0.
     pub fn resync(&mut self, position: u64) -> [u8; 10] {
+        let position = (position as i64 + self.offset).max(0) as u64;
         let mut quarter = self.clock.samples_to_ticks(position, QUARTERS_PER_FRAME);
         if self.clock.ticks_to_samples(quarter, QUARTERS_PER_FRAME) < position {
             quarter += 1;
@@ -104,21 +116,26 @@ impl MtcScheduler {
     /// The transport position (samples since the timeline origin) at which the next quarter frame
     /// is due, so a caller can wait for it instead of polling.
     pub fn next_due(&self) -> u64 {
-        self.clock
-            .ticks_to_samples(self.next_quarter, QUARTERS_PER_FRAME)
+        let due = self
+            .clock
+            .ticks_to_samples(self.next_quarter, QUARTERS_PER_FRAME);
+        (due as i64 - self.offset).max(0) as u64
     }
 
     /// Calls `send` for every quarter frame whose time has come at transport position
     /// `position`, in order. A caller that falls far behind skips ahead to the next group rather
     /// than flooding the port with stale messages.
     pub fn poll(&mut self, position: u64, mut send: impl FnMut([u8; 2])) {
-        let due = self.clock.samples_to_ticks(position, QUARTERS_PER_FRAME);
+        let position = position as i64 + self.offset;
+        let due = self
+            .clock
+            .samples_to_ticks(position.max(0) as u64, QUARTERS_PER_FRAME);
         if due > self.next_quarter + QUARTERS_PER_GROUP {
             self.next_quarter = due.next_multiple_of(QUARTERS_PER_GROUP);
         }
         while self
             .clock
-            .ticks_to_samples(self.next_quarter, QUARTERS_PER_FRAME)
+            .ticks_to_samples(self.next_quarter, QUARTERS_PER_FRAME) as i64
             <= position
         {
             let piece = (self.next_quarter % QUARTERS_PER_GROUP) as usize;
@@ -302,5 +319,35 @@ mod tests {
             full_frame(tc(23, 59, 58, 29), FrameRate::Fps2997Drop),
             [0xF0, 0x7F, 0x7F, 0x01, 0x01, 0x57, 0x3B, 0x3A, 0x1D, 0xF7]
         );
+    }
+    #[test]
+    fn positive_offset_should_send_each_quarter_frame_earlier() {
+        // +480 samples is a quarter frame ahead. From the origin the next group starts at frame 2,
+        // 3 840 samples in, so it is due 480 samples sooner.
+        let mut s = scheduler(0).with_offset(480);
+        s.resync(0);
+        assert_eq!(s.next_due(), 3_360);
+        let second = quarter_frames(tc(0, 0, 0, 2), FrameRate::Fps25);
+        assert_eq!(poll(&mut s, 3_359), Vec::<[u8; 2]>::new());
+        assert_eq!(poll(&mut s, 3_360), [second[0]]);
+    }
+
+    #[test]
+    fn negative_offset_should_hold_the_first_quarter_frame_back() {
+        let mut s = scheduler(0).with_offset(-480);
+        let full = s.resync(0);
+        assert_eq!(full[5..9], [0x20, 0x00, 0x00, 0x00]);
+        assert_eq!(s.next_due(), 480);
+        let first = quarter_frames(tc(0, 0, 0, 0), FrameRate::Fps25);
+        assert_eq!(poll(&mut s, 479), Vec::<[u8; 2]>::new());
+        assert_eq!(poll(&mut s, 480), [first[0]]);
+    }
+
+    #[test]
+    fn offset_should_shift_the_full_frame_after_a_seek() {
+        // 35 frames in, 2 frames ahead: the receiver is told frame 37, 00:00:01:12.
+        let mut s = scheduler(0).with_offset(2 * 1_920);
+        let full = s.resync(35 * 1_920);
+        assert_eq!(full[5..9], [0x20, 0x00, 0x01, 0x0C]);
     }
 }

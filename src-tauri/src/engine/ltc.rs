@@ -183,6 +183,9 @@ pub struct LtcStream {
     next_frame: u64,
     /// Samples of silence left before the first frame.
     lead_in: u64,
+    /// Samples the signal runs ahead of the transport: the timecode played at position `p` is the
+    /// one of `p + offset`. Negative runs behind.
+    offset: i64,
 }
 
 impl LtcStream {
@@ -198,17 +201,28 @@ impl LtcStream {
             played: 0,
             next_frame: 0,
             lead_in: 0,
+            offset: 0,
         }
+    }
+
+    /// Plays the timecode `offset` samples ahead of the transport (behind when negative), to make
+    /// up for the delay of the device.
+    pub fn with_offset(mut self, offset: i64) -> Self {
+        self.offset = offset;
+        self
     }
 
     /// Restarts at transport position `position` (samples since the timeline origin), after a
     /// start or a seek. A frame cannot start halfway, so the output is silent until the next one.
     pub fn resync(&mut self, position: u64) {
-        let mut frame = self.clock.samples_to_frames(position);
-        if self.clock.frames_to_samples(frame) < position {
+        // Before the timeline origin there is nothing to play yet: wait it out in silence.
+        let shifted = position as i64 + self.offset;
+        let from = shifted.max(0) as u64;
+        let mut frame = self.clock.samples_to_frames(from);
+        if self.clock.frames_to_samples(frame) < from {
             frame += 1;
         }
-        self.lead_in = self.clock.frames_to_samples(frame) - position;
+        self.lead_in = self.clock.frames_to_samples(frame) - from + shifted.min(0).unsigned_abs();
         self.next_frame = frame;
         self.encoder.start_at_frame(frame);
         self.frame.clear();
@@ -603,5 +617,48 @@ mod tests {
                 );
             }
         }
+    }
+    fn signal(mut stream: LtcStream, position: u64, len: usize) -> Vec<f32> {
+        stream.resync(position);
+        let mut out = vec![0.0; len];
+        stream.fill(&mut out);
+        out
+    }
+
+    #[test]
+    fn offset_should_play_the_timecode_of_the_shifted_position() {
+        let rate = FrameRate::Fps25;
+        let plain = || LtcStream::new(config(48_000, 0), rate, 0, 0);
+        // A positive offset runs ahead: at position 10 000 it plays what 10 000 + 960 would.
+        assert_eq!(
+            signal(plain().with_offset(960), 10_000, 8_000),
+            signal(plain(), 10_960, 8_000)
+        );
+        // A negative one runs behind.
+        assert_eq!(
+            signal(plain().with_offset(-960), 10_000, 8_000),
+            signal(plain(), 9_040, 8_000)
+        );
+    }
+
+    #[test]
+    fn offset_should_wait_in_silence_until_the_timeline_origin() {
+        let rate = FrameRate::Fps25;
+        let plain = || LtcStream::new(config(48_000, 0), rate, 0, 0);
+        // Position 100 with -500 is 400 samples before the origin: 400 silent samples, then frame 0.
+        let late = signal(plain().with_offset(-500), 100, 4_000);
+        let origin = signal(plain(), 0, 4_000 - 400);
+        assert!(late[..400].iter().all(|&s| s == 0.0));
+        assert_eq!(late[400..], origin[..]);
+    }
+
+    #[test]
+    fn no_offset_should_play_as_before() {
+        let rate = FrameRate::Fps25;
+        let plain = || LtcStream::new(config(48_000, 0), rate, 0, 0);
+        assert_eq!(
+            signal(plain().with_offset(0), 12_345, 8_000),
+            signal(plain(), 12_345, 8_000)
+        );
     }
 }
