@@ -5,7 +5,7 @@
 - Add **File > Close** in the editor. It follows the existing unsaved-changes flow; after saving or discarding, it opens the welcome window and closes the editor. Cancel keeps the editor open.
 - Keep the launcher and welcome windows above other application windows. The editor remains a normal window.
 - Align the welcome window controls with the editor controls at the far right of the title bar.
-- Add a deterministic project badge to each welcome recent-project row: a square gradient with up to three initials from the first three whitespace-delimited words in the project name.
+- Add a deterministic project badge to each welcome recent-project row: a square gradient with up to three initials from the first three whitespace- or camelCase-delimited words in the project name.
 
 ## Direction
 
