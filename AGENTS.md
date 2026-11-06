@@ -14,7 +14,7 @@ model with a REAPER-style timeline and track interface, in a modern look.
 
 The timeline has two views, switched with the EDIT | LIVE control (Ctrl+1 / Ctrl+2): **Edit** is the editor, and
 **Live** runs the show on stage, read-only apart from going to a cue. The backend owns everything Live shows: it derives
-the cues from the project and computes their state and countdowns (`src-tauri/src/engine/cues.rs`), and the UI
+the cues from the project and computes their state and countdowns (`src-tauri/crates/flux-engine/src/cues.rs`), and the UI
 (`src/live/`) only draws it. See [docs/timecode-signals.md](docs/timecode-signals.md).
 
 ## Project file format
@@ -28,7 +28,7 @@ Projects use the `.fxtc` extension. A `.fxtc` is a **zip container** holding:
 - The **audio files** used by the project's tracks, bundled in the archive so a project is self-contained and portable.
 
 The full spec (layout, fields, versioning, device-name hints) is in [docs/fxtc-format.md](docs/fxtc-format.md); the
-code is `src-tauri/src/project/`.
+code is `src-tauri/crates/flux-project/`.
 
 ## Logging and diagnostics
 
@@ -39,8 +39,35 @@ lane write it. See [docs/diagnostics.md](docs/diagnostics.md).
 
 ## Stack
 
-- Rust + Tauri v2 for the backend (`src-tauri/`).
+- Rust + Tauri v2 for the backend (`src-tauri/`), a Cargo workspace (see below).
 - React + TypeScript for the UI (`src/`).
+
+## Responsibilities: backend vs frontend
+
+**The Rust backend does all the logic and every complex operation; the frontend only shows state and information.**
+
+- Backend: validation, editing operations (add/move/remove/split/retarget), ordering, derived data (cues, labels'
+  notation, countdowns), timing, device and network access, file formats. It answers with the resulting state.
+- Frontend: renders what the backend sends, forwards the user's intent (a click, a typed value, a drag end) and
+  translates words through `src/i18n`. No parsing, sorting, validation rules, scheduling or other processing beyond
+  formatting for display.
+- A new operation is a backend command that takes the project, applies the change and returns the new state, which the
+  UI shows with the `apply` action (so it enters the undo history). Follow `timeline_*`, `clip_edit` and `cue_edit`.
+  The pure edits in `src/state/edit.ts` predate this rule: do not grow them with new logic.
+
+## Backend workspace (`src-tauri/`)
+
+`src-tauri/Cargo.toml` is the app crate (Tauri glue: commands, windows, diagnostics, recents) and the workspace root.
+The logic lives in `src-tauri/crates/`, none of which depends on Tauri:
+
+| Crate | Holds |
+| --- | --- |
+| `flux-core` | `FrameRate`, `Timecode`, the sample `Clock`, `ENGINE_RATE`. |
+| `flux-project` | The `.fxtc` model, archive, migrations, the editing `Session` and its operations. |
+| `flux-audio` | Decoding, waveform peaks, tempo detection. |
+| `flux-engine` | Transport, LTC/MTC, mixer, cues, outputs, device lookup, cue firing (MIDI/OSC). |
+
+New heavy or native dependencies (e.g. video) go in a crate of their own. The app crate only wires commands to them.
 
 This is the standard Tauri v2 layout, scaffolded from `create-tauri-app` (`react-ts` template, npm). The UI follows
 the "Bench Instrument" design recorded in `PRODUCT.md` and `DESIGN.md`; read them before UI work. Every user-facing
@@ -75,7 +102,7 @@ the task matches:
   - `npm run tauri build` — production bundle.
   - `npm run typecheck` — TypeScript check (`tsc --noEmit`).
   - `npm test` — frontend unit tests (`node --test`, no dependencies).
-  - `cargo fmt --check`, `cargo clippy`, `cargo test` — from `src-tauri/`.
+  - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets`, `cargo test --workspace` — from `src-tauri/`.
 
 ## Git workflow
 

@@ -2,7 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { LiveState } from "../live/api";
 import type { Project, Tempo } from "../project/types";
 
-// Mirrors src-tauri/src/engine/output.rs and src-tauri/src/transport_commands.rs.
+// Mirrors src-tauri/crates/flux-engine/src/output.rs and src-tauri/src/transport_commands.rs.
 
 export type TransportState = "stopped" | "playing" | "paused";
 

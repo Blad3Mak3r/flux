@@ -1,4 +1,4 @@
-// Mirrors the Rust model in src-tauri/src/project/model.rs (the `project.json` shape).
+// Mirrors the Rust model in src-tauri/crates/flux-project/src/model.rs (the `project.json` shape).
 // Positions are frame counts at the frame rate of the timeline they are in.
 
 export type FrameRate = "fps24" | "fps25" | "fps2997Drop" | "fps30";

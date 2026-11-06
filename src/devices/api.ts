@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// Mirrors src-tauri/src/devices.rs. Nothing is cached on the backend: call a list again to refresh.
+// Mirrors src-tauri/crates/flux-engine/src/devices.rs. Nothing is cached on the backend: call a list again to refresh.
 
 export interface AudioDevice {
   name: string;

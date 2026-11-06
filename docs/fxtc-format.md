@@ -1,6 +1,6 @@
 # `.fxtc` project format (v4)
 
-A `.fxtc` file is a zip archive. Implementation: `src-tauri/src/project/`.
+A `.fxtc` file is a zip archive. Implementation: `src-tauri/crates/flux-project/src/`.
 
 ```
 project.json          deflated
@@ -97,7 +97,7 @@ Devices are machine-specific, so a project stores a **name hint** only (`deviceN
 identifier. Resolving the hint to a device, and the fallback when it is missing, happens when the project is opened.
 An empty `deviceName` means the system's default output device, which is what plays when a project names none.
 
-Implementation: `src-tauri/src/devices.rs` (cpal for audio, midir for MIDI), wrappers in `src/devices/api.ts`.
+Implementation: `src-tauri/crates/flux-engine/src/devices.rs` (cpal for audio, midir for MIDI), wrappers in `src/devices/api.ts`.
 Nothing is cached, so calling a list command again is the refresh after a hot-plug.
 
 | Command | Arguments | Result |

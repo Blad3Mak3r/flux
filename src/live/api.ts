@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Project } from "../project/types";
 
-// Mirrors src-tauri/src/engine/cues.rs and src-tauri/src/live_commands.rs. The backend derives the
+// Mirrors src-tauri/crates/flux-engine/src/cues.rs and src-tauri/src/live_commands.rs. The backend derives the
 // cues and says where the show stands; nothing here orders, compares or formats them.
 
 export type CueKind = "audio" | "note";

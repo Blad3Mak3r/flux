@@ -1,4 +1,4 @@
-// Timecode maths for the UI. Mirrors src-tauri/src/engine/timecode.rs: keep the two in step.
+// Timecode maths for the UI. Mirrors src-tauri/crates/flux-core/src/timecode.rs: keep the two in step.
 // Erasable syntax only, so `node --test` can run it without a build step.
 
 import type { FrameRate } from "./project/types";

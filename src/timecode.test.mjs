@@ -1,4 +1,4 @@
-// Run with `npm test`. Expected values are the ones in src-tauri/src/engine/timecode.rs.
+// Run with `npm test`. Expected values are the ones in src-tauri/crates/flux-core/src/timecode.rs.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {

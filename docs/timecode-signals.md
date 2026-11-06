@@ -1,6 +1,6 @@
 # Timecode signals
 
-Pure encoders in `src-tauri/src/engine/`. They only build bits, bytes and samples; the transport decides when to
+Pure encoders in `src-tauri/crates/flux-engine/src/` (`flux-core` for timecode and the clock). They only build bits, bytes and samples; the transport decides when to
 send them. Frame math (`Timecode` <-> frame count, 29.97 drop-frame) is `timecode.rs`.
 
 ## LTC (`ltc.rs`)
