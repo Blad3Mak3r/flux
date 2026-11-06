@@ -1,4 +1,4 @@
-// Mirrors the Rust model in src-tauri/src/project/model.rs (the `project.json` shape).
+// Mirrors the Rust model in src-tauri/crates/flux-project/src/model.rs (the `project.json` shape).
 // Positions are frame counts at the frame rate of the timeline they are in.
 
 export type FrameRate = "fps24" | "fps25" | "fps2997Drop" | "fps30";
@@ -81,7 +81,55 @@ export interface Track {
 
 export type TrackKind =
   | { type: "audio"; clips: AudioClip[] }
-  | { type: "notes"; notes: Note[] };
+  | { type: "notes"; notes: Note[] }
+  | { type: "midi"; port?: MidiPortRef; events: MidiEvent[] }
+  | { type: "osc"; destination?: string; events: OscEvent[] };
+
+/** The MIDI port a track sends to, stored as a name hint like the MTC ports. */
+export interface MidiPortRef {
+  portName: string;
+  /** Which of the ports with this name it is, counting from 0 in the system's order; 0 when absent. */
+  portIndex?: number;
+}
+
+/** A message sent at a point of the timeline. Channels are 1 to 16, other numbers 0 to 127. */
+export interface MidiEvent {
+  id: string;
+  at: number;
+  message: MidiMessage;
+}
+
+export type MscCommand = "go" | "stop" | "resume";
+
+export type MidiMessage =
+  | { type: "noteOn"; channel: number; note: number; velocity: number; length?: number }
+  | { type: "noteOff"; channel: number; note: number }
+  | { type: "controlChange"; channel: number; controller: number; value: number }
+  | { type: "programChange"; channel: number; program: number }
+  | { type: "msc"; deviceId: number; format: number; command: MscCommand; cue?: string; list?: string }
+  | { type: "sysEx"; data: number[] };
+
+export type OscArg =
+  | { type: "int"; value: number }
+  | { type: "float"; value: number }
+  | { type: "string"; value: string }
+  | { type: "bool"; value: boolean };
+
+export interface OscEvent {
+  id: string;
+  at: number;
+  /** Starts with `/`. */
+  address: string;
+  args?: OscArg[];
+}
+
+/** An OSC receiver (UDP), defined once for the project and chosen by the tracks that send to it. */
+export interface OscDestination {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+}
 
 export interface AudioClip {
   id: string;
@@ -126,6 +174,8 @@ export interface OutputConfig {
   ltc: LtcOutputConfig[];
   /** Any number of MIDI ports that receive MTC. */
   mtc: MtcOutputConfig[];
+  /** The OSC receivers the OSC tracks send to. Absent: none. */
+  osc?: OscDestination[];
 }
 
 export interface MetronomeOutputConfig {

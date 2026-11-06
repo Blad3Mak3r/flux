@@ -17,6 +17,7 @@ import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
 import { reorderTrack } from "../state/actions";
 import { snapFrame } from "../state/snap";
+import { addCueTrack } from "../state/cues";
 import { addNoteAt, importAudioFiles } from "../state/workflows";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
@@ -36,8 +37,10 @@ function contentEnd(timeline: TimelineData, audio: Record<string, AssetAudio>, f
   for (const track of timeline.tracks) {
     if (track.kind.type === "audio") {
       for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(clip, audio[clip.asset], fps, guess));
-    } else {
+    } else if (track.kind.type === "notes") {
       for (const note of track.kind.notes) end = Math.max(end, note.at + (note.length ?? 25));
+    } else {
+      for (const event of track.kind.events) end = Math.max(end, event.at + 25);
     }
   }
   return end;
@@ -262,6 +265,14 @@ export function Timeline() {
             <button type="button" className="add-note" onClick={() => addNoteAt(t)} title={`${t("tracks.addNote")} (N)`}>
               <PlusIcon />
               {t("tracks.addNote")}
+            </button>
+            <button type="button" className="add-note" onClick={() => void addCueTrack("midi", t("track.kind.midi"))}>
+              <PlusIcon />
+              {t("tracks.addMidi")}
+            </button>
+            <button type="button" className="add-note" onClick={() => void addCueTrack("osc", t("track.kind.osc"))}>
+              <PlusIcon />
+              {t("tracks.addOsc")}
             </button>
           </div>
         </div>

@@ -10,15 +10,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tauri::{AppHandle, State};
 
-use crate::audio::{ENGINE_RATE, SharedAudio};
-use crate::engine::transport::Clock;
 use crate::live_commands::samples_of;
-use crate::project::{
-    AudioAsset, ClipOp, Document, FrameRate, OffsetKind, Project, ProjectError, ProjectState,
-    Result, Session,
-};
 use crate::recents;
 use crate::transport_commands::{SharedOutput, is_playing, release};
+use flux_audio::{ENGINE_RATE, SharedAudio};
+use flux_core::Clock;
+use flux_project::{
+    AudioAsset, ClipOp, CueEdited, CueOp, Document, FrameRate, OffsetKind, Project, ProjectError,
+    ProjectState, Result, Session,
+};
 
 pub type SharedSession = Arc<Mutex<Session>>;
 
@@ -242,6 +242,21 @@ pub async fn clip_edit(
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Edits the MIDI and OSC tracks and the OSC destinations (see [`CueOp`]); the answer is the project
+/// with the edit made, and the id of what it created.
+#[tauri::command]
+pub async fn cue_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: CueOp,
+) -> Result<CueEdited> {
+    run(&session, move |s| {
+        s.update(project);
+        s.cue_edit(op)
+    })
+    .await
 }
 
 /// Sets the latency offset of an LTC or MTC output to the ms typed; the answer is the project with

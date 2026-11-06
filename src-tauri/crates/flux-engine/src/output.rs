@@ -19,28 +19,30 @@ use cpal::{FromSample, Sample, SampleFormat, SizedSample};
 use serde::{Serialize, Serializer};
 use thiserror::Error;
 
+use super::cue_routes::{CueInfo, CueRoutes};
 use super::ltc::{LtcConfig, LtcStream};
 use super::metronome::{ClickOut, SharedMetronome};
 use super::mixer::{ClipSet, MIX_CHUNK, Programme, SharedLevels};
 use super::mtc::MtcScheduler;
-use super::transport::{Clock, Command, Transport, TransportState};
-use crate::audio::ENGINE_RATE;
+use super::transport::{Command, Transport, TransportState};
 use crate::devices;
-use crate::project::{
-    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, Project, ProjectError, Tempo, Timeline,
+use flux_audio::ENGINE_RATE;
+use flux_core::Clock;
+use flux_project::{
+    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, OscDestination, Project, ProjectError, Tempo, Timeline,
 };
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
 /// The longest the MTC thread sleeps before it looks at the transport again.
-const MTC_TICK: Duration = Duration::from_millis(1);
+pub(crate) const MTC_TICK: Duration = Duration::from_millis(1);
 /// The last stretch before a quarter frame that the MTC thread spins instead of sleeping, because a
 /// sleep can overshoot by more than this.
-const MTC_SPIN: Duration = Duration::from_micros(200);
+pub(crate) const MTC_SPIN: Duration = Duration::from_micros(200);
 /// The audio thread keeps its stream alive and wakes up this often to see whether to stop.
 const AUDIO_PARK: Duration = Duration::from_millis(50);
 /// The published position is one buffer old at most; extrapolating further than this would only
 /// hide a stalled stream.
-const MAX_EXTRAPOLATION: Duration = Duration::from_millis(100);
+pub(crate) const MAX_EXTRAPOLATION: Duration = Duration::from_millis(100);
 /// A metronome on a device of its own starts over from the master's position only when it is this
 /// far away (10 ms): a click is a short sound, so it must follow the master closely, but the
 /// extrapolated position jitters by a millisecond or two and each start-over is a jump in the click.
@@ -151,7 +153,7 @@ pub struct SharedClock {
     shows_ended: AtomicU64,
     /// The faults the streams and the MTC thread report. Only counted here: a lane thread reads
     /// them and writes the log, because nothing on those threads may wait for a file.
-    faults: [AtomicU64; 3],
+    faults: [AtomicU64; 4],
 }
 
 /// What a [`SharedClock`] counts going wrong.
@@ -163,6 +165,8 @@ pub struct Faults {
     pub stream_errors: u64,
     /// MIDI messages that could not be sent.
     pub mtc_errors: u64,
+    /// MIDI or OSC messages of the cue tracks that could not be sent.
+    pub cue_errors: u64,
 }
 
 impl SharedClock {
@@ -201,12 +205,18 @@ impl SharedClock {
         self.faults[2].fetch_add(1, Ordering::Relaxed);
     }
 
+    /// A message of a cue track could not be sent.
+    pub(crate) fn cue_failed(&self) {
+        self.faults[3].fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn faults(&self) -> Faults {
-        let [xruns, stream_errors, mtc_errors] = &self.faults;
+        let [xruns, stream_errors, mtc_errors, cue_errors] = &self.faults;
         Faults {
             xruns: xruns.load(Ordering::Relaxed),
             stream_errors: stream_errors.load(Ordering::Relaxed),
             mtc_errors: mtc_errors.load(Ordering::Relaxed),
+            cue_errors: cue_errors.load(Ordering::Relaxed),
         }
     }
 
@@ -658,6 +668,8 @@ pub struct OutputInfo {
     pub mtc: Vec<MtcInfo>,
     /// Where the metronome plays; `None` when the project has no metronome output.
     pub metronome: Option<MetronomeInfo>,
+    /// One entry per MIDI port and OSC destination the cue tracks of the timeline send to.
+    pub cues: Vec<CueInfo>,
     /// Things that did not stop the output but the user should know, e.g. a missing MIDI port.
     pub warnings: Vec<String>,
 }
@@ -750,17 +762,23 @@ pub struct Output {
     metronome: Option<Arc<SharedMetronome>>,
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
+    /// The threads that fire the MIDI and OSC cue tracks.
+    cues: CueRoutes,
+    /// Whether the cue tracks fire at all. Auditioning in Edit on a preview device does not.
+    fire_cues: bool,
     info: OutputInfo,
 }
 
 impl Output {
     /// Opens the devices a project's `output` section names and starts the stream, stopped at
     /// the timeline start. The audio device is required because its clock drives everything; a
-    /// missing MIDI port only produces a warning.
+    /// missing MIDI port only produces a warning. With `fire_cues` off (an audition) the MIDI and OSC
+    /// tracks stay silent.
     pub fn start(
         project: &Project,
         timeline: &Timeline,
         programme: Programme,
+        fire_cues: bool,
     ) -> Result<Self, OutputError> {
         let output = &project.output;
         let driver = output.driver.as_deref();
@@ -962,7 +980,7 @@ impl Output {
             }
             let here = mtc_info.len();
             by_hint.insert((hint, mtc.port_index), here);
-            let result = match connect_midi(hint, mtc.port_index) {
+            let result = match connect_midi(hint, mtc.port_index, MIDI_CLIENT_NAME) {
                 Ok((at, _, _)) if by_port.contains_key(&at) => mtc_info[by_port[&at]].clone(),
                 Ok((at, name, connection)) => {
                     by_port.insert(at, here);
@@ -989,8 +1007,8 @@ impl Output {
                         }
                     }
                 }
-                Err(warning) => {
-                    warnings.push(warning);
+                Err(reason) => {
+                    warnings.push(format!("MTC is off, {reason}"));
                     MtcInfo {
                         port: hint.to_owned(),
                         ok: false,
@@ -1000,6 +1018,14 @@ impl Output {
             mtc_info.push(result);
         }
 
+        // The cue tracks: one thread per MIDI port and per OSC destination.
+        let mut cues = CueRoutes::new(clock, Arc::clone(&shared), Arc::clone(&stop));
+        let cue_info = if fire_cues {
+            cues.apply(timeline, &output.osc, &mut warnings)
+        } else {
+            Vec::new()
+        };
+
         let info = OutputInfo {
             device: audio.device,
             sample_rate: ltc_config.sample_rate,
@@ -1007,6 +1033,7 @@ impl Output {
             ltc: ltc_info,
             mtc: mtc_info,
             metronome: metronome_info,
+            cues: cue_info,
             warnings,
         };
         Ok(Self {
@@ -1021,8 +1048,21 @@ impl Output {
             metronome: click.map(|(_, _, spec)| spec.shared),
             stop,
             threads,
+            cues,
+            fire_cues,
             info,
         })
+    }
+
+    /// Follows an edit of the cue tracks while the show runs: the schedules are replaced, carrying
+    /// on from the position, and a port or destination that is new is opened now. Returns the
+    /// reasons for those that could not be.
+    pub fn set_events(&mut self, timeline: &Timeline, osc: &[OscDestination]) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if self.fire_cues {
+            self.cues.apply(timeline, osc, &mut warnings);
+        }
+        warnings
     }
 
     /// Follows an edit of the active timeline's tempo or click switch while the show runs.
@@ -1072,7 +1112,7 @@ impl Output {
 impl Drop for Output {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        for handle in self.threads.drain(..) {
+        for handle in self.threads.drain(..).chain(self.cues.threads.drain(..)) {
             handle.thread().unpark();
             let _ = handle.join();
         }
@@ -1468,33 +1508,34 @@ where
 /// Connects to the MIDI output port a project's name hint refers to, the `index`-th one of that
 /// name. Returns the port's position in the system's list, its name and the connection. The error
 /// is a message for the user, since a missing port is not fatal.
-fn connect_midi(
+pub(crate) fn connect_midi(
     hint: &str,
     index: usize,
+    client: &str,
 ) -> Result<(usize, String, midir::MidiOutputConnection), String> {
-    let output = midir::MidiOutput::new(MIDI_CLIENT_NAME)
-        .map_err(|err| format!("MTC is off, MIDI is unavailable: {err}"))?;
+    let output =
+        midir::MidiOutput::new(client).map_err(|err| format!("MIDI is unavailable: {err}"))?;
     let ports: Vec<(String, midir::MidiOutputPort)> = output
         .ports()
         .into_iter()
         .filter_map(|port| Some((output.port_name(&port).ok()?, port)))
         .collect();
     let (name, port) = devices::find_by_name(hint, &ports, index, |(name, _)| name)
-        .ok_or_else(|| format!("MTC is off, MIDI port not found: {hint}"))?;
+        .ok_or_else(|| format!("MIDI port not found: {hint}"))?;
     let name = name.clone();
     let at = ports
         .iter()
         .position(|(_, other)| other == port)
         .unwrap_or(0);
     output
-        .connect(port, "Flux Timecode MTC")
+        .connect(port, client)
         .map(|connection| (at, name.clone(), connection))
-        .map_err(|err| format!("MTC is off, cannot open {name}: {err}"))
+        .map_err(|err| format!("cannot open {name}: {err}"))
 }
 
 /// How the MTC thread waits for the next quarter frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MtcWait {
+pub(crate) enum MtcWait {
     Park(Duration),
     /// Busy-wait this long: the quarter frame is closer than the OS can promise to wake us.
     Spin(Duration),
@@ -1503,7 +1544,7 @@ enum MtcWait {
 /// Parks until shortly before the quarter frame is due, then spins the rest, so the message goes
 /// out when it falls due and not up to a timer tick later. `fresh` is false when the published
 /// position is old enough that waiting for it to reach the deadline could never end.
-fn mtc_wait(until_due: Duration, fresh: bool) -> MtcWait {
+pub(crate) fn mtc_wait(until_due: Duration, fresh: bool) -> MtcWait {
     if !fresh {
         MtcWait::Park(MTC_TICK)
     } else if until_due <= MTC_SPIN {
@@ -1563,7 +1604,7 @@ fn run_mtc(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::ltc::{LtcConfig, LtcStream};
+    use crate::ltc::{LtcConfig, LtcStream};
 
     const RATE: FrameRate = FrameRate::Fps25;
 
@@ -1805,8 +1846,8 @@ mod tests {
         assert_eq!(pick_config(&[range(2, SampleFormat::F32)], 8, 48_000), None);
     }
 
-    use crate::audio::Decoded;
-    use crate::engine::mixer::ClipPlayer;
+    use crate::mixer::ClipPlayer;
+    use flux_audio::Decoded;
 
     /// A clip of constant stereo samples, as 16-bit values, that starts at the timeline origin.
     fn clip(left: i16, right: i16, frames: usize) -> ClipSet {
@@ -2542,6 +2583,7 @@ mod tests {
                 port: "IAC".into(),
                 ok: false,
             }],
+            cues: vec![],
             metronome: Some(MetronomeInfo {
                 device: "Band".into(),
                 ok: true,

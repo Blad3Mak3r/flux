@@ -2,7 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { LiveState } from "../live/api";
 import type { Project, Tempo } from "../project/types";
 
-// Mirrors src-tauri/src/engine/output.rs and src-tauri/src/transport_commands.rs.
+// Mirrors src-tauri/crates/flux-engine/src/output.rs and src-tauri/src/transport_commands.rs.
 
 export type TransportState = "stopped" | "playing" | "paused";
 
@@ -17,8 +17,17 @@ export interface OutputInfo {
   mtc: MtcInfo[];
   /** Where the metronome plays; `null` when the project has no metronome output. */
   metronome: MetronomeInfo | null;
+  /** One entry per MIDI port and OSC destination the cue tracks of the timeline send to. */
+  cues: CueInfo[];
   /** Things that did not stop the output, e.g. a missing MIDI port. */
   warnings: string[];
+}
+
+/** How one destination of the cue tracks ended up; when it did not open, `target` is the name the project holds. */
+export interface CueInfo {
+  kind: "midi" | "osc";
+  target: string;
+  ok: boolean;
 }
 
 /** How one LTC output ended up; when it did not open, `device` is the name the project holds. */
@@ -74,9 +83,10 @@ export interface OutputLanes {
  * Opens the devices the project's `output` names; replaces a running output. Position, levels and
  * the state of the show come over one channel each, which live as long as this output does, so the
  * meters can never hold up the timecode. With `advance`, the backend makes the next timeline the
- * active one when the show runs to its end (see `bindTimelineAdvance`).
+ * active one when the show runs to its end (see `bindTimelineAdvance`). With `audition` the MIDI and
+ * OSC cue tracks stay silent: Edit is auditioning on a preview device.
  */
-export function startOutput(project: Project, advance: boolean, lanes: OutputLanes): Promise<OutputInfo> {
+export function startOutput(project: Project, advance: boolean, audition: boolean, lanes: OutputLanes): Promise<OutputInfo> {
   const position = new Channel<Position>();
   position.onmessage = lanes.onPosition;
   const levels = new Channel<TrackPeak[]>();
@@ -86,6 +96,7 @@ export function startOutput(project: Project, advance: boolean, lanes: OutputLan
   return invoke<OutputInfo>("output_start", {
     project,
     advance,
+    audition,
     onPosition: position,
     onLevels: levels,
     onLive: live,

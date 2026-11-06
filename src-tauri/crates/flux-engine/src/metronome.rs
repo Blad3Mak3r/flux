@@ -9,7 +9,7 @@
 use std::f32::consts::TAU;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
-use crate::project::{MAX_BPM, MIN_BPM, Tempo};
+use flux_project::{MAX_BPM, MIN_BPM, Tempo};
 
 /// How long a click rings, in seconds.
 const CLICK_SECONDS: f64 = 0.03;

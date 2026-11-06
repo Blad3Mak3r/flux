@@ -28,7 +28,7 @@ that renders faster than real time; the show ending; and fault counts.
 
 ### Faults and the audio threads
 
-Audio callbacks must not allocate or wait, so they never log. The stream error callbacks and `flux-mtc` count into
+Audio callbacks must not allocate or wait, so they never log. The stream error callbacks, `flux-mtc`, `flux-midi` and `flux-osc` count into
 `SharedClock::faults`:
 
 | Counter | Counts |
@@ -36,6 +36,7 @@ Audio callbacks must not allocate or wait, so they never log. The stream error c
 | `xruns` | `cpal::ErrorKind::Xrun`: the device under- or overran its buffer, heard as a dropout. The device stays in use. |
 | `stream_errors` | Every other stream error. The device is marked lost. |
 | `mtc_errors` | MIDI messages that could not be sent. |
+| `cue_errors` | Messages of the MIDI and OSC cue tracks that could not be sent (`flux-midi`, `flux-osc`). |
 
 The `flux-log` lane (`diagnostics/lane.rs`) compares them every ~33 ms and writes one line at most each second, e.g.
 `3 audio dropouts, 1 MIDI messages not sent`. cpal has no counter for late callbacks beyond `Xrun`; the existing

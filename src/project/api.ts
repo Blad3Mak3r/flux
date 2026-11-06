@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import type { AudioAsset, FrameRate, Project, ProjectState } from "./types";
+import type { AudioAsset, FrameRate, MidiMessage, MidiPortRef, OscArg, Project, ProjectState } from "./types";
 
 /** The document the backend holds for the window: the project, where it lives and how it started. */
 export interface BackendDocument {
@@ -80,6 +80,30 @@ export type ClipOp = "trimStart" | "trimEnd" | "fadeIn" | "fadeOut" | "split";
 /** Trims, fades or splits a clip of the active timeline at `frame` of it; answers with the project as it is now. */
 export const clipEdit = (project: Project, id: string, op: ClipOp, frame: number) =>
   invoke<ProjectState>("clip_edit", { project, id, op, frame });
+
+/** Which kind of cue track an operation is about. */
+export type CueTrackKind = "midi" | "osc";
+
+/** What can be done to the MIDI and OSC tracks and the OSC destinations; the backend decides how (see `project/cue_ops.rs`). */
+export type CueOp =
+  | { op: "addTrack"; kind: CueTrackKind; name: string }
+  | { op: "addEvent"; trackId?: string; kind: CueTrackKind; at: number; trackName: string }
+  | { op: "setMidi"; id: string; message: MidiMessage }
+  | { op: "setOsc"; id: string; address: string; args: OscArg[] }
+  | { op: "moveEvent"; id: string; at: number }
+  | { op: "removeEvent"; id: string }
+  | { op: "setMidiPort"; trackId: string; port: MidiPortRef | null }
+  | { op: "setOscDestination"; trackId: string; destination: string | null }
+  | { op: "addDestination"; name: string; host: string; port: number }
+  | { op: "updateDestination"; id: string; name: string; host: string; port: number }
+  | { op: "removeDestination"; id: string };
+
+/** The project after a cue operation, and the id of what it created. */
+export interface CueEdited extends ProjectState {
+  id: string | null;
+}
+
+export const cueEdit = (project: Project, op: CueOp) => invoke<CueEdited>("cue_edit", { project, op });
 
 /** Which kind of timecode output a setting is for. */
 export type OutputKind = "ltc" | "mtc";

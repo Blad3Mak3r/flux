@@ -12,8 +12,7 @@ use symphonia::core::meta::MetadataOptions;
 
 use super::error::AudioError;
 
-/// The sample rate the output stream runs at, and so the rate everything is decoded to.
-pub const ENGINE_RATE: u32 = 48_000;
+pub use flux_core::ENGINE_RATE;
 
 const RESAMPLE_CHUNK: usize = 1024;
 

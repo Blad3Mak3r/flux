@@ -1,6 +1,6 @@
-# `.fxtc` project format (v4)
+# `.fxtc` project format (v5)
 
-A `.fxtc` file is a zip archive. Implementation: `src-tauri/src/project/`.
+A `.fxtc` file is a zip archive. Implementation: `src-tauri/crates/flux-project/src/`.
 
 ```
 project.json          deflated
@@ -24,7 +24,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `4`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `5`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
@@ -35,10 +35,11 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `timelines[].tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | Track, clip and note ids are unique in the **whole project**, not per timeline. `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
 | `output.driver` | string | Optional. The audio driver (API) every audio device below is opened through: `"ALSA"`, `"PipeWire"`, `"JACK"`, `"WASAPI"`, `"CoreAudio"`, ... Absent means the system's default driver, which is also what plays when this machine does not have the named one. Setting it sends every `deviceName` below back to `""` (that driver's default device), since names belong to one driver. Added without a version bump. |
 | `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
-| `output.preview` | `{ deviceName, channels }` | Optional. Interface the Edit view auditions the clips on, with its own 1-based `channels`. While it is set, Edit plays only the audio there and sends no LTC or MTC; Live always uses `output.audio`, `output.ltc` and `output.mtc`. Absent (the file leaves it out) means Edit plays like Live. Added without a version bump. |
+| `output.preview` | `{ deviceName, channels }` | Optional. Interface the Edit view auditions the clips on, with its own 1-based `channels`. While it is set, Edit plays only the audio there and sends no LTC, MTC, MIDI or OSC cues; Live always uses `output.audio`, `output.ltc` and `output.mtc`. Absent (the file leaves it out) means Edit plays like Live. Added without a version bump. |
 | `output.metronome` | `{ deviceName, channels, gainDb? }` | Optional. Where the metronome clicks, on a device, 1-based `channels` (a pair plays the click on both) and level of its own, apart from the programme. Absent means no click plays whatever `tempo.click` says. Kept in Edit even when `output.preview` is set. Added without a version bump. |
 | `output.ltc` | `[{ deviceName, channel, level? }]` | LTC outputs, any number, each through an audio interface; `channel` is 1-based. `level` is the peak of the signal, linear from 0 to 1 (anything else is rejected on open and save); absent is 0.5 (-6 dBFS). Each output plays at its own level, also when several share a device. `offsetMs` is an optional latency offset, in whole ms within ±1000 (anything else is rejected on open and save): positive emits the timecode earlier, negative later; absent is 0 and the transport time shown is unchanged. Both added without a version bump. An entry may share a device with `output.audio` (its channel is written into the programme's stream) or name another one, which gets a stream of its own, shared by every entry that names it. A repeated device and channel plays once, at the level of the first entry. Absent is an empty list. |
 | `output.mtc` | `[{ portName, portIndex? }]` | MTC outputs, any number, each through a MIDI port, each with its own thread. `portIndex` tells apart ports that share a name (two interfaces of one model): it counts from 0 among the ports with that name, in the order the system lists them; absent is 0, the first. `offsetMs` is the same optional latency offset as in `output.ltc`. A port that is not there (fewer ports of that name than the index) is reported as not connected. Added without a version bump. Absent is an empty list. |
+| `output.osc` | `[{ id, name, host, port }]` | The OSC receivers (UDP) the OSC tracks send to, defined once for the project. `id` is unique among them; `host` is a name or an address without spaces, `port` 1 to 65535. A host that does not resolve is reported when the output opens and never blocks the project. Absent is an empty list. Added in version 5. |
 
 Track kinds:
 
@@ -57,8 +58,25 @@ Track kinds:
   clips cut from one another share that frame, so a clip split in two plays back sample for sample like the original.
 - `{ "type": "notes", "notes": [{ id, at, length?, text }] }` — text for the operator at frame `at` (counted from the
   timeline origin). `text` may have several lines. A note is shown for `length` frames (at least 1) or, when `length` is
-  absent, until the next note of its track starts. Other kinds of track (video, Art-Net, MIDI keys, OSC) will be added as
-  new kinds.
+  absent, until the next note of its track starts.
+- `{ "type": "midi", "port"?: { portName, portIndex? }, "events": [{ id, at, message }] }` — MIDI messages sent at frame
+  `at` to the track's port, resolved by name like the MTC ports (`portIndex` counts from 0 among ports of the same
+  name). A track with no `port`, or whose port is not connected, sends nothing and is reported as a warning. `message`
+  is tagged by `type`; channels are **1 to 16**, every other number 0 to 127:
+  - `noteOn { channel, note, velocity, length? }`: with `length` (frames, at least 1) the note is released by itself
+    that many frames later.
+  - `noteOff { channel, note }`, `controlChange { channel, controller, value }`, `programChange { channel, program }`.
+  - `msc { deviceId, format, command: "go" | "stop" | "resume", cue?, list? }`: MIDI Show Control, sent as
+    `F0 7F <deviceId> 02 <format> <command> <cue> 00 <list> F7`. `format` is 1 to 127 (1 lighting, 127 every kind);
+    `cue` and `list` are digits and dots, and a `list` needs a `cue`.
+  - `sysEx { data }`: the bytes between `F0` and `F7`, each below `0x80`, at least one.
+- `{ "type": "osc", "destination"?: "<id of output.osc>", "events": [{ id, at, address, args? }] }` — OSC messages sent
+  at frame `at` to the track's destination. `address` starts with `/` and has no spaces. `args` are tagged
+  `{ "type": "int" | "float" | "string" | "bool", "value": … }` and sent as `i`, `f`, `s`, `T`/`F`. A destination that
+  is not in `output.osc` is rejected on open and save; one that is absent sends nothing.
+
+Other kinds of track (video, Art-Net) will be added as new kinds. Events are kept in order of `at`; event ids share the
+namespace of clip and note ids.
 
 Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/note ids
 (the last two kinds share one namespace). Output channels must be at least 1, and `output.audio.channels` must not
@@ -97,7 +115,7 @@ Devices are machine-specific, so a project stores a **name hint** only (`deviceN
 identifier. Resolving the hint to a device, and the fallback when it is missing, happens when the project is opened.
 An empty `deviceName` means the system's default output device, which is what plays when a project names none.
 
-Implementation: `src-tauri/src/devices.rs` (cpal for audio, midir for MIDI), wrappers in `src/devices/api.ts`.
+Implementation: `src-tauri/crates/flux-engine/src/devices.rs` (cpal for audio, midir for MIDI), wrappers in `src/devices/api.ts`.
 Nothing is cached, so calling a list command again is the refresh after a hot-plug.
 
 | Command | Arguments | Result |
@@ -145,6 +163,8 @@ is the one it keeps. Saving writes the current version, which older builds canno
   becomes a one-item list, and `null` or absent an empty list (the model reads all three shapes).
 - **3**: added `meta`. A file without it gets a new `id` and a creation and modification date taken from the file's own
   modification time.
+- **5**: added the `midi` and `osc` track kinds and `output.osc`. Nothing was reshaped, so there is no migration; the
+  bump makes an older build say the file is newer instead of failing on an unknown track kind.
 - **4**: `timecode` and `tracks` moved from the top level into `timelines`. An older file becomes a project with one
   timeline, named like the project, with a new `id`. The listing of recent projects reads the frame rate of the first
   timeline and the tracks of all of them (it also reads the older top-level shape).
@@ -175,6 +195,7 @@ Defined in `src-tauri/src/commands.rs`, typed wrappers (with the file dialogs) i
 | `project_open` | `path` | The `Project` read from that `.fxtc`. |
 | `project_import_audio` | `path` | An `AudioAsset` (generated id, file `audio/<id>_<name>`) to add to the project. |
 | `project_save` | `project`, `path` | Writes the archive; afterwards all assets are read from `path`. |
+| `cue_edit` | `project`, `op` | Edits the MIDI and OSC tracks and the OSC destinations. `op` is tagged by `op`: `addTrack`, `addEvent` (a valid default event; the track is picked or created), `setMidi`, `setOsc`, `moveEvent`, `removeEvent`, `setMidiPort`, `setOscDestination`, `addDestination`, `updateDestination`, `removeDestination` (tracks that sent to it lose the destination). The backend validates, keeps events in order and answers with the project, the active timeline and the `id` it created, or the reason it refused; a refusal leaves the document as it was. |
 
 The Live view's commands (`live_cues`, `live_state`) read the project but write nothing, and cues are derived, not
 stored, so they add nothing to `project.json`; they are described in [timecode-signals.md](timecode-signals.md).

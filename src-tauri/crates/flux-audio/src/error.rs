@@ -1,7 +1,7 @@
 use serde::{Serialize, Serializer};
 use thiserror::Error;
 
-use crate::project::ProjectError;
+use flux_project::ProjectError;
 
 #[derive(Debug, Error)]
 pub enum AudioError {

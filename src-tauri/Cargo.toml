@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/*"]
+
 [package]
 name = "flux-timecode"
 version = "0.1.0"
@@ -18,29 +21,18 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+flux-core = { path = "crates/flux-core" }
+flux-project = { path = "crates/flux-project" }
+flux-audio = { path = "crates/flux-audio" }
+flux-engine = { path = "crates/flux-engine" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2.8.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-crc32fast = "1"
 zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
 thiserror = "2.0.21"
-uuid = { version = "1.29.0", features = ["v4"] }
-tauri-plugin-dialog = "2.8.4"
-cpal = "0.18.2"
-midir = "0.11.1"
-symphonia = { version = "0.6.1", features = ["mp3", "aiff"] }
-rubato = "5.0.1"
 log = { version = "0.4", features = ["std"] }
-
-
-# Extra audio drivers the picker offers next to the system's default one (ALSA, WASAPI, CoreAudio).
-# JACK loads libjack at run time, so it needs nothing installed to start.
-[target.'cfg(target_os = "linux")'.dependencies]
-cpal = { version = "0.18.2", features = ["pipewire", "jack"] }
-
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-cpal = { version = "0.18.2", features = ["jack"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

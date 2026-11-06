@@ -9,7 +9,7 @@
 
 import type { Position } from "./api";
 
-/** The engine's sample rate (`ENGINE_RATE` in src-tauri/src/audio/decode.rs). */
+/** The engine's sample rate (`ENGINE_RATE` in src-tauri/crates/flux-core/src/lib.rs). */
 export const ENGINE_RATE = 48_000;
 
 /** How long a difference between the projection and a new report takes to fade away. */

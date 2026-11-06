@@ -7,6 +7,7 @@ import type { Locale, MessageKey } from "../i18n";
 import type { FrameRate, OutputConfig } from "../project/types";
 import { edit } from "../state/actions";
 import { setName, setOutput } from "../state/edit";
+import { addDestination, removeDestination, updateDestination } from "../state/cues";
 import { setOutputOffset } from "../state/output";
 import { useDoc, useTimeline } from "../state/store";
 import { renameTimeline, setTimecode } from "../state/timelines";
@@ -489,6 +490,58 @@ export function MtcPage({ devices }: { devices: Devices }) {
         <button type="button" className="button" onClick={() => change(addMtc(output, ports))}>
           <PlusIcon />
           {t("setup.mtc.add")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The OSC receivers the OSC tracks choose from. The backend adds, checks and removes them. */
+export function OscPage() {
+  const t = useT();
+  const destinations = useDoc((doc) => doc.project.output.osc ?? []);
+  const reported = useTransport((transport) => transport.info?.cues ?? []);
+  const integer = (text: string) => (/^\s*\d+\s*$/.test(text) ? null : t("field.integerInvalid"));
+  return (
+    <div className="setup-fields">
+      <p className="setup-intro">{t("setup.osc.intro")}</p>
+      {destinations.length === 0 && <p className="empty-note">{t("setup.osc.empty")}</p>}
+      <ul className="setup-rows">
+        {destinations.map((destination) => {
+          const result = reported.find((cue) => cue.kind === "osc" && cue.target === destination.name);
+          const save = (patch: Partial<typeof destination>) => {
+            const next = { ...destination, ...patch };
+            void updateDestination(destination.id, next.name, next.host, next.port);
+          };
+          return (
+            <OutputRow
+              key={destination.id}
+              name={destination.name}
+              {...rowState(result, true)}
+              onRemove={() => void removeDestination(destination.id)}
+            >
+              <TextField label={`${destination.name}: ${t("setup.osc.name")}`} value={destination.name} onCommit={(name) => save({ name })} />
+              <TextField label={`${destination.name}: ${t("setup.osc.host")}`} value={destination.host} monospace onCommit={(host) => save({ host })} />
+              <TextField
+                label={`${destination.name}: ${t("setup.osc.port")}`}
+                value={String(destination.port)}
+                inputMode="numeric"
+                monospace
+                validate={integer}
+                onCommit={(text) => save({ port: Number(text) })}
+              />
+            </OutputRow>
+          );
+        })}
+      </ul>
+      <div className="button-row">
+        <button
+          type="button"
+          className="button"
+          onClick={() => void addDestination(t("setup.osc.default", { number: destinations.length + 1 }), "127.0.0.1", 53000)}
+        >
+          <PlusIcon />
+          {t("setup.osc.add")}
         </button>
       </div>
     </div>

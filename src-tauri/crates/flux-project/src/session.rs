@@ -8,12 +8,14 @@ use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
 use super::clips::{self, ClipOp};
+use super::cue_ops::{self, CueEdited, CueOp};
 use super::error::{ProjectError, Result};
 use super::model::{
-    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, FrameRate, Project, Timeline, TrackKind,
+    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, Timeline, TrackKind,
     check_asset_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
+use flux_core::FrameRate;
 
 /// The document being edited, as the backend last heard of it. The window that edits it can be
 /// reloaded, and picks it up from here again.
@@ -294,6 +296,16 @@ impl Session {
         })
     }
 
+    /// Edits the MIDI and OSC tracks and the OSC destinations (see [`CueOp`]).
+    pub fn cue_edit(&mut self, op: CueOp) -> Result<CueEdited> {
+        let mut id = None;
+        let state = self.change(|project, active| {
+            id = cue_ops::apply(project, active, op)?;
+            Ok(())
+        })?;
+        Ok(CueEdited { state, id })
+    }
+
     /// Sets the latency offset of the LTC or MTC output at `index` to the ms in `text`. 0 is stored
     /// as no offset, so the file stays as it was before the setting existed.
     pub fn set_output_offset(
@@ -435,7 +447,7 @@ fn unknown_timeline(id: &str) -> ProjectError {
 fn audio_clips(timeline: &Timeline) -> impl Iterator<Item = &AudioClip> {
     timeline.tracks.iter().flat_map(|track| match &track.kind {
         TrackKind::Audio { clips } => clips.as_slice(),
-        TrackKind::Notes { .. } => &[],
+        _ => &[],
     })
 }
 
@@ -466,7 +478,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::project::model::{AudioClip, Track, TrackKind};
+    use crate::model::{AudioClip, Track, TrackKind};
 
     const AUDIO_BYTES: &[u8] = b"RIFF....fake wav payload";
 
@@ -507,13 +519,13 @@ mod tests {
     fn session_with_outputs() -> Session {
         let mut session = Session::default();
         let mut project = session.new_project("Show", FrameRate::Fps25);
-        project.output.ltc.push(crate::project::LtcOutput {
+        project.output.ltc.push(crate::LtcOutput {
             device_name: "Main".into(),
             channel: 3,
             level: None,
             offset_ms: None,
         });
-        project.output.mtc.push(crate::project::MtcOutput {
+        project.output.mtc.push(crate::MtcOutput {
             port_name: "Bus".into(),
             port_index: 0,
             offset_ms: None,
@@ -627,7 +639,7 @@ mod tests {
 
         assert_eq!(saved.meta.id, project.meta.id);
         assert_eq!(saved.meta.created_at, project.meta.created_at);
-        assert_eq!(saved.meta.saved_with, crate::project::meta::APP_VERSION);
+        assert_eq!(saved.meta.saved_with, crate::meta::APP_VERSION);
         assert_ne!(saved.meta.modified_at, "2000-01-01T00:00:00Z");
         assert_eq!(archive::open(&path).unwrap().0, saved);
     }

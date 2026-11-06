@@ -5,6 +5,7 @@ import type { Project, Tempo } from "../project/types";
 import { activeTimeline } from "./doc";
 import { dispatch, useDoc } from "./store";
 import { moveItem, moveTrack, removeItem, removeTrack, setTempo, setTrackGain, toggleMute } from "./edit";
+import { removeCueEvent } from "./cues";
 import { select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
@@ -32,6 +33,11 @@ export function deleteTrack(trackId: string): void {
 export function deleteSelection(): void {
   const { selection } = useUi.getState();
   if (!selection) return;
+  if (selection.kind === "event") {
+    void removeCueEvent(selection.id);
+    select(null);
+    return;
+  }
   editWith((p, tl) => removeItem(p, tl, selection.id));
   select(null);
 }

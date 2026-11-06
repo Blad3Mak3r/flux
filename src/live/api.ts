@@ -1,10 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Project } from "../project/types";
 
-// Mirrors src-tauri/src/engine/cues.rs and src-tauri/src/live_commands.rs. The backend derives the
+// Mirrors src-tauri/crates/flux-engine/src/cues.rs and src-tauri/src/live_commands.rs. The backend derives the
 // cues and says where the show stands; nothing here orders, compares or formats them.
 
-export type CueKind = "audio" | "note";
+export type CueKind = "audio" | "note" | "midi" | "osc";
+
+/** What a MIDI or OSC cue sends; `Cue.detail` holds its notation. */
+export type CueAction = "noteOn" | "noteOff" | "controlChange" | "programChange" | "msc" | "sysEx" | "osc";
 
 export type CueStatus = "pending" | "next" | "running" | "done" | "muted";
 
@@ -18,6 +21,10 @@ export interface Cue {
   name: string;
   /** The whole text of a note. */
   text: string | null;
+  /** What a MIDI or OSC cue sends. */
+  action: CueAction | null;
+  /** Its notation, e.g. `C4 · ch 1 · vel 100` or `/cue/1/start 1`. */
+  detail: string | null;
   trackId: string;
   trackName: string;
   /** `#rrggbb`, or null for the default colour of its kind. */

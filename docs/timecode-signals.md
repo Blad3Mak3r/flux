@@ -1,6 +1,6 @@
 # Timecode signals
 
-Pure encoders in `src-tauri/src/engine/`. They only build bits, bytes and samples; the transport decides when to
+Pure encoders in `src-tauri/crates/flux-engine/src/` (`flux-core` for timecode and the clock). They only build bits, bytes and samples; the transport decides when to
 send them. Frame math (`Timecode` <-> frame count, 29.97 drop-frame) is `timecode.rs`.
 
 ## LTC (`ltc.rs`)
@@ -106,8 +106,11 @@ the progress. Every time is already written as timecode (`;` before the frames i
 its frame for its `length`, or, without one, until the next note of its track that starts later, or to the end of the
 show. `LiveState.notes` lists those on show, with the time left of one that has a length, so the Live view can write
 them large for the operator. A note with a length also counts as `running` while it is on show. Notes of a muted track
-are neither shown nor queued. Nothing is fired by a cue yet: starting video, Art-Net, MIDI or OSC will be new track
-kinds.
+are neither shown nor queued. MIDI and OSC events are cues of kind `midi` and `osc`: `Cue.action` says what they send (`noteOn`, `noteOff`,
+`controlChange`, `programChange`, `msc`, `sysEx`, `osc`) and `Cue.detail` writes it in notation (`C4 · ch 1 · vel 100`,
+`GO 12.5 · L2`, `/cue/1/start 1 0.5`), which the UI shows next to the translated action. A note with a length is
+`running` for that long; the others are instant, so they go from `next` to `done`. Firing them is described below.
+Starting video or Art-Net will be new track kinds.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
@@ -116,6 +119,34 @@ kinds.
 
 With an output running, the `flux-live` lane sends the same `LiveState` over its channel; the output keeps a cue list
 that `output_start` and `output_set_clips` rebuild, which the lane swaps in whole like the meters' state.
+
+## Firing MIDI and OSC cues (`fire.rs`, `midi_cue.rs`, `osc.rs`, `cue_routes.rs`)
+
+The events of the `midi` and `osc` tracks are fired from threads that are not the audio callback. Each MIDI port and each
+OSC destination the unmuted tracks of the active timeline use gets a thread (`flux-midi`, `flux-osc`) that reads the
+position the audio callback publishes, like `flux-mtc`, and sleeps until the next event falls due (parking, then
+spinning the last 200 µs), so events are not quantised to the audio buffer. Tracks that share a port or destination
+share its thread and schedule.
+
+- `Schedule<T>` is the list of `(sample, payload)` of one destination, stable-sorted; `Scheduler<T>` walks it:
+  `resync(position)`, `poll(position, send)`, `next_due()`. The scheduler is pure and tested without devices; the
+  encoders (`midi_cue::encode`, `osc::encode`) are pure too.
+- **No chase.** On every change of the transport epoch (start, stop, seek; not pause) the schedule is re-armed at the new
+  position: events before it never fire, one exactly at it fires, and after seeking back the events already fired fire
+  again when reached. Pausing and resuming does not resync, so nothing fires twice.
+- An event that is due while its thread runs late still fires, late. A send that fails is counted
+  (`Faults.cue_errors`) and the log lane reports it; nothing logs from these threads.
+- **Hanging notes.** The MIDI sink remembers the notes that are on, and sends a Note Off for each when the epoch changes,
+  when playback stops or pauses, and when the output closes. A note with a `length` has its Note Off scheduled at
+  `at + length`.
+- **Edits while playing.** `output_set_clips` also replaces the schedules (`Output::set_events`), carrying on from the
+  position, and opens a port or destination that is new. A track muted or left without an output goes quiet.
+- **Audition.** With `audition` set on `output_start` no cue thread is opened and `set_events` does nothing.
+- **Timeline hand-over.** The output is rebuilt for the next timeline, so its threads stop and release their notes.
+- A MIDI port or OSC host that cannot be opened is a warning in `OutputInfo.warnings`, with its state in
+  `OutputInfo.cues` (`{ kind, target, ok }`); the project still plays. OSC is UDP only for now, one connected socket per
+  destination, resolved when the output opens (never from the firing thread). MIDI Show Control and the OSC message
+  format are described in the track kinds of [fxtc-format.md](fxtc-format.md).
 
 ## Metronome (`engine/metronome.rs`)
 
@@ -170,7 +201,7 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
+| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `audition` (Edit on a preview device: the MIDI and OSC cue tracks stay silent), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
@@ -202,12 +233,13 @@ No command runs on the main thread, which belongs to the window and its event lo
 | `flux-ltc` | The LTC callback, when LTC plays on a device other than the programme's (it carries the metronome too when that device is the metronome's). Never allocates or waits. |
 | `flux-click` | The metronome callback, when the metronome plays on a device nothing else uses. Never allocates or waits. |
 | `flux-mtc` | MIDI Timecode quarter frames. |
+| `flux-midi`, `flux-osc` | Fire the events of the MIDI and OSC tracks, one thread per port / destination (see Firing MIDI and OSC cues). |
 | `flux-position`, `flux-live`, `flux-levels` | The three lanes above. |
 | `flux-advance` | With `advance` on: sees the show end and makes the next timeline the active one. |
 | `flux-log` | Writes the log for the output (see [diagnostics.md](diagnostics.md)): transport and device changes, and the fault counters. |
 
-**Nothing logs from `flux-audio`, `flux-ltc`, `flux-click` or `flux-mtc`**: writing a file waits. Their error callbacks and
-send failures only bump atomic counters (`SharedClock::faults`: `xruns`, `stream_errors`, `mtc_errors`) and raise the
+**Nothing logs from `flux-audio`, `flux-ltc`, `flux-click`, `flux-mtc`, `flux-midi` or `flux-osc`**: writing a file waits. Their error callbacks and
+send failures only bump atomic counters (`SharedClock::faults`: `xruns`, `stream_errors`, `mtc_errors`, `cue_errors`) and raise the
 `lost` flags, and the `flux-log` lane turns the changes into log lines. A dropout (`ErrorKind::Xrun`) is counted and
 does not mark the device as lost; any other stream error does.
 

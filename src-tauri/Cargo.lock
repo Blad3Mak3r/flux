@@ -1214,24 +1214,70 @@ dependencies = [
 ]
 
 [[package]]
-name = "flux-timecode"
+name = "flux-audio"
+version = "0.1.0"
+dependencies = [
+ "flux-core",
+ "flux-project",
+ "rubato",
+ "serde",
+ "symphonia",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "flux-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "flux-engine"
 version = "0.1.0"
 dependencies = [
  "cpal",
- "crc32fast",
- "log",
+ "flux-audio",
+ "flux-core",
+ "flux-project",
  "midir",
- "rubato",
  "serde",
  "serde_json",
- "symphonia",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "flux-project"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "flux-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+ "zip",
+]
+
+[[package]]
+name = "flux-timecode"
+version = "0.1.0"
+dependencies = [
+ "flux-audio",
+ "flux-core",
+ "flux-engine",
+ "flux-project",
+ "log",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tempfile",
  "thiserror 2.0.21",
- "uuid",
  "zip",
 ]
 

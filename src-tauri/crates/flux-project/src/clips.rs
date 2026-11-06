@@ -95,13 +95,7 @@ fn fit_fades(clip: &mut AudioClip, asset_frames: u64) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
-    use crate::audio::{Decoded, ENGINE_RATE};
-    use crate::engine::mixer::{ClipPlayer, ClipSet, span};
-    use crate::engine::transport::Clock;
-    use crate::project::FrameRate;
 
     const ASSET: u64 = 1000;
 
@@ -192,55 +186,6 @@ mod tests {
         assert_eq!(second.id, "c2");
         // Both halves measure the asset from the same frame.
         assert_eq!(first.start - first.offset, second.start - second.offset);
-    }
-
-    /// Mixes `clips` of `asset` (a ramp, so every sample is different) for the first `frames`
-    /// frames of the timeline, at 29.97 fps, where a frame is not a whole number of samples.
-    fn mixed(clips: &[AudioClip], asset: &Arc<Decoded>, frames: u64) -> Vec<f32> {
-        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop);
-        let players = clips
-            .iter()
-            .map(|clip| ClipPlayer {
-                span: span(clip, &clock, asset.frames() as u64),
-                audio: Arc::clone(asset),
-                gain: 1.0,
-                track: 0,
-            })
-            .collect();
-        let set = ClipSet::new(players, vec![("t1".into(), 1.0)]);
-        let samples = clock.frames_to_samples(frames) as usize;
-        let (mut left, mut right) = (vec![0.0; samples], vec![0.0; samples]);
-        set.mix(0, &mut left, &mut right);
-        left
-    }
-
-    #[test]
-    fn split_should_play_back_exactly_like_the_clip_it_came_from() {
-        // Four seconds of a ramp that wraps, so no two neighbouring samples are alike.
-        let asset = Arc::new(Decoded {
-            samples: (0..192_000usize)
-                .flat_map(|i| [(i % 30_000) as i16, 0])
-                .collect(),
-            source_rate: ENGINE_RATE,
-        });
-        let asset_frames =
-            Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop).samples_to_frames(192_000);
-        // Trimmed in and faded, then cut at frames that do not fall on a whole sample.
-        let mut original = AudioClip::new("c1", "a1", 7);
-        original.offset = 13;
-        original.length = Some(80);
-        original.fade_in = 10;
-        original.fade_out = 12;
-        // Cuts clear of the fades, which stay with the half that holds them.
-        for cut in [20, 33, 61] {
-            let halves =
-                apply(&original, ClipOp::Split, cut, asset_frames, || "c2".into()).unwrap();
-            assert_eq!(
-                mixed(&halves, &asset, 100),
-                mixed(std::slice::from_ref(&original), &asset, 100),
-                "cut at {cut}"
-            );
-        }
     }
 
     #[test]

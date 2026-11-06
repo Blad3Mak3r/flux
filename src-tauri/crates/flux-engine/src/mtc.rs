@@ -2,9 +2,9 @@
 //!
 //! Pure functions that build the bytes; when to send them is the transport's job.
 
-use super::timecode::Timecode;
-use super::transport::Clock;
-use crate::project::FrameRate;
+use flux_core::Clock;
+use flux_core::Timecode;
+use flux_project::FrameRate;
 
 /// Status byte of a quarter-frame message.
 const QUARTER_FRAME: u8 = 0xF1;

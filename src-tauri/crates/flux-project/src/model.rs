@@ -1,19 +1,22 @@
 use std::collections::HashSet;
 
+use flux_core::FrameRate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::error::{ProjectError, Result};
+use super::events::{MidiEvent, MidiPortRef, OscDestination, OscEvent};
 pub use super::meta::Meta;
 
 /// Version written to `project.json`. Readers reject anything newer and migrate older ones
 /// (see `migrate.rs`).
 ///
 /// Version 2 turned event tracks into notes and `output.ltc` / `output.mtc` into lists; version 3
-/// added `meta`; version 4 moved `timecode` and `tracks` into `timelines`. Files of version 2
+/// added `meta`; version 4 moved `timecode` and `tracks` into `timelines`; version 5 added the `midi`
+/// and `osc` track kinds and `output.osc` (nothing was reshaped, but an older build cannot read them). Files of version 2
 /// written while the format was changing can hold either shape, so the migration looks at the
 /// shape, not at the number.
-pub const FORMAT_VERSION: u32 = 4;
+pub const FORMAT_VERSION: u32 = 5;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -107,16 +110,6 @@ impl Timeline {
     }
 }
 
-/// The four rates MTC can express; LTC supports them too.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum FrameRate {
-    Fps24,
-    Fps25,
-    Fps2997Drop,
-    Fps30,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimecodeSettings {
@@ -161,6 +154,20 @@ pub enum TrackKind {
     /// Text for the operator, shown on the timeline and in the Live view.
     Notes {
         notes: Vec<Note>,
+    },
+    /// MIDI messages sent at points of the timeline to the track's port.
+    Midi {
+        /// Absent until the user picks one; the track then fires nothing.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        port: Option<MidiPortRef>,
+        events: Vec<MidiEvent>,
+    },
+    /// OSC messages sent at points of the timeline to one of `output.osc`.
+    Osc {
+        /// Id of an entry in `OutputConfig::osc`; absent until the user picks one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        destination: Option<String>,
+        events: Vec<OscEvent>,
     },
 }
 
@@ -251,6 +258,9 @@ pub struct OutputConfig {
     /// Every MIDI port that receives MTC.
     #[serde(default, deserialize_with = "list_or_one")]
     pub mtc: Vec<MtcOutput>,
+    /// The OSC receivers the project's OSC tracks send to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub osc: Vec<OscDestination>,
 }
 
 /// Channel numbers are 1-based, as an audio interface labels them.
@@ -332,7 +342,7 @@ impl Project {
             .flat_map(|timeline| &timeline.tracks)
             .filter_map(|track| match &track.kind {
                 TrackKind::Audio { clips } => Some(clips),
-                TrackKind::Notes { .. } => None,
+                _ => None,
             })
             .flatten()
             .map(|clip| clip.asset.as_str())
@@ -365,13 +375,24 @@ impl Project {
             return Err(ProjectError::Invalid("a project needs a timeline".into()));
         }
         let mut timeline_ids = HashSet::new();
+        let mut destination_ids = HashSet::new();
+        for destination in &self.output.osc {
+            destination.validate()?;
+            ensure_unique(&mut destination_ids, "OSC destination id", &destination.id)?;
+        }
         let mut track_ids = HashSet::new();
         let mut item_ids = HashSet::new();
         for timeline in &self.timelines {
             ensure_unique(&mut timeline_ids, "timeline id", &timeline.id)?;
             timeline.tempo.validate()?;
             for track in &timeline.tracks {
-                validate_track(track, &asset_ids, &mut track_ids, &mut item_ids)?;
+                validate_track(
+                    track,
+                    &asset_ids,
+                    &destination_ids,
+                    &mut track_ids,
+                    &mut item_ids,
+                )?;
             }
         }
         self.output.validate()
@@ -381,6 +402,7 @@ impl Project {
 fn validate_track<'a>(
     track: &'a Track,
     asset_ids: &HashSet<&str>,
+    destination_ids: &HashSet<&str>,
     track_ids: &mut HashSet<&'a str>,
     item_ids: &mut HashSet<&'a str>,
 ) -> Result<()> {
@@ -421,6 +443,29 @@ fn validate_track<'a>(
                         note.id
                     )));
                 }
+            }
+        }
+        TrackKind::Midi { events, .. } => {
+            for event in events {
+                ensure_unique(item_ids, "clip/note id", &event.id)?;
+                event.validate()?;
+            }
+        }
+        TrackKind::Osc {
+            destination,
+            events,
+        } => {
+            if let Some(id) = destination
+                && !destination_ids.contains(id.as_str())
+            {
+                return Err(ProjectError::Invalid(format!(
+                    "track {} sends to unknown OSC destination {id}",
+                    track.id
+                )));
+            }
+            for event in events {
+                ensure_unique(item_ids, "clip/note id", &event.id)?;
+                event.validate()?;
             }
         }
     }
@@ -546,6 +591,7 @@ fn ensure_unique<'a>(seen: &mut HashSet<&'a str>, what: &str, value: &'a str) ->
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::{MidiMessage, MscCommand, OscArg};
 
     pub fn sample_project() -> Project {
         Project {
@@ -615,6 +661,58 @@ pub(super) mod tests {
                             ],
                         },
                     },
+                    Track {
+                        id: "t3".into(),
+                        name: "Console".into(),
+                        muted: false,
+                        gain_db: None,
+                        color: None,
+                        kind: TrackKind::Midi {
+                            port: Some(MidiPortRef {
+                                port_name: "USB MIDI".into(),
+                                port_index: 0,
+                            }),
+                            events: vec![
+                                MidiEvent {
+                                    id: "m1".into(),
+                                    at: 600,
+                                    message: MidiMessage::NoteOn {
+                                        channel: 1,
+                                        note: 60,
+                                        velocity: 100,
+                                        length: Some(25),
+                                    },
+                                },
+                                MidiEvent {
+                                    id: "m2".into(),
+                                    at: 700,
+                                    message: MidiMessage::Msc {
+                                        device_id: 127,
+                                        format: 1,
+                                        command: MscCommand::Go,
+                                        cue: Some("12.5".into()),
+                                        list: None,
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                    Track {
+                        id: "t4".into(),
+                        name: "QLab".into(),
+                        muted: false,
+                        gain_db: None,
+                        color: None,
+                        kind: TrackKind::Osc {
+                            destination: Some("d1".into()),
+                            events: vec![OscEvent {
+                                id: "o1".into(),
+                                at: 800,
+                                address: "/cue/1/start".into(),
+                                args: vec![OscArg::Int(1), OscArg::Float(0.5), OscArg::Bool(true)],
+                            }],
+                        },
+                    },
                 ],
             }],
             output: OutputConfig {
@@ -634,6 +732,12 @@ pub(super) mod tests {
                     port_index: 1,
                     offset_ms: Some(30),
                 }],
+                osc: vec![OscDestination {
+                    id: "d1".into(),
+                    name: "QLab".into(),
+                    host: "192.168.1.20".into(),
+                    port: 53000,
+                }],
                 preview: None,
                 metronome: Some(MetronomeOutput {
                     device_name: "Band Monitor".into(),
@@ -646,7 +750,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 4,
+        "formatVersion": 5,
         "name": "Opening night",
         "meta": {
             "id": "6f0c1d52-7a0e-4a52-9c3b-2d6a5f1b8e10",
@@ -674,6 +778,21 @@ pub(super) mod tests {
                     { "id": "n1", "at": 300, "text": "Lights up" },
                     { "id": "n2", "at": 450, "length": 75, "text": "Singer walks on\nstage left" }
                 ] }
+            },
+            {
+                "id": "t3", "name": "Console", "muted": false,
+                "kind": { "type": "midi", "port": { "portName": "USB MIDI" }, "events": [
+                    { "id": "m1", "at": 600, "message": { "type": "noteOn", "channel": 1, "note": 60, "velocity": 100, "length": 25 } },
+                    { "id": "m2", "at": 700, "message": { "type": "msc", "deviceId": 127, "format": 1, "command": "go", "cue": "12.5" } }
+                ] }
+            },
+            {
+                "id": "t4", "name": "QLab", "muted": false,
+                "kind": { "type": "osc", "destination": "d1", "events": [
+                    { "id": "o1", "at": 800, "address": "/cue/1/start", "args": [
+                        { "type": "int", "value": 1 }, { "type": "float", "value": 0.5 }, { "type": "bool", "value": true }
+                    ] }
+                ] }
             }
         ] }],
         "output": {
@@ -681,7 +800,8 @@ pub(super) mod tests {
             "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
             "metronome": { "deviceName": "Band Monitor", "channels": [3, 4], "gainDb": -6.0 },
             "ltc": [{ "deviceName": "Main Interface", "channel": 3, "level": 0.25, "offsetMs": -12 }],
-            "mtc": [{ "portName": "IAC Driver Bus 1", "portIndex": 1, "offsetMs": 30 }]
+            "mtc": [{ "portName": "IAC Driver Bus 1", "portIndex": 1, "offsetMs": 30 }],
+            "osc": [{ "id": "d1", "name": "QLab", "host": "192.168.1.20", "port": 53000 }]
         }
     }"##;
 
@@ -887,7 +1007,7 @@ pub(super) mod tests {
         let mut project = sample_project();
         let mut second = Timeline::new("Second", FrameRate::Fps25);
         second.tracks.push(Track {
-            id: "t3".into(),
+            id: "t9".into(),
             name: "Notes".into(),
             muted: false,
             gain_db: None,

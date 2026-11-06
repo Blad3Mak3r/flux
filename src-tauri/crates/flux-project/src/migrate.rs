@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn upgrade_should_keep_the_meta_a_file_already_has() {
-        let mut value = json!({ "formatVersion": 4, "meta": { "id": "kept" }, "timelines": [] });
+        let mut value = json!({ "formatVersion": 5, "meta": { "id": "kept" }, "timelines": [] });
         let before = value.clone();
         upgrade(&mut value, DATE);
         assert_eq!(value, before);
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn upgrade_should_keep_the_timelines_of_a_current_file() {
         let mut value =
-            json!({ "formatVersion": 4, "meta": { "id": "kept" }, "timelines": [{ "id": "l1" }] });
+            json!({ "formatVersion": 5, "meta": { "id": "kept" }, "timelines": [{ "id": "l1" }] });
         let before = value.clone();
         upgrade(&mut value, DATE);
         assert_eq!(value, before);

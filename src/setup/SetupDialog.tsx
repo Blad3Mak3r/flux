@@ -7,7 +7,7 @@ import { closeSetup, openSetup, useUi } from "../state/ui";
 import { useTransport } from "../transport/store";
 import { SETUP_SECTIONS, isAvailable, stepSection } from "./outputs";
 import type { SetupSection } from "./outputs";
-import { AudioPage, GeneralPage, LtcPage, MetronomePage, MtcPage, ProjectPage, TimelinePage } from "./pages";
+import { AudioPage, GeneralPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
   switch (section) {
@@ -23,6 +23,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <LtcPage devices={devices} />;
     case "mtc":
       return <MtcPage devices={devices} />;
+    case "osc":
+      return <OscPage />;
     case "general":
       return <GeneralPage devices={devices} />;
     default:

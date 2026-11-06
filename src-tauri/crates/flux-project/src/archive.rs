@@ -12,8 +12,9 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use super::error::{ProjectError, Result};
 use super::meta;
 use super::migrate;
-use super::model::{AudioAsset, FORMAT_VERSION, FrameRate, Project, check_asset_path};
+use super::model::{AudioAsset, FORMAT_VERSION, Project, check_asset_path};
 use super::preview::{AudioStamp, Preview, StoredPreview, preview_path};
+use flux_core::FrameRate;
 
 const PROJECT_JSON: &str = "project.json";
 
@@ -286,8 +287,8 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::project::model::tests::sample_project;
-    use crate::project::preview::tests::stored;
+    use crate::model::tests::sample_project;
+    use crate::preview::tests::stored;
 
     const AUDIO_BYTES: &[u8] = b"RIFF....fake wav payload";
 
@@ -513,8 +514,7 @@ mod tests {
         let (project, _) = open(&path).unwrap();
 
         assert_eq!(project.format_version, FORMAT_VERSION);
-        let crate::project::TrackKind::Notes { notes } = &project.timelines[0].tracks[0].kind
-        else {
+        let crate::TrackKind::Notes { notes } = &project.timelines[0].tracks[0].kind else {
             panic!("the events track becomes a notes track");
         };
         assert_eq!(notes.len(), 1);
