@@ -11,6 +11,7 @@ import { activeTimeline } from "../state/doc";
 import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
+import { GUESS_SECONDS, clipLength } from "../timeline/clip";
 import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
 import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
@@ -23,7 +24,7 @@ import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
-import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength, laneHeight } from "./TrackRow";
+import { TrackHeader, TrackLane, laneHeight } from "./TrackRow";
 import { PlusIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 import { emptyMenu } from "./menus";
 

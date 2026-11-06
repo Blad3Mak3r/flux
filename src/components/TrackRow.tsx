@@ -13,6 +13,7 @@ import { menuAtPointer, rename, select, useUi } from "../state/ui";
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
+import { clipLength } from "../timeline/clip";
 import { traceStyle } from "../timeline/palette";
 import { frameX } from "../timeline/scale";
 import { previewTrackGain } from "../transport/playback";
@@ -22,9 +23,6 @@ import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
 import { MidiIcon, MuteIcon, NoteIcon, OscIcon, WaveIcon } from "./icons";
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu } from "./menus";
-
-/** Length shown for a clip whose audio length is not known yet (10 s at the project rate). */
-const GUESS_SECONDS = 10;
 
 export function laneHeight(track: Track): number {
   return track.kind.type === "audio" ? AUDIO_LANE_H : NOTES_LANE_H;
@@ -149,19 +147,6 @@ function useDrag(id: string, kind: Selected["kind"], position: number, pxPerFram
     },
   };
   return { shown: position + delta, handlers };
-}
-
-/**
- * Length in frames of a clip: the trim the backend wrote, else the whole audio once it has been
- * read, else the guess. (The backend always writes a length when it moves the start.)
- */
-export function clipLength(
-  clip: AudioClip,
-  audio: { seconds: number } | undefined,
-  fps: number,
-  guess: number,
-): number {
-  return clip.length ?? (audio ? Math.round(audio.seconds * fps) : guess);
 }
 
 type HandleProps = ReturnType<typeof useHandle>["handlers"];
@@ -489,5 +474,3 @@ export const TrackLane = memo(function TrackLane({
     </div>
   );
 });
-
-export { GUESS_SECONDS };
