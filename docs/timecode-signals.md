@@ -202,23 +202,23 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `audition` (Edit on a preview device: the MIDI and OSC cue tracks stay silent), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
+| `output_attach` | `setup` (the requested timeline, timecode, effective outputs, `advance` and `audition`), `onPosition`, `onLevels`, `onLive` | Replaces the subscriptions on the running output without interrupting playback. Returns its info, position, timeline ID and start, and whether its settings match, or `null` when there is no running output. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
 | `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`, `ltcLost`, `clockUnpaced`) or `null` when no output runs. |
 
 While an output runs it reports over three lanes, each with a thread of its own and the `Channel` that
-`output_start` was given for it, about 30 times a second each:
+`output_start` or `output_attach` was given for it, about 30 times a second each:
 
-| Lane | Thread | Channel (`output_start` argument) | Sends |
+| Lane | Thread | Channel | Sends |
 | --- | --- | --- | --- |
-| Position | `flux-position` | `onPosition`: `Channel<Position>` | The `Position`, only when it moved. |
-| Live | `flux-live` | `onLive`: `Channel<LiveState>` | Where the show stands among its cues (see Cues and the Live view), only when it changed. |
+| Position | `flux-position` | `onPosition`: `Channel<Position>` | The initial `Position` for the subscriber, then updates when it changes. |
+| Live | `flux-live` | `onLive`: `Channel<LiveState>` | Where the show stands among its cues (see Cues and the Live view), initially and when it changes. |
 | Levels | `flux-levels` | `onLevels`: `Channel<[{ id, peak }]>` | The peak of each track since the previous message; silence once after the sound stops, then nothing. |
 
-The lanes are independent, so a slow consumer of the meters never delays the timecode. A channel is ordered,
-goes to the window that opened the output and ends with it, which a broadcast event does not; the UI also drops a
-message that belongs to an output it has closed since.
+The lanes are independent, so a slow consumer of the meters never delays the timecode. A channel is ordered
+and goes only to its subscriber; the UI also drops messages from outputs it has replaced or closed.
 
 ### Threads
 

@@ -2,21 +2,24 @@
 //!
 //! `output_start` opens the devices a project names and `output_stop` closes them; the
 //! `transport_*` commands only send a message to the running audio callback. While an output runs
-//! it reports to the UI over three lanes, each with a thread and a [`Channel`] of its own that
-//! `output_start` was given: the position of the transport, where the show stands among its cues,
+//! it reports to the UI over three lanes, each with a thread and a [`Channel`] of its own:
+//! the position of the transport, where the show stands among its cues,
 //! and the peak level of every track, about 30 times a second each. A slow consumer of the meters never holds up the timecode, and a
-//! channel, unlike a broadcast event, is ordered, goes to the caller alone and ends with the output.
+//! channel, unlike a broadcast event, is ordered and goes to the caller alone. A reloaded
+//! window replaces those channels through `output_attach` without touching the devices.
 //!
 //! No command runs on the main thread, which belongs to the window: the heavy ones (opening
 //! devices, decoding, joining threads) use the blocking pool, the small ones (`transport_*`, a
 //! fader) the command thread pool.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use tauri::ipc::Channel;
+use serde::{Deserialize, Serialize};
+use tauri::ipc::{Channel, IpcResponse};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::audio_commands::load;
@@ -28,7 +31,7 @@ use flux_engine::cues::{CueList, LiveState, SharedCues};
 use flux_engine::mixer::{self, Programme, TrackPeak};
 use flux_engine::output::{Output, OutputError, OutputInfo, Position};
 use flux_engine::transport::{Command, TransportState};
-use flux_project::{Project, Tempo, Timeline};
+use flux_project::{OutputConfig, Project, Tempo, TimecodeSettings, Timeline};
 
 const LANE_INTERVAL: Duration = Duration::from_millis(33);
 
@@ -111,11 +114,13 @@ struct LevelsLane {
     silent: bool,
 }
 
-impl LevelsLane {
-    fn new() -> Self {
+impl Default for LevelsLane {
+    fn default() -> Self {
         Self { silent: true }
     }
+}
 
+impl LevelsLane {
     fn next(&mut self, peaks: Vec<TrackPeak>) -> Option<Vec<TrackPeak>> {
         let quiet = peaks.iter().all(|track| track.peak == 0.0);
         let due = !(quiet && self.silent);
@@ -124,10 +129,34 @@ impl LevelsLane {
     }
 }
 
+#[derive(Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputSetup {
+    timeline_id: String,
+    timecode: TimecodeSettings,
+    output: OutputConfig,
+    advance: bool,
+    audition: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachedOutput {
+    info: OutputInfo,
+    position: Position,
+    timeline_id: String,
+    start: u64,
+    matches: bool,
+}
+
 /// A running output and the threads that report it to the UI.
 pub struct Running {
     output: Output,
+    setup: OutputSetup,
     cues: SharedCues,
+    on_position: Sender<Channel<Position>>,
+    on_levels: Sender<Channel<Vec<TrackPeak>>>,
+    on_live: Sender<Channel<LiveState>>,
     stop_lanes: Arc<AtomicBool>,
     lanes: Vec<JoinHandle<()>>,
 }
@@ -135,36 +164,43 @@ pub struct Running {
 impl Running {
     fn new(
         output: Output,
+        setup: OutputSetup,
         cues: SharedCues,
         advance: Option<Advance>,
         on_position: Channel<Position>,
         on_levels: Channel<Vec<TrackPeak>>,
         on_live: Channel<LiveState>,
     ) -> Result<Self, OutputError> {
+        let (position_tx, position_rx) = mpsc::channel();
+        let (levels_tx, levels_rx) = mpsc::channel();
+        let (live_tx, live_rx) = mpsc::channel();
         // Built before the lanes, so that failing to start one stops the other: `Drop` joins them.
         let mut running = Self {
             output,
+            setup,
             cues,
+            on_position: position_tx,
+            on_levels: levels_tx,
+            on_live: live_tx,
             stop_lanes: Arc::new(AtomicBool::new(false)),
             lanes: Vec::new(),
         };
 
         let reader = running.output.reader();
-        let mut position = PositionLane::default();
-        running.spawn_lane("flux-position", move || {
-            if let Some(position) = position.next(reader.position()) {
-                // A page that went away (a reload) cannot take it; the next output starts over.
-                let _ = on_position.send(position);
-            }
-        })?;
+        running.spawn_lane(
+            "flux-position",
+            report(position_rx, on_position, move |lane: &mut PositionLane| {
+                lane.next(reader.position())
+            }),
+        )?;
 
         let (reader, cues) = (running.output.reader(), running.cues.clone());
-        let mut live = LiveLane::default();
-        running.spawn_lane("flux-live", move || {
-            if let Some(state) = live.next(cues.current().state_at(reader.position().frame)) {
-                let _ = on_live.send(state);
-            }
-        })?;
+        running.spawn_lane(
+            "flux-live",
+            report(live_rx, on_live, move |lane: &mut LiveLane| {
+                lane.next(cues.current().state_at(reader.position().frame))
+            }),
+        )?;
 
         if let Some(advance) = advance {
             let reader = running.output.reader();
@@ -185,12 +221,12 @@ impl Running {
         })?;
 
         let levels = running.output.levels();
-        let mut lane = LevelsLane::new();
-        running.spawn_lane("flux-levels", move || {
-            if let Some(peaks) = lane.next(levels.current().take_peaks()) {
-                let _ = on_levels.send(peaks);
-            }
-        })?;
+        running.spawn_lane(
+            "flux-levels",
+            report(levels_rx, on_levels, move |lane: &mut LevelsLane| {
+                lane.next(levels.current().take_peaks())
+            }),
+        )?;
         Ok(running)
     }
 
@@ -211,6 +247,24 @@ impl Running {
             .map_err(|err| OutputError::Stream(err.to_string()))?;
         self.lanes.push(lane);
         Ok(())
+    }
+}
+
+/// A new subscriber receives the first reading even when nothing moved since the last tick.
+fn report<T: IpcResponse, L: Default>(
+    subscriptions: mpsc::Receiver<Channel<T>>,
+    mut channel: Channel<T>,
+    mut next: impl FnMut(&mut L) -> Option<T>,
+) -> impl FnMut() {
+    let mut lane = L::default();
+    move || {
+        if let Some(replacement) = subscriptions.try_iter().last() {
+            channel = replacement;
+            lane = L::default();
+        }
+        if let Some(value) = next(&mut lane) {
+            let _ = channel.send(value);
+        }
     }
 }
 
@@ -259,6 +313,13 @@ pub async fn output_start(
         let list = cue_list(&project, timeline, &session, &audio);
         let programme = programme(&project, timeline, &session, &audio, &list);
         let output = Output::start(&project, timeline, programme, !audition)?;
+        let setup = OutputSetup {
+            timeline_id: timeline.id.clone(),
+            timecode: timeline.timecode.clone(),
+            output: project.output,
+            advance,
+            audition,
+        };
         let info = output.info().clone();
         diagnostics::output_started(&info);
         let cues = SharedCues::new(list);
@@ -269,6 +330,7 @@ pub async fn output_start(
         });
         *lock(&state) = Some(Running::new(
             output,
+            setup,
             cues,
             advance,
             on_position,
@@ -283,6 +345,30 @@ pub async fn output_start(
         log::error!("output could not start: {err}");
     }
     started
+}
+
+/// Replaces a window's subscriptions without opening devices or sending transport commands.
+#[tauri::command(async)]
+pub fn output_attach(
+    state: State<'_, SharedOutput>,
+    setup: OutputSetup,
+    on_position: Channel<Position>,
+    on_levels: Channel<Vec<TrackPeak>>,
+    on_live: Channel<LiveState>,
+) -> Option<AttachedOutput> {
+    let running = lock(&state);
+    let running = running.as_ref()?;
+    let position = running.output.reader().position();
+    let _ = running.on_position.send(on_position);
+    let _ = running.on_levels.send(on_levels);
+    let _ = running.on_live.send(on_live);
+    Some(AttachedOutput {
+        info: running.output.info().clone(),
+        position,
+        timeline_id: running.setup.timeline_id.clone(),
+        start: running.setup.timecode.start,
+        matches: setup == running.setup,
+    })
 }
 
 /// The audio of the timeline's clips, decoding what has not been decoded yet, and where the show
@@ -473,6 +559,32 @@ mod tests {
         assert_eq!(lane.next(at(2)), Some(at(2)));
     }
 
+    #[test]
+    fn reattached_position_lane_should_send_an_unchanged_position_to_the_new_page() {
+        let (subscriptions, pending) = mpsc::channel();
+        let (old_tx, old_rx) = mpsc::channel();
+        let (new_tx, new_rx) = mpsc::channel();
+        let channel = |tx: Sender<u64>| {
+            Channel::<Position>::new(move |body| {
+                let json = body.deserialize::<serde_json::Value>().unwrap();
+                tx.send(json["frame"].as_u64().unwrap()).unwrap();
+                Ok(())
+            })
+        };
+        let mut step = report(pending, channel(old_tx), |lane: &mut PositionLane| {
+            lane.next(at(17))
+        });
+        step();
+        assert_eq!(old_rx.try_recv(), Ok(17));
+        step();
+        assert!(old_rx.try_recv().is_err());
+
+        subscriptions.send(channel(new_tx)).unwrap();
+        step();
+        assert_eq!(new_rx.try_recv(), Ok(17));
+        assert!(old_rx.try_recv().is_err());
+    }
+
     fn state(next: &str) -> LiveState {
         LiveState {
             statuses: Vec::new(),
@@ -502,7 +614,7 @@ mod tests {
 
     #[test]
     fn levels_lane_should_send_sound() {
-        let mut lane = LevelsLane::new();
+        let mut lane = LevelsLane::default();
         assert_eq!(lane.next(peak(0.5)), Some(peak(0.5)));
         assert_eq!(lane.next(peak(0.25)), Some(peak(0.25)));
     }
@@ -526,7 +638,7 @@ mod tests {
 
     #[test]
     fn levels_lane_should_send_silence_once_and_then_nothing() {
-        let mut lane = LevelsLane::new();
+        let mut lane = LevelsLane::default();
         lane.next(peak(0.5));
         assert_eq!(lane.next(peak(0.0)), Some(peak(0.0)));
         assert_eq!(lane.next(peak(0.0)), None);
@@ -534,7 +646,7 @@ mod tests {
 
     #[test]
     fn levels_lane_should_stay_quiet_from_the_start_while_the_tracks_are_silent() {
-        assert_eq!(LevelsLane::new().next(peak(0.0)), None);
+        assert_eq!(LevelsLane::default().next(peak(0.0)), None);
     }
 
     #[test]

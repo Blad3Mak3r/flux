@@ -221,7 +221,7 @@ written). The backend keeps the latest as the `Document`, so that a window that 
 picks the project up where it was left, instead of starting over: `baseline` is the project as it was last opened or
 saved (as it started, for a new one) and the document is unsaved when `project` differs from it. Undo history, the
 selection and the zoom are the window's and do not survive a reload; the waveforms are read again, from the stored
-previews or the decoded audio. Starting the window also stops an output a previous load left running.
+previews or the decoded audio. The reloaded window subscribes to the existing output, so playback and timecode continue.
 
 The editor window opens on, in this order: the document the backend already holds (a reload), the show named by
 `?open=` in its address (what the welcome window asks for; the address keeps it on a reload, which is why the backend's

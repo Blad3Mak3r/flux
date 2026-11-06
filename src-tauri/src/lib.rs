@@ -79,6 +79,7 @@ pub fn run() {
             live_commands::live_cues,
             live_commands::live_state,
             transport_commands::output_start,
+            transport_commands::output_attach,
             transport_commands::output_set_clips,
             transport_commands::output_set_track_gain,
             transport_commands::output_set_tempo,

@@ -50,12 +50,8 @@ function restore({ project, path, baseline, active }: BackendDocument): void {
   forgetAnalyses();
   dispatch({ type: "restore", project, path, active, saved: sameProject(project, baseline) ? project : baseline });
   resetView();
-  seek(activeTimeline(useDoc.getState()).timecode.start);
   say("status.restored", { name: project.name });
   void analyse(project.assets).then(() => detectTempos(project.assets, true));
-  // A reload leaves what was playing running in the backend, with nothing left to show or stop it:
-  // opening the output again replaces it.
-  reconnect(true);
 }
 
 let started: Promise<void> | null = null;
@@ -81,7 +77,7 @@ export function startDocument(t: Translate): Promise<void> {
     if (path) return openAt(path);
     const fresh = await newProject(t("project.untitled"), "fps25").catch(() => null);
     if (fresh) load(fresh, null);
-  })();
+  })().finally(() => reconnect());
   return started;
 }
 
