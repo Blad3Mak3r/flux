@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v7)
+# `.flx` / `.fxtc` project format (v8)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -199,6 +199,7 @@ does not rewrite a file, including files without `meta`; their generated identit
   metronome retains only its level. Previous routes survive as explicit-import hints. Saving in version 6 makes
   the archive unreadable by builds supporting version 5 or earlier; merely opening it does not rewrite it.
 - **7**: added `autosave`, owned by the project. Older files receive `{ "enabled": true, "intervalSeconds": 30 }`.
+- **8**: added operator tracks, spoken orders and inherited voice selections. Older projects have no operator tracks or explicit voice selections.
 
 ## Saving
 
@@ -305,4 +306,5 @@ operator fields are optional, and old Flux versions reject version 8 archives be
 
 The operator interface and mono/stereo channels belong to `preferences.json`, alongside the installation's
 voice ID. They are resolved into `OutputConfig.operator`. An unassigned or missing route stays silent.
-The operator bus follows Flux's clock; no speech generation or network activity runs during playback.
+The operator bus follows FLUX's clock and uses saved audio offline. Generation can only start while stopped;
+a response arriving after playback starts is retained without replacing the order's recording.
