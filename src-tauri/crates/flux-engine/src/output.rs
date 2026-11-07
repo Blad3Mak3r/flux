@@ -29,7 +29,8 @@ use crate::devices;
 use flux_audio::ENGINE_RATE;
 use flux_core::Clock;
 use flux_project::{
-    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, OscDestination, Project, ProjectError, Tempo, Timeline,
+    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, MtcOutput, OscDestination, Project, ProjectError,
+    Tempo, Timeline,
 };
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
@@ -857,6 +858,676 @@ impl PositionReader {
     }
 }
 
+/// What `Output::reconfigure` did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Reconfigured {
+    /// The LTC and MTC outputs now match the project; the programme's stream was not touched.
+    Applied { info: OutputInfo },
+    /// The change reaches the programme's stream: the output has to be opened again.
+    NeedsRestart,
+}
+
+/// What the programme's stream is opened with. A project that asks for anything else needs the
+/// stream reopened. The positions of the LTC outputs in the project are not part of it: they only
+/// say which row of the UI a stream belongs to.
+#[derive(Debug, Clone, PartialEq)]
+struct MasterKey {
+    driver: Option<String>,
+    device_hint: String,
+    /// 1-based interface channels of the programme.
+    programme: Vec<u16>,
+    /// How many channels the stream has to open.
+    needed: u16,
+    /// The LTC outputs written into the programme's stream.
+    ltc: Vec<LtcSend>,
+    rate: FrameRate,
+    start: u64,
+}
+
+/// Where the metronome plays and how, which is part of every stream it can play on.
+#[derive(Debug, Clone, PartialEq)]
+struct ClickKey {
+    device: String,
+    channels: Vec<u16>,
+    gain_db: f32,
+    place: ClickPlaceKey,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum ClickPlaceKey {
+    Programme,
+    /// The stream of the LTC device the group was opened by.
+    Group(String),
+    Own,
+}
+
+/// An LTC device that is not the programme's, with the metronome when it plays there too.
+struct FollowerWant {
+    group: LtcGroup,
+    click: Option<ClickSpec>,
+}
+
+/// What a project asks for, split into what needs the programme's stream and what does not.
+struct Plan {
+    master: MasterKey,
+    click: Option<ClickKey>,
+    /// The LTC outputs on the programme's stream.
+    programme_ltc: Vec<LtcSlot>,
+    programme_click: Option<ClickSpec>,
+    followers: Vec<FollowerWant>,
+    /// The metronome's device, when it carries nothing else.
+    own_click: Option<(String, ClickSpec)>,
+    /// The metronome, shared with every stream that plays it.
+    metronome: Option<Arc<SharedMetronome>>,
+    mtc: Vec<MtcOutput>,
+    /// How many LTC outputs the project has.
+    ltc_outputs: usize,
+}
+
+impl Plan {
+    /// `metronome` is the one a running output already uses, so a stream opened later keeps
+    /// following its tempo. `same` tells whether two device name hints open the same device.
+    fn build(
+        project: &Project,
+        timeline: &Timeline,
+        metronome: Option<Arc<SharedMetronome>>,
+        same: impl Fn(&str, &str) -> bool,
+    ) -> Self {
+        let output = &project.output;
+        // An empty device name is the system's default output, so a project without any device
+        // chosen still plays. A project written before `output.audio` existed carries the
+        // programme on the first LTC device.
+        let device_hint = match (&output.audio, output.ltc.first()) {
+            (Some(audio), _) => audio.device_name.clone(),
+            (None, Some(ltc)) => ltc.device_name.clone(),
+            (None, None) => String::new(),
+        };
+        let programme: Vec<u16> = output
+            .audio
+            .as_ref()
+            .map(|audio| audio.channels.clone())
+            .filter(|channels| !channels.is_empty())
+            .unwrap_or_else(|| vec![1, 2]);
+        // LTC shares the programme's stream unless it names another device, which then gets a
+        // stream of its own.
+        let LtcPlan {
+            shared: programme_ltc,
+            own,
+        } = plan_ltc(&output.ltc, &device_hint, &same);
+        // The metronome has an output of its own. It plays on the programme's stream when it names
+        // the programme's device, on the stream of an LTC device it shares, or else on a stream
+        // of its own: no device is opened twice.
+        let shared_metronome = output.metronome.as_ref().map(|metronome_output| {
+            metronome.unwrap_or_else(|| {
+                Arc::new(SharedMetronome::new(
+                    timeline.tempo,
+                    metronome_output.gain_db,
+                ))
+            })
+        });
+        let click = output
+            .metronome
+            .as_ref()
+            .zip(shared_metronome.as_ref())
+            .map(|(metronome, shared)| {
+                let channels = if metronome.channels.is_empty() {
+                    vec![1, 2]
+                } else {
+                    metronome.channels.clone()
+                };
+                let place = if same(&metronome.device_name, &device_hint) {
+                    ClickPlace::Programme
+                } else if let Some(group) = own
+                    .iter()
+                    .position(|group| same(&group.device, &metronome.device_name))
+                {
+                    ClickPlace::Group(group)
+                } else {
+                    ClickPlace::Own
+                };
+                let spec = ClickSpec {
+                    shared: Arc::clone(shared),
+                    channels,
+                };
+                (
+                    metronome.device_name.clone(),
+                    metronome.gain_db,
+                    place,
+                    spec,
+                )
+            });
+        let click_key = click
+            .as_ref()
+            .map(|(device, gain_db, place, spec)| ClickKey {
+                device: device.clone(),
+                channels: spec.channels.clone(),
+                gain_db: *gain_db,
+                place: match place {
+                    ClickPlace::Programme => ClickPlaceKey::Programme,
+                    ClickPlace::Group(at) => ClickPlaceKey::Group(own[*at].device.clone()),
+                    ClickPlace::Own => ClickPlaceKey::Own,
+                },
+            });
+        let click_for = |wanted: ClickPlace| {
+            click
+                .as_ref()
+                .filter(|(_, _, place, _)| *place == wanted)
+                .map(|(_, _, _, spec)| spec.clone())
+        };
+        let programme_click = click_for(ClickPlace::Programme);
+        let own_click = click_for(ClickPlace::Own)
+            .zip(click.as_ref())
+            .map(|(spec, (device, ..))| (device.clone(), spec));
+        let needed = programme_ltc
+            .iter()
+            .map(|slot| slot.channel)
+            .chain(programme.iter().copied())
+            .chain(
+                programme_click
+                    .iter()
+                    .flat_map(|spec| spec.channels.iter().copied()),
+            )
+            .max()
+            .unwrap_or(2);
+        let followers = own
+            .into_iter()
+            .enumerate()
+            .map(|(index, group)| FollowerWant {
+                group,
+                click: click_for(ClickPlace::Group(index)),
+            })
+            .collect();
+        Self {
+            master: MasterKey {
+                driver: output.driver.clone(),
+                device_hint,
+                programme,
+                needed,
+                ltc: sends_of(&programme_ltc),
+                rate: timeline.timecode.frame_rate,
+                start: timeline.timecode.start,
+            },
+            click: click_key,
+            programme_ltc,
+            programme_click,
+            followers,
+            own_click,
+            metronome: shared_metronome,
+            mtc: output.mtc.clone(),
+            ltc_outputs: output.ltc.len(),
+        }
+    }
+}
+
+/// What the streams and threads besides the programme's are opened with.
+struct BranchCtx {
+    driver: Option<String>,
+    /// The generator runs at full scale and every channel applies its own level.
+    ltc_config: LtcConfig,
+    rate: FrameRate,
+    start: u64,
+    clock: Clock,
+}
+
+impl BranchCtx {
+    fn new(driver: Option<String>, timeline: &Timeline) -> Self {
+        let ltc_config = LtcConfig {
+            level: 1.0,
+            ..LtcConfig::default()
+        };
+        let rate = timeline.timecode.frame_rate;
+        Self {
+            driver,
+            clock: Clock::new(ltc_config.sample_rate, rate),
+            ltc_config,
+            rate,
+            start: timeline.timecode.start,
+        }
+    }
+}
+
+/// A stream (LTC and/or the click) on a device that is not the programme's.
+struct Follower {
+    /// The device name hint it was opened by.
+    device: String,
+    sends: Vec<LtcSend>,
+    with_click: bool,
+    /// The name of the device that opened.
+    opened: String,
+    stop: Arc<AtomicBool>,
+    lost: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
+
+/// A thread sending MTC to a MIDI port.
+struct MtcBranch {
+    hint: String,
+    index: usize,
+    offset_ms: i32,
+    /// The system's own position of the port.
+    at: usize,
+    name: String,
+    stop: Arc<AtomicBool>,
+    lost: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
+
+/// Stops a stream or thread of its own and waits for it.
+fn shut(stop: &AtomicBool, handle: JoinHandle<()>) {
+    stop.store(true, Ordering::Relaxed);
+    handle.thread().unpark();
+    let _ = handle.join();
+}
+
+impl Follower {
+    fn shut(self) {
+        shut(&self.stop, self.handle);
+    }
+}
+
+impl MtcBranch {
+    fn shut(self) {
+        shut(&self.stop, self.handle);
+    }
+}
+
+/// For each wanted item, the running one that already does it (each used once), and the running
+/// ones nothing wants any more.
+fn pair<W, R>(
+    wanted: &[W],
+    running: &[R],
+    same: impl Fn(&W, &R) -> bool,
+) -> (Vec<Option<usize>>, Vec<usize>) {
+    let mut taken = vec![false; running.len()];
+    let paired = wanted
+        .iter()
+        .map(|want| {
+            let at = (0..running.len()).find(|&at| !taken[at] && same(want, &running[at]))?;
+            taken[at] = true;
+            Some(at)
+        })
+        .collect();
+    let unused = (0..running.len()).filter(|&at| !taken[at]).collect();
+    (paired, unused)
+}
+
+/// What the branches ended up as, for the UI.
+struct Opened {
+    ltc: Vec<LtcInfo>,
+    mtc: Vec<MtcInfo>,
+    metronome: Option<MetronomeInfo>,
+}
+
+/// The LTC and click streams on other devices and the MTC threads of a running output. Applying a
+/// plan keeps what already does what the plan asks, and only closes and opens the rest.
+#[derive(Default)]
+struct Branches {
+    followers: Vec<Follower>,
+    /// The metronome's stream, when its device carries nothing else.
+    click: Option<Follower>,
+    mtc: Vec<MtcBranch>,
+}
+
+impl Branches {
+    fn shut_all(&mut self) {
+        for follower in self.followers.drain(..).chain(self.click.take()) {
+            follower.shut();
+        }
+        for port in self.mtc.drain(..) {
+            port.shut();
+        }
+    }
+
+    fn apply(
+        &mut self,
+        plan: &Plan,
+        ctx: &BranchCtx,
+        shared: &Arc<SharedClock>,
+        programme: &str,
+        warnings: &mut Vec<String>,
+    ) -> Opened {
+        let mut lamps = Lamps {
+            programme_ltc: mask(
+                plan.programme_ltc
+                    .iter()
+                    .flat_map(|slot| slot.outputs.iter().copied()),
+            ),
+            programme_click: plan.programme_click.is_some(),
+            ..Lamps::default()
+        };
+        // One entry per project output, in the project's order, whatever stream it landed on.
+        let mut ltc_info: Vec<Option<LtcInfo>> = vec![None; plan.ltc_outputs];
+        let mut place = |slots: &[LtcSlot], device: &str, ok: bool| {
+            for slot in slots {
+                for &index in &slot.outputs {
+                    ltc_info[index] = Some(LtcInfo {
+                        device: device.to_owned(),
+                        channel: slot.channel,
+                        ok,
+                    });
+                }
+            }
+        };
+        place(&plan.programme_ltc, programme, true);
+        let mut metronome_info = plan.click.as_ref().map(|key| MetronomeInfo {
+            device: if key.place == ClickPlaceKey::Programme {
+                programme.to_owned()
+            } else {
+                key.device.clone()
+            },
+            ok: key.place == ClickPlaceKey::Programme,
+        });
+
+        // What each stream is asked to do, as it is compared with the ones running.
+        let asked: Vec<(&str, Vec<LtcSend>, bool)> = plan
+            .followers
+            .iter()
+            .map(|want| {
+                (
+                    want.group.device.as_str(),
+                    sends_of(&want.group.slots),
+                    want.click.is_some(),
+                )
+            })
+            .collect();
+        let (paired, unused) = pair(
+            &asked,
+            &self.followers,
+            |(device, sends, click), running| {
+                running.device == *device && running.sends == *sends && running.with_click == *click
+            },
+        );
+        let mut old: Vec<Option<Follower>> = std::mem::take(&mut self.followers)
+            .into_iter()
+            .map(Some)
+            .collect();
+        // A device the new streams need may be one a closing stream holds: close first.
+        for at in unused {
+            if let Some(follower) = old[at].take() {
+                follower.shut();
+            }
+        }
+        for (want, paired) in plan.followers.iter().zip(paired) {
+            let group = &want.group;
+            let opened = match paired.and_then(|at| old[at].take()) {
+                Some(running) => Ok(running),
+                None => open_follower(
+                    "flux-ltc",
+                    &group.device,
+                    sends_of(&group.slots),
+                    want.click.clone(),
+                    ctx,
+                    shared,
+                ),
+            };
+            match opened {
+                Ok(follower) => {
+                    place(&group.slots, &follower.opened, true);
+                    let outputs = group
+                        .slots
+                        .iter()
+                        .flat_map(|slot| slot.outputs.iter().copied());
+                    lamps.ltc.push(Lamp::new(outputs, &follower.lost));
+                    if let (true, Some(info)) = (want.click.is_some(), &mut metronome_info) {
+                        *info = MetronomeInfo {
+                            device: follower.opened.clone(),
+                            ok: true,
+                        };
+                        lamps.click = Some(Arc::clone(&follower.lost));
+                    }
+                    self.followers.push(follower);
+                }
+                Err(err) => {
+                    warnings.push(format!("LTC is off on {}, {err}", group.device));
+                    place(&group.slots, &group.device, false);
+                    if want.click.is_some() {
+                        warnings.push(format!("The metronome is off on {}, {err}", group.device));
+                    }
+                }
+            }
+        }
+
+        // A device that carries nothing but the metronome gets a stream that plays only the click.
+        let running_click = match self.click.take() {
+            Some(running)
+                if plan
+                    .own_click
+                    .as_ref()
+                    .is_some_and(|(device, _)| running.device == *device) =>
+            {
+                Some(running)
+            }
+            Some(running) => {
+                running.shut();
+                None
+            }
+            None => None,
+        };
+        if let Some((device, spec)) = &plan.own_click {
+            let opened = match running_click {
+                Some(running) => Ok(running),
+                None => open_follower(
+                    "flux-click",
+                    device,
+                    Vec::new(),
+                    Some(spec.clone()),
+                    ctx,
+                    shared,
+                ),
+            };
+            match opened {
+                Ok(follower) => {
+                    lamps.click = Some(Arc::clone(&follower.lost));
+                    metronome_info = Some(MetronomeInfo {
+                        device: follower.opened.clone(),
+                        ok: true,
+                    });
+                    self.click = Some(follower);
+                }
+                Err(err) => warnings.push(format!("The metronome is off on {device}, {err}")),
+            }
+        }
+
+        let mtc = self.apply_mtc(plan, ctx, shared, warnings, &mut lamps);
+        shared.health().replace(lamps);
+        Opened {
+            ltc: ltc_info.into_iter().flatten().collect(),
+            mtc,
+            metronome: metronome_info,
+        }
+    }
+
+    /// One thread per port, and a port listed twice (or named two ways) shares the first one's
+    /// result. Returns one entry per MTC output of the project.
+    fn apply_mtc(
+        &mut self,
+        plan: &Plan,
+        ctx: &BranchCtx,
+        shared: &Arc<SharedClock>,
+        warnings: &mut Vec<String>,
+        lamps: &mut Lamps,
+    ) -> Vec<MtcInfo> {
+        // The outputs naming the same port the same way are one.
+        let mut first_of: HashMap<(&str, usize), usize> = HashMap::new();
+        let mut distinct: Vec<&MtcOutput> = Vec::new();
+        let group_of: Vec<usize> = plan
+            .mtc
+            .iter()
+            .map(|mtc| {
+                *first_of
+                    .entry((mtc.port_name.as_str(), mtc.port_index))
+                    .or_insert_with(|| {
+                        distinct.push(mtc);
+                        distinct.len() - 1
+                    })
+            })
+            .collect();
+
+        let (paired, unused) = pair(&distinct, &self.mtc, |want, running| {
+            running.hint == want.port_name
+                && running.index == want.port_index
+                && running.offset_ms == want.offset_ms.unwrap_or(0)
+        });
+        let mut old: Vec<Option<MtcBranch>> = std::mem::take(&mut self.mtc)
+            .into_iter()
+            .map(Some)
+            .collect();
+        for at in unused {
+            if let Some(port) = old[at].take() {
+                port.shut();
+            }
+        }
+        // What each distinct port ended up as: the branch that sends to it, or why it is off.
+        let mut resolved: Vec<Option<Result<usize, MtcInfo>>> =
+            distinct.iter().map(|_| None).collect();
+        let mut running: Vec<MtcBranch> = Vec::new();
+        // The ports kept come first, so a port that is new and turns out to be one of them
+        // shares it instead of opening it twice.
+        for (at, paired) in paired.into_iter().enumerate() {
+            if let Some(port) = paired.and_then(|from| old[from].take()) {
+                running.push(port);
+                resolved[at] = Some(Ok(running.len() - 1));
+            }
+        }
+        for (at, want) in distinct.iter().enumerate() {
+            if resolved[at].is_some() {
+                continue;
+            }
+            let result = open_mtc(want, ctx, shared, &mut running, warnings);
+            resolved[at] = Some(result);
+        }
+
+        let branch_of = |output: usize| match &resolved[group_of[output]] {
+            Some(Ok(branch)) => Some(*branch),
+            _ => None,
+        };
+        for (branch, port) in running.iter().enumerate() {
+            let outputs = (0..plan.mtc.len()).filter(|&output| branch_of(output) == Some(branch));
+            lamps.mtc.push(Lamp::new(outputs, &port.lost));
+        }
+        let info = (0..plan.mtc.len())
+            .map(|output| match &resolved[group_of[output]] {
+                Some(Ok(branch)) => MtcInfo {
+                    port: running[*branch].name.clone(),
+                    ok: true,
+                },
+                Some(Err(info)) => info.clone(),
+                None => MtcInfo {
+                    port: plan.mtc[output].port_name.clone(),
+                    ok: false,
+                },
+            })
+            .collect();
+        self.mtc = running;
+        info
+    }
+}
+
+/// Opens the MIDI port `want` names and starts its MTC thread, pushing it onto `running`. A port
+/// that turns out to be one `running` already sends to is not opened twice. Returns the position
+/// in `running` of the branch that sends to it, or why it is off.
+fn open_mtc(
+    want: &MtcOutput,
+    ctx: &BranchCtx,
+    shared: &Arc<SharedClock>,
+    running: &mut Vec<MtcBranch>,
+    warnings: &mut Vec<String>,
+) -> Result<usize, MtcInfo> {
+    let hint = want.port_name.as_str();
+    let (position, name, connection) = match connect_midi(hint, want.port_index, MIDI_CLIENT_NAME) {
+        Ok(opened) => opened,
+        Err(reason) => {
+            warnings.push(format!("MTC is off, {reason}"));
+            return Err(MtcInfo {
+                port: hint.to_owned(),
+                ok: false,
+            });
+        }
+    };
+    if let Some(shared_with) = running.iter().position(|port| port.at == position) {
+        return Ok(shared_with);
+    }
+    let offset_ms = want.offset_ms.unwrap_or(0);
+    let scheduler = MtcScheduler::new(ctx.clock, ctx.rate, ctx.start)
+        .with_offset(ctx.clock.ms_to_samples(offset_ms));
+    let (stop, lost) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let link = PortLink {
+        connection,
+        hint: hint.to_owned(),
+        index: want.port_index,
+    };
+    let (clock, shared, flags) = (
+        ctx.clock,
+        Arc::clone(shared),
+        (Arc::clone(&stop), Arc::clone(&lost)),
+    );
+    let spawned = thread::Builder::new()
+        .name("flux-mtc".into())
+        .spawn(move || run_mtc(scheduler, clock, link, shared, flags.0, flags.1));
+    match spawned {
+        Ok(handle) => {
+            running.push(MtcBranch {
+                hint: hint.to_owned(),
+                index: want.port_index,
+                offset_ms,
+                at: position,
+                name,
+                stop,
+                lost,
+                handle,
+            });
+            Ok(running.len() - 1)
+        }
+        Err(err) => {
+            warnings.push(format!("MTC is off on {name}: {err}"));
+            Err(MtcInfo {
+                port: name,
+                ok: false,
+            })
+        }
+    }
+}
+
+/// Opens the stream of an LTC (or click) device that is not the programme's.
+fn open_follower(
+    name: &str,
+    device: &str,
+    sends: Vec<LtcSend>,
+    click: Option<ClickSpec>,
+    ctx: &BranchCtx,
+    shared: &Arc<SharedClock>,
+) -> Result<Follower, OutputError> {
+    let with_click = click.is_some();
+    let spec = LtcSpec {
+        driver: ctx.driver.clone(),
+        device_hint: device.to_owned(),
+        ltc: sends.clone(),
+        click,
+        config: ctx.ltc_config,
+        rate: ctx.rate,
+        start: ctx.start,
+        clock: ctx.clock,
+    };
+    let (stop, lost) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let (handle, opened) = spawn_follower(name, &stop, shared, &lost, spec)?;
+    Ok(Follower {
+        device: device.to_owned(),
+        sends,
+        with_click,
+        opened,
+        stop,
+        lost,
+        handle,
+    })
+}
+
 /// The audio API and device name hint the programme's stream was opened with.
 #[derive(Debug, Clone)]
 pub struct ProgrammeDevice {
@@ -882,8 +1553,19 @@ pub struct Output {
     reader: PositionReader,
     /// The tempo the metronome clicks to, when the project has a metronome output.
     metronome: Option<Arc<SharedMetronome>>,
+    /// Stops the programme's stream and the cue threads. The other streams and MTC threads each
+    /// have a flag of their own, so one can be closed while the rest keep running.
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
+    /// The LTC and click streams on other devices and the MTC threads.
+    branches: Branches,
+    /// What the programme's stream and the metronome were opened with: a project that asks for
+    /// anything else needs the output opened again.
+    master: MasterKey,
+    click: Option<ClickKey>,
+    /// Why the programme could not be built fully, and why the cue tracks could not be opened.
+    programme_warnings: Vec<String>,
+    cue_warnings: Vec<String>,
     /// The threads that fire the MIDI and OSC cue tracks.
     cues: CueRoutes,
     /// Whether the cue tracks fire at all. Auditioning in Edit on a preview device does not.
@@ -905,89 +1587,25 @@ impl Output {
     ) -> Result<Self, OutputError> {
         let output = &project.output;
         let driver = output.driver.as_deref();
-        // An empty device name is the system's default output, so a project without any device
-        // chosen still plays. A project written before `output.audio` existed carries the
-        // programme on the first LTC device.
-        let device_hint = match (&output.audio, output.ltc.first()) {
-            (Some(audio), _) => audio.device_name.clone(),
-            (None, Some(ltc)) => ltc.device_name.clone(),
-            (None, None) => String::new(),
-        };
-        let programme_channels: Vec<u16> = output
-            .audio
-            .as_ref()
-            .map(|audio| audio.channels.clone())
-            .filter(|channels| !channels.is_empty())
-            .unwrap_or_else(|| vec![1, 2]);
-        // LTC shares the programme's stream unless it names another device, which then gets a
-        // stream of its own.
-        let LtcPlan {
-            shared: shared_ltc,
-            own: own_ltc,
-        } = plan_ltc(&output.ltc, &device_hint, |a, b| same_device(driver, a, b));
-        // The metronome has an output of its own. It plays on the programme's stream when it names
-        // the programme's device, on the stream of an LTC device it shares, or else on a stream
-        // of its own: no device is opened twice.
-        let click = output.metronome.as_ref().map(|metronome| {
-            let channels = if metronome.channels.is_empty() {
-                vec![1, 2]
-            } else {
-                metronome.channels.clone()
-            };
-            let place = if same_device(driver, &metronome.device_name, &device_hint) {
-                ClickPlace::Programme
-            } else if let Some(group) = own_ltc
-                .iter()
-                .position(|group| same_device(driver, &group.device, &metronome.device_name))
-            {
-                ClickPlace::Group(group)
-            } else {
-                ClickPlace::Own
-            };
-            let spec = ClickSpec {
-                shared: Arc::new(SharedMetronome::new(timeline.tempo, metronome.gain_db)),
-                channels,
-            };
-            (metronome.device_name.clone(), place, spec)
-        });
-        let click_for = |wanted: ClickPlace| {
-            click
-                .as_ref()
-                .filter(|(_, place, _)| *place == wanted)
-                .map(|(_, _, spec)| spec.clone())
-        };
-        let needed = shared_ltc
-            .iter()
-            .map(|slot| slot.channel)
-            .chain(programme_channels.iter().copied())
-            .chain(
-                click_for(ClickPlace::Programme)
-                    .into_iter()
-                    .flat_map(|spec| spec.channels),
-            )
-            .max()
-            .unwrap_or(2);
+        let plan = Plan::build(project, timeline, None, |a, b| same_device(driver, a, b));
+        let Plan {
+            master,
+            click,
+            programme_ltc,
+            programme_click,
+            metronome,
+            ..
+        } = &plan;
 
-        // The generator runs at full scale and every channel applies its own level.
-        let ltc_config = LtcConfig {
-            level: 1.0,
-            ..LtcConfig::default()
-        };
-        let rate = timeline.timecode.frame_rate;
-        let start = timeline.timecode.start;
-        let clock = Clock::new(ltc_config.sample_rate, rate);
+        let ctx = BranchCtx::new(output.driver.clone(), timeline);
+        let BranchCtx {
+            ltc_config,
+            clock,
+            rate,
+            start,
+            ..
+        } = ctx;
         let shared = Arc::new(SharedClock::new());
-        let mut lamps = Lamps {
-            programme_ltc: mask(
-                shared_ltc
-                    .iter()
-                    .flat_map(|slot| slot.outputs.iter().copied()),
-            ),
-            programme_click: click
-                .as_ref()
-                .is_some_and(|(_, place, _)| *place == ClickPlace::Programme),
-            ..Lamps::default()
-        };
         let stop = Arc::new(AtomicBool::new(false));
         let (messages, message_rx) = mpsc::channel();
         let Programme { set, warnings } = programme;
@@ -996,16 +1614,16 @@ impl Output {
 
         let programme_device = ProgrammeDevice {
             driver: output.driver.clone(),
-            hint: device_hint.clone(),
+            hint: master.device_hint.clone(),
         };
         let spec = AudioSpec {
             driver: output.driver.clone(),
-            device_hint,
-            needed,
-            programme: programme_channels,
+            device_hint: master.device_hint.clone(),
+            needed: master.needed,
+            programme: master.programme.clone(),
             clips: Arc::clone(&clips),
-            ltc: sends_of(&shared_ltc),
-            click: click_for(ClickPlace::Programme),
+            ltc: sends_of(programme_ltc),
+            click: programme_click.clone(),
             ltc_config,
             rate,
             start,
@@ -1028,170 +1646,15 @@ impl Output {
             }
         })?;
 
-        let mut threads = vec![audio_thread];
-        let mut warnings = warnings;
-        // One entry per project output, in the project's order, whatever stream it landed on.
-        let mut ltc_info: Vec<Option<LtcInfo>> = vec![None; output.ltc.len()];
-        let mut place = |slots: &[LtcSlot], device: &str, ok: bool| {
-            for slot in slots {
-                for &index in &slot.outputs {
-                    ltc_info[index] = Some(LtcInfo {
-                        device: device.to_owned(),
-                        channel: slot.channel,
-                        ok,
-                    });
-                }
-            }
-        };
-        place(&shared_ltc, &audio.device, true);
-        let mut metronome_info = click.as_ref().map(|(device, place, _)| MetronomeInfo {
-            device: if *place == ClickPlace::Programme {
-                audio.device.clone()
-            } else {
-                device.clone()
-            },
-            ok: *place == ClickPlace::Programme,
-        });
-        for (index, group) in own_ltc.into_iter().enumerate() {
-            let spec = LtcSpec {
-                driver: output.driver.clone(),
-                device_hint: group.device.clone(),
-                ltc: sends_of(&group.slots),
-                click: click_for(ClickPlace::Group(index)),
-                config: ltc_config,
-                rate,
-                start,
-                clock,
-            };
-            let with_click = spec.click.is_some();
-            let lost = Arc::new(AtomicBool::new(false));
-            let opened = spawn_follower("flux-ltc", &stop, &shared, &lost, spec);
-            match opened {
-                Ok((handle, device)) => {
-                    threads.push(handle);
-                    place(&group.slots, &device, true);
-                    let outputs = group
-                        .slots
-                        .iter()
-                        .flat_map(|slot| slot.outputs.iter().copied());
-                    lamps.ltc.push(Lamp::new(outputs, &lost));
-                    if let (true, Some(info)) = (with_click, &mut metronome_info) {
-                        *info = MetronomeInfo { device, ok: true };
-                        lamps.click = Some(lost);
-                    }
-                }
-                Err(err) => {
-                    warnings.push(format!("LTC is off on {}, {err}", group.device));
-                    place(&group.slots, &group.device, false);
-                    if with_click {
-                        warnings.push(format!("The metronome is off on {}, {err}", group.device));
-                    }
-                }
-            }
-        }
-        // A device that carries nothing but the metronome gets a stream that plays only the click.
-        if let Some(spec) = click_for(ClickPlace::Own) {
-            let device = click.as_ref().map(|(device, _, _)| device.clone());
-            let device = device.unwrap_or_default();
-            let spec = LtcSpec {
-                driver: output.driver.clone(),
-                device_hint: device.clone(),
-                ltc: Vec::new(),
-                click: Some(spec),
-                config: ltc_config,
-                rate,
-                start,
-                clock,
-            };
-            let lost = Arc::new(AtomicBool::new(false));
-            let opened = spawn_follower("flux-click", &stop, &shared, &lost, spec);
-            match opened {
-                Ok((handle, name)) => {
-                    threads.push(handle);
-                    lamps.click = Some(lost);
-                    metronome_info = Some(MetronomeInfo {
-                        device: name,
-                        ok: true,
-                    });
-                }
-                Err(err) => warnings.push(format!("The metronome is off on {device}, {err}")),
-            }
-        }
-        let ltc_info: Vec<LtcInfo> = ltc_info.into_iter().flatten().collect();
-
-        // Likewise for MTC: one thread per port, and a port listed twice (or named two ways)
-        // shares the first one's result.
-        let mut mtc_info: Vec<MtcInfo> = Vec::with_capacity(output.mtc.len());
-        let mut by_hint: HashMap<(&str, usize), usize> = HashMap::new();
-        // The system's own position of each port taken, since two ports can share a name.
-        let mut by_port: HashMap<usize, usize> = HashMap::new();
-        // The lamp of each port that opened, by the position of the output that opened it.
-        let mut lamp_of: HashMap<usize, usize> = HashMap::new();
-        for mtc in &output.mtc {
-            let hint = mtc.port_name.as_str();
-            if let Some(&first) = by_hint.get(&(hint, mtc.port_index)) {
-                share_lamp(&mut lamps.mtc, &lamp_of, first, mtc_info.len());
-                mtc_info.push(mtc_info[first].clone());
-                continue;
-            }
-            let here = mtc_info.len();
-            by_hint.insert((hint, mtc.port_index), here);
-            let result = match connect_midi(hint, mtc.port_index, MIDI_CLIENT_NAME) {
-                Ok((at, _, _)) if by_port.contains_key(&at) => {
-                    share_lamp(&mut lamps.mtc, &lamp_of, by_port[&at], here);
-                    mtc_info[by_port[&at]].clone()
-                }
-                Ok((at, name, connection)) => {
-                    by_port.insert(at, here);
-                    let scheduler = MtcScheduler::new(clock, rate, start)
-                        .with_offset(clock.ms_to_samples(mtc.offset_ms.unwrap_or(0)));
-                    let lost = Arc::new(AtomicBool::new(false));
-                    let (shared, stop, flag) =
-                        (Arc::clone(&shared), Arc::clone(&stop), Arc::clone(&lost));
-                    let link = PortLink {
-                        connection,
-                        hint: hint.to_owned(),
-                        index: mtc.port_index,
-                    };
-                    let spawned = thread::Builder::new()
-                        .name("flux-mtc".into())
-                        .spawn(move || run_mtc(scheduler, clock, link, shared, stop, flag));
-                    match spawned {
-                        Ok(handle) => {
-                            threads.push(handle);
-                            lamp_of.insert(here, lamps.mtc.len());
-                            lamps.mtc.push(Lamp::new([here], &lost));
-                            MtcInfo {
-                                port: name,
-                                ok: true,
-                            }
-                        }
-                        Err(err) => {
-                            warnings.push(format!("MTC is off on {name}: {err}"));
-                            MtcInfo {
-                                port: name,
-                                ok: false,
-                            }
-                        }
-                    }
-                }
-                Err(reason) => {
-                    warnings.push(format!("MTC is off, {reason}"));
-                    MtcInfo {
-                        port: hint.to_owned(),
-                        ok: false,
-                    }
-                }
-            };
-            mtc_info.push(result);
-        }
-
-        shared.health().replace(lamps);
+        let mut branches = Branches::default();
+        let mut secondary_warnings = Vec::new();
+        let opened = branches.apply(&plan, &ctx, &shared, &audio.device, &mut secondary_warnings);
 
         // The cue tracks: one thread per MIDI port and per OSC destination.
         let mut cues = CueRoutes::new(clock, Arc::clone(&shared), Arc::clone(&stop));
+        let mut cue_warnings = Vec::new();
         let cue_info = if fire_cues {
-            cues.apply(timeline, &output.osc, &mut warnings)
+            cues.apply(timeline, &output.osc, &mut cue_warnings)
         } else {
             Vec::new()
         };
@@ -1200,11 +1663,15 @@ impl Output {
             device: audio.device,
             sample_rate: ltc_config.sample_rate,
             channels: audio.channels,
-            ltc: ltc_info,
-            mtc: mtc_info,
-            metronome: metronome_info,
+            ltc: opened.ltc,
+            mtc: opened.mtc,
+            metronome: opened.metronome,
             cues: cue_info,
-            warnings,
+            warnings: [&warnings, &secondary_warnings, &cue_warnings]
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect(),
         };
         Ok(Self {
             messages,
@@ -1215,14 +1682,56 @@ impl Output {
                 clock,
                 start,
             },
-            metronome: click.map(|(_, _, spec)| spec.shared),
+            metronome: metronome.clone(),
             stop,
-            threads,
+            threads: vec![audio_thread],
+            branches,
+            master: master.clone(),
+            click: click.clone(),
+            programme_warnings: warnings,
+            cue_warnings,
             cues,
             fire_cues,
             info,
             programme_device,
         })
+    }
+
+    /// Follows a change of the project's output settings while the output runs, without touching
+    /// the programme's stream: the LTC and click streams on other devices and the MTC threads
+    /// that are no longer wanted are closed, the new ones opened, and the rest keep running.
+    /// When the change reaches the programme's stream (its device, channels, the LTC on it, the
+    /// metronome, the frame rate or start) nothing is touched and the output must be opened again.
+    pub fn reconfigure(&mut self, project: &Project, timeline: &Timeline) -> Reconfigured {
+        let driver = project.output.driver.as_deref();
+        let plan = Plan::build(project, timeline, self.metronome.clone(), |a, b| {
+            same_device(driver, a, b)
+        });
+        let ctx = BranchCtx::new(project.output.driver.clone(), timeline);
+        if plan.master != self.master || plan.click != self.click {
+            return Reconfigured::NeedsRestart;
+        }
+        let shared = Arc::clone(&self.reader.shared);
+        let mut secondary_warnings = Vec::new();
+        let device = self.info.device.clone();
+        let opened = self
+            .branches
+            .apply(&plan, &ctx, &shared, &device, &mut secondary_warnings);
+        self.info.ltc = opened.ltc;
+        self.info.mtc = opened.mtc;
+        self.info.metronome = opened.metronome;
+        self.info.warnings = [
+            &self.programme_warnings,
+            &secondary_warnings,
+            &self.cue_warnings,
+        ]
+        .into_iter()
+        .flatten()
+        .cloned()
+        .collect();
+        Reconfigured::Applied {
+            info: self.info.clone(),
+        }
     }
 
     /// Follows an edit of the cue tracks while the show runs: the schedules are replaced, carrying
@@ -1288,6 +1797,7 @@ impl Output {
 impl Drop for Output {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        self.branches.shut_all();
         for handle in self.threads.drain(..).chain(self.cues.threads.drain(..)) {
             handle.thread().unpark();
             let _ = handle.join();
@@ -1882,13 +2392,6 @@ pub(crate) fn connect_midi(
         .connect(port, client)
         .map(|connection| (at, name.clone(), connection))
         .map_err(|err| format!("cannot open {name}: {err}"))
-}
-
-/// A port that shares the thread of the output at `first` is lost with it.
-fn share_lamp(lamps: &mut [Lamp], lamp_of: &HashMap<usize, usize>, first: usize, output: usize) {
-    if let Some(lamp) = lamp_of.get(&first).and_then(|&at| lamps.get_mut(at)) {
-        lamp.outputs |= bit(output);
-    }
 }
 
 /// How the MTC thread waits for the next quarter frame.
@@ -2630,19 +3133,6 @@ mod tests {
         assert_eq!(Lamp::new([31, 32, 100], &lost).outputs, 1 << 31);
     }
 
-    #[test]
-    fn share_lamp_should_add_a_repeated_port_to_the_lamp_of_the_first() {
-        let lost = Arc::new(AtomicBool::new(false));
-        let mut lamps = vec![Lamp::new([0], &lost)];
-        let lamp_of = HashMap::from([(0, 0)]);
-
-        share_lamp(&mut lamps, &lamp_of, 0, 2);
-        // A port that never opened has no lamp to share.
-        share_lamp(&mut lamps, &lamp_of, 1, 3);
-
-        assert_eq!(lamps[0].outputs, 0b101);
-    }
-
     fn ms(millis: u64) -> Duration {
         Duration::from_millis(millis)
     }
@@ -3215,6 +3705,182 @@ mod tests {
             offset_ms: 0,
             outputs: outputs.to_vec(),
         }
+    }
+
+    use flux_project::{AudioOutput, MetronomeOutput};
+
+    fn project_with(output: impl FnOnce(&mut flux_project::OutputConfig)) -> Project {
+        let mut project = Project::new("p", FrameRate::Fps25);
+        output(&mut project.output);
+        project
+    }
+
+    fn plan_of(project: &Project) -> Plan {
+        Plan::build(project, &project.timelines[0], None, loosely)
+    }
+
+    fn main_device(name: &str) -> Option<AudioOutput> {
+        Some(AudioOutput {
+            device_name: name.into(),
+            channels: vec![1, 2],
+        })
+    }
+
+    fn mtc_out(port: &str) -> MtcOutput {
+        MtcOutput {
+            port_name: port.into(),
+            port_index: 0,
+            offset_ms: None,
+        }
+    }
+
+    fn click_on(device: &str) -> Option<MetronomeOutput> {
+        Some(MetronomeOutput {
+            device_name: device.into(),
+            channels: vec![1, 2],
+            gain_db: 0.0,
+        })
+    }
+
+    #[test]
+    fn pair_should_match_each_wanted_item_with_a_running_one_once() {
+        let (paired, unused) = pair(&[1, 2, 2, 4], &[2, 5, 1, 2], |want, running| {
+            want == running
+        });
+
+        assert_eq!(paired, [Some(2), Some(0), Some(3), None]);
+        assert_eq!(unused, [1]);
+    }
+
+    #[test]
+    fn pair_should_leave_everything_unused_when_nothing_is_wanted() {
+        let (paired, unused) = pair::<u8, u8>(&[], &[1, 2], |a, b| a == b);
+
+        assert!(paired.is_empty());
+        assert_eq!(unused, [0, 1]);
+    }
+
+    #[test]
+    fn plan_should_not_touch_the_programme_for_an_ltc_or_mtc_output_on_another_device() {
+        let base = project_with(|o| {
+            o.audio = main_device("Main");
+            o.ltc = vec![ltc_out("Main", 3)];
+        });
+        let more = project_with(|o| {
+            o.audio = main_device("Main");
+            o.ltc = vec![ltc_out("Main", 3), ltc_out("Booth", 1)];
+            o.mtc = vec![mtc_out("Port")];
+        });
+
+        let (before, after) = (plan_of(&base), plan_of(&more));
+
+        assert_eq!(before.master, after.master);
+        assert_eq!(before.click, after.click);
+        assert_eq!(after.followers.len(), 1);
+        assert_eq!(after.mtc.len(), 1);
+    }
+
+    #[test]
+    fn plan_should_not_mind_where_in_the_list_an_other_device_output_sits() {
+        let first = project_with(|o| {
+            o.audio = main_device("Main");
+            o.ltc = vec![ltc_out("Main", 3), ltc_out("Booth", 1)];
+        });
+        let moved = project_with(|o| {
+            o.audio = main_device("Main");
+            o.ltc = vec![ltc_out("Stage", 1), ltc_out("Main", 3), ltc_out("Booth", 1)];
+        });
+
+        assert_eq!(plan_of(&first).master, plan_of(&moved).master);
+    }
+
+    #[test]
+    fn plan_should_ask_for_the_programme_to_reopen_when_ltc_on_its_device_changes() {
+        let base = project_with(|o| o.audio = main_device("Main"));
+        let with_ltc = project_with(|o| {
+            o.audio = main_device("Main");
+            o.ltc = vec![ltc_out("Main", 3)];
+        });
+
+        assert_ne!(plan_of(&base).master, plan_of(&with_ltc).master);
+    }
+
+    #[test]
+    fn plan_should_ask_for_the_programme_to_reopen_when_its_device_channels_or_clock_change() {
+        let base = project_with(|o| o.audio = main_device("Main"));
+        let device = project_with(|o| o.audio = main_device("Other"));
+        let channels = project_with(|o| {
+            o.audio = Some(AudioOutput {
+                device_name: "Main".into(),
+                channels: vec![3, 4],
+            })
+        });
+        let mut rate = base.clone();
+        rate.timelines[0].timecode.frame_rate = FrameRate::Fps30;
+        let mut start = base.clone();
+        start.timelines[0].timecode.start = 90_000;
+
+        let base = plan_of(&base).master;
+        for changed in [&device, &channels, &rate, &start] {
+            assert_ne!(base, plan_of(changed).master);
+        }
+    }
+
+    #[test]
+    fn plan_should_ask_for_a_new_output_when_the_metronome_changes() {
+        let off = project_with(|o| o.audio = main_device("Main"));
+        let on = project_with(|o| {
+            o.audio = main_device("Main");
+            o.metronome = click_on("Booth");
+        });
+        let louder = project_with(|o| {
+            o.audio = main_device("Main");
+            o.metronome = Some(MetronomeOutput {
+                gain_db: -6.0,
+                ..click_on("Booth").unwrap()
+            });
+        });
+
+        assert_ne!(plan_of(&off).click, plan_of(&on).click);
+        assert_ne!(plan_of(&on).click, plan_of(&louder).click);
+        assert_eq!(plan_of(&on).click, plan_of(&on).click);
+    }
+
+    #[test]
+    fn plan_should_follow_the_metronome_to_the_stream_it_plays_on() {
+        let project = project_with(|o| {
+            o.audio = main_device("Main");
+            o.ltc = vec![ltc_out("Booth", 1)];
+            o.metronome = click_on("booth");
+        });
+
+        let plan = plan_of(&project);
+
+        assert_eq!(
+            plan.click.map(|click| click.place),
+            Some(ClickPlaceKey::Group("Booth".into()))
+        );
+        assert!(plan.followers[0].click.is_some());
+        assert!(plan.own_click.is_none() && plan.programme_click.is_none());
+    }
+
+    #[test]
+    fn plan_should_keep_the_running_metronome_for_the_streams_it_opens() {
+        let project = project_with(|o| {
+            o.audio = main_device("Main");
+            o.metronome = click_on("Booth");
+        });
+        let running = plan_of(&project).metronome.unwrap();
+
+        let plan = Plan::build(
+            &project,
+            &project.timelines[0],
+            Some(Arc::clone(&running)),
+            loosely,
+        );
+
+        assert!(Arc::ptr_eq(&plan.metronome.unwrap(), &running));
+        assert!(Arc::ptr_eq(&plan.own_click.unwrap().1.shared, &running));
     }
 
     #[test]

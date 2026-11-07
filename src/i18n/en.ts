@@ -283,7 +283,7 @@ export const en = {
   "setup.state.waiting": "Waiting",
   "setup.general.refreshNote": "Plugged in a device since Flux started? Refresh to reconnect.",
   "setup.status.off": "Output not connected",
-  "setup.status.pending": "Changes apply when playback stops.",
+  "setup.status.pending": "Changes to the audio device apply when playback stops.",
   "setup.status.lost": "An output stopped responding. Flux reconnects it when it comes back.",
 
   "dialog.unsaved.title": "Save changes to {name}?",

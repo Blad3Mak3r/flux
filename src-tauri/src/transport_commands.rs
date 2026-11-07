@@ -26,7 +26,7 @@ use crate::live_commands::{active_timeline, cue_list};
 use flux_audio::SharedAudio;
 use flux_engine::cues::{CueList, LiveState, SharedCues};
 use flux_engine::mixer::{self, Programme, TrackPeak};
-use flux_engine::output::{Output, OutputError, OutputInfo, Position};
+use flux_engine::output::{Output, OutputError, OutputInfo, Position, Reconfigured};
 use flux_engine::transport::{Command, TransportState};
 use flux_project::{Project, Tempo, Timeline};
 
@@ -328,6 +328,34 @@ pub async fn output_start(
         log::error!("output could not start: {err}");
     }
     started
+}
+
+/// Brings the running output's LTC and MTC outputs in line with the project's, without touching the
+/// programme's stream, so the change applies while playing. `needsRestart` says the change reaches
+/// the programme's stream (its device, channels, the LTC on it, the metronome, the frame rate or
+/// start): nothing was touched and the output has to be started again.
+#[tauri::command]
+pub async fn output_reconfigure(
+    state: State<'_, SharedOutput>,
+    session: State<'_, SharedSession>,
+    project: Project,
+) -> Result<Reconfigured, OutputError> {
+    let (state, session) = (Arc::clone(&state), Arc::clone(&session));
+    let done = tauri::async_runtime::spawn_blocking(move || {
+        let timeline = active_timeline(&session, &project)?;
+        match lock(&state).as_mut() {
+            Some(running) => Ok(running.output.reconfigure(&project, timeline)),
+            None => Err(OutputError::NotRunning),
+        }
+    })
+    .await
+    .map_err(|err| OutputError::Stream(err.to_string()))?;
+    match &done {
+        Ok(Reconfigured::Applied { info }) => diagnostics::output_reconfigured(info),
+        Ok(Reconfigured::NeedsRestart) => log::info!("output settings changed, restart needed"),
+        Err(err) => log::warn!("the output could not be reconfigured: {err}"),
+    }
+    done
 }
 
 /// The audio of the timeline's clips, decoding what has not been decoded yet, and where the show

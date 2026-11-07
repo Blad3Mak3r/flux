@@ -72,6 +72,7 @@ pub fn run() {
             live_commands::live_state,
             transport_commands::output_start,
             transport_commands::output_set_clips,
+            transport_commands::output_reconfigure,
             transport_commands::output_set_track_gain,
             transport_commands::output_set_tempo,
             transport_commands::output_stop,

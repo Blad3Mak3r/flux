@@ -107,6 +107,18 @@ export function startOutput(project: Project, advance: boolean, audition: boolea
   });
 }
 
+/** What changing the settings of a running output ended in. */
+export type Reconfigured = { kind: "applied"; info: OutputInfo } | { kind: "needsRestart" };
+
+/**
+ * Brings the running output's LTC and MTC outputs in line with the project's without touching the
+ * programme's stream, so the change applies while playing. `needsRestart` means the change reaches
+ * the programme's stream and the output has to be started again; nothing was changed.
+ */
+export function reconfigureOutput(project: Project): Promise<Reconfigured> {
+  return invoke<Reconfigured>("output_reconfigure", { project });
+}
+
 /**
  * Sends the project's current clips to a running output, after tracks were muted or clips moved.
  * Resolves to the files that could not be used.

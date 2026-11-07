@@ -1,7 +1,9 @@
 // Drives the backend output for the open project. The output connects by itself: when the window
 // starts, and whenever the output settings change, the devices are opened, so there is no Start
-// button. A change made while playing waits until playback stops or pauses, so the timecode never
-// glitches mid-show. When the programme's device is lost and comes back, the output reopens at the
+// button. A change to the LTC or MTC outputs is applied by the backend while the output runs, without
+// touching the programme's stream; a change that reaches the programme's stream (its device, channels,
+// the LTC on it, the metronome, the frame rate) waits until playback stops or pauses, so the timecode
+// never glitches mid-show. When the programme's device is lost and comes back, the output reopens at the
 // same frame, stopped. The UI still works with no output running (a device is missing, or this is
 // not the desktop app): the playhead is parked and seeking only moves it.
 //
@@ -53,6 +55,8 @@ let openedFor: string | null = null;
 let openedStart: number | null = null;
 /** The timeline the open output plays; its parked playhead belongs to no other. */
 let openedTimeline: string | null = null;
+/** The view the open output was opened for; the other view may play through other outputs. */
+let openedView: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 /** Counts the outputs opened; a tick that comes from one closed since is dropped. */
 let run = 0;
@@ -141,20 +145,45 @@ export function reconnect(force = false): void {
 async function connect(force: boolean): Promise<void> {
   // Outside the desktop app there is no backend to open anything on.
   if (!hasNativeWindow()) return;
-  const { position, info } = useTransport.getState();
+  if (!force && useTransport.getState().info && openedFor === signature(useDoc.getState())) {
+    useTransport.setState({ pendingReconfigure: false });
+    return;
+  }
+  if (!force && useTransport.getState().info && (await reconfigureInPlace())) return;
+  // The state may have moved while the backend answered.
+  const { position } = useTransport.getState();
   // A lost device is not playing anything, whatever the last position says: it reopens at once.
   if (position?.state === "playing" && !position.deviceLost) {
     useTransport.setState({ pendingReconfigure: true });
     return;
   }
   useTransport.setState({ pendingReconfigure: false });
-  if (!force && info && openedFor === signature(useDoc.getState())) return;
   try {
     await open(true);
   } catch (error) {
     // The backend already dropped the old output when it tried the new one.
     await closeOutput();
     report(error);
+  }
+}
+
+/**
+ * Asks the backend to bring the open output in line with the project without reopening it. False
+ * when that is not possible (another timeline or view, or the change reaches the programme's
+ * stream) and the output has to be opened again.
+ */
+async function reconfigureInPlace(): Promise<boolean> {
+  const doc = useDoc.getState();
+  const { id, timecode } = activeTimeline(doc);
+  if (openedTimeline !== id || openedStart !== timecode.start || openedView !== useUi.getState().view) return false;
+  try {
+    const result = await api.reconfigureOutput(forView(doc.project));
+    if (result.kind !== "applied") return false;
+    openedFor = signature(doc);
+    useTransport.setState({ info: result.info, pendingReconfigure: false });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -175,6 +204,7 @@ async function open(force = false): Promise<void> {
   openedFor = signature(doc);
   openedStart = timecode.start;
   openedTimeline = id;
+  openedView = useUi.getState().view;
   useTransport.setState({ info, clipWarnings: [], position: null });
   scheduleClips();
   await api.seek(useTransport.getState().parked);
@@ -187,6 +217,7 @@ async function closeOutput(): Promise<void> {
   openedFor = null;
   openedStart = null;
   openedTimeline = null;
+  openedView = null;
   useTransport.setState({ info: null, position: null });
 }
 
