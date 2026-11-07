@@ -1,3 +1,4 @@
+import { resolveOutput, usePreferences } from "../preferences/store";
 // Drives the backend output for the open project. The output connects by itself: when the window
 // starts, and whenever the output settings change, the devices are opened, so there is no Start
 // button. A change made while playing waits until playback stops or pauses, so the timecode never
@@ -17,7 +18,6 @@ import { sayError, useUi } from "../state/ui";
 import { realFps } from "../timecode";
 import * as api from "./api";
 import type { OutputLanes } from "./api";
-import { effectiveOutput } from "./effective";
 import { latestOnly } from "./latest";
 import { displayClock } from "./smooth";
 import { stoppedAt } from "./stopped";
@@ -36,9 +36,9 @@ function setup(doc: Doc): api.OutputSetup {
   return {
     timelineId,
     timecode,
-    output: effectiveOutput(doc.project.output, view),
+    output: view === "edit" ? usePreferences.getState().editOutput : usePreferences.getState().output,
     advance: view === "live",
-    audition: view === "edit" && Boolean(doc.project.output.preview),
+    audition: view === "edit" && usePreferences.getState().audition,
   };
 }
 
@@ -128,7 +128,7 @@ export function bindTransport(): () => void {
     }
     // The metronome follows the tempo and its switch while the show runs; no reopening needed.
     if (sameTimeline && current.tempo !== previous.tempo && useTransport.getState().info) sendTempo(current.tempo);
-    if (signature(now) !== signature(before)) reconnect();
+    if (now.project.output !== before.project.output || signature(now) !== signature(before)) reconnect();
   });
   // A change that waited for playback to end is applied as soon as it does.
   const unsubscribeTransport = useTransport.subscribe((state) => {
@@ -138,7 +138,11 @@ export function bindTransport(): () => void {
   const unsubscribeView = useUi.subscribe((now, before) => {
     if (now.view !== before.view) reconnect();
   });
+  const unsubscribePrefs = usePreferences.subscribe((now, before) => {
+    if (now.saved !== before.saved) reconnect();
+  });
   return () => {
+    unsubscribePrefs();
     unsubscribeDoc();
     unsubscribeTransport();
     unsubscribeView();
@@ -168,6 +172,7 @@ async function connect(force: boolean): Promise<void> {
   // Outside the desktop app there is no backend to open anything on.
   if (!hasNativeWindow()) return;
   try {
+    await resolveOutput(useDoc.getState().project.output);
     await attach();
   } catch (error) {
     report(error);
@@ -193,7 +198,7 @@ async function connect(force: boolean): Promise<void> {
 async function open(force = false): Promise<void> {
   const doc = useDoc.getState();
   const requested = setup(doc);
-  const { timelineId, timecode, output, advance, audition } = requested;
+  const { timelineId, timecode, advance, audition } = requested;
   const key = JSON.stringify(requested);
   const { position } = useTransport.getState();
   if (!force && useTransport.getState().info && (openedFor === key || position?.state === "playing")) return;
@@ -202,7 +207,7 @@ async function open(force = false): Promise<void> {
   if (position && openedStart === timecode.start && openedTimeline === timelineId) {
     useTransport.setState({ parked: position.frame });
   }
-  const info = await api.startOutput({ ...doc.project, output }, advance, audition, lanes(++run));
+  const info = await api.startOutput(doc.project, advance, audition, lanes(++run));
   openedFor = key;
   openedStart = timecode.start;
   openedTimeline = timelineId;

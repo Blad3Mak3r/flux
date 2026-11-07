@@ -1,3 +1,5 @@
+import { UNASSIGNED } from "../preferences/store";
+import { useOutputView } from "../preferences/outputs";
 import type { Devices, Presence } from "../devices/useDevices";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
@@ -114,7 +116,7 @@ function Keys() {
 
 function Lamps({ devices }: { devices: Devices }) {
   const t = useT();
-  const output = useDoc((doc) => doc.project.output);
+  const output = useOutputView();
   const info = useTransport((transport) => transport.info);
   const deviceLost = useTransport((transport) => transport.position?.deviceLost);
   const ltcLost = useTransport((transport) => transport.position?.ltcLost);
@@ -133,7 +135,7 @@ function Lamps({ devices }: { devices: Devices }) {
   const ports = output.mtc.map((mtc, index) => ({ mtc, reported: info?.mtc.length === output.mtc.length ? info.mtc[index] : undefined })).filter(({ mtc }) => mtc.portName !== "");
 
   const ltcDetails = ltc.map((one) =>
-    [t("output.channel", { channel: one.channel }), one.deviceName !== deviceName ? one.deviceName || t("output.default") : null]
+    one.deviceName === UNASSIGNED ? t("setup.unassigned") : [t("output.channel", { channel: one.channel }), one.deviceName !== deviceName ? one.deviceName || t("output.default") : null]
       .filter(Boolean)
       .join(" · "),
   );

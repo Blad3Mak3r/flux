@@ -8,7 +8,7 @@ export interface Project {
   name: string;
   meta: ProjectMeta;
   assets: AudioAsset[];
-  output: OutputConfig;
+  output: ShowOutputs;
   /** Never empty. The backend decides which one is active; only that one plays. */
   timelines: Timeline[];
 }
@@ -188,6 +188,15 @@ export interface Note {
   length?: number;
   /** Free text, possibly several lines. */
   text: string;
+}
+
+/** Portable signals; physical routing lives in this installation's preferences. */
+export interface ShowOutputs {
+  metronome?: { gainDb: number } | null;
+  ltc: { slot: number; level?: number }[];
+  mtc: { slot: number }[];
+  osc?: OscDestination[];
+  legacyRoutes?: OutputConfig;
 }
 
 /** Devices are stored by name hint only, never by OS identifier. */

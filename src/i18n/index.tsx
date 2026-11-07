@@ -1,6 +1,11 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo } from "react";
 import type { ReactNode } from "react";
-import { LOCALE_STORAGE_KEY, LOCALES, initialLocale, translator } from "./messages";
+import { LOCALES, translator } from "./messages";
+import {
+  changePreferences,
+  initPreferences,
+  usePreferences,
+} from "../preferences/store";
 import type { Locale, MessageKey, Translate } from "./messages";
 
 export { LOCALES };
@@ -14,22 +19,31 @@ interface I18n {
 
 const I18nContext = createContext<I18n | null>(null);
 
-export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocale] = useState<Locale>(initialLocale);
+const setLocale = (next: Locale) => {
+    void changePreferences({ op: "locale", locale: next }).catch(
+      () => undefined,
+    );
+  };
 
+export function I18nProvider({ children }: { children: ReactNode }) {
+  const locale = usePreferences((p) => p.saved.locale) ?? "en";
+  const ready = usePreferences((p) => p.ready);
+  useEffect(() => {
+    void initPreferences();
+  }, []);
   useEffect(() => {
     document.documentElement.lang = locale;
-    try {
-      localStorage.setItem(LOCALE_STORAGE_KEY, locale);
-    } catch {
-      // Not persisting is fine.
-    }
   }, [locale]);
+
 
   const t = useMemo(() => translator(locale), [locale]);
 
   const value = useMemo(() => ({ locale, setLocale, t }), [locale, t]);
-  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+  return (
+    <I18nContext.Provider value={value}>
+      {ready ? children : null}
+    </I18nContext.Provider>
+  );
 }
 
 export function useI18n(): I18n {
