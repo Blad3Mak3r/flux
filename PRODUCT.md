@@ -26,7 +26,7 @@ QLab's cue and show-control model combined with a REAPER-style timeline and trac
 
 ## Operating Context
 
-- A project is a `.fxtc` file: a zip with `project.json` and the bundled audio, so a show is self-contained and portable. Devices are machine-specific, so a project stores a name hint and the UI asks for a replacement when a device is missing.
+- A project is a `.fxtc` file: a zip with `project.json` and the bundled audio, so a show is self-contained and portable. Hardware routes are stored per computer and shared by projects; a project carries logical signals and levels. Legacy device hints are imported only after explicit review.
 - Flux is the master clock and only generates timecode; chasing an external timecode is out of scope for now.
 - The audio device's sample clock drives playback, LTC and MTC. Positions everywhere are frame counts at the project frame rate (24, 25, 29.97 drop-frame, 30).
 - Used anywhere from a quiet studio to a dark booth at a venue, on a laptop with an audio interface and a MIDI interface attached.
@@ -34,10 +34,10 @@ QLab's cue and show-control model combined with a REAPER-style timeline and trac
 ## Capabilities and Constraints
 
 - Today the app can: open, save and import audio into `.fxtc` projects with several timelines; edit audio and notes tracks on a timeline and play the audio mixed on the audio device's clock; detect the tempo of songs and click a metronome; generate LTC and MTC; run a transport (play, pause, stop, seek); and run the show in a read-only Live view driven by cues the backend derives from the project.
-- Outputs are set up in the Setup dialog: the programme's audio device and channels, an Edit-only preview device, the metronome, any number of LTC outputs (each with its own device, channel, level and latency offset) and any number of MTC outputs (each a MIDI port, with same-named ports told apart, and a latency offset). Devices are stored as name hints and a missing one is explained, never fatal.
+- Outputs are set up in Preferences. The project owns logical LTC/MTC outputs and signal levels; the computer owns the audio driver, programme and Edit-preview interfaces, metronome route, LTC device/channel/latency and MTC port/index/latency. Removing a logical output preserves every other output’s slot and local routing. Missing routes are visible and never substituted for timecode.
 - Cue tracks fire from the same clock: MIDI tracks (notes, control and program change, MIDI Show Control, SysEx) to a chosen MIDI port, and OSC tracks (UDP) to destinations defined in Preferences. Seeking never replays the events jumped over.
 - Not built yet: firing video or Art-Net cues and chasing an external timecode.
-- Internationalisation is a requirement from the start. English is the default and Spanish is the second language. No user-facing string is hard-coded.
+- Internationalisation is a requirement from the start. English is the default and Spanish is the second language. The language is saved per computer and shared across windows; the selector shows a flag beside each language name. No user-facing string is hard-coded.
 - The UI must be legible in the dark and from a distance: the current timecode has to read at a glance.
 - Undecided: the LTC edge default beyond the shipped one (the level is set per output), supported audio formats beyond wav, aiff, flac, mp3 and ogg, a non-drop 29.97 rate, which further track kinds come after audio and notes, and release and packaging.
 
