@@ -15,8 +15,8 @@ use thiserror::Error;
 /// Rates worth offering in a picker; a device usually reports a continuous range instead.
 const STANDARD_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
-const MIDI_CLIENT_NAME: &str = "Flux Timecode";
-const MIDI_INPUT_CLIENT_NAME: &str = "Flux Timecode control";
+const MIDI_CLIENT_NAME: &str = "FLUX";
+const MIDI_INPUT_CLIENT_NAME: &str = "FLUX control";
 
 #[derive(Debug, Error)]
 pub enum DeviceError {

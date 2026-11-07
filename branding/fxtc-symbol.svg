@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000" role="img" aria-labelledby="title desc">
-  <title id="title">FXTC — símbolo Flux Timecode</title>
-  <desc id="desc">Logotipo en forma de F escalonada, formado por seis piezas verdes inclinadas distribuidas en tres filas de tres, dos y una pieza.</desc>
+  <title id="title">FLUX symbol</title>
+  <desc id="desc">A stepped F formed by six green slanted tiles arranged in rows of three, two and one.</desc>
   <defs>
       <linearGradient id="tileFill" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#BAFF42"/>
