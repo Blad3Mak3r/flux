@@ -38,6 +38,23 @@ impl Decoded {
 /// Decodes `bytes`, using `extension` (`"mp3"`, `"wav"`, ...) as a hint for the container.
 /// Mono is played on both sides and anything beyond two channels is dropped.
 pub fn decode(bytes: Vec<u8>, extension: Option<&str>) -> Result<Decoded, AudioError> {
+    decode_inner(bytes, extension, None)
+}
+
+/// Bound speech imports during decoding, before collecting an unbounded sample buffer.
+pub fn decode_limited(
+    bytes: Vec<u8>,
+    extension: Option<&str>,
+    max_frames: u64,
+) -> Result<Decoded, AudioError> {
+    decode_inner(bytes, extension, Some(max_frames))
+}
+
+fn decode_inner(
+    bytes: Vec<u8>,
+    extension: Option<&str>,
+    max_frames: Option<u64>,
+) -> Result<Decoded, AudioError> {
     let stream = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
     let mut hint = Hint::new();
     if let Some(extension) = extension {
@@ -82,6 +99,14 @@ pub fn decode(bytes: Vec<u8>, extension: Option<&str>) -> Result<Decoded, AudioE
                 let channels = buffer.spec().channels().count().max(1);
                 source_rate = buffer.spec().rate();
                 buffer.copy_to_vec_interleaved::<f32>(&mut scratch);
+                let frames = stereo.len() / 2 + scratch.len() / channels;
+                if max_frames.is_some_and(|max| {
+                    frames as u128 * u128::from(ENGINE_RATE)
+                        > u128::from(max) * u128::from(source_rate)
+                        || frames > 32 * 1024 * 1024
+                }) {
+                    return Err(AudioError::Limit);
+                }
                 for frame in scratch.chunks_exact(channels) {
                     stereo.push(frame[0]);
                     stereo.push(frame[channels.min(2) - 1]);
@@ -136,6 +161,26 @@ fn resample(stereo: Vec<f32>, from: u32) -> Result<Vec<f32>, AudioError> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn limited_decoder_accepts_the_limit_and_rejects_longer_audio_before_collection() {
+        let bytes = wav(48_000, 1, &vec![1; 48_000]);
+        assert_eq!(
+            decode_limited(bytes.clone(), Some("wav"), 48_000)
+                .unwrap()
+                .frames(),
+            48_000
+        );
+        assert!(matches!(
+            decode_limited(bytes, Some("wav"), 47_999),
+            Err(AudioError::Limit)
+        ));
+        let bytes = wav(44_100, 1, &vec![1; 44_100]);
+        assert!(matches!(
+            decode_limited(bytes, Some("wav"), 24_000),
+            Err(AudioError::Limit)
+        ));
+    }
 
     /// A 16-bit PCM WAV file holding `samples` (interleaved).
     pub fn wav(sample_rate: u32, channels: u16, samples: &[i16]) -> Vec<u8> {

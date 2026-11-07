@@ -5,6 +5,8 @@ use flux_project::ProjectError;
 
 #[derive(Debug, Error)]
 pub enum AudioError {
+    #[error("the recording exceeds the speech decoding limit")]
+    Limit,
     #[error("could not read this audio file: {0}")]
     Decode(String),
     #[error("the file has no audio track")]
