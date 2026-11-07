@@ -1,4 +1,4 @@
-//! The `.fxtc` project file: a zip archive with `project.json` and the project's audio files.
+//! The `.flx` project file (legacy `.fxtc`): a zip with `project.json` and the project's audio files.
 
 mod archive;
 mod clips;
@@ -35,3 +35,29 @@ pub use model::{
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, ProjectState, Session};
+
+/// Whether a path has a supported project extension, including legacy projects.
+pub fn is_project_path(path: &std::path::Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("flx") || ext.eq_ignore_ascii_case("fxtc"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_project_path;
+    use std::path::Path;
+
+    #[test]
+    fn project_path_should_accept_both_extensions_case_insensitively() {
+        for name in ["show.flx", "show.FLX", "show.fxtc", "show.FXTC"] {
+            assert!(is_project_path(Path::new(name)), "{name}");
+        }
+    }
+
+    #[test]
+    fn project_path_should_reject_other_extensions_and_missing_extensions() {
+        for name in ["show", "show.zip", "show.flx.tmp", "show.fxtc.bak", "flx"] {
+            assert!(!is_project_path(Path::new(name)), "{name}");
+        }
+    }
+}

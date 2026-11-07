@@ -58,9 +58,9 @@ export interface ProjectMeta {
   /** RFC 3339 UTC. */
   createdAt: string;
   modifiedAt: string;
-  /** FluxTimecode version that created it; empty when unknown. */
+  /** FLUX version that created it; empty when unknown. */
   createdWith: string;
-  /** FluxTimecode version of the last save. */
+  /** FLUX version of the last save. */
   savedWith: string;
   author?: string;
   description?: string;

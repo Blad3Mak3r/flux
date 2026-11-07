@@ -215,7 +215,12 @@ input:disabled {
 
 .brand {
   display: flex;
+  align-items: center;
+  gap: 8px;
   flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
 }
 
 .brand img {
@@ -227,6 +232,9 @@ input:disabled {
 .brand-button {
   display: flex;
   align-items: center;
+  gap: inherit;
+  font: inherit;
+  letter-spacing: inherit;
   padding: 0;
   background: none;
   border: 0;
@@ -1988,6 +1996,11 @@ input:disabled {
 
 .launcher .brand img {
   height: 30px;
+}
+
+.launcher .brand {
+  font-size: 22px;
+  gap: 12px;
 }
 
 .launcher .dot-matrix {

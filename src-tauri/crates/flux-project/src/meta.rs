@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::error::{ProjectError, Result};
 
-/// The FluxTimecode version that writes the file.
+/// The FLUX version that writes the file.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Identity and history of a project. Dates are UTC, RFC 3339 (`2026-11-05T14:29:03Z`).
@@ -19,9 +19,9 @@ pub struct Meta {
     pub created_at: String,
     /// The last save.
     pub modified_at: String,
-    /// The FluxTimecode version that created the project; empty when it is not known.
+    /// The FLUX version that created the project; empty when it is not known.
     pub created_with: String,
-    /// The FluxTimecode version of the last save. Empty means the file was written before projects
+    /// The FLUX version of the last save. Empty means the file was written before projects
     /// carried metadata, which is how opening one knows to save it again.
     pub saved_with: String,
     /// Who made the show; free text.

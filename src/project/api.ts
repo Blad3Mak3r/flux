@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { en } from "../i18n/en";
 import type {
   AudioAsset,
   EnvCurve,
@@ -15,7 +16,7 @@ import type {
 /** The document the backend holds for the window: the project, where it lives and how it started. */
 export interface BackendDocument {
   project: Project;
-  /** Path of the `.fxtc`, or `null` for a project that was never saved. */
+  /** Path of the `.flx` or legacy `.fxtc`, or `null` for a project that was never saved. */
   path: string | null;
   /** The project as last opened or saved, or as it started: the document is unsaved when it differs. */
   baseline: Project;
@@ -23,7 +24,8 @@ export interface BackendDocument {
   active: string;
 }
 
-const PROJECT_FILTER = { name: "Flux Timecode project", extensions: ["fxtc"] };
+const PROJECT_FILTER = { name: en["app.title"], extensions: ["flx", "fxtc"] };
+const SAVE_FILTER = { name: en["app.title"], extensions: ["flx"] };
 const AUDIO_FILTER = {
   name: "Audio",
   extensions: ["wav", "aif", "aiff", "flac", "mp3", "ogg"],
@@ -55,7 +57,7 @@ export function newProject(name: string, frameRate: FrameRate): Promise<ProjectS
   return invoke<ProjectState>("project_new", { name, frameRate });
 }
 
-/** Asks for a `.fxtc`. Resolves to `null` when the dialog is cancelled. */
+/** Asks for a `.flx` or legacy `.fxtc`. Resolves to `null` when the dialog is cancelled. */
 export function pickProjectPath(): Promise<string | null> {
   return open({ filters: [PROJECT_FILTER] });
 }
@@ -151,7 +153,7 @@ export async function saveProject(
   project: Project,
   path: string | null,
 ): Promise<{ path: string; meta: Project["meta"] } | null> {
-  const target = path ?? (await save({ filters: [PROJECT_FILTER], defaultPath: `${project.name}.fxtc` }));
+  const target = path ?? (await save({ filters: [SAVE_FILTER], defaultPath: `${project.name}.flx` }));
   if (target === null) return null;
   const saved = await invoke<Project>("project_save", { project, path: target });
   return { path: target, meta: saved.meta };

@@ -18,7 +18,7 @@ The same project moves between the studio and the booth, so one interface serves
 
 ## Product Purpose
 
-Flux Timecode builds timecode tracks from songs, events and cues and plays them out as LTC (through an audio interface) and MTC (through a MIDI port). Success is a show that stays in sync from the first cue to the last, and a project that opens on another machine and just works.
+FLUX builds timecode tracks from songs, events and cues and plays them out as LTC (through an audio interface) and MTC (through a MIDI port). Success is a show that stays in sync from the first cue to the last, and a project that opens on another machine and just works.
 
 ## Positioning
 
@@ -26,14 +26,14 @@ QLab's cue and show-control model combined with a REAPER-style timeline and trac
 
 ## Operating Context
 
-- A project is a `.fxtc` file: a zip with `project.json` and the bundled audio, so a show is self-contained and portable. Hardware routes are stored per computer and shared by projects; a project carries logical signals and levels. Legacy device hints are imported only after explicit review.
+- A project is a `.flx` file: a zip with `project.json` and the bundled audio, so a show is self-contained and portable. Legacy `.fxtc` files use the same format and remain supported. New projects and Save as default to `.flx`; Save keeps the existing path and extension. Hardware routes are stored per computer and shared by projects; a project carries logical signals and levels. Legacy device hints are imported only after explicit review.
 - Flux is the master clock and only generates timecode; chasing an external timecode is out of scope for now.
 - The audio device's sample clock drives playback, LTC and MTC. Positions everywhere are frame counts at the project frame rate (24, 25, 29.97 drop-frame, 30).
 - Used anywhere from a quiet studio to a dark booth at a venue, on a laptop with an audio interface and a MIDI interface attached.
 
 ## Capabilities and Constraints
 
-- Today the app can: open, save and import audio into `.fxtc` projects with several timelines; edit audio and notes tracks on a timeline and play the audio mixed on the audio device's clock; detect the tempo of songs and click a metronome; generate LTC and MTC; run a transport (play, pause, stop, seek); and run the show in a read-only Live view driven by cues the backend derives from the project.
+- Today the app can: open, save and import audio into `.flx` projects (with legacy `.fxtc` support) with several timelines; edit audio and notes tracks on a timeline and play the audio mixed on the audio device's clock; detect the tempo of songs and click a metronome; generate LTC and MTC; run a transport (play, pause, stop, seek); and run the show in a read-only Live view driven by cues the backend derives from the project.
 - Outputs are set up in Preferences. The project owns logical LTC/MTC outputs and signal levels; the computer owns the audio driver, programme and Edit-preview interfaces, metronome route, LTC device/channel/latency and MTC port/index/latency. Removing a logical output preserves every other output’s slot and local routing. Missing routes are visible and never substituted for timecode.
 - Cue tracks fire from the same clock: MIDI tracks (notes, control and program change, MIDI Show Control, SysEx) to a chosen MIDI port, and OSC tracks (UDP) to destinations defined in Preferences. Seeking never replays the events jumped over.
 - Remote control: a MIDI controller (pads and buttons, learned by touching them) and OSC over UDP (fixed `/flux/...` addresses, e.g. from a Stream Deck) can play, pause, stop, move between cues and timelines, step the position and switch the view. It is set up in Preferences and belongs to the machine, not to the project. Flux stays the clock: this moves it, it never follows another.
@@ -45,7 +45,9 @@ QLab's cue and show-control model combined with a REAPER-style timeline and trac
 
 ## Brand Commitments
 
-The product name is Flux Timecode. The look should be modern and dark-first, with a REAPER-like timeline and track interface. No logo or brand assets exist yet.
+The product name is **FLUX**, always uppercase in user-facing copy. FLUX prepares and runs shows with audio, MIDI/OSC cues and a shared master timecode clock. Timecode is a core capability rather than part of the name. The look stays modern and dark-first, with a REAPER-like timeline and track interface. The modular F symbol lives in `branding/` and `src/assets/`; the app pairs it with the FLUX wordmark.
+
+The rebrand preserves the project archive format and legacy `.fxtc` support, `com.fluxtimecode.app` application identifier, package and crate names, settings paths and `/flux/...` OSC addresses so existing projects, routing and preferences remain compatible. The app registers both `.flx` and `.fxtc` file associations.
 
 ## Evidence on Hand
 

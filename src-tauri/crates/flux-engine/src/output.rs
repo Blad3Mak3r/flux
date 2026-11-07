@@ -33,7 +33,7 @@ use flux_project::{
     Tempo, Timeline,
 };
 
-const MIDI_CLIENT_NAME: &str = "Flux Timecode";
+const MIDI_CLIENT_NAME: &str = "FLUX";
 /// The longest the MTC thread sleeps before it looks at the transport again.
 pub(crate) const MTC_TICK: Duration = Duration::from_millis(1);
 /// The last stretch before a quarter frame that the MTC thread spins instead of sleeping, because a

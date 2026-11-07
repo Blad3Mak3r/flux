@@ -322,14 +322,16 @@ mod tests {
     #[test]
     fn save_then_open_should_round_trip_project_and_assets() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("show.fxtc");
         let project = sample_project();
 
-        save(&path, &project, &disk_sources(&dir), &HashMap::new()).unwrap();
-        let (opened, mut archive) = open(&path).unwrap();
+        for name in ["show.flx", "show.fxtc"] {
+            let path = dir.path().join(name);
+            save(&path, &project, &disk_sources(&dir), &HashMap::new()).unwrap();
+            let (opened, mut archive) = open(&path).unwrap();
 
-        assert_eq!(opened, project);
-        assert_eq!(read_asset(&mut archive, "audio/click.wav"), AUDIO_BYTES);
+            assert_eq!(opened, project);
+            assert_eq!(read_asset(&mut archive, "audio/click.wav"), AUDIO_BYTES);
+        }
     }
 
     #[test]

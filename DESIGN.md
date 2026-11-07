@@ -1,5 +1,5 @@
 ---
-name: Flux Timecode
+name: FLUX
 description: A calibrated instrument screen for building timecode tracks; matte faceplate, etched graticule, phosphor traces.
 colors:
   panel: "oklch(0.255 0.014 250)"
@@ -119,11 +119,13 @@ components:
     height: "10px"
 ---
 
-# Design System: Flux Timecode
+# Design System: FLUX
 
 ## Overview
 
 **Creative North Star: "The Bench Instrument"**
+
+The public name is **FLUX**, always uppercase. The modular F and the FLUX wordmark form the app's brand mark, with an 8px gap and 13px bold system lettering at 0.16em tracking. The launcher uses 22px lettering and a 12px gap. The symbol is decorative beside the readable name; an interactive mark keeps the translated About label. The existing instrument palette, controls and app icon are retained.
 
 The app is an oscilloscope-style faceplate, not a dashboard. A matte charcoal-blue panel carries silkscreened legends, square engraved keys and small state lamps; set into it is a deep teal-black screen etched with a graticule, on which time is read off a ruler and clips and cues are drawn as phosphor and amber traces. The scene is a booth or a stage, so the system is dark by commitment: there is no light theme and none should be added.
 
