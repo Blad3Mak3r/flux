@@ -331,7 +331,7 @@ pub async fn project_set_autosave(
     .await
 }
 
-/// Permanently deletes a `.fxtc` from disk. The frontend must have the user's confirmation first.
+/// Permanently deletes a project from disk. The frontend must have the user's confirmation first.
 #[tauri::command]
 pub async fn project_delete(app: AppHandle, path: PathBuf) -> Result<()> {
     let deleted = path.clone();
@@ -343,13 +343,10 @@ pub async fn project_delete(app: AppHandle, path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Only a regular file named `*.fxtc` is removed, so a wrong path can never take anything else.
+/// Only a regular `.flx` or `.fxtc` file is removed, so a wrong path cannot take anything else.
 fn delete_show(path: &Path) -> Result<()> {
-    if !path
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("fxtc"))
-    {
-        return Err(ProjectError::Invalid("not a .fxtc file".into()));
+    if !flux_project::is_project_path(path) {
+        return Err(ProjectError::Invalid("not a .flx or .fxtc file".into()));
     }
     if !fs::metadata(path)?.is_file() {
         return Err(ProjectError::Invalid("not a file".into()));
@@ -371,16 +368,18 @@ mod tests {
     #[test]
     fn delete_show_should_remove_the_file() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("show.FXTC");
-        fs::write(&path, b"x").unwrap();
+        for name in ["show.flx", "show.FLX", "show.fxtc", "show.FXTC"] {
+            let path = dir.path().join(name);
+            fs::write(&path, b"x").unwrap();
 
-        delete_show(&path).unwrap();
+            delete_show(&path).unwrap();
 
-        assert!(!path.exists());
+            assert!(!path.exists());
+        }
     }
 
     #[test]
-    fn delete_show_should_refuse_anything_that_is_not_a_fxtc() {
+    fn delete_show_should_refuse_anything_that_is_not_a_project() {
         let dir = TempDir::new().unwrap();
         let other = dir.path().join("notes.txt");
         fs::write(&other, b"x").unwrap();
@@ -392,14 +391,16 @@ mod tests {
     #[test]
     fn delete_show_should_refuse_a_directory_named_like_a_project() {
         let dir = TempDir::new().unwrap();
-        let folder = dir.path().join("show.fxtc");
-        fs::create_dir(&folder).unwrap();
+        for name in ["show.flx", "show.fxtc"] {
+            let folder = dir.path().join(name);
+            fs::create_dir(&folder).unwrap();
 
-        assert!(matches!(
-            delete_show(&folder),
-            Err(ProjectError::Invalid(_))
-        ));
-        assert!(folder.is_dir());
+            assert!(matches!(
+                delete_show(&folder),
+                Err(ProjectError::Invalid(_))
+            ));
+            assert!(folder.is_dir());
+        }
     }
 
     #[test]
