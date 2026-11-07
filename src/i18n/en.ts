@@ -493,6 +493,18 @@ export const en = {
   "live.action.msc": "Show control",
   "live.action.sysEx": "SysEx",
   "live.action.osc": "OSC",
+  "setup.scope.project": "Project",
+  "setup.scope.machine": "This computer",
+  "setup.scope.shared": "Devices, channels and latency are shared by all projects on this computer.",
+  "setup.unassigned": "Unassigned",
+  "setup.metronome.enabled": "Use a metronome output for this project",
+  "setup.import.note": "This project contains previous device assignments. Opening it has not changed this computer’s routes.",
+  "setup.import.action": "Import assignments from this project",
+  "setup.import.output": "Output",
+  "setup.import.before": "This computer",
+  "setup.import.after": "After importing",
+  "setup.import.confirm": "Apply these assignments",
+  "setup.preferencesError": "Preferences could not be saved or loaded: {error}",
 } as const;
 
 export type MessageKey = keyof typeof en;

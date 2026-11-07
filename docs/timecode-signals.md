@@ -202,7 +202,7 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 | Command | Arguments | Result |
 | --- | --- | --- |
 | `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `audition` (Edit on a preview device: the MIDI and OSC cue tracks stay silent), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltc[]` and `mtc[]` (one `{ …, ok }` per output of the project, in its order), `metronome`, `cues[]`, `warnings`. |
-| `output_reconfigure` | `project` | `{ kind: "applied", info }` after bringing the LTC and MTC outputs in line with the project without touching the programme's stream (works while playing), or `{ kind: "needsRestart" }` with nothing changed. |
+| `output_reconfigure` | `project`, `audition` | `{ kind: "applied", info }` after bringing the LTC and MTC outputs in line with the project without touching the programme's stream (works while playing), or `{ kind: "needsRestart" }` with nothing changed. |
 | `output_attach` | `setup` (the requested timeline, timecode, effective outputs, `advance` and `audition`), `onPosition`, `onLevels`, `onLive` | Replaces the subscriptions on the running output without interrupting playback. Returns its info, position, timeline ID and start, and whether its settings match, or `null` when there is no running output. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
@@ -365,7 +365,12 @@ the Setup rows from the masks.
 
 ### Reconfiguring a running output
 
-`Output::reconfigure` compares what the project asks for with what runs. What the programme's stream is opened with (its
+The command resolves the project's logical signals against the computer's saved routes before calling
+`Output::reconfigure`. Changes to physical routes or latency wait for pause/stop; a language-only preference change
+does not count as a hardware change. Changing whether Edit auditions through its preview requires a restart so that
+timecode and cue suppression stay consistent. Signal-only edits can reuse the existing branch reconfiguration.
+
+`Output::reconfigure` compares the resolved output configuration with what runs. What the programme's stream is opened with (its
 device and channels, the LTC outputs on that same device, the metronome, the frame rate and start offset) is the
 `MasterKey`/`ClickKey` of the plan; if any of it differs the command answers `needsRestart` and the window reopens the
 output as for any other change, waiting for stop or pause when it is playing, and carrying the playhead over. Everything
@@ -373,4 +378,5 @@ else is a *branch* with its own stop flag: one stream per other LTC device, one 
 nothing else, one thread per MIDI port. A branch that already does what the plan asks keeps running untouched; the ones
 nobody asks for any more are closed first (they may hold a device a new one needs) and the new ones opened. A branch
 that failed to open is tried again on every reconfiguration. The `OutputInfo` rows and the lost-output bits are rebuilt
-from the plan, since adding or removing an output renumbers the ones after it.
+from the plan in current signal-list order. Project slot numbers and local routing keys remain stable when another
+output is removed. Unassigned LTC/MTC entries retain off-status rows and never open a device or port.

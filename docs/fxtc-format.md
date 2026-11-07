@@ -1,4 +1,4 @@
-# `.fxtc` project format (v5)
+# `.fxtc` project format (v6)
 
 A `.fxtc` file is a zip archive. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -14,7 +14,7 @@ peaks/<file name>.bin stored, optional: the waveform preview of that audio (see 
 ## `project.json`
 
 camelCase JSON. A project holds one or more **timelines** (a song, a block of the show), each with its own timecode and
-tracks; the audio files and the output devices belong to the project and are shared. Only one timeline plays at a time:
+tracks; the audio files and logical output signals belong to the project and are shared. Only one timeline plays at a time:
 the backend keeps which one is active, and it is not stored in the file.
 
 Every position is a **frame count** at the frame rate of its timeline: cues and LTC/MTC are frame-aligned, and frame
@@ -24,7 +24,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `5`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `6`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
@@ -33,12 +33,9 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
 | `timelines[].timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
 | `timelines[].tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | Track, clip and note ids are unique in the **whole project**, not per timeline. `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
-| `output.driver` | string | Optional. The audio driver (API) every audio device below is opened through: `"ALSA"`, `"PipeWire"`, `"JACK"`, `"WASAPI"`, `"CoreAudio"`, ... Absent means the system's default driver, which is also what plays when this machine does not have the named one. Setting it sends every `deviceName` below back to `""` (that driver's default device), since names belong to one driver. Added without a version bump. |
-| `output.audio` | `{ deviceName, channels }` \| `null` | Interface that plays the project's audio; `channels` lists its 1-based outputs, e.g. `[1, 2]`. Absent in files written before it existed, read as `null`. |
-| `output.preview` | `{ deviceName, channels }` | Optional. Interface the Edit view auditions the clips on, with its own 1-based `channels`. While it is set, Edit plays only the audio there and sends no LTC, MTC, MIDI or OSC cues; Live always uses `output.audio`, `output.ltc` and `output.mtc`. Absent (the file leaves it out) means Edit plays like Live. Added without a version bump. |
-| `output.metronome` | `{ deviceName, channels, gainDb? }` | Optional. Where the metronome clicks, on a device, 1-based `channels` (a pair plays the click on both) and level of its own, apart from the programme. Absent means no click plays whatever `tempo.click` says. Kept in Edit even when `output.preview` is set. Added without a version bump. |
-| `output.ltc` | `[{ deviceName, channel, level? }]` | LTC outputs, any number, each through an audio interface; `channel` is 1-based. `level` is the peak of the signal, linear from 0 to 1 (anything else is rejected on open and save); absent is 0.5 (-6 dBFS). Each output plays at its own level, also when several share a device. `offsetMs` is an optional latency offset, in whole ms within ±1000 (anything else is rejected on open and save): positive emits the timecode earlier, negative later; absent is 0 and the transport time shown is unchanged. Both added without a version bump. An entry may share a device with `output.audio` (its channel is written into the programme's stream) or name another one, which gets a stream of its own, shared by every entry that names it. A repeated device and channel plays once, at the level of the first entry. Absent is an empty list. |
-| `output.mtc` | `[{ portName, portIndex? }]` | MTC outputs, any number, each through a MIDI port, each with its own thread. `portIndex` tells apart ports that share a name (two interfaces of one model): it counts from 0 among the ports with that name, in the order the system lists them; absent is 0, the first. `offsetMs` is the same optional latency offset as in `output.ltc`. A port that is not there (fewer ports of that name than the index) is reported as not connected. Added without a version bump. Absent is an empty list. |
+| `output.metronome` | `{ gainDb }` | Optional logical click output. The project owns its level; each timeline owns tempo and click activation. The computer assigns its interface and channels. |
+| `output.ltc` | `[{ slot, level? }]` | Logical LTC outputs. `slot` is a unique positive integer within LTC, preserved when other outputs are removed. Level is linear 0–1; absent is 0.5. Device, channel and latency are local preferences. |
+| `output.mtc` | `[{ slot }]` | Logical MTC outputs with unique positive slots, independent of LTC slots. The computer assigns the MIDI port, same-name port index and latency. |
 | `output.osc` | `[{ id, name, host, port }]` | The OSC receivers (UDP) the OSC tracks send to, defined once for the project. `id` is unique among them; `host` is a name or an address without spaces, `port` 1 to 65535. A host that does not resolve is reported when the output opens and never blocks the project. Absent is an empty list. Added in version 5. |
 
 Track kinds:
@@ -95,7 +92,7 @@ Other kinds of track (video, Art-Net) will be added as new kinds. Events are kep
 namespace of clip and note ids.
 
 Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/note ids
-(the last two kinds share one namespace). Output channels must be at least 1, and `output.audio.channels` must not
+(the last two kinds share one namespace). Local output channels must be at least 1, and audio channel lists must not
 repeat a channel.
 
 ## Waveform previews (`peaks/`)
@@ -127,9 +124,21 @@ from is copied without recompressing (like the audio), and an asset that has non
 
 ## Devices
 
-Devices are machine-specific, so a project stores a **name hint** only (`deviceName`, `portName`), never an OS
-identifier. Resolving the hint to a device, and the fallback when it is missing, happens when the project is opened.
-An empty `deviceName` means the system's default output device, which is what plays when a project names none.
+Version 6 projects store logical signals, not operational hardware routes. `preferences.json` in the app data
+folder stores the computer's driver, programme and Edit-preview routes, metronome route, LTC and MTC routes
+keyed by logical slot, and `locale` (`en` or `es`, English by default). Routes are shared by every project on that
+computer. Changing one does not dirty a project or enter undo history; hardware changes wait for pause or stop.
+Names are hints, never OS identifiers. An empty audio name explicitly selects the system default. Missing or
+unassigned LTC/MTC routes never fall back to another device or port.
+
+For older archives, migration preserves physical settings under optional `output.legacyRoutes` in their previous
+shape, converts the ordered outputs into slots starting at 1, and keeps signal levels. These hints never affect
+playback until the user reviews and confirms **Import assignments from this project**. Import overwrites only
+included routes, preserving other local routes and language. Opening an archive never changes local routing.
+
+The Rust commands `preferences_get`, `preferences_change` and `preferences_resolve` own persistence, validation
+and signal resolution. Changes are broadcast as `preferences-changed` across windows. Project signal edits use
+`output_signal_edit`, return project state and enter undo history. Graphics remain in their existing separate file.
 
 Implementation: `src-tauri/crates/flux-engine/src/devices.rs` (cpal for audio, midir for MIDI), wrappers in `src/devices/api.ts`.
 Nothing is cached, so calling a list command again is the refresh after a hot-plug.
@@ -170,8 +179,7 @@ files that lack them, so they do not need a version bump.
 `UnsupportedVersion`. When the format changes, bump the version and migrate older files while reading: `migrate.rs`
 rewrites the raw JSON before it is parsed, so the model only describes the current shape. Each step looks at the shape of
 the file, not at its number, because two builds wrote a different "version 2" while the format was changing. Opening
-does not rewrite a file by itself, except a file without `meta`, which is saved right away so that the id it was given
-is the one it keeps. Saving writes the current version, which older builds cannot open.
+does not rewrite a file, including files without `meta`; their generated identity is persisted on the next explicit save. Saving writes the current version, which older builds cannot open.
 
 - **2**: the `events` track kind was replaced by `notes`. A version 1 `marker` trigger becomes a note with its label as
   text. `midi` triggers are dropped (nothing ever sent them; MIDI cues will return as a track kind of their own), and an
@@ -184,6 +192,10 @@ is the one it keeps. Saving writes the current version, which older builds canno
 - **4**: `timecode` and `tracks` moved from the top level into `timelines`. An older file becomes a project with one
   timeline, named like the project, with a new `id`. The listing of recent projects reads the frame rate of the first
   timeline and the tracks of all of them (it also reads the older top-level shape).
+
+- **6**: split portable logical signals from physical routes. `output.ltc` and `output.mtc` identify slots;
+  metronome retains only its level. Previous routes survive as explicit-import hints. Saving in version 6 makes
+  the archive unreadable by builds supporting version 5 or earlier; merely opening it does not rewrite it.
 
 ## Saving
 

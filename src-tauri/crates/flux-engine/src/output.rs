@@ -29,7 +29,7 @@ use crate::devices;
 use flux_audio::ENGINE_RATE;
 use flux_core::Clock;
 use flux_project::{
-    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, MtcOutput, OscDestination, Project, ProjectError,
+    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, MtcOutput, OscDestination, OutputConfig, ProjectError,
     Tempo, Timeline,
 };
 
@@ -923,18 +923,18 @@ struct Plan {
     mtc: Vec<MtcOutput>,
     /// How many LTC outputs the project has.
     ltc_outputs: usize,
+    unassigned_ltc: Vec<(usize, u16)>,
 }
 
 impl Plan {
     /// `metronome` is the one a running output already uses, so a stream opened later keeps
     /// following its tempo. `same` tells whether two device name hints open the same device.
     fn build(
-        project: &Project,
+        output: &OutputConfig,
         timeline: &Timeline,
         metronome: Option<Arc<SharedMetronome>>,
         same: impl Fn(&str, &str) -> bool,
     ) -> Self {
-        let output = &project.output;
         // An empty device name is the system's default output, so a project without any device
         // chosen still plays. A project written before `output.audio` existed carries the
         // programme on the first LTC device.
@@ -1056,6 +1056,13 @@ impl Plan {
             metronome: shared_metronome,
             mtc: output.mtc.clone(),
             ltc_outputs: output.ltc.len(),
+            unassigned_ltc: output
+                .ltc
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| r.device_name == flux_project::UNASSIGNED_DEVICE)
+                .map(|(i, r)| (i, r.channel))
+                .collect(),
         }
     }
 }
@@ -1198,6 +1205,13 @@ impl Branches {
         };
         // One entry per project output, in the project's order, whatever stream it landed on.
         let mut ltc_info: Vec<Option<LtcInfo>> = vec![None; plan.ltc_outputs];
+        for &(index, channel) in &plan.unassigned_ltc {
+            ltc_info[index] = Some(LtcInfo {
+                device: String::new(),
+                channel,
+                ok: false,
+            });
+        }
         let mut place = |slots: &[LtcSlot], device: &str, ok: bool| {
             for slot in slots {
                 for &index in &slot.outputs {
@@ -1435,6 +1449,12 @@ fn open_mtc(
     warnings: &mut Vec<String>,
 ) -> Result<usize, MtcInfo> {
     let hint = want.port_name.as_str();
+    if hint.is_empty() {
+        return Err(MtcInfo {
+            port: String::new(),
+            ok: false,
+        });
+    }
     let (position, name, connection) = match connect_midi(hint, want.port_index, MIDI_CLIENT_NAME) {
         Ok(opened) => opened,
         Err(reason) => {
@@ -1580,14 +1600,13 @@ impl Output {
     /// missing MIDI port only produces a warning. With `fire_cues` off (an audition) the MIDI and OSC
     /// tracks stay silent.
     pub fn start(
-        project: &Project,
+        output: &OutputConfig,
         timeline: &Timeline,
         programme: Programme,
         fire_cues: bool,
     ) -> Result<Self, OutputError> {
-        let output = &project.output;
         let driver = output.driver.as_deref();
-        let plan = Plan::build(project, timeline, None, |a, b| same_device(driver, a, b));
+        let plan = Plan::build(output, timeline, None, |a, b| same_device(driver, a, b));
         let Plan {
             master,
             click,
@@ -1702,12 +1721,12 @@ impl Output {
     /// that are no longer wanted are closed, the new ones opened, and the rest keep running.
     /// When the change reaches the programme's stream (its device, channels, the LTC on it, the
     /// metronome, the frame rate or start) nothing is touched and the output must be opened again.
-    pub fn reconfigure(&mut self, project: &Project, timeline: &Timeline) -> Reconfigured {
-        let driver = project.output.driver.as_deref();
-        let plan = Plan::build(project, timeline, self.metronome.clone(), |a, b| {
+    pub fn reconfigure(&mut self, output: &OutputConfig, timeline: &Timeline) -> Reconfigured {
+        let driver = output.driver.as_deref();
+        let plan = Plan::build(output, timeline, self.metronome.clone(), |a, b| {
             same_device(driver, a, b)
         });
-        let ctx = BranchCtx::new(project.output.driver.clone(), timeline);
+        let ctx = BranchCtx::new(output.driver.clone(), timeline);
         if plan.master != self.master || plan.click != self.click {
             return Reconfigured::NeedsRestart;
         }
@@ -1945,6 +1964,9 @@ fn plan_ltc(
         own: Vec::new(),
     };
     for (index, output) in outputs.iter().enumerate() {
+        if output.device_name == flux_project::UNASSIGNED_DEVICE {
+            continue;
+        }
         let slots = if same(&output.device_name, programme_device) {
             &mut plan.shared
         } else {
@@ -2600,6 +2622,28 @@ mod tests {
             .chunks_exact(channels)
             .map(|frame| frame[channel])
             .collect()
+    }
+
+    #[test]
+    fn unassigned_ltc_should_not_open_a_device_or_shift_later_output_indices() {
+        let outputs = [
+            LtcOutput {
+                device_name: flux_project::UNASSIGNED_DEVICE.into(),
+                channel: 1,
+                level: None,
+                offset_ms: None,
+            },
+            LtcOutput {
+                device_name: "Sync".into(),
+                channel: 8,
+                level: None,
+                offset_ms: None,
+            },
+        ];
+        let plan = plan_ltc(&outputs, "Main", |a, b| a == b);
+        assert!(plan.shared.is_empty());
+        assert_eq!(plan.own.len(), 1);
+        assert_eq!(plan.own[0].slots[0].outputs, vec![1]);
     }
 
     #[test]
@@ -3709,14 +3753,23 @@ mod tests {
 
     use flux_project::{AudioOutput, MetronomeOutput};
 
-    fn project_with(output: impl FnOnce(&mut flux_project::OutputConfig)) -> Project {
-        let mut project = Project::new("p", FrameRate::Fps25);
-        output(&mut project.output);
-        project
+    #[derive(Clone)]
+    struct RoutedProject {
+        output: OutputConfig,
+        timelines: Vec<Timeline>,
     }
 
-    fn plan_of(project: &Project) -> Plan {
-        Plan::build(project, &project.timelines[0], None, loosely)
+    fn project_with(edit: impl FnOnce(&mut OutputConfig)) -> RoutedProject {
+        let mut output = OutputConfig::default();
+        edit(&mut output);
+        RoutedProject {
+            output,
+            timelines: flux_project::Project::new("p", FrameRate::Fps25).timelines,
+        }
+    }
+
+    fn plan_of(project: &RoutedProject) -> Plan {
+        Plan::build(&project.output, &project.timelines[0], None, loosely)
     }
 
     fn main_device(name: &str) -> Option<AudioOutput> {
@@ -3740,6 +3793,29 @@ mod tests {
             channels: vec![1, 2],
             gain_db: 0.0,
         })
+    }
+
+    #[test]
+    fn unassigned_signals_stay_off_without_opening_branches() {
+        let project = project_with(|o| {
+            o.audio = main_device("Main");
+            o.ltc = vec![ltc_out(flux_project::UNASSIGNED_DEVICE, 1)];
+            o.mtc = vec![mtc_out("")];
+        });
+        let plan = plan_of(&project);
+        let mut branches = Branches::default();
+        let mut warnings = Vec::new();
+        let opened = branches.apply(
+            &plan,
+            &BranchCtx::new(None, &project.timelines[0]),
+            &Arc::new(SharedClock::new()),
+            "Main",
+            &mut warnings,
+        );
+        assert_eq!(opened.ltc.len(), 1);
+        assert!(!opened.ltc[0].ok && !opened.mtc[0].ok);
+        assert!(branches.followers.is_empty() && branches.mtc.is_empty());
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -3873,7 +3949,7 @@ mod tests {
         let running = plan_of(&project).metronome.unwrap();
 
         let plan = Plan::build(
-            &project,
+            &project.output,
             &project.timelines[0],
             Some(Arc::clone(&running)),
             loosely,
