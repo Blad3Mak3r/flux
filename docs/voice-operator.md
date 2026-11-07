@@ -22,8 +22,12 @@ falling back to the programme route, without starting the show's clock, MIDI, OS
   until a successful regeneration. Expand Dialogue used for this audio to inspect what will actually be spoken.
 
 Generating and generation errors appear separately from these content states. A failed request keeps the
-previous audio. A result is discarded when its order, dialogue, effective voice or open document no longer
-matches. Requests are not retried automatically because retries may consume more credits.
+previous audio. A successful response is decoded and saved as a durable local job before attachment.
+If the order, dialogue, effective voice or open document changes, Flux keeps that recording for explicit
+recovery instead of attaching it automatically. Unrelated edits and anchor/alignment changes do not
+invalidate a generation. If saving fails, Retry saving uses the response retained in memory and makes
+no new provider request; keep Flux open until it succeeds. Requests are never retried automatically
+because retries may consume more credits.
 
 Start alignment begins the audio at the anchor. End alignment finishes it there. If the complete phrase
 would begin before the timeline origin, Flux keeps the position and audio, displays a warning and silences
@@ -33,12 +37,27 @@ the interval from the decoded sample duration.
 Set the operator interface and mono/stereo channels in Preferences. All operator tracks share this route;
 it never falls back to the programme when absent. Missing devices do not prevent opening the project.
 Mute and track volume work independently of the programme. Overlapping orders mix together.
-Live displays the orders and their content/position/output warnings without editing controls.
+Live displays the orders and their content/position/output warnings without editing controls. Its dialogue
+is the text in the recording that will actually play, even when a newer draft exists. Generation and
+prelisten are available only while stopped; transport commands cancel pending or active prelisten.
+Independent operator devices correct small clock drift by gradual resampling; seek resets immediately.
 
 Generated audio is retained under the application's `generated-voice` data directory so recovery and undo
 can still find it before a project is saved. Saving bundles it into `.fxtc`; other computers need no key or
 network to play it. This first version retains generated source files rather than automatically deleting
-files that recovery or undo may still need.
+files that recovery or undo may still need. Jobs include the exact dialogue and voice, never credentials.
+Recordings not referenced by the open project appear under Retained recordings, including after restart
+or undo; attaching one is an undoable edit and never changes the current dialogue or anchor.
+
+## Check before the show
+
+Open Check voice orders from Transport, Live or Preferences > Voice operator, with the transport stopped.
+The backend checks every timeline, excluding muted operator tracks, for ungenerated orders, outdated
+recordings, unreadable audio or incorrect sample duration, audio before the timeline origin, overlapping
+orders, unavailable operator channels and channels shared with LTC. Issues link to the order or output
+settings. Editing the project or preferences marks the report as out of date until checked again.
+This check enumerates devices but opens no streams, sends no network requests and plays no sound;
+a real sound check is still necessary.
 
 ## Verification
 
