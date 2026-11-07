@@ -63,3 +63,60 @@ a real sound check is still necessary.
 
 Automated tests use local HTTP fixtures and generated sample buffers, never live ElevenLabs credits.
 A real provider/audio-interface check needs a user-supplied API key and appropriate hardware.
+
+## Preparing recordings
+
+Preferences > Voice operator includes Test operator output and Stop listening. The test is a bundled
+English spoken sample generated locally with the Windows speech synthesizer, so it needs no API key or
+network. It opens only the selected operator route, with no fallback, and emits no LTC, MTC or OSC.
+Other recording auditions use the Edit preview route. Changing the transport or closing the relevant
+panel cancels an audition, including a stream still being opened.
+
+Retained recordings show their date, original voice name or identifier, decoded duration and origin.
+Listen before choosing Use this recording. Imported recordings show their source filename. Recordings
+remain local until attached; an attached recording is bundled in the project. Stop listening cancels a
+pending audition as well as one already playing.
+
+Preferences > Project > Keep inherited voices in this project pins the installation voice into the project
+without touching explicit track choices or regenerating audio. A missing inherited voice rejects the change.
+This operation enters undo history.
+
+The order inspector's Pronunciation section holds optional text for ElevenLabs, for example a phonetic
+spelling of an acronym. The visible dialogue stays readable. A generation records both texts and changing
+either makes generated audio outdated. Empty pronunciation text uses the visible dialogue. Live displays
+the readable dialogue preserved with the recording.
+
+Import recording attaches a WAV, AIFF, FLAC, MP3 or Ogg file after validating and decoding it. Write the
+dialogue first. The source file is copied to durable local storage before attachment, in its original format.
+Imported recordings have an explicit origin and do not become outdated when inherited voices or pronunciation
+text change; changing their visible dialogue does mark them outdated. The existing audio plays until replaced.
+
+Trim recording removes whole milliseconds from the head or tail without changing the original source or
+anchor. Playback, timeline extents, Live and audition all use that same trimmed sample interval. The complete
+recording must retain at least one sample. Replacing or regenerating a recording resets trims, with undo
+restoring the old recording and trims.
+
+## Resource and close protection
+
+The decoded audio cache retains at most 256 MiB using least-recently-used eviction. Clear decoded audio
+cache releases cache ownership only: active playback keeps its own buffers, and source recordings, archives,
+undo and recovery are preserved. This bounds retained cache memory, not total process memory or all buffers
+required by the currently playing timeline. No source recording is automatically deleted.
+
+New speech decoding is limited to ten minutes at the engine rate and a bounded native sample buffer.
+Local recording imports accept at most 128 MiB of compressed/source bytes; ElevenLabs responses retain their
+32 MiB download cap. Invalid or oversized files are rejected before replacing an order's existing recording.
+
+Closing, replacing a project or restarting while a recording is being prepared keeps the document open
+and explains why. An unsaved response is retried to disk without a second provider request before closing;
+a disk failure keeps it in memory and prevents the transition. Backend reservation and document-transition
+guards exclude each other, so a delayed generation cannot start after its document closes. Disk writes run
+without holding the activity lock. The user must wait for an in-flight request rather than cancelling a
+possibly billable operation.
+
+Preflight now counts fully ready orders, distinguishes errors and warnings, and provides previous/next issue
+navigation. It verifies source audio itself rather than trusting a saved waveform preview. Playback remains
+available when a user intentionally accepts warnings such as overlapping or outdated recordings.
+
+These fields use archive format 9. Format 8 recordings default to generated origin, no pronunciation override
+and zero trims. Old local generation jobs also remain readable. Older app builds reject new version 9 files.

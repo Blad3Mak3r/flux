@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v8)
+# `.flx` / `.fxtc` project format (v9)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -26,7 +26,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `8`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `9`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
@@ -200,6 +200,7 @@ does not rewrite a file, including files without `meta`; their generated identit
   the archive unreadable by builds supporting version 5 or earlier; merely opening it does not rewrite it.
 - **7**: added `autosave`, owned by the project. Older files receive `{ "enabled": true, "intervalSeconds": 30 }`.
 - **8**: added operator tracks, spoken orders and inherited voice selections. Older projects have no operator tracks or explicit voice selections.
+- **9**: added recording origins, pronunciation overrides and non-destructive operator trims; earlier recordings default to generated origin and zero trims.
 
 ## Saving
 
@@ -308,3 +309,19 @@ The operator interface and mono/stereo channels belong to `preferences.json`, al
 voice ID. They are resolved into `OutputConfig.operator`. An unassigned or missing route stays silent.
 The operator bus follows FLUX's clock and uses saved audio offline. Generation can only start while stopped;
 a response arriving after playback starts is retained without replacing the order's recording.
+
+## Recording workflow (version 9)
+
+Orders add optional `synthesisText`, with empty UI input represented as absence, and sample counts
+`trimStart` / `trimEnd` (default zero). The audible sample count is `generated.samples - trimStart - trimEnd`;
+trims must leave at least one sample. An order without a recording cannot have nonzero trims. The anchor
+and alignment use the audible duration. The mixer offsets the source by `trimStart` without rewriting it.
+
+Recordings add `origin` (`generated`, default for older files, or `imported`) and optional `synthesisText`.
+Generated origin retains `eleven_multilingual_v2`; imported origin uses an empty model and its voice field
+is not used for content matching. Imported audio preserves its source format in the audio asset path.
+Generated matching compares the visible dialogue, pronunciation text and effective voice. Imported matching
+compares the visible dialogue only. Replacing a recording resets order trims.
+
+Version 8 and earlier migrate using serde defaults for these new fields. Saving writes version 9;
+changing between `.flx` and legacy `.fxtc` does not change these rules.
