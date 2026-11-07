@@ -43,15 +43,31 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 Track kinds:
 
-- `{ "type": "audio", "clips": [{ id, asset, start, gainDb, offset?, length?, fadeIn?, fadeOut? }] }` — `asset` is
-  the id of an entry in `assets`. The four optional fields trim and fade the clip, are counted in **frames at the
+- `{ "type": "audio", "clips": [{ id, asset, start, gainDb, name?, offset?, length?, fadeIn?, fadeOut?, fadeInCurve?, fadeOutCurve?, envelope? }] }` —
+  `asset` is the id of an entry in `assets`. `name` is the name the clip goes by in the timeline and in Live (1 to 64
+  characters, not blank, anything else is rejected on open and save); absent means the asset's name. Added without a
+  version bump. The optional fields below trim and fade the clip, are counted in **frames at the
   timeline's rate** like `start`, and are added without a version bump (a clip without them plays the whole asset with a
   hard start and cut):
   - `offset`: frames of the asset skipped at the start of the clip (trim in). Absent is 0.
   - `length`: frames of the asset the clip plays (trim out), at least 1. Absent means up to the end of the asset; one
     that reaches past it is cut at the end of the asset. The app always writes it when `offset` is not 0.
-  - `fadeIn` / `fadeOut`: frames to rise from silence at the start / fall to silence at the end, linearly. Absent is 0.
+  - `fadeIn` / `fadeOut`: frames to rise from silence at the start / fall to silence at the end. Absent is 0.
     They are kept inside the clip, and `fadeOut` gives way to `fadeIn`.
+  - `fadeInCurve` / `fadeOutCurve`: the shape of each fade, one of `"linear"` (a straight line in amplitude; absent
+    means this), `"equalPower"` (a quarter sine, `sin(x·π/2)`), `"sCurve"` (`0.5 − 0.5·cos(x·π)`) or `"exponential"`
+    (`x²`), where `x` is how far up from silence the fade is, 0 to 1; a fade out is read from its end. Added without a
+    version bump; any other value is rejected on open. When a clip is split, each half keeps the curve of the fade
+    it keeps.
+  - `envelope`: the volume drawn over the clip, `[{ at, gainDb, curve? }]`. It multiplies `gainDb` and the fades.
+    `at` is in **thousandths of a frame counted from the start of the audio file** (like `start - offset`, not from
+    the clip), so moving or trimming a clip never rewrites its points, and a clip split in two gives each half the same
+    points, which sound sample for sample as before. `gainDb` runs from `-60` (silence) to `+6`. `curve` shapes the
+    line from this point to the next, one of `"linear"` (absent means this), `"smooth"`, `"fast"`, `"slow"` or
+    `"hold"` (keeps the gain, then steps to the next point just before it, with a few milliseconds of ramp). Points
+    are interpolated in dB, except when one is silence, which is interpolated in amplitude. Before the first point and
+    after the last, the gain is that of the nearest. Up to 256 points, in strictly increasing order of `at`; anything
+    else is rejected on open and save. Absent or empty means no envelope. Added without a version bump.
 
   `start` is where the clip sounds; the asset's first frame would sit at `start - offset`. A frame is rarely a whole
   number of samples (29.97 fps), so the player converts that one frame to samples and reads the asset from there. Two
@@ -205,7 +221,7 @@ written). The backend keeps the latest as the `Document`, so that a window that 
 picks the project up where it was left, instead of starting over: `baseline` is the project as it was last opened or
 saved (as it started, for a new one) and the document is unsaved when `project` differs from it. Undo history, the
 selection and the zoom are the window's and do not survive a reload; the waveforms are read again, from the stored
-previews or the decoded audio. Starting the window also stops an output a previous load left running.
+previews or the decoded audio. The reloaded window subscribes to the existing output, so playback and timecode continue.
 
 The editor window opens on, in this order: the document the backend already holds (a reload), the show named by
 `?open=` in its address (what the welcome window asks for; the address keeps it on a reload, which is why the backend's

@@ -131,12 +131,13 @@ fn report(log_dir: &Path, output: Option<&OutputInfo>) -> String {
         .map_or_else(|err| format!("unavailable ({err})"), |ports| json(&ports));
     format!(
         "Flux Timecode {}\nSystem: {} {}\nExported: {}\nLog folder: {}\n\n\
-         Audio drivers:\n{}\n\nAudio devices (default driver):\n{}\n\nMIDI ports:\n{midi}\n\nOutput:\n{}\n",
+         Graphics:\n{}\n\nAudio drivers:\n{}\n\nAudio devices (default driver):\n{}\n\nMIDI ports:\n{midi}\n\nOutput:\n{}\n",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH,
         logger::now(),
         log_dir.display(),
+        json(&crate::graphics::state()),
         json(&devices::list_hosts()),
         json(&devices::list_audio(None)),
         output.map_or_else(|| "not running".to_owned(), json),

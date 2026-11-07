@@ -1265,6 +1265,7 @@ dependencies = [
 name = "flux-timecode"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "flux-audio",
  "flux-core",
  "flux-engine",

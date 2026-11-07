@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import { ViewSwitch } from "../live/ViewSwitch";
 import { TimelineStrip } from "./TimelineStrip";
 import { FollowToggle } from "./FollowToggle";
+import { SnapControl } from "./SnapControl";
 import { TempoBar } from "./TempoBar";
 import type { Timeline as TimelineData } from "../project/types";
 import { menuAtPointer, select, setZoom, useUi, zoomBy } from "../state/ui";
@@ -11,7 +12,8 @@ import { activeTimeline } from "../state/doc";
 import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
-import { RULER_H, patchReadout, useReadout } from "../timeline/layout";
+import { GUESS_SECONDS, clipLength } from "../timeline/clip";
+import { RULER_H, patchReadout, setViewport, useReadout } from "../timeline/layout";
 import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
@@ -23,7 +25,7 @@ import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
-import { GUESS_SECONDS, TrackHeader, TrackLane, clipLength, laneHeight } from "./TrackRow";
+import { TrackHeader, TrackLane, laneHeight } from "./TrackRow";
 import { PlusIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
 import { emptyMenu } from "./menus";
 
@@ -77,6 +79,23 @@ function HoverLine({ pxPerFrame }: { pxPerFrame: number }) {
   return <div ref={line} className="hover-line" hidden />;
 }
 
+/**
+ * Where the magnet is holding the item or the playhead being dragged, across all lanes. Solid on a
+ * line of the grid, dashed on something else, so the kind does not ride on a colour.
+ */
+function SnapGuideLine({ pxPerFrame }: { pxPerFrame: number }) {
+  const guide = useUi((ui) => ui.snapGuide);
+  if (!guide) return null;
+  return (
+    <div
+      className="snap-guide"
+      data-kind={guide.kind}
+      style={{ transform: `translateX(${frameX(guide.frame, pxPerFrame)}px)` }}
+      aria-hidden="true"
+    />
+  );
+}
+
 export function Timeline() {
   const t = useT();
   const scroller = useRef<HTMLDivElement>(null);
@@ -108,6 +127,7 @@ export function Timeline() {
     if (!box) return;
     const measure = () => {
       setViewWidth(box.clientWidth);
+      setViewport({ left: box.scrollLeft, width: box.clientWidth });
       setScrollbarHeight(box.offsetHeight - box.clientHeight);
     };
     const observer = new ResizeObserver(measure);
@@ -205,6 +225,7 @@ export function Timeline() {
         </h2>
         <TimelineStrip />
         <TempoBar />
+        <SnapControl />
         <FollowToggle />
         <ViewSwitch />
       </div>
@@ -281,6 +302,7 @@ export function Timeline() {
           className="screen-scroll"
           ref={scroller}
           onScroll={(event) => {
+            setViewport({ left: event.currentTarget.scrollLeft });
             if (headers.current) headers.current.scrollTop = event.currentTarget.scrollTop;
           }}
           onPointerDown={(event) => event.target === event.currentTarget && select(null)}
@@ -327,6 +349,7 @@ export function Timeline() {
 
             <SpanShade pxPerFrame={pxPerFrame} />
             <HoverLine pxPerFrame={pxPerFrame} />
+            <SnapGuideLine pxPerFrame={pxPerFrame} />
             <Playhead start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
           </div>
         </div>

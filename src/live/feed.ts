@@ -51,8 +51,9 @@ async function refresh(): Promise<void> {
   try {
     const cues = await api.liveCues(doc.project);
     if (ticket !== cuesTicket) return;
-    useLive.setState({ cues, ready: true, source: sourceOf(doc) });
+    useLive.setState({ cues, source: sourceOf(doc) });
     await refreshState();
+    if (ticket === cuesTicket) useLive.setState({ ready: true });
   } catch (error) {
     // Say what went wrong, and show the (empty) list rather than wait for ever.
     if (ticket === cuesTicket) useLive.setState({ ready: true });

@@ -13,9 +13,11 @@ export interface PeakData {
 export interface WaveJob {
   /** Seeds the placeholder shown until the real waveform is known. */
   seed: string;
-  /** CSS pixels. */
+  /** CSS pixels of the canvas, which holds the part of the wave that starts at `x0`. */
   width: number;
   height: number;
+  /** How many pixels from the start of the wave the canvas begins. */
+  x0: number;
   /** Device pixels per CSS pixel the canvas is drawn at. */
   dpr: number;
   color: string;
@@ -33,6 +35,29 @@ export type WaveRequest =
 export interface WaveReply {
   id: number;
   bitmap: ImageBitmap;
+}
+
+/** What of the timeline is on screen, in pixels from its origin. */
+export interface Viewport {
+  left: number;
+  width: number;
+}
+
+/** Pixels of wave drawn at a time: scrolling redraws a clip once per chunk, not at every pixel. */
+const SLICE_CHUNK = 512;
+
+/**
+ * The part of a wave that is worth drawing: the `width` pixels of a clip whose audio starts `origin`
+ * pixels from the origin of the timeline, cut to what is on screen plus a screenful on each side,
+ * in whole chunks. A canvas that only holds that stays small however long the clip is or far in it
+ * the view is, so it is never drawn below the screen's resolution. `x1 === x0` means nothing shows.
+ */
+export function waveSlice(origin: number, width: number, view: Viewport): { x0: number; x1: number } {
+  const margin = Math.max(view.width, SLICE_CHUNK);
+  const clamp = (x: number) => Math.min(Math.max(x, 0), width);
+  const x0 = clamp(Math.floor((view.left - margin - origin) / SLICE_CHUNK) * SLICE_CHUNK);
+  const x1 = clamp(Math.ceil((view.left + view.width + margin - origin) / SLICE_CHUNK) * SLICE_CHUNK);
+  return x1 > x0 ? { x0, x1 } : { x0: 0, x1: 0 };
 }
 
 /** Longest canvas the browsers draw reliably; wider ones are drawn at a lower resolution. */
@@ -60,14 +85,15 @@ function seeded(seed: string): () => number {
 function drawPeaks(
   context: Context2D,
   { values, perSecond }: PeakData,
-  { width, height, pxPerSecond, startSeconds }: WaveJob,
+  { width, height, x0, pxPerSecond, startSeconds }: WaveJob,
 ) {
   const pairs = values.length / 2;
   const mid = height / 2;
   const reach = mid - 3;
   for (let x = 0; x < width; x += 1) {
-    const first = Math.floor((startSeconds + x / pxPerSecond) * perSecond);
-    const last = Math.max(first + 1, Math.ceil((startSeconds + (x + 1) / pxPerSecond) * perSecond));
+    // `x` is on the canvas; the audio it shows is `x0` pixels further along.
+    const first = Math.floor((startSeconds + (x0 + x) / pxPerSecond) * perSecond);
+    const last = Math.max(first + 1, Math.ceil((startSeconds + (x0 + x + 1) / pxPerSecond) * perSecond));
     if (first >= pairs) break;
     let low = 127;
     let high = -128;
@@ -81,15 +107,15 @@ function drawPeaks(
   }
 }
 
-function drawPlaceholder(context: Context2D, { seed, width, height }: WaveJob) {
+function drawPlaceholder(context: Context2D, { seed, width, height, x0 }: WaveJob) {
   const random = seeded(seed);
   const mid = height / 2;
   let envelope = 0.4;
-  for (let x = 0; x < width; x += 2) {
-    // A slow drift keeps phrases; the noise on top is the "signal".
+  // The sequence runs from the start of the wave, so a slice of it is the same as in the whole.
+  for (let x = 0; x < x0 + width; x += 2) {
     envelope = Math.min(0.95, Math.max(0.12, envelope + (random() - 0.5) * 0.12));
     const amplitude = envelope * (0.45 + random() * 0.55) * (mid - 4);
-    context.fillRect(x, mid - amplitude, 1, Math.max(1, amplitude * 2));
+    if (x >= x0) context.fillRect(x - x0, mid - amplitude, 1, Math.max(1, amplitude * 2));
   }
 }
 

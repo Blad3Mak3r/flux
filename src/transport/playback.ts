@@ -13,7 +13,6 @@
 import { listen } from "@tauri-apps/api/event";
 import { useLive } from "../live/store";
 import { errorMessage } from "../project/api";
-import type { Project } from "../project/types";
 import { activeTimeline } from "../state/doc";
 import type { Doc } from "../state/doc";
 import { useDoc } from "../state/store";
@@ -34,17 +33,21 @@ const CLIPS_DEBOUNCE_MS = 200;
 /** Choosing a device fires several edits in a row (a select, then a channel); one reconnect follows. */
 const RECONNECT_DEBOUNCE_MS = 300;
 
-/** What the output is opened with: the project, with the outputs the current view plays through. */
-const forView = (project: Project): Project => ({
-  ...project,
-  output: effectiveOutput(project.output, useUi.getState().view),
-});
+/** What the output is opened for, including how the current view uses the devices. */
+function setup(doc: Doc): api.OutputSetup {
+  const { id: timelineId, timecode } = activeTimeline(doc);
+  const { view } = useUi.getState();
+  return {
+    timelineId,
+    timecode,
+    output: effectiveOutput(doc.project.output, view),
+    advance: view === "live",
+    audition: view === "edit" && Boolean(doc.project.output.preview),
+  };
+}
 
 /** What the output was opened for; when it changes, the devices are reopened. */
-const signature = (doc: Doc) => {
-  const { id, timecode } = activeTimeline(doc);
-  return JSON.stringify([id, timecode, forView(doc.project).output]);
-};
+const signature = (doc: Doc) => JSON.stringify(setup(doc));
 
 const project = () => useDoc.getState().project;
 const timeline = () => activeTimeline(useDoc.getState());
@@ -61,6 +64,8 @@ let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 /** Counts the outputs opened; a tick that comes from one closed since is dropped. */
 let run = 0;
 let clipsTimer: ReturnType<typeof setTimeout> | undefined;
+let attaching: Promise<void> | undefined;
+let initialized = false;
 
 async function guard(action: () => Promise<void>): Promise<void> {
   try {
@@ -82,6 +87,26 @@ const lanes = (id: number): OutputLanes => ({
     id === run && useTransport.setState({ levels: Object.fromEntries(tracks.map((track) => [track.id, track.peak])) }),
   onLive: (state) => id === run && useLive.setState({ state }),
 });
+
+/** Once per page, pick up the backend output and its transport before considering a restart. */
+function attach(): Promise<void> {
+  attaching ??= (async () => {
+    const requested = setup(useDoc.getState());
+    const subscriber = lanes(++run);
+    const attached = await api.attachOutput(requested, subscriber);
+    if (!attached) return;
+    openedFor = attached.matches ? JSON.stringify(requested) : null;
+    openedStart = attached.start;
+    openedTimeline = attached.timelineId;
+    openedView = attached.matches ? useUi.getState().view : null;
+    if (!useTransport.getState().position) subscriber.onPosition(attached.position);
+    useTransport.setState({ info: attached.info });
+  })().catch((error) => {
+    attaching = undefined;
+    throw error;
+  });
+  return attaching;
+}
 
 /** While the output runs, edits to the tracks (muting, moving, importing) reach the audio too. */
 function scheduleClips(): void {
@@ -122,7 +147,6 @@ export function bindTransport(): () => void {
   });
   // The programme's device came back after it was lost: reopen the output, which parks the playhead.
   const listening = listen("output-device-back", () => reconnect(true)).catch(() => undefined);
-  reconnect();
   return () => {
     void listening.then((unlisten) => unlisten?.());
     unsubscribeDoc();
@@ -138,13 +162,27 @@ export function bindTransport(): () => void {
  * even when nothing changed, for a device that was plugged in since.
  */
 export function reconnect(force = false): void {
+  if (!initialized) return;
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(() => void connect(force), RECONNECT_DEBOUNCE_MS);
+}
+
+/** The editor awaits the first connection instead of queuing it behind the settings debounce. */
+export async function startTransport(): Promise<void> {
+  await connect(false);
+  initialized = true;
+  if (useTransport.getState().pendingReconfigure && useTransport.getState().position?.state !== "playing") reconnect();
 }
 
 async function connect(force: boolean): Promise<void> {
   // Outside the desktop app there is no backend to open anything on.
   if (!hasNativeWindow()) return;
+  try {
+    await attach();
+  } catch (error) {
+    report(error);
+    return;
+  }
   if (!force && useTransport.getState().info && openedFor === signature(useDoc.getState())) {
     useTransport.setState({ pendingReconfigure: false });
     return;
@@ -174,36 +212,35 @@ async function connect(force: boolean): Promise<void> {
  */
 async function reconfigureInPlace(): Promise<boolean> {
   const doc = useDoc.getState();
-  const { id, timecode } = activeTimeline(doc);
-  if (openedTimeline !== id || openedStart !== timecode.start || openedView !== useUi.getState().view) return false;
+  const requested = setup(doc);
+  const { timelineId, timecode, output } = requested;
+  if (openedTimeline !== timelineId || openedStart !== timecode.start || openedView !== useUi.getState().view) return false;
   try {
-    const result = await api.reconfigureOutput(forView(doc.project));
+    const result = await api.reconfigureOutput({ ...doc.project, output });
     if (result.kind !== "applied") return false;
-    openedFor = signature(doc);
+    openedFor = JSON.stringify(requested);
     useTransport.setState({ info: result.info, pendingReconfigure: false });
     return true;
   } catch {
     return false;
   }
 }
-
 async function open(force = false): Promise<void> {
   const doc = useDoc.getState();
-  const { id, timecode } = activeTimeline(doc);
-  if (!force && useTransport.getState().info && openedFor === signature(doc)) return;
+  const requested = setup(doc);
+  const { timelineId, timecode, output, advance, audition } = requested;
+  const key = JSON.stringify(requested);
   const { position } = useTransport.getState();
+  if (!force && useTransport.getState().info && (openedFor === key || position?.state === "playing")) return;
   // Reopening from a pause or a stop keeps the playhead where it was, unless the start moved or
   // it is another timeline.
-  if (position && openedStart === timecode.start && openedTimeline === id) {
+  if (position && openedStart === timecode.start && openedTimeline === timelineId) {
     useTransport.setState({ parked: position.frame });
   }
-  // In Live a show that runs to its end hands over to the next timeline, stopped.
-  const advance = useUi.getState().view === "live";
-  const audition = useUi.getState().view === "edit" && doc.project.output.preview !== undefined;
-  const info = await api.startOutput(forView(doc.project), advance, audition, lanes(++run));
-  openedFor = signature(doc);
+  const info = await api.startOutput({ ...doc.project, output }, advance, audition, lanes(++run));
+  openedFor = key;
   openedStart = timecode.start;
-  openedTimeline = id;
+  openedTimeline = timelineId;
   openedView = useUi.getState().view;
   useTransport.setState({ info, clipWarnings: [], position: null });
   scheduleClips();
@@ -230,6 +267,7 @@ export const stopOutput = () =>
 
 export const play = () =>
   guard(async () => {
+    await attach();
     await open();
     await api.play();
   });

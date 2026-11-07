@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { LiveState } from "../live/api";
-import type { Project, Tempo } from "../project/types";
+import type { OutputConfig, Project, Tempo, Timeline } from "../project/types";
 
 // Mirrors src-tauri/crates/flux-engine/src/output.rs and src-tauri/src/transport_commands.rs.
 
@@ -91,20 +91,38 @@ export interface OutputLanes {
  * OSC cue tracks stay silent: Edit is auditioning on a preview device.
  */
 export function startOutput(project: Project, advance: boolean, audition: boolean, lanes: OutputLanes): Promise<OutputInfo> {
+  return invoke<OutputInfo>("output_start", { project, advance, audition, ...channels(lanes) });
+}
+
+function channels(lanes: OutputLanes) {
   const position = new Channel<Position>();
   position.onmessage = lanes.onPosition;
   const levels = new Channel<TrackPeak[]>();
   levels.onmessage = lanes.onLevels;
   const live = new Channel<LiveState>();
   live.onmessage = lanes.onLive;
-  return invoke<OutputInfo>("output_start", {
-    project,
-    advance,
-    audition,
-    onPosition: position,
-    onLevels: levels,
-    onLive: live,
-  });
+  return { onPosition: position, onLevels: levels, onLive: live };
+}
+
+export interface OutputSetup {
+  timelineId: string;
+  timecode: Timeline["timecode"];
+  output: OutputConfig;
+  advance: boolean;
+  audition: boolean;
+}
+
+interface AttachedOutput {
+  info: OutputInfo;
+  position: Position;
+  timelineId: string;
+  start: number;
+  matches: boolean;
+}
+
+/** Replaces a previous page's subscriptions without restarting its output. */
+export function attachOutput(setup: OutputSetup, lanes: OutputLanes): Promise<AttachedOutput | null> {
+  return invoke("output_attach", { setup, ...channels(lanes) });
 }
 
 /** What changing the settings of a running output ended in. */

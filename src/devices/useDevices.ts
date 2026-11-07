@@ -17,6 +17,8 @@ export interface Devices {
   midiError: string | null;
   /** The listing needs the desktop app; in a plain browser it never resolves. */
   available: boolean;
+  /** Whether the lists and presence checks for these settings are still being read. */
+  loading: boolean;
   /** The device that plays the programme and provides the clock. */
   audioPresence: Presence;
   ltcPresence: Presence;
@@ -42,7 +44,7 @@ export function worst(all: Presence[]): Presence {
 }
 
 /** Lists devices and checks whether the ones a project names are connected. */
-export function useDevices(output: OutputConfig): Devices {
+export function useDevices(output: OutputConfig, enabled = true): Devices {
   const [hosts, setHosts] = useState<AudioHost[]>([]);
   const [audio, setAudio] = useState<AudioDevice[]>([]);
   const [midi, setMidi] = useState<MidiPort[]>([]);
@@ -52,6 +54,8 @@ export function useDevices(output: OutputConfig): Devices {
   const [ltcPresence, setLtcPresence] = useState<Presence>("unset");
   const [mtcPresence, setMtcPresence] = useState<Presence>("unset");
   const [tick, setTick] = useState(0);
+  const [listed, setListed] = useState<string>();
+  const [checked, setChecked] = useState<string>();
   const refresh = useCallback(() => setTick((n) => n + 1), []);
 
   const driver = output.driver;
@@ -59,37 +63,46 @@ export function useDevices(output: OutputConfig): Devices {
   // The effect depends on the names, not on the lists, which are new objects after every edit.
   const ltcHints = JSON.stringify(output.ltc.map((ltc) => ltc.deviceName));
   const midiHints = JSON.stringify(output.mtc.map(portKey));
+  const listKey = JSON.stringify([driver, tick]);
+  const presenceKey = JSON.stringify([listKey, audioHint, ltcHints, midiHints]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
-    listAudioHosts()
-      .then((list) => !cancelled && setHosts(list))
-      .catch(() => !cancelled && setHosts([]));
-    listAudioDevices(driver)
-      .then((devices) => !cancelled && (setAudio(devices), setAvailable(true)))
-      .catch(() => !cancelled && setAvailable(false));
-    listMidiPorts()
-      .then((ports) => !cancelled && (setMidi(ports), setMidiError(null)))
-      .catch((err) => !cancelled && (setMidi([]), setMidiError(errorMessage(err))));
+    void Promise.all([
+      listAudioHosts()
+        .then((list) => !cancelled && setHosts(list))
+        .catch(() => !cancelled && setHosts([])),
+      listAudioDevices(driver)
+        .then((devices) => !cancelled && (setAudio(devices), setAvailable(true)))
+        .catch(() => !cancelled && setAvailable(false)),
+      listMidiPorts()
+        .then((ports) => !cancelled && (setMidi(ports), setMidiError(null)))
+        .catch((err) => !cancelled && (setMidi([]), setMidiError(errorMessage(err)))),
+    ]).then(() => !cancelled && setListed(listKey));
     return () => {
       cancelled = true;
     };
-  }, [driver, tick]);
+  }, [driver, enabled, listKey]);
 
   useEffect(() => {
+    if (!enabled) return;
     let cancelled = false;
     const findAudio = (name: string) => findAudioDevice(name, driver);
-    const resolveAll = (hints: (string | null)[], find: (name: string) => Promise<unknown>, set: (p: Presence) => void) => {
-      if (hints.length === 0 || hints[0] === null) return set("unset");
-      Promise.all(hints.map((hint) => presenceOf(hint as string, find))).then((all) => !cancelled && set(worst(all)));
+    const resolveAll = async (hints: string[], find: (name: string) => Promise<unknown>, set: (p: Presence) => void) => {
+      const all = await Promise.all(hints.map((hint) => presenceOf(hint, find)));
+      if (!cancelled) set(worst(all));
     };
-    resolveAll([audioHint], findAudio, setAudioPresence);
-    resolveAll(JSON.parse(ltcHints) as string[], findAudio, setLtcPresence);
-    resolveAll(JSON.parse(midiHints) as string[], (key) => findMidiPort(...splitPortKey(key)), setMtcPresence);
+    void Promise.all([
+      resolveAll(audioHint === null ? [] : [audioHint], findAudio, setAudioPresence),
+      resolveAll(JSON.parse(ltcHints) as string[], findAudio, setLtcPresence),
+      resolveAll(JSON.parse(midiHints) as string[], (key) => findMidiPort(...splitPortKey(key)), setMtcPresence),
+    ]).then(() => !cancelled && setChecked(presenceKey));
     return () => {
       cancelled = true;
     };
-  }, [driver, audioHint, ltcHints, midiHints, tick]);
+  }, [driver, audioHint, ltcHints, midiHints, enabled, presenceKey]);
 
-  return { hosts, audio, midi, midiError, available, audioPresence, ltcPresence, mtcPresence, refresh };
+  const loading = enabled && (listKey !== listed || presenceKey !== checked);
+  return { hosts, audio, midi, midiError, available, loading, audioPresence, ltcPresence, mtcPresence, refresh };
 }
