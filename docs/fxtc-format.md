@@ -26,7 +26,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `9`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `10`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
@@ -306,7 +306,8 @@ Version 7 and earlier archives migrate to version 8 without voice overrides or o
 operator fields are optional, and old Flux versions reject version 8 archives before parsing.
 
 The operator interface and mono/stereo channels belong to `preferences.json`, alongside the installation's
-voice ID. They are resolved into `OutputConfig.operator`. An unassigned or missing route stays silent.
+voice ID. They are resolved into the inherited Operator destination (`OutputConfig.operator`). Format 10
+adds per-track destination overrides as described below. An unassigned or missing route stays silent.
 The operator bus follows FLUX's clock and uses saved audio offline. Generation can only start while stopped;
 a response arriving after playback starts is retained without replacing the order's recording.
 
@@ -323,5 +324,21 @@ is not used for content matching. Imported audio preserves its source format in 
 Generated matching compares the visible dialogue, pronunciation text and effective voice. Imported matching
 compares the visible dialogue only. Replacing a recording resets order trims.
 
-Version 8 and earlier migrate using serde defaults for these new fields. Saving writes version 9;
+Version 8 and earlier migrate using serde defaults for these new fields. Saving writes the current version;
 changing between `.flx` and legacy `.fxtc` does not change these rules.
+
+## Audio routing (version 10)
+
+`output.audio` is an optional array of portable `{ "id": "<uuid>", "name": "Monitors" }` destinations shared by all timelines. IDs are stable; names are nonempty, at most 64 characters, and unique without case distinctions. The built-in IDs `programme` and `operator` are permanent and are not stored in that array.
+
+Audio and operator tracks may include `audioOutput`:
+
+- `{ "type": "inherit" }` (also the omitted default): audio inherits Programme; operator inherits Operator.
+- `{ "type": "silent" }`: no audible destination in either view.
+- `{ "type": "output", "id": "<uuid or builtin id>" }`: one explicit destination.
+
+Other track kinds must retain the inherited default. Removing a custom destination retargets its tracks across every timeline to Silent in one undoable edit. Undo restores both the destination ID and its assignments.
+
+Hardware mappings belong to installation preferences: `audioRoutes` maps custom output IDs to an interface name hint and mono/stereo channels. Programme and Operator reuse their existing local preference fields. These mappings are never written into the project. Unmapped or missing outputs remain silent in Live; they never fall back to Programme. Edit with a preview route auditions every assigned track through that route, while Silent remains silent.
+
+Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving writes version 10; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.

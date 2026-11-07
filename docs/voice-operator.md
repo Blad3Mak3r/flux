@@ -34,8 +34,9 @@ would begin before the timeline origin, FLUX keeps the position and audio, displ
 the order until it fits. Changing alignment preserves the anchor; regeneration preserves both and recomputes
 the interval from the decoded sample duration.
 
-Set the operator interface and mono/stereo channels in Preferences. All operator tracks share this route;
-it never falls back to the programme when absent. Missing devices do not prevent opening the project.
+Set the inherited Operator interface and mono/stereo channels in Preferences. Each operator track can
+override that destination with Programme, a named audio output or Silent. An unavailable destination
+never falls back to the programme. Missing devices do not prevent opening the project.
 Mute and track volume work independently of the programme. Overlapping orders mix together.
 Live displays the orders and their content/position/output warnings without editing controls. Its dialogue
 is the text in the recording that will actually play, even when a newer draft exists. Generation and
@@ -119,4 +120,14 @@ navigation. It verifies source audio itself rather than trusting a saved wavefor
 available when a user intentionally accepts warnings such as overlapping or outdated recordings.
 
 These fields use archive format 9. Format 8 recordings default to generated origin, no pronunciation override
-and zero trims. Old local generation jobs also remain readable. Older app builds reject new version 9 files.
+and zero trims. Old local generation jobs also remain readable. Older app builds reject files written by newer format versions.
+
+## Per-track audio outputs
+
+Operator is the inherited destination for spoken tracks, not a compulsory common bus. Each audio or operator track can select Programme, Operator, a named project destination, or Silent in its inspector, including when the track is empty. The track header opens that inspector and displays the backend-resolved destination. Voice inheritance and generated content state are unaffected by routing edits.
+
+Preferences > Audio outputs manages portable destination names and this computer's interface/channel mappings. Removing an output displays its use count across all timelines and retargets those tracks to Silent; undo restores their assignments and the retained local mapping. Named destinations can play the bundled local spoken test without ElevenLabs calls. The regular Listen action continues to audition through Edit preview.
+
+Live displays backend route health separately from speech content state. Preflight checks the effective destination of each operator track; an unavailable route and an LTC channel collision are blocking issues. An intentionally Silent track is reported as a warning. Route changes during playback preserve the active routing and apply on pause or stop. A following Play waits for that application, including remote transport commands. Audio remains bundled and playable without credentials or Internet.
+
+See [audio-routing.md](audio-routing.md) for stream grouping, device loss and independent-clock limitations.
