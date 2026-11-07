@@ -97,6 +97,11 @@ pub struct Session {
 }
 
 impl Session {
+    /// Forgets the open document and its audio sources without touching any project files.
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
     pub fn new_project(&mut self, name: &str, frame_rate: FrameRate) -> Project {
         self.sources.clear();
         self.previews.clear();
@@ -589,6 +594,23 @@ mod tests {
         assert_eq!(document.project, project);
         assert_eq!(document.baseline, project);
         assert_eq!(document.path, None);
+    }
+
+    #[test]
+    fn reopening_after_closing_a_new_project_should_load_the_original_archive() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, project) = imported_project(&dir);
+        let path = dir.path().join("Show.fxtc");
+        let saved = session.save(&project, &path).unwrap();
+        let archive = fs::read(&path).unwrap();
+
+        session.new_project("Untitled", FrameRate::Fps25);
+        session.clear();
+
+        // A fresh editor only reads the requested file when there is no session to restore.
+        assert!(session.document().is_none());
+        assert_eq!(session.open(&path).unwrap(), saved);
+        assert_eq!(fs::read(&path).unwrap(), archive);
     }
 
     #[test]
