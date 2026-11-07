@@ -2681,14 +2681,29 @@ fn mark_audio_routes(
         .unwrap_or_else(PoisonError::into_inner)
         .iter_mut()
     {
-        if health.state.status != AudioRouteStatus::Conflict
-            && health.state.status != AudioRouteStatus::Unused
+        if health.state.status != AudioRouteStatus::Unused
             && !health.state.channels.is_empty()
             && same_device(driver, device, &health.state.device)
-            && health.state.channels.iter().all(|c| *c <= channels)
         {
-            health.state.status = AudioRouteStatus::Ready;
-            health.lost = Some(Arc::clone(lost));
+            let conflict = shared
+                .audio_config
+                .audio_routes
+                .iter()
+                .find(|b| b.id == health.state.id)
+                .is_some_and(|bus| {
+                    crate::audio_routing::conflict(&shared.audio_config, bus, |a, b| {
+                        same_device(driver, a, b)
+                    })
+                });
+            health.state.status = if conflict {
+                AudioRouteStatus::Conflict
+            } else if health.state.channels.iter().all(|c| *c <= channels) {
+                AudioRouteStatus::Ready
+            } else {
+                AudioRouteStatus::Missing
+            };
+            health.lost =
+                (health.state.status == AudioRouteStatus::Ready).then(|| Arc::clone(lost));
         }
     }
 }
@@ -3345,6 +3360,29 @@ mod tests {
         assert_eq!(
             shared.audio_health.read().unwrap()[0].state().status,
             AudioRouteStatus::Missing
+        );
+        // A reopened device must re-evaluate conflicts, not promote every available bus to Ready.
+        let mut shared = SharedClock::new();
+        shared.audio_config = routed_config();
+        shared.audio_config.ltc.push(LtcOutput {
+            device_name: "Main".into(),
+            channel: 2,
+            level: None,
+            offset_ms: None,
+        });
+        shared.audio_health.write().unwrap().push(RouteHealth {
+            state: AudioRouteState {
+                id: "one".into(),
+                device: "Main".into(),
+                channels: vec![1, 2],
+                status: AudioRouteStatus::Missing,
+            },
+            lost: None,
+        });
+        mark_audio_routes(&shared, "Main", None, 2, &shared.lost);
+        assert_eq!(
+            shared.audio_health.read().unwrap()[0].state().status,
+            AudioRouteStatus::Conflict
         );
     }
 
