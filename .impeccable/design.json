@@ -1,32 +1,325 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-03T00:00:00Z",
+  "generatedAt": "2026-11-07T09:41:54.418Z",
   "title": "Design System: Flux Timecode",
   "extensions": {
     "colorMeta": {
-      "panel": { "role": "neutral", "displayName": "Faceplate", "canonical": "oklch(0.255 0.014 250)", "tonalRamp": ["oklch(0.15 0.012 250)", "oklch(0.2 0.013 250)", "oklch(0.255 0.014 250)", "oklch(0.31 0.015 250)", "oklch(0.46 0.018 250)", "oklch(0.6 0.016 250)", "oklch(0.76 0.014 250)", "oklch(0.93 0.01 250)"] },
-      "screen": { "role": "neutral", "displayName": "Screen", "canonical": "oklch(0.175 0.024 205)", "tonalRamp": ["oklch(0.15 0.022 205)", "oklch(0.175 0.024 205)", "oklch(0.235 0.03 205)", "oklch(0.255 0.032 205)", "oklch(0.36 0.05 205)", "oklch(0.5 0.06 205)", "oklch(0.7 0.07 205)", "oklch(0.93 0.03 205)"] },
-      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(0.93 0.012 85)", "tonalRamp": ["oklch(0.15 0.012 85)", "oklch(0.3 0.014 85)", "oklch(0.45 0.015 85)", "oklch(0.6 0.016 85)", "oklch(0.76 0.016 85)", "oklch(0.84 0.014 85)", "oklch(0.93 0.012 85)", "oklch(0.97 0.008 85)"] },
-      "phosphor": { "role": "primary", "displayName": "Phosphor Green", "canonical": "oklch(0.87 0.17 128)", "tonalRamp": ["oklch(0.15 0.05 128)", "oklch(0.28 0.08 128)", "oklch(0.4 0.1 128)", "oklch(0.6 0.12 128)", "oklch(0.72 0.15 128)", "oklch(0.87 0.17 128)", "oklch(0.92 0.17 128)", "oklch(0.95 0.1 128)"] },
-      "amber": { "role": "secondary", "displayName": "Cue Amber", "canonical": "oklch(0.82 0.15 78)", "tonalRamp": ["oklch(0.15 0.04 78)", "oklch(0.28 0.06 78)", "oklch(0.4 0.09 78)", "oklch(0.58 0.11 78)", "oklch(0.7 0.14 78)", "oklch(0.82 0.15 78)", "oklch(0.9 0.12 78)", "oklch(0.95 0.06 78)"] },
-      "signal": { "role": "tertiary", "displayName": "Live Vermilion", "canonical": "oklch(0.7 0.2 32)", "tonalRamp": ["oklch(0.15 0.05 32)", "oklch(0.28 0.09 32)", "oklch(0.4 0.14 32)", "oklch(0.5 0.17 32)", "oklch(0.6 0.2 32)", "oklch(0.7 0.2 32)", "oklch(0.82 0.13 32)", "oklch(0.93 0.05 32)"] }
+      "panel": {
+        "role": "neutral",
+        "displayName": "Faceplate",
+        "canonical": "oklch(0.255 0.014 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 250)",
+          "oklch(0.2 0.013 250)",
+          "oklch(0.255 0.014 250)",
+          "oklch(0.31 0.015 250)",
+          "oklch(0.46 0.018 250)",
+          "oklch(0.6 0.016 250)",
+          "oklch(0.76 0.014 250)",
+          "oklch(0.93 0.01 250)"
+        ]
+      },
+      "panel-hi": {
+        "role": "neutral",
+        "displayName": "Faceplate Raised",
+        "canonical": "oklch(0.31 0.015 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 250)",
+          "oklch(0.28 0.015 250)",
+          "oklch(0.4 0.015 250)",
+          "oklch(0.52 0.015 250)",
+          "oklch(0.64 0.015 250)",
+          "oklch(0.76 0.015 250)",
+          "oklch(0.88 0.011 250)",
+          "oklch(0.95 0.006 250)"
+        ]
+      },
+      "panel-lo": {
+        "role": "neutral",
+        "displayName": "Faceplate Recessed",
+        "canonical": "oklch(0.2 0.013 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 250)",
+          "oklch(0.28 0.013 250)",
+          "oklch(0.4 0.013 250)",
+          "oklch(0.52 0.013 250)",
+          "oklch(0.64 0.013 250)",
+          "oklch(0.76 0.013 250)",
+          "oklch(0.88 0.01 250)",
+          "oklch(0.95 0.005 250)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "oklch(0.36 0.015 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 250)",
+          "oklch(0.28 0.015 250)",
+          "oklch(0.4 0.015 250)",
+          "oklch(0.52 0.015 250)",
+          "oklch(0.64 0.015 250)",
+          "oklch(0.76 0.015 250)",
+          "oklch(0.88 0.011 250)",
+          "oklch(0.95 0.006 250)"
+        ]
+      },
+      "rule-strong": {
+        "role": "neutral",
+        "displayName": "Rule Strong",
+        "canonical": "oklch(0.46 0.018 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.005 250)",
+          "oklch(0.28 0.018 250)",
+          "oklch(0.4 0.018 250)",
+          "oklch(0.52 0.018 250)",
+          "oklch(0.64 0.018 250)",
+          "oklch(0.76 0.018 250)",
+          "oklch(0.88 0.013 250)",
+          "oklch(0.95 0.007 250)"
+        ]
+      },
+      "lamp-off": {
+        "role": "neutral",
+        "displayName": "Lamp Off",
+        "canonical": "oklch(0.34 0.012 250)",
+        "tonalRamp": [
+          "oklch(0.15 0.004 250)",
+          "oklch(0.28 0.012 250)",
+          "oklch(0.4 0.012 250)",
+          "oklch(0.52 0.012 250)",
+          "oklch(0.64 0.012 250)",
+          "oklch(0.76 0.012 250)",
+          "oklch(0.88 0.009 250)",
+          "oklch(0.95 0.005 250)"
+        ]
+      },
+      "screen": {
+        "role": "neutral",
+        "displayName": "Screen",
+        "canonical": "oklch(0.175 0.024 205)",
+        "tonalRamp": [
+          "oklch(0.15 0.022 205)",
+          "oklch(0.175 0.024 205)",
+          "oklch(0.235 0.03 205)",
+          "oklch(0.255 0.032 205)",
+          "oklch(0.36 0.05 205)",
+          "oklch(0.5 0.06 205)",
+          "oklch(0.7 0.07 205)",
+          "oklch(0.93 0.03 205)"
+        ]
+      },
+      "graticule-minor": {
+        "role": "neutral",
+        "displayName": "Graticule Minor",
+        "canonical": "oklch(0.255 0.032 205)",
+        "tonalRamp": [
+          "oklch(0.15 0.01 205)",
+          "oklch(0.28 0.032 205)",
+          "oklch(0.4 0.032 205)",
+          "oklch(0.52 0.032 205)",
+          "oklch(0.64 0.032 205)",
+          "oklch(0.76 0.032 205)",
+          "oklch(0.88 0.024 205)",
+          "oklch(0.95 0.013 205)"
+        ]
+      },
+      "graticule-major": {
+        "role": "neutral",
+        "displayName": "Graticule Major",
+        "canonical": "oklch(0.36 0.05 205)",
+        "tonalRamp": [
+          "oklch(0.15 0.015 205)",
+          "oklch(0.28 0.05 205)",
+          "oklch(0.4 0.05 205)",
+          "oklch(0.52 0.05 205)",
+          "oklch(0.64 0.05 205)",
+          "oklch(0.76 0.05 205)",
+          "oklch(0.88 0.038 205)",
+          "oklch(0.95 0.02 205)"
+        ]
+      },
+      "ghost": {
+        "role": "neutral",
+        "displayName": "Ghost",
+        "canonical": "oklch(0.235 0.03 205)",
+        "tonalRamp": [
+          "oklch(0.15 0.009 205)",
+          "oklch(0.28 0.03 205)",
+          "oklch(0.4 0.03 205)",
+          "oklch(0.52 0.03 205)",
+          "oklch(0.64 0.03 205)",
+          "oklch(0.76 0.03 205)",
+          "oklch(0.88 0.022 205)",
+          "oklch(0.95 0.012 205)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(0.93 0.012 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.012 85)",
+          "oklch(0.3 0.014 85)",
+          "oklch(0.45 0.015 85)",
+          "oklch(0.6 0.016 85)",
+          "oklch(0.76 0.016 85)",
+          "oklch(0.84 0.014 85)",
+          "oklch(0.93 0.012 85)",
+          "oklch(0.97 0.008 85)"
+        ]
+      },
+      "ink-dim": {
+        "role": "neutral",
+        "displayName": "Ink Dim",
+        "canonical": "oklch(0.76 0.016 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.005 85)",
+          "oklch(0.28 0.016 85)",
+          "oklch(0.4 0.016 85)",
+          "oklch(0.52 0.016 85)",
+          "oklch(0.64 0.016 85)",
+          "oklch(0.76 0.016 85)",
+          "oklch(0.88 0.012 85)",
+          "oklch(0.95 0.006 85)"
+        ]
+      },
+      "ink-faint": {
+        "role": "neutral",
+        "displayName": "Ink Faint",
+        "canonical": "oklch(0.6 0.016 85)",
+        "tonalRamp": [
+          "oklch(0.15 0.005 85)",
+          "oklch(0.28 0.016 85)",
+          "oklch(0.4 0.016 85)",
+          "oklch(0.52 0.016 85)",
+          "oklch(0.64 0.016 85)",
+          "oklch(0.76 0.016 85)",
+          "oklch(0.88 0.012 85)",
+          "oklch(0.95 0.006 85)"
+        ]
+      },
+      "phosphor": {
+        "role": "primary",
+        "displayName": "Phosphor Green",
+        "canonical": "oklch(0.87 0.17 128)",
+        "tonalRamp": [
+          "oklch(0.15 0.05 128)",
+          "oklch(0.28 0.08 128)",
+          "oklch(0.4 0.1 128)",
+          "oklch(0.6 0.12 128)",
+          "oklch(0.72 0.15 128)",
+          "oklch(0.87 0.17 128)",
+          "oklch(0.92 0.17 128)",
+          "oklch(0.95 0.1 128)"
+        ]
+      },
+      "phosphor-dim": {
+        "role": "primary",
+        "displayName": "Dim Phosphor",
+        "canonical": "oklch(0.6 0.12 128)",
+        "tonalRamp": [
+          "oklch(0.15 0.036 128)",
+          "oklch(0.28 0.12 128)",
+          "oklch(0.4 0.12 128)",
+          "oklch(0.52 0.12 128)",
+          "oklch(0.64 0.12 128)",
+          "oklch(0.76 0.12 128)",
+          "oklch(0.88 0.09 128)",
+          "oklch(0.95 0.048 128)"
+        ]
+      },
+      "amber": {
+        "role": "secondary",
+        "displayName": "Cue Amber",
+        "canonical": "oklch(0.82 0.15 78)",
+        "tonalRamp": [
+          "oklch(0.15 0.04 78)",
+          "oklch(0.28 0.06 78)",
+          "oklch(0.4 0.09 78)",
+          "oklch(0.58 0.11 78)",
+          "oklch(0.7 0.14 78)",
+          "oklch(0.82 0.15 78)",
+          "oklch(0.9 0.12 78)",
+          "oklch(0.95 0.06 78)"
+        ]
+      },
+      "amber-dim": {
+        "role": "secondary",
+        "displayName": "Dim Amber",
+        "canonical": "oklch(0.58 0.11 78)",
+        "tonalRamp": [
+          "oklch(0.15 0.033 78)",
+          "oklch(0.28 0.11 78)",
+          "oklch(0.4 0.11 78)",
+          "oklch(0.52 0.11 78)",
+          "oklch(0.64 0.11 78)",
+          "oklch(0.76 0.11 78)",
+          "oklch(0.88 0.083 78)",
+          "oklch(0.95 0.044 78)"
+        ]
+      },
+      "signal": {
+        "role": "tertiary",
+        "displayName": "Live Vermilion",
+        "canonical": "oklch(0.7 0.2 32)",
+        "tonalRamp": [
+          "oklch(0.15 0.05 32)",
+          "oklch(0.28 0.09 32)",
+          "oklch(0.4 0.14 32)",
+          "oklch(0.5 0.17 32)",
+          "oklch(0.6 0.2 32)",
+          "oklch(0.7 0.2 32)",
+          "oklch(0.82 0.13 32)",
+          "oklch(0.93 0.05 32)"
+        ]
+      }
     },
     "typographyMeta": {
-      "legend": { "displayName": "Legend", "purpose": "Silkscreened section legends and field labels, uppercase and widely tracked." },
-      "key": { "displayName": "Key label", "purpose": "Transport keys and tabs." },
-      "body": { "displayName": "Body", "purpose": "Names, fields, lamp rows." },
-      "title": { "displayName": "Title", "purpose": "Empty-state title and dialog heading." },
-      "measure": { "displayName": "Measure", "purpose": "Timecode, ruler labels, numeric fields; tabular numerals, measurement only." }
+      "legend": {
+        "displayName": "Legend",
+        "purpose": "Silkscreened section legends and field labels, uppercase and widely tracked."
+      },
+      "key": {
+        "displayName": "Key label",
+        "purpose": "Transport keys and tabs."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Names, fields, lamp rows."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Empty-state title and dialog heading."
+      },
+      "measure": {
+        "displayName": "Measure",
+        "purpose": "Timecode, ruler labels, numeric fields; tabular numerals, measurement only."
+      }
     },
     "shadows": [
-      { "name": "ruler-rule", "value": "0 1px 0 oklch(0.46 0.018 250)", "purpose": "Hard 1px divider under the sticky ruler; not a lift." }
+      {
+        "name": "ruler-rule",
+        "value": "0 1px 0 oklch(0.46 0.018 250)",
+        "purpose": "Hard 1px divider under the sticky ruler; not a lift."
+      }
     ],
     "motion": [
-      { "name": "ease", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Key and button background change, 120ms. Disabled under prefers-reduced-motion." }
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Key and button background change, 120ms. Disabled under prefers-reduced-motion."
+      }
     ],
     "breakpoints": [
-      { "name": "narrow", "value": "1180px" },
-      { "name": "min-window", "value": "960px" }
+      {
+        "name": "narrow",
+        "value": "1180px"
+      },
+      {
+        "name": "min-window",
+        "value": "960px"
+      }
     ]
   },
   "components": [
@@ -34,57 +327,64 @@
       "name": "Transport Key",
       "kind": "button",
       "refersTo": "key",
-      "description": "Raised square key with icon, legend and state lamp.",
-      "html": "<button class=\"ds-key\" data-lamp=\"on\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\"><path d=\"M4 3 L13 8 L4 13 Z\" fill=\"currentColor\"/></svg><span>Play</span></button>",
-      "css": ".ds-key{position:relative;display:grid;justify-items:center;align-content:center;gap:5px;min-width:84px;height:70px;padding:4px 14px 0;background:oklch(0.31 0.015 250);color:oklch(0.93 0.012 85);border:1px solid oklch(0.46 0.018 250);border-bottom-width:4px;border-radius:2px;font:600 10px system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}.ds-key::before{content:'';position:absolute;top:6px;right:6px;width:6px;height:6px;background:oklch(0.34 0.012 250)}.ds-key[data-lamp=on]::before{background:oklch(0.93 0.012 85)}.ds-key:hover{background:oklch(0.35 0.016 250)}.ds-key:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}.ds-key:active{background:oklch(0.2 0.013 250);border-top-width:4px;border-bottom-width:1px}"
+      "description": "Raised square transport key with icon, legend and state lamp; pressed state flips the plate edge.",
+      "html": "<button type=\"button\" class=\"ds-key\" data-lamp=\"off\" aria-pressed=\"false\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 16 16\" aria-hidden=\"true\"><path d=\"M4 3 L13 8 L4 13 Z\" fill=\"currentColor\"/></svg><span>Play</span></button>",
+      "css": ".ds-key{position:relative;display:grid;justify-items:center;align-content:center;gap:5px;min-width:84px;height:70px;padding:4px 14px 0;background:var(--panel-hi, oklch(0.31 0.015 250));color:var(--ink, oklch(0.93 0.012 85));border:1px solid var(--rule-strong, oklch(0.46 0.018 250));border-bottom-width:4px;border-radius:2px;font:600 10px var(--font-ui, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);letter-spacing:.1em;text-transform:uppercase;transition:background-color 120ms var(--ease, cubic-bezier(0.22, 1, 0.36, 1))}.ds-key::before{content:'';position:absolute;top:6px;right:6px;width:6px;height:6px;background:var(--lamp-off, oklch(0.34 0.012 250))}.ds-key[data-lamp=on]::before{background:var(--ink, oklch(0.93 0.012 85))}.ds-key[data-tone=live][data-lamp=on]::before{background:var(--signal, oklch(0.7 0.2 32))}.ds-key[data-tone=hold][data-lamp=on]::before{background:var(--amber, oklch(0.82 0.15 78))}.ds-key:hover:not(:disabled){background:oklch(0.35 0.016 250)}.ds-key[aria-pressed=true],.ds-key:active:not(:disabled){background:var(--panel-lo, oklch(0.2 0.013 250));border-top-width:4px;border-bottom-width:1px;padding-top:0;padding-bottom:3px}.ds-key:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}.ds-key:disabled{opacity:.45;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-key{transition:none!important}}"
+    },
+    {
+      "name": "Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "Raised neutral action with a strong rule border.",
+      "html": "<button type=\"button\" class=\"ds-btn\">Open project</button>",
+      "css": ".ds-btn{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;background:var(--panel-hi, oklch(0.31 0.015 250));color:var(--ink, oklch(0.93 0.012 85));border:1px solid var(--rule-strong, oklch(0.46 0.018 250));border-radius:2px;font:600 13px/1.4 var(--font-ui, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);transition:background-color 120ms var(--ease, cubic-bezier(0.22, 1, 0.36, 1))}.ds-btn:hover:not(:disabled){background:oklch(0.35 0.016 250)}.ds-btn:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}.ds-btn:disabled{opacity:.45;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-btn{transition:none!important}}"
     },
     {
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Solid phosphor action.",
-      "html": "<button class=\"ds-btn-primary\">Import audio</button>",
-      "css": ".ds-btn-primary{height:32px;padding:0 12px;background:oklch(0.87 0.17 128);color:oklch(0.2 0.013 250);border:1px solid oklch(0.87 0.17 128);border-radius:2px;font:600 13px system-ui,sans-serif}.ds-btn-primary:hover{background:oklch(0.92 0.17 128)}.ds-btn-primary:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}"
+      "description": "Solid phosphor action with recessed-dark text.",
+      "html": "<button type=\"button\" class=\"ds-btn-primary\">Import audio</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;background:var(--phosphor, oklch(0.87 0.17 128));color:var(--panel-lo, oklch(0.2 0.013 250));border:1px solid var(--phosphor, oklch(0.87 0.17 128));border-radius:2px;font:600 13px/1.4 var(--font-ui, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);transition:background-color 120ms var(--ease, cubic-bezier(0.22, 1, 0.36, 1))}.ds-btn-primary:hover:not(:disabled){background:oklch(0.92 0.17 128)}.ds-btn-primary:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}.ds-btn-primary:disabled{opacity:.45;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-btn-primary{transition:none!important}}"
     },
     {
       "name": "Danger Button",
       "kind": "button",
       "refersTo": "button-danger",
       "description": "Ink outline on a clear ground for destructive actions.",
-      "html": "<button class=\"ds-btn-danger\">Delete track</button>",
-      "css": ".ds-btn-danger{height:32px;padding:0 12px;background:transparent;color:oklch(0.93 0.012 85);border:1px solid oklch(0.93 0.012 85);border-radius:2px;font:600 13px system-ui,sans-serif}.ds-btn-danger:hover{background:oklch(0.31 0.015 250)}.ds-btn-danger:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}"
+      "html": "<button type=\"button\" class=\"ds-btn-danger\">Delete track</button>",
+      "css": ".ds-btn-danger{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;background:transparent;color:var(--ink, oklch(0.93 0.012 85));border:1px solid var(--ink, oklch(0.93 0.012 85));border-radius:2px;font:600 13px/1.4 var(--font-ui, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);transition:background-color 120ms var(--ease, cubic-bezier(0.22, 1, 0.36, 1))}.ds-btn-danger:hover:not(:disabled){background:oklch(0.35 0.016 250)}.ds-btn-danger:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}.ds-btn-danger:disabled{opacity:.45;cursor:not-allowed}@media(prefers-reduced-motion:reduce){.ds-btn-danger{transition:none!important}}"
     },
     {
-      "name": "Text Field",
+      "name": "Timecode Field",
       "kind": "input",
       "refersTo": "field",
-      "description": "Screen-coloured field with strong rule border.",
-      "html": "<input class=\"ds-field\" type=\"text\" value=\"01:00:00:00\"/>",
-      "css": ".ds-field{width:100%;height:32px;padding:0 8px;background:oklch(0.175 0.024 205);color:oklch(0.93 0.012 85);border:1px solid oklch(0.46 0.018 250);border-radius:2px;font:13px ui-monospace,Menlo,Consolas,monospace}.ds-field:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:2px}"
+      "description": "Screen-coloured numeric field with a strong rule border; monospace is reserved for measurement.",
+      "html": "<input class=\"ds-field\" type=\"text\" aria-label=\"Start timecode\" value=\"01:00:00:00\"/>",
+      "css": ".ds-field{width:100%;height:32px;padding:0 8px;background:var(--screen, oklch(0.175 0.024 205));color:var(--ink, oklch(0.93 0.012 85));border:1px solid var(--rule-strong, oklch(0.46 0.018 250));border-radius:2px;font:13px/1.4 var(--font-measure,ui-monospace,'SF Mono',Consolas,monospace);font-variant-numeric:tabular-nums}.ds-field[aria-invalid=true]{border-color:var(--signal, oklch(0.7 0.2 32))}.ds-field:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}.ds-field:disabled{opacity:.45;cursor:not-allowed}"
     },
     {
-      "name": "Inspector Tab",
+      "name": "Preferences Tab",
       "kind": "nav",
       "refersTo": "tab-selected",
-      "description": "Uppercase tab with a phosphor underline when selected.",
-      "html": "<button class=\"ds-tab\" aria-selected=\"true\">Track</button>",
-      "css": ".ds-tab{height:34px;padding:0 12px;background:oklch(0.2 0.013 250);color:oklch(0.93 0.012 85);border:0;border-bottom:2px solid oklch(0.87 0.17 128);font:700 11px system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}.ds-tab:focus-visible{outline:2px solid oklch(0.87 0.17 128);outline-offset:-2px}"
+      "description": "Vertical preferences navigation: square lamp, recessed selection and bold readable text.",
+      "html": "<div role=\"tablist\" aria-label=\"Preferences\" aria-orientation=\"vertical\"><button type=\"button\" class=\"ds-tab\" role=\"tab\" aria-selected=\"true\"><span>Timeline</span></button></div>",
+      "css": ".ds-tab{display:flex;align-items:center;justify-content:space-between;gap:8px;height:34px;padding:0 14px 0 12px;background:transparent;color:var(--ink-dim, oklch(0.76 0.016 85));border:0;font:600 13px/1.4 var(--font-ui, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);text-align:left}.ds-tab>span::before{content:'';display:inline-block;width:6px;height:6px;margin-right:10px;vertical-align:1px;background:var(--lamp-off, oklch(0.34 0.012 250))}.ds-tab:hover:not([aria-disabled=true]){background:var(--panel-hi, oklch(0.31 0.015 250));color:var(--ink, oklch(0.93 0.012 85))}.ds-tab[aria-selected=true]{background:var(--panel-lo, oklch(0.2 0.013 250));color:var(--ink, oklch(0.93 0.012 85));font-weight:700}.ds-tab[aria-selected=true]>span::before{background:var(--phosphor, oklch(0.87 0.17 128))}.ds-tab[aria-disabled=true]{opacity:.45;cursor:not-allowed}.ds-tab:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}"
     },
     {
-      "name": "Marker Cue Chip",
+      "name": "Note",
       "kind": "chip",
       "refersTo": "cue-chip",
-      "description": "Amber flag chip; hatched fill marks a marker (dotted marks MIDI).",
-      "html": "<span class=\"ds-chip\">Verse 1</span>",
-      "css": ".ds-chip{display:inline-block;padding:2px 10px 2px 8px;background-color:oklch(0.2 0.03 205);background-image:repeating-linear-gradient(135deg,oklch(0.82 0.15 78/.28) 0 2px,transparent 2px 6px);border:1px solid oklch(0.58 0.11 78);border-left:0;box-shadow:-1px 0 0 oklch(0.82 0.15 78);color:oklch(0.93 0.012 85);font:600 11px system-ui,sans-serif}"
+      "description": "A note starts with an amber line and hatched text box; selection adds an ink outline.",
+      "html": "<div class=\"ds-note\" tabindex=\"0\" aria-label=\"Note: Lights up\"><span class=\"ds-note-body\">Lights up</span></div>",
+      "css": ".ds-note{position:relative;width:240px;height:48px;border-left:1px solid var(--amber, oklch(0.82 0.15 78));color:var(--ink, oklch(0.93 0.012 85));font-family:var(--font-ui, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);cursor:grab;user-select:none}.ds-note-body{position:absolute;top:8px;left:0;max-width:260px;padding:2px 10px 2px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background-color:oklch(0.2 0.03 205);background-image:repeating-linear-gradient(135deg,color-mix(in oklch,var(--amber, oklch(0.82 0.15 78)) 22%,transparent) 0 2px,transparent 2px 6px);border:1px solid var(--amber-dim, oklch(0.58 0.11 78));border-left:0;font-size:11px;font-weight:600;line-height:1.35}.ds-note[data-selected=true] .ds-note-body{outline:2px solid var(--ink, oklch(0.93 0.012 85));outline-offset:1px}.ds-note:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}"
     },
     {
       "name": "Output Lamp",
       "kind": "custom",
-      "refersTo": "lamp",
-      "description": "Square lamp with printed status word; phosphor on, vermilion fault.",
-      "html": "<div class=\"ds-lamp-row\"><span class=\"ds-lamp\"></span><b>LTC</b><span>ON</span></div>",
-      "css": ".ds-lamp-row{display:flex;align-items:center;gap:12px;font:13px system-ui,sans-serif;color:oklch(0.76 0.016 85)}.ds-lamp{width:10px;height:10px;background:oklch(0.87 0.17 128);border:1px solid oklch(0.87 0.17 128)}.ds-lamp-row b{letter-spacing:.1em;color:oklch(0.93 0.012 85)}"
+      "description": "A square output lamp with printed name and state; the row opens its preferences page.",
+      "html": "<button type=\"button\" class=\"ds-lamp-row\" aria-label=\"LTC outputs: running\"><span class=\"ds-lamp\" data-state=\"on\" aria-hidden=\"true\"></span><b>LTC</b><span class=\"ds-lamp-status\">Running</span><span>1 output</span></button>",
+      "css": ".ds-lamp-row{display:grid;grid-template-columns:10px 4.4em 6em minmax(0,1fr);align-items:center;gap:12px;width:100%;padding:2px 6px;background:transparent;border:1px solid transparent;border-radius:2px;font:13px/1.4 var(--font-ui, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);color:var(--ink-dim, oklch(0.76 0.016 85));text-align:left;transition:background-color 120ms var(--ease, cubic-bezier(0.22, 1, 0.36, 1))}.ds-lamp-row:hover{background:var(--panel-hi, oklch(0.31 0.015 250));border-color:var(--rule, oklch(0.36 0.015 250))}.ds-lamp{width:10px;height:10px;background:var(--lamp-off, oklch(0.34 0.012 250));border:1px solid var(--rule-strong, oklch(0.46 0.018 250))}.ds-lamp[data-state=on]{background:var(--phosphor, oklch(0.87 0.17 128));border-color:var(--phosphor, oklch(0.87 0.17 128))}.ds-lamp[data-state=fault]{background:var(--signal, oklch(0.7 0.2 32));border-color:var(--signal, oklch(0.7 0.2 32))}.ds-lamp-row b{letter-spacing:.1em;color:var(--ink, oklch(0.93 0.012 85))}.ds-lamp-status{text-transform:uppercase;letter-spacing:.06em}.ds-lamp-row:focus-visible{outline:1px solid var(--ink-dim, oklch(0.76 0.016 85));outline-offset:-1px}@media(prefers-reduced-motion:reduce){.ds-lamp-row{transition:none!important}}"
     }
   ],
   "narrative": {
@@ -98,10 +398,26 @@
       "Layouts survive longer Spanish text (English default, Spanish shipped, no hard-coded strings)."
     ],
     "rules": [
-      { "name": "The Live-Only Vermilion Rule", "body": "Vermilion appears only when something is live or faulted. The playhead is ink while stopped and turns vermilion only while playing.", "section": "colors" },
-      { "name": "The Second Cue Rule", "body": "No state is carried by colour alone: audio is a solid waveform, a marker is a hatched chip, a MIDI cue is a dotted chip; selection is a 2px ink outline; mute is dashed and hollow with a struck name; lamps also print a status word.", "section": "colors" },
-      { "name": "The Measurement Only Rule", "body": "Monospace is for things you measure. Names, labels and prose are never monospace.", "section": "typography" },
-      { "name": "The No Glow Rule", "body": "Nothing glows, blurs or casts a soft shadow. Phosphor is a flat fill.", "section": "elevation" }
+      {
+        "name": "The Live-Only Vermilion Rule",
+        "body": "Vermilion appears only when something is live or faulted. The playhead is ink while stopped and turns vermilion only while playing.",
+        "section": "colors"
+      },
+      {
+        "name": "The Second Cue Rule",
+        "body": "No state is carried by colour alone: audio is a solid waveform and a note is a hatched box; selection is a 2px ink outline; mute is dashed and hollow with a struck name; lamps also print a status word.",
+        "section": "colors"
+      },
+      {
+        "name": "The Measurement Only Rule",
+        "body": "Monospace is for things you measure. Names, labels and prose are never monospace.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Glow Rule",
+        "body": "Nothing glows, blurs or casts a soft shadow. Phosphor is a flat fill.",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do keep the product dark-only; scene is booth or stage.",
@@ -111,7 +427,7 @@
       "Do keep the dot-matrix cell on whole device pixels.",
       "Do put every user-facing string through i18n (English and Spanish) and test layouts with the longer Spanish text.",
       "Do keep monospace to measurement and tabular numerals on all time values.",
-      "Do keep the existing themed selection, caret, 2px phosphor focus ring, scrollbars and reduced-motion handling on new surfaces."
+      "Do keep the existing themed selection, caret, neutral focus line, scrollbars and reduced-motion handling on new surfaces."
     ],
     "donts": [
       "Don't use rounded cards, soft shadows, blur or glow.",
