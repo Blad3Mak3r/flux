@@ -8,7 +8,8 @@ model with a REAPER-style timeline and track interface, in a modern look.
 - Supports both **MTC** (MIDI Timecode) and **LTC** (Linear/audio Timecode).
 - Devices are user-selectable: audio interfaces (LTC and project audio) and MIDI interfaces/ports (MTC).
 - Flux is the **master clock and only generates** timecode (LTC out through audio, MTC out through MIDI). Chasing an
-  external timecode (input) is out of scope for now.
+  external timecode (input) is out of scope for now. Flux can be **remote controlled** (MIDI controllers, OSC) to start,
+  stop and move its own clock; that is not chasing. See [docs/remote-control.md](docs/remote-control.md).
 
 ## Views
 
