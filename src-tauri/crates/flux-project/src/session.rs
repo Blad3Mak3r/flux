@@ -20,7 +20,7 @@ use flux_core::FrameRate;
 
 /// The document being edited, as the backend last heard of it. The window that edits it can be
 /// reloaded, and picks it up from here again.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Document {
     pub project: Project,
@@ -66,14 +66,6 @@ fn first_timeline(project: &Project) -> String {
         .unwrap_or_default()
 }
 
-/// Which kind of timecode output a setting is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum OffsetKind {
-    Ltc,
-    Mtc,
-}
-
 /// A project and the timeline that is active in it: what the window shows after the backend
 /// changed something.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -91,18 +83,56 @@ pub struct ProjectState {
 /// next save writes into the file.
 #[derive(Debug, Default)]
 pub struct Session {
+    recovery_id: String,
+    recovery_revision: u64,
     document: Option<Document>,
     sources: HashMap<String, AssetSource>,
     previews: HashMap<String, StoredPreview>,
 }
 
 impl Session {
+    /// Lets the worker skip cloning an unchanged document on each timer tick.
+    pub fn recovery_revision(&self) -> (&str, u64) {
+        (&self.recovery_id, self.recovery_revision)
+    }
+
+    /// Captures metadata and source paths only; never reads audio or preview bytes.
+    pub fn recovery(&self) -> Option<super::recovery::Recovery> {
+        self.document.as_ref().map(|document| {
+            super::recovery::Recovery::new(
+                self.recovery_id.clone(),
+                document.clone(),
+                self.sources.clone(),
+            )
+        })
+    }
+
+    pub fn restore_recovery(&mut self, recovery: super::recovery::Recovery) -> Result<Document> {
+        recovery.validate()?;
+        self.recovery_id.clone_from(&recovery.id);
+        self.recovery_revision += 1;
+        self.sources = recovery.sources;
+        self.previews.clear();
+        self.document = Some(recovery.document.clone());
+        Ok(recovery.document)
+    }
+
+    pub fn set_autosave(&mut self, autosave: super::model::Autosave) -> Result<ProjectState> {
+        autosave.validate()?;
+        self.change(|project, _| {
+            project.autosave = autosave;
+            Ok(())
+        })
+    }
+
     /// Forgets the open document and its audio sources without touching any project files.
     pub fn clear(&mut self) {
         *self = Self::default();
     }
 
     pub fn new_project(&mut self, name: &str, frame_rate: FrameRate) -> Project {
+        self.recovery_id = Uuid::new_v4().to_string();
+        self.recovery_revision += 1;
         self.sources.clear();
         self.previews.clear();
         let project = Project::new(name, frame_rate);
@@ -110,31 +140,53 @@ impl Session {
         project
     }
 
-    /// Opens a `.fxtc`. A file written before projects carried metadata got an id while opening,
-    /// and is saved right away so that the id is the one it keeps; when it cannot be written (a
-    /// read-only disk) the project is still opened, and the next save does it.
+    /// Opens and migrates a project in memory. Only an explicit save upgrades the archive on disk.
     pub fn open(&mut self, path: &Path) -> Result<Project> {
-        let (project, _archive) = archive::open(path)?;
-        self.sources = archive_sources(&project, path);
+        let path = std::path::absolute(path)?;
+        let (project, _archive) = archive::open(&path)?;
+        self.recovery_id = Uuid::new_v4().to_string();
+        self.recovery_revision += 1;
+        self.sources = archive_sources(&project, &path);
         self.previews.clear();
         self.document = Some(Document::new(project.clone(), Some(path.to_path_buf())));
-        if !project.meta.is_stamped()
-            && let Ok(saved) = self.save(&project, path)
-        {
-            return Ok(saved);
-        }
         Ok(project)
     }
 
     /// Remembers the latest state of the project being edited.
     pub fn update(&mut self, project: Project) {
+        if self
+            .document
+            .as_ref()
+            .is_some_and(|doc| doc.project == project)
+        {
+            return;
+        }
+        self.recovery_revision += 1;
         match &mut self.document {
             Some(document) => {
                 document.project = project;
                 document.settle();
             }
-            None => self.document = Some(Document::new(project, None)),
+            None => {
+                self.recovery_id = Uuid::new_v4().to_string();
+                self.document = Some(Document::new(project, None));
+            }
         }
+    }
+
+    /// A delayed window sync must not resurrect a closed document or replace a different one.
+    pub fn sync(&mut self, project: Project) -> Result<String> {
+        if self
+            .document
+            .as_ref()
+            .is_none_or(|doc| doc.project.meta.id != project.meta.id)
+        {
+            return Err(ProjectError::Invalid(
+                "the document is no longer open".into(),
+            ));
+        }
+        self.update(project);
+        Ok(self.active())
     }
 
     /// The id of the active timeline, empty before a document was started.
@@ -346,29 +398,8 @@ impl Session {
         Ok(CueEdited { state, id })
     }
 
-    /// Sets the latency offset of the LTC or MTC output at `index` to the ms in `text`. 0 is stored
-    /// as no offset, so the file stays as it was before the setting existed.
-    pub fn set_output_offset(
-        &mut self,
-        kind: OffsetKind,
-        index: usize,
-        text: &str,
-    ) -> Result<ProjectState> {
-        let ms: i32 = text
-            .trim()
-            .parse()
-            .map_err(|_| ProjectError::Invalid(format!("{text:?} is not a whole number of ms")))?;
-        let offset = (ms != 0).then_some(ms);
-        self.change(|project, _| {
-            let output = &mut project.output;
-            let slot = match kind {
-                OffsetKind::Ltc => output.ltc.get_mut(index).map(|ltc| &mut ltc.offset_ms),
-                OffsetKind::Mtc => output.mtc.get_mut(index).map(|mtc| &mut mtc.offset_ms),
-            };
-            *slot.ok_or_else(|| ProjectError::Invalid(format!("there is no output {index}")))? =
-                offset;
-            Ok(())
-        })
+    pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
+        self.change(|project, _| project.output.edit(op))
     }
 
     /// Applies `edit` to a copy of the project and the active id, and keeps the result only when it
@@ -384,6 +415,7 @@ impl Session {
         project.validate()?;
         document.project = project.clone();
         document.active.clone_from(&active);
+        self.recovery_revision += 1;
         Ok(ProjectState { project, active })
     }
 
@@ -394,7 +426,8 @@ impl Session {
 
     /// Registers an audio file from disk and returns the asset to add to the project.
     pub fn import_audio(&mut self, file: &Path) -> Result<AudioAsset> {
-        if !fs::metadata(file)?.is_file() {
+        let file = std::path::absolute(file)?;
+        if !fs::metadata(&file)?.is_file() {
             return Err(ProjectError::Invalid(format!(
                 "not a file: {}",
                 file.display()
@@ -418,6 +451,7 @@ impl Session {
         check_asset_path(&asset.file)?;
         self.sources
             .insert(asset.id.clone(), AssetSource::Disk(file.to_path_buf()));
+        self.recovery_revision += 1;
         Ok(asset)
     }
 
@@ -456,11 +490,12 @@ impl Session {
     /// Writes `project` to `path` and returns it as written, with the save recorded in its
     /// metadata. Afterwards every asset is read from that file.
     pub fn save(&mut self, project: &Project, path: &Path) -> Result<Project> {
+        let path = std::path::absolute(path)?;
         let mut saved = project.clone();
         saved.format_version = FORMAT_VERSION;
         saved.meta.stamp();
-        archive::save(path, &saved, &self.sources, &self.previews)?;
-        self.sources = archive_sources(&saved, path);
+        archive::save(&path, &saved, &self.sources, &self.previews)?;
+        self.sources = archive_sources(&saved, &path);
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
         let mut document = Document::new(saved.clone(), Some(path.to_path_buf()));
@@ -468,6 +503,7 @@ impl Session {
             document.select(&previous.active);
         }
         self.document = Some(document);
+        self.recovery_revision += 1;
         Ok(saved)
     }
 }
@@ -513,6 +549,68 @@ fn archive_sources(project: &Project, path: &Path) -> HashMap<String, AssetSourc
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn delayed_sync_should_not_resurrect_a_closed_or_replaced_document() {
+        let mut session = super::Session::default();
+        let old = session.new_project("Old", flux_core::FrameRate::Fps25);
+        session.clear();
+        assert!(session.sync(old.clone()).is_err());
+        assert!(session.document().is_none());
+        let current = session.new_project("Current", flux_core::FrameRate::Fps25);
+        assert!(session.sync(old).is_err());
+        assert_eq!(session.document().unwrap().project, current);
+    }
+
+    #[test]
+    fn imported_relative_sources_should_be_absolute_in_recovery() {
+        let mut session = super::Session::default();
+        let mut project = session.new_project("Show", flux_core::FrameRate::Fps25);
+        project.assets.push(
+            session
+                .import_audio(std::path::Path::new("Cargo.toml"))
+                .unwrap(),
+        );
+        session.update(project);
+        let record = session.recovery().unwrap();
+        record.validate().unwrap();
+        assert!(record.sources.values().all(|source| match source {
+            crate::AssetSource::Disk(path) | crate::AssetSource::Archive(path) =>
+                path.is_absolute(),
+        }));
+    }
+
+    #[test]
+    fn autosave_options_should_validate_roundtrip_and_follow_the_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("show.fxtc");
+        let mut session = super::Session::default();
+        session.new_project("Show", flux_core::FrameRate::Fps25);
+        for interval_seconds in [15, 30, 60] {
+            let prefs = crate::Autosave {
+                enabled: false,
+                interval_seconds,
+            };
+            let state = session.set_autosave(prefs).unwrap();
+            session.save(&state.project, &file).unwrap();
+            session.new_project("Other", flux_core::FrameRate::Fps25);
+            assert_eq!(
+                session.document().unwrap().project.autosave,
+                crate::Autosave::default()
+            );
+            assert_eq!(session.open(&file).unwrap().autosave, prefs);
+        }
+        let before = session.document();
+        assert!(
+            session
+                .set_autosave(crate::Autosave {
+                    enabled: true,
+                    interval_seconds: 17
+                })
+                .is_err()
+        );
+        assert_eq!(session.document(), before);
+    }
+
     use std::io::Read;
 
     use tempfile::TempDir;
@@ -555,57 +653,20 @@ mod tests {
         bytes
     }
 
-    /// A session whose project has one LTC and one MTC output.
-    fn session_with_outputs() -> Session {
+    #[test]
+    fn signal_edit_should_preserve_document_on_invalid_level() {
         let mut session = Session::default();
-        let mut project = session.new_project("Show", FrameRate::Fps25);
-        project.output.ltc.push(crate::LtcOutput {
-            device_name: "Main".into(),
-            channel: 3,
-            level: None,
-            offset_ms: None,
-        });
-        project.output.mtc.push(crate::MtcOutput {
-            port_name: "Bus".into(),
-            port_index: 0,
-            offset_ms: None,
-        });
-        session.update(project);
-        session
-    }
-
-    #[test]
-    fn set_output_offset_should_store_the_ms_of_each_kind() {
-        let mut session = session_with_outputs();
-        session
-            .set_output_offset(OffsetKind::Ltc, 0, " -12 ")
-            .unwrap();
-        let state = session.set_output_offset(OffsetKind::Mtc, 0, "30").unwrap();
-        assert_eq!(state.project.output.ltc[0].offset_ms, Some(-12));
-        assert_eq!(state.project.output.mtc[0].offset_ms, Some(30));
-    }
-
-    #[test]
-    fn set_output_offset_should_store_zero_as_no_offset() {
-        let mut session = session_with_outputs();
-        session.set_output_offset(OffsetKind::Ltc, 0, "5").unwrap();
-        let state = session.set_output_offset(OffsetKind::Ltc, 0, "0").unwrap();
-        assert_eq!(state.project.output.ltc[0].offset_ms, None);
-    }
-
-    #[test]
-    fn set_output_offset_should_refuse_bad_text_index_or_range_and_keep_the_document() {
-        let mut session = session_with_outputs();
+        session.new_project("Show", FrameRate::Fps25);
+        session.edit_signal(crate::SignalOp::AddLtc).unwrap();
         let before = session.document().unwrap();
-        for (kind, index, text) in [
-            (OffsetKind::Ltc, 0, "abc"),
-            (OffsetKind::Ltc, 0, ""),
-            (OffsetKind::Ltc, 0, "1.5"),
-            (OffsetKind::Ltc, 1, "5"),
-            (OffsetKind::Mtc, 0, "1001"),
-        ] {
-            assert!(session.set_output_offset(kind, index, text).is_err());
-        }
+        assert!(
+            session
+                .edit_signal(crate::SignalOp::SetLtcLevel {
+                    slot: 1,
+                    text: "2".into()
+                })
+                .is_err()
+        );
         assert_eq!(session.document().unwrap(), before);
     }
 
@@ -702,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    fn open_should_save_a_file_without_meta_so_it_keeps_the_id_it_was_given() {
+    fn open_should_leave_an_old_archive_unchanged_until_explicit_save() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("old.fxtc");
         let old = r##"{ "formatVersion": 2, "name": "Old", "timecode": { "frameRate": "fps25", "start": 0 },
@@ -713,11 +774,15 @@ mod tests {
         std::io::Write::write_all(&mut zip, old.as_bytes()).unwrap();
         zip.finish().unwrap();
 
-        let opened = Session::default().open(&path).unwrap();
+        let before = fs::read(&path).unwrap();
+        let mut session = Session::default();
+        let opened = session.open(&path).unwrap();
+        assert!(!opened.meta.is_stamped());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        session.save(&opened, &path).unwrap();
         let again = Session::default().open(&path).unwrap();
-
-        assert!(opened.meta.is_stamped());
-        assert_eq!(again.meta, opened.meta);
+        assert!(again.meta.is_stamped());
+        assert_eq!(again.meta.id, opened.meta.id);
         assert_eq!(again.output.mtc.len(), 1);
     }
 

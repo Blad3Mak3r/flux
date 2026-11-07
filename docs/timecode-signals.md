@@ -163,8 +163,8 @@ on the grid at once. It sounds only while the transport plays.
   `Renderer` (a metronome channel the programme also uses gets the click added; one it does not use carries the click
   alone); on the device of an own LTC stream it is written by that stream's `LtcFollower`; on any other device a stream
   of its own (`flux-click`) is a follower with no LTC outputs. If the device cannot be opened, the output still starts
-  and `warnings` says so; `OutputInfo.metronome` reports `{ device, ok }`. A click stream that fails while running is
-  only logged, there is no lamp for it yet.
+  and `warnings` says so; `OutputInfo.metronome` reports `{ device, ok }`. A click stream that fails while running sets
+  `Position.metronomeLost`.
 - **Following the master.** A follower reads the master's published position like LTC does, but starts the click over
   from it only when 10 ms or more away (an LTC frame, 40 ms, would be too coarse for a click). The two devices have
   independent clocks and no latency compensation, so the click can sit a few milliseconds off the music.
@@ -201,12 +201,13 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 
 | Command | Arguments | Result |
 | --- | --- | --- |
-| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `audition` (Edit on a preview device: the MIDI and OSC cue tracks stay silent), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltcChannel`, `ltcDevice` (only when LTC has a device of its own), `mtcPort`, `warnings`. |
+| `output_start` | `project` (its active timeline plays), `advance` (hand over to the next timeline when the show ends), `audition` (Edit on a preview device: the MIDI and OSC cue tracks stay silent), `onPosition`, `onLevels`, `onLive` (channels, below) | `OutputInfo`: `device`, `sampleRate`, `channels`, `ltc[]` and `mtc[]` (one `{ …, ok }` per output of the project, in its order), `metronome`, `cues[]`, `warnings`. |
+| `output_reconfigure` | `project`, `audition` | `{ kind: "applied", info }` after bringing the LTC and MTC outputs in line with the project without touching the programme's stream (works while playing), or `{ kind: "needsRestart" }` with nothing changed. |
 | `output_attach` | `setup` (the requested timeline, timecode, effective outputs, `advance` and `audition`), `onPosition`, `onLevels`, `onLive` | Replaces the subscriptions on the running output without interrupting playback. Returns its info, position, timeline ID and start, and whether its settings match, or `null` when there is no running output. |
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
-| `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`, `ltcLost`, `clockUnpaced`) or `null` when no output runs. |
+| `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`, `ltcLost`, `mtcLost`, `metronomeLost`, `clockUnpaced`) or `null` when no output runs. |
 
 While an output runs it reports over three lanes, each with a thread of its own and the `Channel` that
 `output_start` or `output_attach` was given for it, about 30 times a second each:
@@ -225,7 +226,7 @@ and goes only to its subscriber; the UI also drops messages from outputs it has 
 No command runs on the main thread, which belongs to the window and its event loop. Tauri runs a command without
 `async` inline on that thread, so the small ones (`transport_*`, `output_set_track_gain`, `output_set_tempo`) are
 `#[tauri::command(async)]` and use the command thread pool; the heavy ones (`output_start`, `output_stop`,
-`output_set_clips`, `project_*`, `devices_*`, `audio_analyze`) use the blocking pool. The rest:
+`output_set_clips`, `output_reconfigure`, `project_*`, `devices_*`, `audio_analyze`) use the blocking pool. The rest:
 
 | Thread | Work |
 | --- | --- |
@@ -262,7 +263,7 @@ output to open) and sends dragged seeks and faders one at a time, newest value l
   The two devices' output delays are not measured, so LTC and the music can be offset by the difference between them
   (ms); the output's `offsetMs` (see Latency offset) compensates it by hand. If the LTC device is missing or
   cannot be opened, the output still starts without LTC and `warnings` says so (like MTC); if it fails while
-  running, `Position.ltcLost` is set.
+  running, its bit of `Position.ltcLost` is set (see Lost outputs).
 - The audio device's sample clock is the master. The callback owns the `Transport`, drains commands with
   `try_recv`, renders LTC into its channel, advances the position and publishes it with `try_lock`: it never
   allocates or waits. A reader holding the lock only makes it skip one update.
@@ -337,3 +338,45 @@ and JACK. When PipeWire is running it is the default driver, otherwise ALSA is. 
 start-up, so the deb and rpm declare it as a dependency; JACK loads `libjack` only when it is used. Names belong to
 one driver: a project that stored an ALSA device name and names no driver looks it up on the default driver, which is
 PipeWire on a PipeWire system, and shows it as not connected until the device is chosen again.
+
+## Lost outputs
+
+A device or port that fails while the output runs is reported output by output. `Position.ltcLost` and
+`Position.mtcLost` are bitmasks: bit *i* is set when `OutputInfo.ltc[i]` (or `.mtc[i]`) is lost, so only the first 32
+outputs of each kind have a bit. `Position.metronomeLost` covers the stream the click plays on and `deviceLost` the
+programme's own device; the LTC outputs and the click that play on the programme's stream are lost with it, so their
+bits (and `metronomeLost`) are set as well. Each stream and each MTC thread owns an atomic flag (`Health` in
+`output.rs`) that its error callback or send loop sets; `PositionReader::position` folds them into the masks, and the
+`flux-log` lane logs each output that becomes lost and each that comes back. The UI shows the lamp, the faceplate tooltip and
+the Setup rows from the masks.
+
+### Detecting and recovering
+
+- A stream is lost when its cpal error callback reports anything but a dropout, or when it stops calling back for a
+  second (a watchdog on the stream's thread counts the callbacks, because some hosts never report an unplugged
+  device). A MIDI port is lost when it refuses a message.
+- The stream of an LTC or click device that is not the programme's is closed and opened again on its own thread once a
+  second until its device is back; it follows the master's position, so nothing else needs to change. An MTC thread
+  does the same with its port and sends a full frame when it is back. The other outputs keep running meanwhile.
+- The programme's stream cannot be reopened in place (the `Renderer` owns the transport's command receiver). The
+  `flux-device` lane looks for the device once a second while `deviceLost` is set and, when it is there, emits
+  `output-device-back`. The window reopens the output, which carries the playhead over and leaves it stopped: a show
+  never resumes by itself.
+
+### Reconfiguring a running output
+
+The command resolves the project's logical signals against the computer's saved routes before calling
+`Output::reconfigure`. Changes to physical routes or latency wait for pause/stop; a language-only preference change
+does not count as a hardware change. Changing whether Edit auditions through its preview requires a restart so that
+timecode and cue suppression stay consistent. Signal-only edits can reuse the existing branch reconfiguration.
+
+`Output::reconfigure` compares the resolved output configuration with what runs. What the programme's stream is opened with (its
+device and channels, the LTC outputs on that same device, the metronome, the frame rate and start offset) is the
+`MasterKey`/`ClickKey` of the plan; if any of it differs the command answers `needsRestart` and the window reopens the
+output as for any other change, waiting for stop or pause when it is playing, and carrying the playhead over. Everything
+else is a *branch* with its own stop flag: one stream per other LTC device, one for a metronome device that carries
+nothing else, one thread per MIDI port. A branch that already does what the plan asks keeps running untouched; the ones
+nobody asks for any more are closed first (they may hold a device a new one needs) and the new ones opened. A branch
+that failed to open is tried again on every reconfiguration. The `OutputInfo` rows and the lost-output bits are rebuilt
+from the plan in current signal-list order. Project slot numbers and local routing keys remain stable when another
+output is removed. Unassigned LTC/MTC entries retain off-status rows and never open a device or port.

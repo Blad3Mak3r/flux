@@ -59,7 +59,7 @@ export function TempoBar() {
   const t = useT();
   const { tempo } = useTimeline();
   const ruler = useUi((ui) => ui.ruler);
-  const hasOutput = useDoc((doc) => doc.project.output.metronome !== undefined);
+  const hasOutput = useDoc((doc) => Boolean(doc.project.output.metronome));
   const clicking = tempo.click && hasOutput;
   return (
     <div className="tempo-bar" role="group" aria-label={t("tempo.legend")}>

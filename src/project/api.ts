@@ -47,6 +47,10 @@ export function syncProject(project: Project): Promise<string> {
   return invoke<string>("project_sync", { project });
 }
 
+export const projectClose = () => invoke<void>("project_close");
+export const projectSetAutosave = (project: Project, enabled: boolean, intervalSeconds: string) =>
+  invoke<ProjectState>("project_set_autosave", { project, enabled, intervalSeconds });
+
 export function newProject(name: string, frameRate: FrameRate): Promise<ProjectState> {
   return invoke<ProjectState>("project_new", { name, frameRate });
 }
@@ -128,12 +132,15 @@ export interface CueEdited extends ProjectState {
 
 export const cueEdit = (project: Project, op: CueOp) => invoke<CueEdited>("cue_edit", { project, op });
 
-/** Which kind of timecode output a setting is for. */
-export type OutputKind = "ltc" | "mtc";
+export type SignalOp =
+  | { op: "addLtc" | "addMtc" }
+  | { op: "removeLtc" | "removeMtc"; slot: number }
+  | { op: "setLtcLevel"; slot: number; text: string }
+  | { op: "setMetronome"; enabled: boolean }
+  | { op: "setMetronomeGain"; text: string };
 
-/** Sets the latency offset of an output to the ms typed; the backend parses, checks and answers with the project. */
-export const outputSetOffset = (project: Project, kind: OutputKind, index: number, text: string) =>
-  invoke<ProjectState>("output_set_offset", { project, kind, index, text });
+export const outputSignalEdit = (project: Project, op: SignalOp) =>
+  invoke<ProjectState>("output_signal_edit", { project, op });
 
 /**
  * Saves to `path`, or asks for one when it is `null` (first save, or "Save as").

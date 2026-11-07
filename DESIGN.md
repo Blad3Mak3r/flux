@@ -293,3 +293,16 @@ Recorded honestly as unresolved, not as rules:
 - No engraved legend face is shipped; the user accepted the system stack. Reopen only if the product wants a printed-legend face later.
 - The seed reference in the contract (`97c645d5`) is the raw key the roll printed, kept as printed.
 - Minor build drift: a few component fills repeat token values as literals (key and button hover `oklch(0.35 0.016 250)`, primary hover `oklch(0.92 0.17 128)`, clip tints); run-info warnings use amber outside the cue/hold meaning.
+
+### Project and computer settings
+
+Preferences retain their existing pages and instrument styling. Output pages explicitly label **Project** controls
+(signals and levels) and **This computer** controls (devices, channels and latency), with a note that local routing
+is shared by projects. Legacy project routes are offered on the Project page through an inline before/after table
+and an explicit apply action. Local preference errors remain visible in the dialog footer.
+
+General uses a dedicated language listbox with a 20×15 flag and its readable native language name. English uses
+the GB flag and Spanish uses ES, bundled from `flag-icons`; flags are decorative and hidden from assistive
+technology. The selected control and both options show the flag. The flat menu supports arrows, Home/End,
+Enter/Space, Escape and focus return, and closes when focus or a pointer moves outside it. Language changes apply
+immediately to every window and persist in the computer preferences.

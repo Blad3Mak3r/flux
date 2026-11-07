@@ -7,10 +7,16 @@ export interface Project {
   formatVersion: number;
   name: string;
   meta: ProjectMeta;
+  autosave: Autosave;
   assets: AudioAsset[];
-  output: OutputConfig;
+  output: ShowOutputs;
   /** Never empty. The backend decides which one is active; only that one plays. */
   timelines: Timeline[];
+}
+
+export interface Autosave {
+  enabled: boolean;
+  intervalSeconds: 15 | 30 | 60;
 }
 
 /** One line of time of a project, e.g. a song, with its own timecode and tracks. */
@@ -188,6 +194,15 @@ export interface Note {
   length?: number;
   /** Free text, possibly several lines. */
   text: string;
+}
+
+/** Portable signals; physical routing lives in this installation's preferences. */
+export interface ShowOutputs {
+  metronome?: { gainDb: number } | null;
+  ltc: { slot: number; level?: number }[];
+  mtc: { slot: number }[];
+  osc?: OscDestination[];
+  legacyRoutes?: OutputConfig;
 }
 
 /** Devices are stored by name hint only, never by OS identifier. */

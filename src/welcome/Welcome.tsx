@@ -5,9 +5,9 @@ import { FolderIcon, PlusIcon, TrashIcon } from "../components/icons";
 import { WindowControls, hasNativeWindow } from "../components/WindowControls";
 import { I18nProvider, useI18n } from "../i18n";
 import { errorMessage, pickProjectPath } from "../project/api";
-import { openEditor, projectDelete, recentsForget, recentsList } from "./api";
+import { openEditor, openPending, pendingPath, projectDelete, recentsForget, recentsList, recoveryDiscard, recoveryList, recoveryOriginal, recoveryRestore } from "./api";
 import { projectInitials } from "./initials";
-import type { RecentShow } from "./api";
+import type { RecentShow, RecoverySummary } from "./api";
 
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
@@ -29,15 +29,21 @@ function Welcome() {
   const { t, locale } = useI18n();
   const [shows, setShows] = useState<RecentShow[] | null>(null);
   const [asking, setAsking] = useState<RecentShow | null>(null);
+  const [recoveries, setRecoveries] = useState<RecoverySummary[]>([]);
+  const [discarding, setDiscarding] = useState<RecoverySummary | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(
-    () =>
-      recentsList().then(setShows, (err) => {
-        setShows([]);
-        setError(errorMessage(err));
-      }),
+    async () => {
+      const [recent, recovery, requested] = await Promise.allSettled([recentsList(), recoveryList(), pendingPath()]);
+      if (recent.status === "fulfilled") setShows(recent.value);
+      else { setShows([]); setError(errorMessage(recent.reason)); }
+      if (recovery.status === "fulfilled") setRecoveries(recovery.value);
+      else setError(errorMessage(recovery.reason));
+      if (requested.status === "fulfilled") setPending(requested.value);
+    },
     [],
   );
   useEffect(() => {
@@ -70,6 +76,12 @@ function Welcome() {
     await projectDelete(path);
     await reload();
   });
+  const confirmDiscard = guarded(async () => {
+    if (!discarding) return;
+    await recoveryDiscard(discarding.id);
+    setDiscarding(null);
+    await reload();
+  });
 
   return (
     <div className="welcome">
@@ -80,6 +92,35 @@ function Welcome() {
       </nav>
 
       <main className="welcome-body">
+        {error && <p className="message" data-tone="error" role="alert">{error}</p>}
+        {recoveries.length > 0 && (
+          <section aria-labelledby="recovery-legend">
+            <h2 className="legend" id="recovery-legend">{t("recovery.title")}</h2>
+            <p className="field-note">{t("recovery.intro")}</p>
+            <ul className="recents">
+              {recoveries.map((record) => (
+                <li key={record.id} className="recovery-row">
+                  <div className="recovery-detail">
+                    <strong>{record.name ?? t("recovery.unreadable")}</strong>
+                    <span className="recovery-path" title={record.path ?? undefined}>{record.path ?? t("recovery.unsaved")}</span>
+                    {record.savedAt && <time dateTime={record.savedAt}>{new Date(record.savedAt).toLocaleString(locale)}</time>}
+                    {!record.readable && <span className="field-note">{t("recovery.invalid")}</span>}
+                  </div>
+                  <div className="button-row recovery-actions">
+                    <button type="button" className="button primary" disabled={busy || !record.readable}
+                      onClick={() => void guarded(() => recoveryRestore(record.id))()}>{t("recovery.restore")}</button>
+                    {record.path && <button type="button" className="button" disabled={busy || !record.readable}
+                      onClick={() => void guarded(() => recoveryOriginal(record.id))()}>{t("recovery.original")}</button>}
+                    <button type="button" className="button" disabled={busy}
+                      onClick={() => setDiscarding(record)}>{t("recovery.discard")}</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+        {pending && <button type="button" className="button" disabled={busy}
+          onClick={() => void guarded(openPending)()}>{t("recovery.pending", { name: basename(pending) })}</button>}
         <div className="button-row">
           <button type="button" className="button primary" disabled={busy} onClick={() => void guarded(() => openEditor(null))()}>
             <PlusIcon />
@@ -158,21 +199,16 @@ function Welcome() {
           )}
         </section>
 
-        {error && (
-          <p className="message" data-tone="error" role="alert">
-            {error}
-          </p>
-        )}
       </main>
 
       <ConfirmDialog
-        open={asking !== null}
-        title={t("delete.title", { name: asking ? (asking.meta?.name ?? basename(asking.path)) : "" })}
-        detail={asking?.path}
-        body={t("delete.body")}
-        confirmLabel={t("delete.confirm")}
-        onConfirm={() => void confirmDelete()}
-        onCancel={() => setAsking(null)}
+        open={asking !== null || discarding !== null}
+        title={discarding ? t("recovery.discardTitle") : t("delete.title", { name: asking ? (asking.meta?.name ?? basename(asking.path)) : "" })}
+        detail={discarding ? (discarding.name ?? t("recovery.unreadable")) : asking?.path}
+        body={t(discarding ? "recovery.discardBody" : "delete.body")}
+        confirmLabel={t(discarding ? "recovery.discard" : "delete.confirm")}
+        onConfirm={() => { if (!busy) void (discarding ? confirmDiscard() : confirmDelete()); }}
+        onCancel={() => { setAsking(null); setDiscarding(null); }}
       />
     </div>
   );

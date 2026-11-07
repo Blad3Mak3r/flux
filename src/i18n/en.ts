@@ -1,5 +1,21 @@
 // English is the default language and the source of truth for the message keys.
 export const en = {
+  "autosave.enabled": "Automatically save a recovery copy",
+  "autosave.interval": "Autosave interval",
+  "autosave.seconds": "{seconds} seconds",
+  "autosave.note": "Also saves after 2 seconds without edits. These options travel with this project. Recovery copies contain no audio and do not replace Save.",
+  "autosave.failed": "Could not update the recovery copy. Save your project to protect your edits.",
+  "recovery.title": "Recover unsaved work",
+  "recovery.intro": "These recovery copies remain from an interrupted session. Restore your edits or open the last saved project. Opening the original discards its recovery copy.",
+  "recovery.restore": "Restore",
+  "recovery.original": "Open original",
+  "recovery.discard": "Discard recovery",
+  "recovery.discardTitle": "Discard the recovery copy?",
+  "recovery.discardBody": "Unsaved edits in this recovery copy will be lost. The original project will stay on disk.",
+  "recovery.unsaved": "Project not saved yet",
+  "recovery.unreadable": "Unreadable recovery copy",
+  "recovery.invalid": "This copy is damaged or from an incompatible version. You can discard it and open your saved project.",
+  "recovery.pending": "Continue opening {name}",
   "app.title": "Flux Timecode",
 
   "menu.new": "New",
@@ -339,7 +355,8 @@ export const en = {
   "setup.graphics.safeHint": "If the window ever stays blank, start Flux with --safe-graphics (or the variable FLUX_SAFE_GRAPHICS=1) to ignore these settings for that run.",
   "setup.general.refreshNote": "Plugged in a device since Flux started? Refresh to reconnect.",
   "setup.status.off": "Output not connected",
-  "setup.status.pending": "Changes apply when playback stops.",
+  "setup.status.pending": "Changes to the audio device apply when playback stops.",
+  "setup.status.lost": "An output stopped responding. Flux reconnects it when it comes back.",
 
   "dialog.unsaved.title": "Save changes to {name}?",
   "dialog.unsaved.body": "Your changes are lost if you do not save them.",
@@ -533,6 +550,18 @@ export const en = {
   "live.action.msc": "Show control",
   "live.action.sysEx": "SysEx",
   "live.action.osc": "OSC",
+  "setup.scope.project": "Project",
+  "setup.scope.machine": "This computer",
+  "setup.scope.shared": "Devices, channels and latency are shared by all projects on this computer.",
+  "setup.unassigned": "Unassigned",
+  "setup.metronome.enabled": "Use a metronome output for this project",
+  "setup.import.note": "This project contains previous device assignments. Opening it has not changed this computer’s routes.",
+  "setup.import.action": "Import assignments from this project",
+  "setup.import.output": "Output",
+  "setup.import.before": "This computer",
+  "setup.import.after": "After importing",
+  "setup.import.confirm": "Apply these assignments",
+  "setup.preferencesError": "Preferences could not be saved or loaded: {error}",
 } as const;
 
 export type MessageKey = keyof typeof en;

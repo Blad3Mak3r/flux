@@ -1,5 +1,8 @@
+import { useOutputView } from "./preferences/outputs";
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import { errorMessage, projectClose } from "./project/api";
 import { Faceplate } from "./components/Faceplate";
 import { MenuHost } from "./components/Menu";
 import { textMenu } from "./components/menus";
@@ -21,7 +24,7 @@ import { I18nProvider, useT } from "./i18n";
 import { deleteSelection, renameSelectedTrack } from "./state/actions";
 import { splitAtPlayhead } from "./state/clips";
 import { activeTimeline, isDirty } from "./state/doc";
-import { bindDocumentSync } from "./state/persist";
+import { bindDocumentSync, flushDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
 import { ask, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
 import {
@@ -228,7 +231,7 @@ function Editor() {
   const [phase, setPhase] = useState<EditorPhase>("project");
   const [connected, setConnected] = useState(!native);
   const [ready, setReady] = useState(!native);
-  const output = useDoc((doc) => doc.project.output);
+  const output = useOutputView();
   const view = useUi((ui) => ui.view);
   const devices = useDevices(output, !native || phase === "outputs");
   const liveEnabled = connected && view === "live";
@@ -237,6 +240,11 @@ function Editor() {
 
   useEffect(bindTransport, []);
   useEffect(bindDocumentSync, []);
+  useEffect(() => {
+    if (!native) return;
+    const listening = listen("recovery-error", () => sayError(t("autosave.failed")));
+    return () => void listening.then((off) => off()).catch(() => undefined);
+  }, [native, t]);
   useEffect(bindTimelineAdvance, []);
   useEffect(bindRemoteControl, []);
   useEffect(() => {
@@ -254,9 +262,16 @@ function Editor() {
     if (!native) return;
     const appWindow = getCurrentWindow();
     const listening = appWindow.onCloseRequested((event) => {
-      if (!isDirty(useDoc.getState())) return;
       event.preventDefault();
-      ask(() => appWindow.destroy());
+      const close = async () => {
+        try {
+          await flushDocumentSync();
+          await projectClose();
+          await appWindow.destroy();
+        } catch (err) { sayError(errorMessage(err)); }
+      };
+      if (isDirty(useDoc.getState())) ask(close);
+      else void close();
     }).catch(() => undefined);
     return () => void listening.then((off) => off?.());
   }, [native]);

@@ -44,7 +44,7 @@ export type DocAction =
   | { type: "undo" }
   | { type: "redo" }
   /** `meta` is the one the backend wrote with the save. */
-  | { type: "saved"; path: string; meta: Project["meta"] };
+  | { type: "saved"; path: string; meta: Project["meta"]; snapshot?: Project };
 
 const HISTORY_LIMIT = 200;
 
@@ -131,8 +131,10 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
       return { ...doc, project: next, past: [...doc.past, doc.project], future: rest };
     }
     case "saved": {
-      const project = { ...doc.project, meta: action.meta };
-      return { ...doc, path: action.path, project, saved: project };
+      const snapshot = action.snapshot ?? doc.project;
+      const saved = { ...snapshot, meta: action.meta };
+      const project = doc.project === snapshot ? saved : { ...doc.project, meta: action.meta };
+      return { ...doc, path: action.path, project, saved };
     }
   }
 }

@@ -43,7 +43,11 @@ impl LogLane {
                     before.device_lost,
                     position.device_lost,
                 ),
-                ("LTC device lost", before.ltc_lost, position.ltc_lost),
+                (
+                    "metronome device lost",
+                    before.metronome_lost,
+                    position.metronome_lost,
+                ),
                 (
                     "device renders faster than real time",
                     before.clock_unpaced,
@@ -54,6 +58,8 @@ impl LogLane {
                     lines.push((Level::Warn, name.into()));
                 }
             }
+            lines.extend(lost_lines("LTC output", before.ltc_lost, position.ltc_lost));
+            lines.extend(lost_lines("MTC output", before.mtc_lost, position.mtc_lost));
         }
 
         let due = self
@@ -93,6 +99,19 @@ impl LogLane {
     }
 }
 
+/// A line for each output (1-based, as the user counts them) that became lost between `before`
+/// and `now`, and one for each that came back.
+fn lost_lines(what: &str, before: u32, now: u32) -> impl Iterator<Item = (Level, String)> + '_ {
+    (0..u32::BITS).filter_map(move |bit| {
+        let (was, is) = (before >> bit & 1 == 1, now >> bit & 1 == 1);
+        match (was, is) {
+            (false, true) => Some((Level::Warn, format!("{what} {} lost", bit + 1))),
+            (true, false) => Some((Level::Info, format!("{what} {} back", bit + 1))),
+            _ => None,
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -104,7 +123,9 @@ mod tests {
             frame: 100,
             position_samples: 0,
             device_lost: false,
-            ltc_lost: false,
+            ltc_lost: 0,
+            mtc_lost: 0,
+            metronome_lost: false,
             clock_unpaced: false,
         }
     }
@@ -150,6 +171,37 @@ mod tests {
         let lines = lane.next(lost, Faults::default(), now);
         assert_eq!(lines, [(Level::Warn, "audio device lost".into())]);
         assert!(lane.next(lost, Faults::default(), now).is_empty());
+    }
+
+    #[test]
+    fn next_should_name_the_output_that_was_lost_and_when_it_is_back() {
+        let mut lane = LogLane::default();
+        let now = Instant::now();
+        lane.next(at(TransportState::Playing), Faults::default(), now);
+        let lost = Position {
+            ltc_lost: 0b10,
+            mtc_lost: 0b1,
+            ..at(TransportState::Playing)
+        };
+
+        let lines = lane.next(lost, Faults::default(), now);
+        assert_eq!(
+            lines,
+            [
+                (Level::Warn, "LTC output 2 lost".into()),
+                (Level::Warn, "MTC output 1 lost".into())
+            ]
+        );
+        assert!(lane.next(lost, Faults::default(), now).is_empty());
+
+        let lines = lane.next(at(TransportState::Playing), Faults::default(), now);
+        assert_eq!(
+            lines,
+            [
+                (Level::Info, "LTC output 2 back".into()),
+                (Level::Info, "MTC output 1 back".into())
+            ]
+        );
     }
 
     #[test]

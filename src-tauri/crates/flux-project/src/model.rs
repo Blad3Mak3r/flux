@@ -16,12 +16,14 @@ pub use super::meta::Meta;
 /// and `osc` track kinds and `output.osc` (nothing was reshaped, but an older build cannot read them). Files of version 2
 /// written while the format was changing can hold either shape, so the migration looks at the
 /// shape, not at the number.
-pub const FORMAT_VERSION: u32 = 5;
+/// Version 6 separates portable signals from local hardware routing.
+/// Version 7 adds project-owned autosave preferences.
+pub const FORMAT_VERSION: u32 = 7;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
 
-/// Contents of `project.json`. The audio and the output devices belong to the project; each
+/// Contents of `project.json`. Audio and logical signals belong to the project; each
 /// timeline has its own timecode and tracks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,10 +31,40 @@ pub struct Project {
     pub format_version: u32,
     pub name: String,
     pub meta: Meta,
+    #[serde(default)]
+    pub autosave: Autosave,
     pub assets: Vec<AudioAsset>,
-    pub output: OutputConfig,
+    pub output: crate::ShowOutputs,
     /// Never empty. Only one plays at a time.
     pub timelines: Vec<Timeline>,
+}
+
+/// Recovery preferences travel with the project, never with the machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Autosave {
+    pub enabled: bool,
+    pub interval_seconds: u64,
+}
+
+impl Default for Autosave {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_seconds: 30,
+        }
+    }
+}
+
+impl Autosave {
+    pub fn validate(self) -> Result<()> {
+        if ![15, 30, 60].contains(&self.interval_seconds) {
+            return Err(ProjectError::Invalid(
+                "autosave interval must be 15, 30 or 60 seconds".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// One line of time of a project, e.g. a song. All positions in it are frame counts at its own
@@ -401,8 +433,9 @@ impl Project {
         Self {
             format_version: FORMAT_VERSION,
             meta: Meta::new(),
+            autosave: Autosave::default(),
             assets: Vec::new(),
-            output: OutputConfig::default(),
+            output: crate::ShowOutputs::default(),
             timelines: vec![Timeline::new(name.clone(), frame_rate)],
             name,
         }
@@ -431,6 +464,7 @@ impl Project {
     /// asset files living directly under `audio/`.
     pub fn validate(&self) -> Result<()> {
         self.meta.validate()?;
+        self.autosave.validate()?;
         let mut asset_ids = HashSet::new();
         let mut asset_files = HashSet::new();
         for asset in &self.assets {
@@ -599,7 +633,7 @@ fn check_offset(offset_ms: Option<i32>) -> Result<()> {
 
 impl OutputConfig {
     /// Channels are 1-based and a programme channel may be listed only once.
-    fn validate(&self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         for ltc in &self.ltc {
             check_channel(ltc.channel)?;
             if !ltc.level.is_none_or(|level| (0.0..=1.0).contains(&level)) {
@@ -711,6 +745,7 @@ pub(super) mod tests {
 
     pub fn sample_project() -> Project {
         Project {
+            autosave: Autosave::default(),
             format_version: FORMAT_VERSION,
             name: "Opening night".into(),
             meta: Meta {
@@ -860,13 +895,15 @@ pub(super) mod tests {
                     channels: vec![3, 4],
                     gain_db: -6.0,
                 }),
-            },
+            }
+            .into(),
         }
     }
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 5,
+        "formatVersion": 7,
+        "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {
             "id": "6f0c1d52-7a0e-4a52-9c3b-2d6a5f1b8e10",
@@ -912,12 +949,18 @@ pub(super) mod tests {
             }
         ] }],
         "output": {
-            "driver": "PipeWire",
-            "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
-            "metronome": { "deviceName": "Band Monitor", "channels": [3, 4], "gainDb": -6.0 },
-            "ltc": [{ "deviceName": "Main Interface", "channel": 3, "level": 0.25, "offsetMs": -12 }],
-            "mtc": [{ "portName": "IAC Driver Bus 1", "portIndex": 1, "offsetMs": 30 }],
-            "osc": [{ "id": "d1", "name": "QLab", "host": "192.168.1.20", "port": 53000 }]
+            "metronome": { "gainDb": -6.0 },
+            "ltc": [{ "slot": 1, "level": 0.25 }],
+            "mtc": [{ "slot": 1 }],
+            "osc": [{"id": "d1", "name": "QLab", "host": "192.168.1.20", "port": 53000}],
+            "legacyRoutes": {
+                "driver": "PipeWire",
+                "audio": { "deviceName": "Main Interface", "channels": [1, 2] },
+                "metronome": { "deviceName": "Band Monitor", "channels": [3, 4], "gainDb": -6.0 },
+                "ltc": [{ "deviceName": "Main Interface", "channel": 3, "level": 0.25, "offsetMs": -12 }],
+                "mtc": [{ "portName": "IAC Driver Bus 1", "portIndex": 1, "offsetMs": 30 }],
+                "osc": [{ "id": "d1", "name": "QLab", "host": "192.168.1.20", "port": 53000 }]
+            }
         }
     }"##;
 
@@ -1135,9 +1178,10 @@ pub(super) mod tests {
             ),
         ] {
             let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
-            json["output"]["ltc"] = ltc;
-            let parsed: Project = serde_json::from_value(json).unwrap();
-            assert_eq!(parsed.output.ltc.len(), expected);
+            json["output"]["legacyRoutes"]["ltc"] = ltc;
+            let parsed: OutputConfig =
+                serde_json::from_value(json["output"]["legacyRoutes"].clone()).unwrap();
+            assert_eq!(parsed.ltc.len(), expected);
         }
     }
 
@@ -1153,7 +1197,15 @@ pub(super) mod tests {
     fn preview_should_default_to_none_and_stay_out_of_the_file_when_unset() {
         let json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         let parsed: Project = serde_json::from_value(json).unwrap();
-        assert!(parsed.output.preview.is_none());
+        assert!(
+            parsed
+                .output
+                .legacy_routes
+                .as_ref()
+                .unwrap()
+                .preview
+                .is_none()
+        );
         let written = serde_json::to_value(&parsed).unwrap();
         assert!(written["output"].get("preview").is_none());
     }
@@ -1161,12 +1213,12 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_bad_preview_channels() {
         for channels in [vec![0], vec![1, 1]] {
-            let mut project = sample_project();
-            project.output.preview = Some(AudioOutput {
+            let mut output = sample_project().output.legacy_routes.unwrap();
+            output.preview = Some(AudioOutput {
                 device_name: "Headphones".into(),
                 channels,
             });
-            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+            assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
         }
     }
 
@@ -1219,9 +1271,12 @@ pub(super) mod tests {
     #[test]
     fn project_without_audio_output_should_still_parse() {
         let mut json: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
-        json["output"].as_object_mut().unwrap().remove("audio");
+        json["output"]["legacyRoutes"]
+            .as_object_mut()
+            .unwrap()
+            .remove("audio");
         let parsed: Project = serde_json::from_value(json).unwrap();
-        assert_eq!(parsed.output.audio, None);
+        assert_eq!(parsed.output.legacy_routes.as_ref().unwrap().audio, None);
     }
 
     #[test]
@@ -1390,25 +1445,25 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_bad_metronome_outputs() {
         for (channels, gain) in [(vec![0], 0.0), (vec![1, 1], 0.0), (vec![1], f32::NAN)] {
-            let mut project = sample_project();
-            project.output.metronome = Some(MetronomeOutput {
+            let mut output = sample_project().output.legacy_routes.unwrap();
+            output.metronome = Some(MetronomeOutput {
                 device_name: "Band Monitor".into(),
                 channels,
                 gain_db: gain,
             });
-            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+            assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
         }
     }
 
     #[test]
     fn validate_should_reject_channel_zero() {
-        let mut project = sample_project();
-        project.output.ltc[0].channel = 0;
-        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        let mut output = sample_project().output.legacy_routes.unwrap();
+        output.ltc[0].channel = 0;
+        assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
 
-        let mut project = sample_project();
-        project.output.audio.as_mut().unwrap().channels = vec![0, 1];
-        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        let mut output = sample_project().output.legacy_routes.unwrap();
+        output.audio.as_mut().unwrap().channels = vec![0, 1];
+        assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
     }
 
     #[test]
@@ -1423,30 +1478,30 @@ pub(super) mod tests {
     #[test]
     fn validate_should_reject_an_offset_beyond_the_limit() {
         for ms in [MAX_OFFSET_MS + 1, -MAX_OFFSET_MS - 1] {
-            let mut project = sample_project();
-            project.output.ltc[0].offset_ms = Some(ms);
-            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
-            let mut project = sample_project();
-            project.output.mtc[0].offset_ms = Some(ms);
-            assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+            let mut output = sample_project().output.legacy_routes.unwrap();
+            output.ltc[0].offset_ms = Some(ms);
+            assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
+            let mut output = sample_project().output.legacy_routes.unwrap();
+            output.mtc[0].offset_ms = Some(ms);
+            assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
         }
     }
 
     #[test]
     fn offset_should_be_left_out_when_unset() {
-        let mut project = sample_project();
-        project.output.ltc[0].offset_ms = None;
-        project.output.mtc[0].offset_ms = None;
-        let json = serde_json::to_value(&project).unwrap();
-        assert!(json["output"]["ltc"][0].get("offsetMs").is_none());
-        assert!(json["output"]["mtc"][0].get("offsetMs").is_none());
+        let mut output = sample_project().output.legacy_routes.unwrap();
+        output.ltc[0].offset_ms = None;
+        output.mtc[0].offset_ms = None;
+        let json = serde_json::to_value(&output).unwrap();
+        assert!(json["ltc"][0].get("offsetMs").is_none());
+        assert!(json["mtc"][0].get("offsetMs").is_none());
     }
 
     #[test]
     fn ltc_level_and_mtc_port_index_should_be_left_out_when_unset() {
         let mut project = sample_project();
         project.output.ltc[0].level = None;
-        project.output.mtc[0].port_index = 0;
+        project.output.legacy_routes.as_mut().unwrap().mtc[0].port_index = 0;
         let json = serde_json::to_value(&project).unwrap();
         assert!(json["output"]["ltc"][0].get("level").is_none());
         assert!(json["output"]["mtc"][0].get("portIndex").is_none());
@@ -1454,9 +1509,9 @@ pub(super) mod tests {
 
     #[test]
     fn validate_should_reject_a_repeated_audio_channel() {
-        let mut project = sample_project();
-        project.output.audio.as_mut().unwrap().channels = vec![1, 1];
-        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        let mut output = sample_project().output.legacy_routes.unwrap();
+        output.audio.as_mut().unwrap().channels = vec![1, 1];
+        assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
     }
 
     #[test]
