@@ -12,8 +12,8 @@ use super::cue_ops::{self, CueEdited, CueOp};
 use super::error::{ProjectError, Result};
 use super::item_ops::{self, ItemOp};
 use super::model::{
-    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, Timeline, TrackKind,
-    check_asset_path,
+    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, TimecodeSettings, Timeline,
+    TrackKind, check_asset_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
 use flux_core::FrameRate;
@@ -229,16 +229,45 @@ impl Session {
     /// Makes the timeline after the active one the active one, as when a show ends and the next
     /// is made ready. `None` when the active one is the last: the show stays where it is.
     pub fn next_timeline(&mut self) -> Result<Option<ProjectState>> {
+        self.step_timeline(1)
+    }
+
+    /// Makes the timeline `delta` places from the active one the active one. `None` when there is
+    /// none there (the first has no previous, the last no next).
+    pub fn step_timeline(&mut self, delta: isize) -> Result<Option<ProjectState>> {
         let Some(document) = &self.document else {
             return Err(ProjectError::Invalid("no project is open".into()));
         };
         let timelines = &document.project.timelines;
-        let next = timelines
+        let target = timelines
             .iter()
             .position(|timeline| timeline.id == document.active)
-            .and_then(|at| timelines.get(at + 1))
+            .and_then(|at| at.checked_add_signed(delta))
+            .and_then(|at| timelines.get(at))
             .map(|timeline| timeline.id.clone());
-        next.map(|id| self.select_timeline(&id)).transpose()
+        target.map(|id| self.select_timeline(&id)).transpose()
+    }
+
+    /// Makes the timeline in this place, from 1, the active one. `None` when there is no such place.
+    pub fn select_timeline_at(&mut self, place: usize) -> Result<Option<ProjectState>> {
+        let Some(document) = &self.document else {
+            return Err(ProjectError::Invalid("no project is open".into()));
+        };
+        let target = place
+            .checked_sub(1)
+            .and_then(|at| document.project.timelines.get(at))
+            .map(|timeline| timeline.id.clone());
+        target.map(|id| self.select_timeline(&id)).transpose()
+    }
+
+    /// The frame rate and start of the active timeline, `None` before a document was started.
+    pub fn active_timecode(&self) -> Option<TimecodeSettings> {
+        let document = self.document.as_ref()?;
+        let timeline = document
+            .project
+            .timeline(&document.active)
+            .or(document.project.timelines.first())?;
+        Some(timeline.timecode.clone())
     }
 
     pub fn select_timeline(&mut self, id: &str) -> Result<ProjectState> {
@@ -1179,6 +1208,64 @@ mod tests {
     #[test]
     fn next_timeline_should_fail_without_a_document() {
         assert!(Session::default().next_timeline().is_err());
+    }
+
+    #[test]
+    fn step_timeline_should_go_back_and_stop_at_both_ends() {
+        let (mut session, first, second) = with_two_timelines();
+
+        assert_eq!(
+            session.step_timeline(-1).unwrap(),
+            None,
+            "no one before the first"
+        );
+        assert_eq!(session.step_timeline(1).unwrap().unwrap().active, second);
+        assert_eq!(
+            session.step_timeline(1).unwrap(),
+            None,
+            "no one after the last"
+        );
+        assert_eq!(session.step_timeline(-1).unwrap().unwrap().active, first);
+        assert_eq!(session.step_timeline(-5).unwrap(), None);
+    }
+
+    #[test]
+    fn select_timeline_at_should_count_places_from_one() {
+        let (mut session, first, second) = with_two_timelines();
+
+        assert_eq!(
+            session.select_timeline_at(2).unwrap().unwrap().active,
+            second
+        );
+        assert_eq!(
+            session.select_timeline_at(1).unwrap().unwrap().active,
+            first
+        );
+        assert_eq!(session.select_timeline_at(0).unwrap(), None);
+        assert_eq!(session.select_timeline_at(3).unwrap(), None);
+        assert_eq!(session.active(), first);
+    }
+
+    #[test]
+    fn step_and_select_should_fail_without_a_document() {
+        assert!(Session::default().step_timeline(1).is_err());
+        assert!(Session::default().select_timeline_at(1).is_err());
+        assert_eq!(Session::default().active_timecode(), None);
+    }
+
+    #[test]
+    fn active_timecode_should_be_the_one_of_the_active_timeline() {
+        let (mut session, _, _) = with_two_timelines();
+        let state = session.set_timecode(FrameRate::Fps30, 500).unwrap();
+
+        let timecode = session.active_timecode().unwrap();
+
+        assert_eq!(timecode.frame_rate, FrameRate::Fps30);
+        assert_eq!(timecode.start, 500);
+        assert_eq!(
+            state.project.timeline(&state.active).unwrap().timecode,
+            timecode
+        );
     }
 
     fn order(state: &ProjectState) -> Vec<&str> {
