@@ -33,3 +33,18 @@ export const showWelcome = () => invoke<void>("window_show_welcome");
 export const closeEditor = () => invoke<void>("window_close_editor");
 /** Opens the editor on `path`, or on a new show. */
 export const openEditor = (path: string | null) => invoke<void>("window_open_editor", { path });
+
+export interface RecoverySummary {
+  id: string;
+  name: string | null;
+  path: string | null;
+  savedAt: string | null;
+  readable: boolean;
+}
+
+export const recoveryList = () => invoke<RecoverySummary[]>("recovery_list");
+export const recoveryDiscard = (id: string) => invoke<void>("recovery_discard", { id });
+export const recoveryRestore = (id: string) => invoke<void>("window_restore_recovery", { id });
+export const recoveryOriginal = (id: string) => invoke<void>("window_open_original", { id });
+export const openPending = () => invoke<void>("window_open_editor", { path: null, usePending: true });
+export const pendingPath = () => invoke<string | null>("window_pending_path");

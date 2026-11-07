@@ -1,5 +1,21 @@
 // English is the default language and the source of truth for the message keys.
 export const en = {
+  "autosave.enabled": "Automatically save a recovery copy",
+  "autosave.interval": "Autosave interval",
+  "autosave.seconds": "{seconds} seconds",
+  "autosave.note": "Also saves after 2 seconds without edits. These options travel with this project. Recovery copies contain no audio and do not replace Save.",
+  "autosave.failed": "Could not update the recovery copy. Save your project to protect your edits.",
+  "recovery.title": "Recover unsaved work",
+  "recovery.intro": "These recovery copies remain from an interrupted session. Restore your edits or open the last saved project. Opening the original discards its recovery copy.",
+  "recovery.restore": "Restore",
+  "recovery.original": "Open original",
+  "recovery.discard": "Discard recovery",
+  "recovery.discardTitle": "Discard the recovery copy?",
+  "recovery.discardBody": "Unsaved edits in this recovery copy will be lost. The original project will stay on disk.",
+  "recovery.unsaved": "Project not saved yet",
+  "recovery.unreadable": "Unreadable recovery copy",
+  "recovery.invalid": "This copy is damaged or from an incompatible version. You can discard it and open your saved project.",
+  "recovery.pending": "Continue opening {name}",
   "app.title": "Flux Timecode",
 
   "menu.new": "New",

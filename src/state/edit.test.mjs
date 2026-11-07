@@ -276,6 +276,27 @@ test("removing a track takes its audio file with it and keeps the file another t
 });
 
 const order = (p) => p.timelines[0].tracks.map((track) => track.id);
+
+test("saving a snapshot keeps edits made during the save dirty", () => {
+  const snapshot = emptyProject("Before save", "fps25");
+  const edited = { ...snapshot, name: "During save" };
+  const doc = { ...initialDoc(snapshot), project: edited };
+  const result = docReducer(doc, { type: "saved", path: "/show.fxtc", meta: snapshot.meta, snapshot });
+  assert.equal(result.project.name, "During save");
+  assert.equal(result.saved.name, "Before save");
+  assert.equal(isDirty(result), true);
+});
+
+test("a recovered project keeps its options and unsaved baseline through undo and redo", () => {
+  const baseline = emptyProject("Show", "fps25");
+  const recovered = { ...baseline, autosave: { enabled: false, intervalSeconds: 60 } };
+  const doc = docReducer(initialDoc(baseline), { type: "restore", project: recovered, path: null, saved: baseline, active: baseline.timelines[0].id });
+  assert.equal(isDirty(doc), true);
+  const applied = docReducer(doc, { type: "apply", project: { ...recovered, autosave: baseline.autosave }, active: doc.active });
+  const undone = docReducer(applied, { type: "undo" });
+  assert.deepEqual(undone.project.autosave, recovered.autosave);
+  assert.deepEqual(docReducer(undone, { type: "redo" }).project.autosave, baseline.autosave);
+});
 const three = () =>
   withTracks(project(), [
     ...project().timelines[0].tracks,

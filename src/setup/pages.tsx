@@ -18,7 +18,7 @@ import type {
   GraphicsPrefs,
   GraphicsState,
 } from "../graphics/api";
-import { errorMessage } from "../project/api";
+import { errorMessage, projectSetAutosave } from "../project/api";
 import { edit } from "../state/actions";
 import { isDirty } from "../state/doc";
 import { ask } from "../state/ui";
@@ -31,7 +31,8 @@ import {
 import { signalEdit } from "../state/output";
 import { routeEdit, UNASSIGNED, usePreferences } from "../preferences/store";
 import { LanguageSelect } from "../i18n/LanguageSelect";
-import { useDoc, useTimeline } from "../state/store";
+import { dispatch, useDoc, useTimeline } from "../state/store";
+import { flushDocumentSync } from "../state/persist";
 import { renameTimeline, setTimecode } from "../state/timelines";
 import { reconnect } from "../transport/playback";
 import { isLost } from "../transport/lost";
@@ -105,13 +106,32 @@ function rowState(
 export function ProjectPage() {
   const t = useT();
   const project = useDoc((doc) => doc.project);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const changeAutosave = async (enabled: boolean, intervalSeconds: string) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await flushDocumentSync();
+      const state = await projectSetAutosave(useDoc.getState().project, enabled, intervalSeconds);
+      dispatch({ type: "apply", ...state });
+    } catch (err) { setProblem(errorMessage(err)); }
+    finally { setBusy(false); }
+  };
   return (
     <div className="setup-fields">
-      <TextField
-        label={t("project.name")}
-        value={project.name}
-        onCommit={(name) => edit(setName(project, name))}
-      />
+      <TextField label={t("project.name")} value={project.name} onCommit={(name) => edit(setName(project, name))} />
+      <label className="check-row">
+        <input type="checkbox" checked={project.autosave.enabled} disabled={busy}
+          onChange={(event) => void changeAutosave(event.target.checked, String(project.autosave.intervalSeconds))} />
+        <span>{t("autosave.enabled")}</span>
+      </label>
+      <SelectField label={t("autosave.interval")} value={String(project.autosave.intervalSeconds)}
+        disabled={busy || !project.autosave.enabled} hint={t("autosave.note")}
+        onChange={(value) => void changeAutosave(project.autosave.enabled, value)}>
+        {[15, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{t("autosave.seconds", { seconds })}</option>)}
+      </SelectField>
+      {problem && <p className="message" data-tone="error" role="alert">{problem}</p>}
       <LegacyRoutes />
     </div>
   );
@@ -666,7 +686,7 @@ export function GraphicsPage() {
   };
   // The restart drops the document and the output, so it asks first about work that was not saved.
   const restart = () => {
-    const go = () => void graphicsRestart();
+    const go = () => void flushDocumentSync().then(graphicsRestart).catch((err) => setProblem(errorMessage(err)));
     if (isDirty(useDoc.getState())) ask(go);
     else go();
   };

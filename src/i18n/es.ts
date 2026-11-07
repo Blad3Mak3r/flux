@@ -1,6 +1,22 @@
 import type { MessageKey } from "./en";
 
 export const es: Record<MessageKey, string> = {
+  "autosave.enabled": "Guardar automáticamente una copia de recuperación",
+  "autosave.interval": "Intervalo de autoguardado",
+  "autosave.seconds": "{seconds} segundos",
+  "autosave.note": "También guarda tras 2 segundos sin ediciones. Estas opciones viajan con este proyecto. Las copias no contienen audio ni sustituyen a Guardar.",
+  "autosave.failed": "No se ha podido actualizar la copia de recuperación. Guarda el proyecto para proteger tus cambios.",
+  "recovery.title": "Recuperar trabajo sin guardar",
+  "recovery.intro": "Estas copias proceden de una sesión interrumpida. Recupera los cambios o abre el último proyecto guardado. Abrir el original descarta su copia de recuperación.",
+  "recovery.restore": "Restaurar",
+  "recovery.original": "Abrir original",
+  "recovery.discard": "Descartar recuperación",
+  "recovery.discardTitle": "¿Descartar la copia de recuperación?",
+  "recovery.discardBody": "Se perderán los cambios sin guardar de esta copia. El proyecto original permanecerá en el disco.",
+  "recovery.unsaved": "Proyecto aún sin guardar",
+  "recovery.unreadable": "Copia de recuperación ilegible",
+  "recovery.invalid": "Esta copia está dañada o es de una versión incompatible. Puedes descartarla y abrir tu proyecto guardado.",
+  "recovery.pending": "Continuar abriendo {name}",
   "app.title": "Flux Timecode",
 
   "menu.new": "Nuevo",

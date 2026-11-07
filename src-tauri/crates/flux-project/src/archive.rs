@@ -21,7 +21,8 @@ const PROJECT_JSON: &str = "project.json";
 type FileArchive = ZipArchive<BufReader<File>>;
 
 /// Where `save` takes the bytes of an asset from.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "path", rename_all = "camelCase")]
 pub enum AssetSource {
     /// A newly imported file on disk.
     Disk(PathBuf),

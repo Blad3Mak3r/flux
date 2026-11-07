@@ -17,7 +17,8 @@ pub use super::meta::Meta;
 /// written while the format was changing can hold either shape, so the migration looks at the
 /// shape, not at the number.
 /// Version 6 separates portable signals from local hardware routing.
-pub const FORMAT_VERSION: u32 = 6;
+/// Version 7 adds project-owned autosave preferences.
+pub const FORMAT_VERSION: u32 = 7;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -30,10 +31,40 @@ pub struct Project {
     pub format_version: u32,
     pub name: String,
     pub meta: Meta,
+    #[serde(default)]
+    pub autosave: Autosave,
     pub assets: Vec<AudioAsset>,
     pub output: crate::ShowOutputs,
     /// Never empty. Only one plays at a time.
     pub timelines: Vec<Timeline>,
+}
+
+/// Recovery preferences travel with the project, never with the machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Autosave {
+    pub enabled: bool,
+    pub interval_seconds: u64,
+}
+
+impl Default for Autosave {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_seconds: 30,
+        }
+    }
+}
+
+impl Autosave {
+    pub fn validate(self) -> Result<()> {
+        if ![15, 30, 60].contains(&self.interval_seconds) {
+            return Err(ProjectError::Invalid(
+                "autosave interval must be 15, 30 or 60 seconds".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// One line of time of a project, e.g. a song. All positions in it are frame counts at its own
@@ -402,6 +433,7 @@ impl Project {
         Self {
             format_version: FORMAT_VERSION,
             meta: Meta::new(),
+            autosave: Autosave::default(),
             assets: Vec::new(),
             output: crate::ShowOutputs::default(),
             timelines: vec![Timeline::new(name.clone(), frame_rate)],
@@ -432,6 +464,7 @@ impl Project {
     /// asset files living directly under `audio/`.
     pub fn validate(&self) -> Result<()> {
         self.meta.validate()?;
+        self.autosave.validate()?;
         let mut asset_ids = HashSet::new();
         let mut asset_files = HashSet::new();
         for asset in &self.assets {
@@ -712,6 +745,7 @@ pub(super) mod tests {
 
     pub fn sample_project() -> Project {
         Project {
+            autosave: Autosave::default(),
             format_version: FORMAT_VERSION,
             name: "Opening night".into(),
             meta: Meta {
@@ -868,7 +902,8 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 6,
+        "formatVersion": 7,
+        "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {
             "id": "6f0c1d52-7a0e-4a52-9c3b-2d6a5f1b8e10",

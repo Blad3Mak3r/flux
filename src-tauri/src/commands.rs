@@ -12,6 +12,7 @@ use tauri::{AppHandle, State};
 
 use crate::live_commands::samples_of;
 use crate::recents;
+use crate::recovery::{self, SharedRecoveries};
 use crate::transport_commands::{SharedOutput, is_playing, release};
 use flux_audio::{ENGINE_RATE, SharedAudio};
 use flux_core::Clock;
@@ -50,23 +51,20 @@ pub async fn project_document(session: State<'_, SharedSession>) -> Result<Optio
 /// Answers with the active timeline, which an undo in the window can have changed.
 #[tauri::command]
 pub async fn project_sync(session: State<'_, SharedSession>, project: Project) -> Result<String> {
-    run(&session, move |s| {
-        s.update(project);
-        Ok(s.active())
-    })
-    .await
+    run(&session, move |s| s.sync(project)).await
 }
 
 #[tauri::command]
 pub async fn project_new(
     session: State<'_, SharedSession>,
+    store: State<'_, SharedRecoveries>,
     audio: State<'_, SharedAudio>,
     name: String,
     frame_rate: FrameRate,
 ) -> Result<ProjectState> {
     audio.clear();
     log::info!("new project {name:?}");
-    run(&session, move |s| {
+    recovery::transition(&session, &store, move |s| {
         let project = s.new_project(&name, frame_rate);
         Ok(ProjectState {
             project,
@@ -80,12 +78,13 @@ pub async fn project_new(
 pub async fn project_open(
     app: AppHandle,
     session: State<'_, SharedSession>,
+    store: State<'_, SharedRecoveries>,
     audio: State<'_, SharedAudio>,
     path: PathBuf,
 ) -> Result<ProjectState> {
     audio.clear();
     let opened = path.clone();
-    let state = run(&session, move |s| {
+    let state = recovery::transition(&session, &store, move |s| {
         let project = s.open(&path)?;
         Ok(ProjectState {
             project,
@@ -301,14 +300,35 @@ pub async fn project_import_audio(
 pub async fn project_save(
     app: AppHandle,
     session: State<'_, SharedSession>,
+    store: State<'_, SharedRecoveries>,
     project: Project,
     path: PathBuf,
 ) -> Result<Project> {
     let saved = path.clone();
-    let project = run(&session, move |s| s.save(&project, &path)).await?;
+    let project = recovery::transition(&session, &store, move |s| s.save(&project, &path)).await?;
     log::info!("saved {}", saved.display());
     recents::remember(&app, &saved);
     Ok(project)
+}
+
+#[tauri::command]
+pub async fn project_set_autosave(
+    session: State<'_, SharedSession>,
+    project: Project,
+    enabled: bool,
+    interval_seconds: String,
+) -> Result<ProjectState> {
+    let interval_seconds = interval_seconds
+        .parse()
+        .map_err(|_| ProjectError::Invalid("invalid autosave interval".into()))?;
+    run(&session, move |s| {
+        s.update(project);
+        s.set_autosave(flux_project::Autosave {
+            enabled,
+            interval_seconds,
+        })
+    })
+    .await
 }
 
 /// Permanently deletes a `.fxtc` from disk. The frontend must have the user's confirmation first.

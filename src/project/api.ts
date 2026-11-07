@@ -47,6 +47,10 @@ export function syncProject(project: Project): Promise<string> {
   return invoke<string>("project_sync", { project });
 }
 
+export const projectClose = () => invoke<void>("project_close");
+export const projectSetAutosave = (project: Project, enabled: boolean, intervalSeconds: string) =>
+  invoke<ProjectState>("project_set_autosave", { project, enabled, intervalSeconds });
+
 export function newProject(name: string, frameRate: FrameRate): Promise<ProjectState> {
   return invoke<ProjectState>("project_new", { name, frameRate });
 }
