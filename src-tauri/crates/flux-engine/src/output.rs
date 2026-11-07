@@ -29,7 +29,8 @@ use crate::devices;
 use flux_audio::ENGINE_RATE;
 use flux_core::Clock;
 use flux_project::{
-    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, OscDestination, Project, ProjectError, Tempo, Timeline,
+    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, OscDestination, OutputConfig, ProjectError, Tempo,
+    Timeline,
 };
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
@@ -775,12 +776,11 @@ impl Output {
     /// missing MIDI port only produces a warning. With `fire_cues` off (an audition) the MIDI and OSC
     /// tracks stay silent.
     pub fn start(
-        project: &Project,
+        output: &OutputConfig,
         timeline: &Timeline,
         programme: Programme,
         fire_cues: bool,
     ) -> Result<Self, OutputError> {
-        let output = &project.output;
         let driver = output.driver.as_deref();
         // An empty device name is the system's default output, so a project without any device
         // chosen still plays. A project written before `output.audio` existed carries the
@@ -881,7 +881,17 @@ impl Output {
         let mut threads = vec![audio_thread];
         let mut warnings = warnings;
         // One entry per project output, in the project's order, whatever stream it landed on.
-        let mut ltc_info: Vec<Option<LtcInfo>> = vec![None; output.ltc.len()];
+        let mut ltc_info: Vec<Option<LtcInfo>> = output
+            .ltc
+            .iter()
+            .map(|r| {
+                (r.device_name == flux_project::UNASSIGNED_DEVICE).then(|| LtcInfo {
+                    device: String::new(),
+                    channel: r.channel,
+                    ok: false,
+                })
+            })
+            .collect();
         let mut place = |slots: &[LtcSlot], device: &str, ok: bool| {
             for slot in slots {
                 for &index in &slot.outputs {
@@ -974,6 +984,13 @@ impl Output {
         let mut by_port: HashMap<usize, usize> = HashMap::new();
         for mtc in &output.mtc {
             let hint = mtc.port_name.as_str();
+            if hint.is_empty() {
+                mtc_info.push(MtcInfo {
+                    port: String::new(),
+                    ok: false,
+                });
+                continue;
+            }
             if let Some(&first) = by_hint.get(&(hint, mtc.port_index)) {
                 mtc_info.push(mtc_info[first].clone());
                 continue;
@@ -1258,6 +1275,9 @@ fn plan_ltc(
         own: Vec::new(),
     };
     for (index, output) in outputs.iter().enumerate() {
+        if output.device_name == flux_project::UNASSIGNED_DEVICE {
+            continue;
+        }
         let slots = if same(&output.device_name, programme_device) {
             &mut plan.shared
         } else {
@@ -1652,6 +1672,28 @@ mod tests {
             .chunks_exact(channels)
             .map(|frame| frame[channel])
             .collect()
+    }
+
+    #[test]
+    fn unassigned_ltc_should_not_open_a_device_or_shift_later_output_indices() {
+        let outputs = [
+            LtcOutput {
+                device_name: flux_project::UNASSIGNED_DEVICE.into(),
+                channel: 1,
+                level: None,
+                offset_ms: None,
+            },
+            LtcOutput {
+                device_name: "Sync".into(),
+                channel: 8,
+                level: None,
+                offset_ms: None,
+            },
+        ];
+        let plan = plan_ltc(&outputs, "Main", |a, b| a == b);
+        assert!(plan.shared.is_empty());
+        assert_eq!(plan.own.len(), 1);
+        assert_eq!(plan.own[0].slots[0].outputs, vec![1]);
     }
 
     #[test]

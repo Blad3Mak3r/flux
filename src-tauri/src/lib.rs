@@ -4,6 +4,7 @@ mod device_commands;
 mod diagnostics;
 mod graphics;
 mod live_commands;
+mod preferences;
 mod recents;
 mod startup;
 mod transport_commands;
@@ -32,6 +33,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::SharedSession::default())
+        .manage(preferences::Store::default())
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
@@ -46,7 +48,10 @@ pub fn run() {
             commands::clip_edit,
             commands::cue_edit,
             commands::item_edit,
-            commands::output_set_offset,
+            commands::output_signal_edit,
+            preferences::preferences_get,
+            preferences::preferences_change,
+            preferences::preferences_resolve,
             commands::timeline_add,
             commands::timeline_rename,
             commands::timeline_remove,

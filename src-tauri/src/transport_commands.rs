@@ -295,6 +295,7 @@ fn lock(state: &SharedOutput) -> MutexGuard<'_, Option<Running>> {
 pub async fn output_start(
     app: AppHandle,
     state: State<'_, SharedOutput>,
+    prefs: State<'_, crate::preferences::Store>,
     session: State<'_, SharedSession>,
     audio: State<'_, SharedAudio>,
     project: Project,
@@ -304,6 +305,11 @@ pub async fn output_start(
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
 ) -> Result<OutputInfo, OutputError> {
+    project.validate()?;
+    let prefs =
+        crate::preferences::preferences_get(app.clone(), prefs).map_err(OutputError::Stream)?;
+    let audition = audition && prefs.preview.is_some();
+    let resolved = prefs.resolve(&project.output, audition);
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     let started = tauri::async_runtime::spawn_blocking(move || {
         let previous = lock(&state).take();
@@ -312,11 +318,11 @@ pub async fn output_start(
         let timeline = active_timeline(&session, &project)?;
         let list = cue_list(&project, timeline, &session, &audio);
         let programme = programme(&project, timeline, &session, &audio, &list);
-        let output = Output::start(&project, timeline, programme, !audition)?;
+        let output = Output::start(&resolved, timeline, programme, !audition)?;
         let setup = OutputSetup {
             timeline_id: timeline.id.clone(),
             timecode: timeline.timecode.clone(),
-            output: project.output,
+            output: resolved,
             advance,
             audition,
         };

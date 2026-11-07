@@ -16,8 +16,8 @@ use crate::transport_commands::{SharedOutput, is_playing, release};
 use flux_audio::{ENGINE_RATE, SharedAudio};
 use flux_core::Clock;
 use flux_project::{
-    AudioAsset, ClipOp, CueEdited, CueOp, Document, FrameRate, ItemOp, OffsetKind, Project,
-    ProjectError, ProjectState, Result, Session,
+    AudioAsset, ClipOp, CueEdited, CueOp, Document, FrameRate, ItemOp, Project, ProjectError,
+    ProjectState, Result, Session,
 };
 
 pub type SharedSession = Arc<Mutex<Session>>;
@@ -274,19 +274,15 @@ pub async fn cue_edit(
     .await
 }
 
-/// Sets the latency offset of an LTC or MTC output to the ms typed; the answer is the project with
-/// it set, or the reason it was refused.
 #[tauri::command]
-pub async fn output_set_offset(
+pub async fn output_signal_edit(
     session: State<'_, SharedSession>,
     project: Project,
-    kind: OffsetKind,
-    index: usize,
-    text: String,
+    op: flux_project::SignalOp,
 ) -> Result<ProjectState> {
     run(&session, move |s| {
         s.update(project);
-        s.set_output_offset(kind, index, &text)
+        s.edit_signal(op)
     })
     .await
 }
