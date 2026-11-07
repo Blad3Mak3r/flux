@@ -87,6 +87,7 @@ pub struct Session {
     recovery_revision: u64,
     document: Option<Document>,
     sources: HashMap<String, AssetSource>,
+    voice_sources: HashMap<String, AssetSource>,
     previews: HashMap<String, StoredPreview>,
 }
 
@@ -112,6 +113,12 @@ impl Session {
         self.recovery_id.clone_from(&recovery.id);
         self.recovery_revision += 1;
         self.sources = recovery.sources;
+        self.voice_sources = self
+            .sources
+            .iter()
+            .filter(|(_, s)| matches!(s, AssetSource::Disk(_)))
+            .map(|(id, s)| (id.clone(), s.clone()))
+            .collect();
         self.previews.clear();
         self.document = Some(recovery.document.clone());
         Ok(recovery.document)
@@ -134,6 +141,7 @@ impl Session {
         self.recovery_id = Uuid::new_v4().to_string();
         self.recovery_revision += 1;
         self.sources.clear();
+        self.voice_sources.clear();
         self.previews.clear();
         let project = Project::new(name, frame_rate);
         self.document = Some(Document::new(project.clone(), None));
@@ -147,6 +155,7 @@ impl Session {
         self.recovery_id = Uuid::new_v4().to_string();
         self.recovery_revision += 1;
         self.sources = archive_sources(&project, &path);
+        self.voice_sources.clear();
         self.previews.clear();
         self.document = Some(Document::new(project.clone(), Some(path.to_path_buf())));
         Ok(project)
@@ -398,13 +407,17 @@ impl Session {
         Ok(CueEdited { state, id })
     }
 
+    pub fn operator_edit(&mut self, op: crate::OperatorOp) -> Result<ProjectState> {
+        self.change(|project, active| crate::operator::apply(project, active, op))
+    }
+
     pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
         self.change(|project, _| project.output.edit(op))
     }
 
     /// Applies `edit` to a copy of the project and the active id, and keeps the result only when it
     /// is still a valid project, so a refused change leaves the document as it was.
-    fn change(
+    pub fn change(
         &mut self,
         edit: impl FnOnce(&mut Project, &mut String) -> Result<()>,
     ) -> Result<ProjectState> {
@@ -455,6 +468,26 @@ impl Session {
         Ok(asset)
     }
 
+    /// Keeps a generated version readable across saves and undo, even after it leaves the archive.
+    pub fn retain_voice_asset(&mut self, asset: &AudioAsset, directory: &Path) -> Result<()> {
+        if self.voice_sources.contains_key(&asset.id) {
+            return Ok(());
+        }
+        let source = match self.sources.get(&asset.id) {
+            Some(source @ AssetSource::Disk(_)) => source.clone(),
+            _ => {
+                let bytes = self.asset_bytes(asset)?;
+                fs::create_dir_all(directory)?;
+                let path = directory.join(format!("{}.mp3", Uuid::new_v4()));
+                fs::write(&path, bytes)?;
+                AssetSource::Disk(path)
+            }
+        };
+        self.sources.insert(asset.id.clone(), source.clone());
+        self.voice_sources.insert(asset.id.clone(), source);
+        Ok(())
+    }
+
     /// The bytes of an asset, from wherever the session knows them to be.
     pub fn asset_bytes(&self, asset: &AudioAsset) -> Result<Vec<u8>> {
         match self.sources.get(&asset.id) {
@@ -496,6 +529,7 @@ impl Session {
         saved.meta.stamp();
         archive::save(&path, &saved, &self.sources, &self.previews)?;
         self.sources = archive_sources(&saved, &path);
+        self.sources.extend(self.voice_sources.clone());
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
         let mut document = Document::new(saved.clone(), Some(path.to_path_buf()));

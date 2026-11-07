@@ -324,7 +324,7 @@ mod tests {
         });
         let output = value["output"].clone();
         upgrade(&mut value, DATE);
-        assert_eq!(value["formatVersion"], 7);
+        assert_eq!(value["formatVersion"], FORMAT_VERSION);
         assert_eq!(value["output"], output);
         assert_eq!(
             value["autosave"],

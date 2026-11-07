@@ -17,8 +17,8 @@ pub use super::meta::Meta;
 /// written while the format was changing can hold either shape, so the migration looks at the
 /// shape, not at the number.
 /// Version 6 separates portable signals from local hardware routing.
-/// Version 7 adds project-owned autosave preferences.
-pub const FORMAT_VERSION: u32 = 7;
+/// Version 7 adds project-owned autosave preferences. Version 8 adds spoken operator tracks and inherited voices.
+pub const FORMAT_VERSION: u32 = 8;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -33,6 +33,8 @@ pub struct Project {
     pub meta: Meta,
     #[serde(default)]
     pub autosave: Autosave,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
     pub assets: Vec<AudioAsset>,
     pub output: crate::ShowOutputs,
     /// Never empty. Only one plays at a time.
@@ -180,6 +182,11 @@ pub struct Track {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum TrackKind {
+    Operator {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        voice: Option<String>,
+        orders: Vec<crate::VoiceOrder>,
+    },
     Audio {
         clips: Vec<AudioClip>,
     },
@@ -351,6 +358,8 @@ pub struct OutputConfig {
     pub driver: Option<String>,
     /// Where the project's audio clips are played.
     pub audio: Option<AudioOutput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<AudioOutput>,
     /// Where the Edit view auditions the clips, when it should not use `audio`. Edit then sends
     /// no timecode. Absent means Edit plays like Live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -434,6 +443,7 @@ impl Project {
             format_version: FORMAT_VERSION,
             meta: Meta::new(),
             autosave: Autosave::default(),
+            voice: None,
             assets: Vec::new(),
             output: crate::ShowOutputs::default(),
             timelines: vec![Timeline::new(name.clone(), frame_rate)],
@@ -447,22 +457,26 @@ impl Project {
 
     /// Ids of the assets some clip of any timeline plays.
     pub fn used_assets(&self) -> HashSet<&str> {
-        self.timelines
-            .iter()
-            .flat_map(|timeline| &timeline.tracks)
-            .filter_map(|track| match &track.kind {
-                TrackKind::Audio { clips } => Some(clips),
-                _ => None,
-            })
-            .flatten()
-            .map(|clip| clip.asset.as_str())
-            .collect()
+        let mut used = HashSet::new();
+        for track in self.timelines.iter().flat_map(|t| &t.tracks) {
+            match &track.kind {
+                TrackKind::Audio { clips } => used.extend(clips.iter().map(|c| c.asset.as_str())),
+                TrackKind::Operator { orders, .. } => used.extend(
+                    orders
+                        .iter()
+                        .filter_map(|o| o.generated.as_ref().map(|g| g.asset.as_str())),
+                ),
+                _ => {}
+            }
+        }
+        used
     }
 
     /// Checks the invariants the archive format relies on: at least one timeline, unique ids (a
     /// track, clip or note id is unique in the whole project), clips pointing at known assets, and
     /// asset files living directly under `audio/`.
     pub fn validate(&self) -> Result<()> {
+        crate::operator::validate_voice(self.voice.as_deref())?;
         self.meta.validate()?;
         self.autosave.validate()?;
         let mut asset_ids = HashSet::new();
@@ -528,6 +542,13 @@ fn validate_track<'a>(
         check_color(color)?;
     }
     match &track.kind {
+        TrackKind::Operator { voice, orders } => {
+            crate::operator::validate_voice(voice.as_deref())?;
+            for order in orders {
+                ensure_unique(item_ids, "order id", &order.id)?;
+                order.validate(asset_ids)?;
+            }
+        }
         TrackKind::Audio { clips } => {
             for clip in clips {
                 ensure_unique(item_ids, "clip/note id", &clip.id)?;
@@ -634,6 +655,12 @@ fn check_offset(offset_ms: Option<i32>) -> Result<()> {
 impl OutputConfig {
     /// Channels are 1-based and a programme channel may be listed only once.
     pub fn validate(&self) -> Result<()> {
+        if let Some(route) = &self.operator {
+            if route.channels.is_empty() {
+                return Err(ProjectError::Invalid("select an operator channel".into()));
+            }
+            validate_channels(&route.channels)?;
+        }
         for ltc in &self.ltc {
             check_channel(ltc.channel)?;
             if !ltc.level.is_none_or(|level| (0.0..=1.0).contains(&level)) {
@@ -745,6 +772,7 @@ pub(super) mod tests {
 
     pub fn sample_project() -> Project {
         Project {
+            voice: None,
             autosave: Autosave::default(),
             format_version: FORMAT_VERSION,
             name: "Opening night".into(),
@@ -867,6 +895,7 @@ pub(super) mod tests {
                 ],
             }],
             output: OutputConfig {
+                operator: None,
                 driver: Some("PipeWire".into()),
                 audio: Some(AudioOutput {
                     device_name: "Main Interface".into(),
@@ -902,7 +931,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 7,
+        "formatVersion": 8,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {

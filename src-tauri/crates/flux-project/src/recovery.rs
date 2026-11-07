@@ -132,7 +132,24 @@ pub fn write(dir: &Path, recovery: &Recovery) -> Result<()> {
 }
 
 pub fn read(dir: &Path, id: &str) -> Result<Recovery> {
-    let recovery: Recovery = serde_json::from_reader(BufReader::new(File::open(file(dir, id)?)?))?;
+    let mut value: serde_json::Value =
+        serde_json::from_reader(BufReader::new(File::open(file(dir, id)?)?))?;
+    let created = value
+        .get("savedAt")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("1970-01-01T00:00:00Z")
+        .to_owned();
+    for pointer in ["/document/project", "/document/baseline"] {
+        if let Some(project) = value.pointer_mut(pointer)
+            && project
+                .get("formatVersion")
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|v| v < u64::from(FORMAT_VERSION))
+        {
+            crate::migrate::upgrade(project, &created);
+        }
+    }
+    let recovery: Recovery = serde_json::from_value(value)?;
     recovery.validate()?;
     if recovery.id != id {
         return Err(ProjectError::Invalid("recovery id mismatch".into()));

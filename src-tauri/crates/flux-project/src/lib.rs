@@ -9,6 +9,8 @@ mod item_ops;
 pub(crate) mod meta;
 mod migrate;
 mod model;
+pub mod operator;
+pub use operator::{Alignment, GeneratedVoice, OperatorOp, VoiceOrder, VoiceStatus, VoiceView};
 mod outputs;
 mod preview;
 pub mod recovery;
