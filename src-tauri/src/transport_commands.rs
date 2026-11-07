@@ -2,10 +2,10 @@
 //!
 //! `output_start` opens the devices a project names and `output_stop` closes them; the
 //! `transport_*` commands only send a message to the running audio callback. While an output runs
-//! it reports to the UI over three lanes, each with a thread and a [`Channel`] of its own:
-//! the position of the transport, where the show stands among its cues,
-//! and the peak level of every track, about 30 times a second each. A slow consumer of the meters never holds up the timecode, and a
-//! channel, unlike a broadcast event, is ordered and goes to the caller alone. A reloaded
+//! it reports to the UI over three lanes, each with a thread and a [`Channel`] of its own: the
+//! position of the transport, where the show stands among its cues, and the peak level of every
+//! track, about 30 times a second each. A slow consumer of the meters never holds up the timecode,
+//! and a channel, unlike a broadcast event, is ordered and goes to the caller alone. A reloaded
 //! window replaces those channels through `output_attach` without touching the devices.
 //!
 //! No command runs on the main thread, which belongs to the window: the heavy ones (opening
@@ -29,7 +29,7 @@ use crate::live_commands::{active_timeline, cue_list};
 use flux_audio::SharedAudio;
 use flux_engine::cues::{CueList, LiveState, SharedCues};
 use flux_engine::mixer::{self, Programme, TrackPeak};
-use flux_engine::output::{Output, OutputError, OutputInfo, Position};
+use flux_engine::output::{Output, OutputError, OutputInfo, Position, Reconfigured};
 use flux_engine::transport::{Command, TransportState};
 use flux_project::{OutputConfig, Project, Tempo, TimecodeSettings, Timeline};
 
@@ -38,6 +38,39 @@ const LANE_INTERVAL: Duration = Duration::from_millis(33);
 /// The event the window hears when the show ended and the next timeline was made active. Its
 /// payload is the [`ProjectState`] after the change.
 pub const TIMELINE_ADVANCED: &str = "timeline-advanced";
+
+/// The event the window hears when the programme's audio device, lost while the output ran, can be
+/// opened again. The window reopens the output, which carries the playhead over, stopped.
+pub const OUTPUT_DEVICE_BACK: &str = "output-device-back";
+
+/// How often a lost programme device is looked for.
+const DEVICE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+
+/// The device lane: says once when the programme's device is back after it was lost.
+#[derive(Default)]
+struct DeviceLane {
+    last_check: Option<Instant>,
+    announced: bool,
+}
+
+impl DeviceLane {
+    /// Whether to tell the window now. `present` looks for the device, which is not cheap, so it
+    /// only runs while the device is lost, at most once an interval.
+    fn back(&mut self, lost: bool, now: Instant, present: impl FnOnce() -> bool) -> bool {
+        if !lost || self.announced {
+            return false;
+        }
+        let due = self
+            .last_check
+            .is_none_or(|last| now.duration_since(last) >= DEVICE_CHECK_INTERVAL);
+        if !due {
+            return false;
+        }
+        self.last_check = Some(now);
+        self.announced = present();
+        self.announced
+    }
+}
 
 /// The position lane: a position that did not move is not sent again.
 #[derive(Default)]
@@ -162,10 +195,16 @@ pub struct Running {
 }
 
 impl Running {
+    // The lanes need every subscriber and the setup they were opened for; they cannot be narrower.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the setup, the injected app and the channels of the output"
+    )]
     fn new(
         output: Output,
         setup: OutputSetup,
         cues: SharedCues,
+        app: AppHandle,
         advance: Option<Advance>,
         on_position: Channel<Position>,
         on_levels: Channel<Vec<TrackPeak>>,
@@ -211,6 +250,16 @@ impl Running {
                 }
             })?;
         }
+
+        let (reader, device) = (running.output.reader(), running.output.programme_device());
+        let mut back = DeviceLane::default();
+        running.spawn_lane("flux-device", move || {
+            let lost = reader.position().device_lost;
+            if back.back(lost, Instant::now(), || device.is_present()) {
+                log::info!("audio device is back");
+                let _ = app.emit(OUTPUT_DEVICE_BACK, ());
+            }
+        })?;
 
         let reader = running.output.reader();
         let mut log = LogLane::default();
@@ -325,13 +374,14 @@ pub async fn output_start(
         let cues = SharedCues::new(list);
         // With `advance`, the show running to its end makes the next timeline the active one.
         let advance = advance.then(|| Advance {
-            app,
+            app: app.clone(),
             session: Arc::clone(&session),
         });
         *lock(&state) = Some(Running::new(
             output,
             setup,
             cues,
+            app,
             advance,
             on_position,
             on_levels,
@@ -345,6 +395,42 @@ pub async fn output_start(
         log::error!("output could not start: {err}");
     }
     started
+}
+
+/// Brings the running output's LTC and MTC outputs in line with the project's, without touching the
+/// programme's stream, so the change applies while playing. `needsRestart` says the change reaches
+/// the programme's stream (its device, channels, the LTC on it, the metronome, the frame rate or
+/// start): nothing was touched and the output has to be started again.
+#[tauri::command]
+pub async fn output_reconfigure(
+    state: State<'_, SharedOutput>,
+    session: State<'_, SharedSession>,
+    project: Project,
+) -> Result<Reconfigured, OutputError> {
+    let (state, session) = (Arc::clone(&state), Arc::clone(&session));
+    let done = tauri::async_runtime::spawn_blocking(move || {
+        let timeline = active_timeline(&session, &project)?;
+        match lock(&state).as_mut() {
+            Some(running) => {
+                let done = running.output.reconfigure(&project, timeline);
+                // The LTC and MTC outputs now play what the project asks for, so a window that
+                // attaches later must find them as requested.
+                if matches!(done, Reconfigured::Applied { .. }) {
+                    running.setup.output = project.output.clone();
+                }
+                Ok(done)
+            }
+            None => Err(OutputError::NotRunning),
+        }
+    })
+    .await
+    .map_err(|err| OutputError::Stream(err.to_string()))?;
+    match &done {
+        Ok(Reconfigured::Applied { info }) => diagnostics::output_reconfigured(info),
+        Ok(Reconfigured::NeedsRestart) => log::info!("output settings changed, restart needed"),
+        Err(err) => log::warn!("the output could not be reconfigured: {err}"),
+    }
+    done
 }
 
 /// Replaces a window's subscriptions without opening devices or sending transport commands.
@@ -534,7 +620,9 @@ mod tests {
             frame,
             position_samples: frame * 1_920,
             device_lost: false,
-            ltc_lost: false,
+            ltc_lost: 0,
+            mtc_lost: 0,
+            metronome_lost: false,
             clock_unpaced: false,
         }
     }
@@ -650,10 +738,39 @@ mod tests {
     }
 
     #[test]
+    fn device_lane_should_not_look_for_a_device_that_is_not_lost() {
+        let mut lane = DeviceLane::default();
+
+        assert!(!lane.back(false, Instant::now(), || panic!("looked")));
+    }
+
+    #[test]
+    fn device_lane_should_look_once_a_second_and_announce_once() {
+        let mut lane = DeviceLane::default();
+        let start = Instant::now();
+
+        assert!(!lane.back(true, start, || false));
+        assert!(
+            !lane.back(true, start + Duration::from_millis(500), || panic!(
+                "too soon"
+            ))
+        );
+        assert!(lane.back(true, start + DEVICE_CHECK_INTERVAL, || true));
+        assert!(
+            !lane.back(true, start + 3 * DEVICE_CHECK_INTERVAL, || panic!(
+                "announced"
+            ))
+        );
+    }
+
+    #[test]
     fn lanes_should_serialise_to_the_shape_the_ui_reads() {
         let position = serde_json::to_value(at(3)).unwrap();
         assert_eq!(position["frame"], 3);
         assert_eq!(position["positionSamples"], 3 * 1_920);
+        assert_eq!(position["ltcLost"], 0);
+        assert_eq!(position["mtcLost"], 0);
+        assert_eq!(position["metronomeLost"], false);
         let levels = serde_json::to_value(peak(0.5)).unwrap();
         assert_eq!(levels[0]["id"], "t1");
     }

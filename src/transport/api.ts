@@ -57,8 +57,12 @@ export interface Position {
   positionSamples: number;
   /** The audio device failed or went away while running. */
   deviceLost: boolean;
-  /** The LTC device, when it is not the programme's, failed or went away. */
-  ltcLost: boolean;
+  /** Bit *i* is set when `OutputInfo.ltc[i]` failed or went away (see `isLost`). */
+  ltcLost: number;
+  /** Bit *i* is set when `OutputInfo.mtc[i]` failed or went away. */
+  mtcLost: number;
+  /** The stream the metronome plays on failed or went away. */
+  metronomeLost: boolean;
   /** The device renders audio faster than real time (ALSA's null device does): the clock is wrong. */
   clockUnpaced: boolean;
 }
@@ -119,6 +123,18 @@ interface AttachedOutput {
 /** Replaces a previous page's subscriptions without restarting its output. */
 export function attachOutput(setup: OutputSetup, lanes: OutputLanes): Promise<AttachedOutput | null> {
   return invoke("output_attach", { setup, ...channels(lanes) });
+}
+
+/** What changing the settings of a running output ended in. */
+export type Reconfigured = { kind: "applied"; info: OutputInfo } | { kind: "needsRestart" };
+
+/**
+ * Brings the running output's LTC and MTC outputs in line with the project's without touching the
+ * programme's stream, so the change applies while playing. `needsRestart` means the change reaches
+ * the programme's stream and the output has to be started again; nothing was changed.
+ */
+export function reconfigureOutput(project: Project): Promise<Reconfigured> {
+  return invoke<Reconfigured>("output_reconfigure", { project });
 }
 
 /**

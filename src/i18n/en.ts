@@ -338,7 +338,8 @@ export const en = {
   "setup.graphics.safeHint": "If the window ever stays blank, start Flux with --safe-graphics (or the variable FLUX_SAFE_GRAPHICS=1) to ignore these settings for that run.",
   "setup.general.refreshNote": "Plugged in a device since Flux started? Refresh to reconnect.",
   "setup.status.off": "Output not connected",
-  "setup.status.pending": "Changes apply when playback stops.",
+  "setup.status.pending": "Changes to the audio device apply when playback stops.",
+  "setup.status.lost": "An output stopped responding. Flux reconnects it when it comes back.",
 
   "dialog.unsaved.title": "Save changes to {name}?",
   "dialog.unsaved.body": "Your changes are lost if you do not save them.",

@@ -18,6 +18,7 @@ import { setOutputOffset } from "../state/output";
 import { useDoc, useTimeline } from "../state/store";
 import { renameTimeline, setTimecode } from "../state/timelines";
 import { reconnect } from "../transport/playback";
+import { isLost } from "../transport/lost";
 import { isPlaying } from "../transport/store";
 import { useTransport } from "../transport/store";
 import {
@@ -100,9 +101,11 @@ function useOutput(): [OutputConfig, (next: OutputConfig) => void] {
 function rowState(
   reported: { ok: boolean } | undefined,
   connected: boolean,
+  lost = false,
 ): { state: LampState; word: MessageKey } {
   if (!connected) return { state: "fault", word: "output.state.missing" };
   if (!reported) return { state: "off", word: "setup.state.waiting" };
+  if (reported.ok && lost) return { state: "fault", word: "output.state.lost" };
   return reported.ok
     ? { state: "on", word: "output.state.running" }
     : { state: "fault", word: "output.state.missing" };
@@ -278,6 +281,7 @@ export function MetronomePage({ devices }: { devices: Devices }) {
   const t = useT();
   const [output, change] = useOutput();
   const info = useTransport((transport) => transport.info);
+  const metronomeLost = useTransport((transport) => transport.position?.metronomeLost ?? false);
   const metronome = output.metronome;
   const count = channelsOf(devices, metronome?.deviceName ?? "", Math.max(...(metronome?.channels ?? []), 2));
   const channels = metronome?.channels.length ? metronome.channels : [1, 2];
@@ -286,9 +290,11 @@ export function MetronomePage({ devices }: { devices: Devices }) {
     ? undefined
     : !connected || info?.metronome?.ok === false
       ? { state: "fault" as const, word: "output.state.missing" as const }
-      : info?.metronome
-        ? { state: "on" as const, word: "output.state.running" as const }
-        : { state: "off" as const, word: "setup.state.waiting" as const };
+      : metronomeLost
+        ? { state: "fault" as const, word: "output.state.lost" as const }
+        : info?.metronome
+          ? { state: "on" as const, word: "output.state.running" as const }
+          : { state: "off" as const, word: "setup.state.waiting" as const };
   return (
     <div className="setup-fields">
       <p className="setup-intro">{t("setup.metronome.intro")}</p>
@@ -359,6 +365,7 @@ export function LtcPage({ devices }: { devices: Devices }) {
   const t = useT();
   const [output, change] = useOutput();
   const info = useTransport((transport) => transport.info);
+  const lostMask = useTransport((transport) => transport.position?.ltcLost ?? 0);
   const programmeDevice = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? "";
   // What the output reported belongs to these rows only while it has one entry for each.
   const reported = info && info.ltc.length === output.ltc.length ? info.ltc : [];
@@ -376,7 +383,7 @@ export function LtcPage({ devices }: { devices: Devices }) {
             <OutputRow
               key={index}
               name={name}
-              {...rowState(reported[index], connected)}
+              {...rowState(reported[index], connected, isLost(lostMask, index))}
               onRemove={() => change(removeLtc(output, index))}
             >
               <RowSelect
@@ -445,6 +452,7 @@ export function MtcPage({ devices }: { devices: Devices }) {
   const t = useT();
   const [output, change] = useOutput();
   const info = useTransport((transport) => transport.info);
+  const lostMask = useTransport((transport) => transport.position?.mtcLost ?? 0);
   const reported = info && info.mtc.length === output.mtc.length ? info.mtc : [];
   const ports = devices.midi.map((port) => port.name);
   const choices = portChoices(ports);
@@ -460,7 +468,7 @@ export function MtcPage({ devices }: { devices: Devices }) {
           // A row with no port chosen has nothing to be missing.
           const key = portKey(mtc);
           const connected = key === "" || listed.includes(key);
-          const state = rowState(reported[index], connected);
+          const state = rowState(reported[index], connected, isLost(lostMask, index));
           return (
             <OutputRow
               key={index}
