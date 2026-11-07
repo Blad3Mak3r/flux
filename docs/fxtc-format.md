@@ -24,7 +24,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `7`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `8`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
@@ -275,3 +275,31 @@ the backend holds is always that window's own.
 The backend also remembers where each asset's bytes come from (the `.fxtc` it was opened or saved from, or an imported
 file not yet in any archive), so saving a project that references an asset the backend never saw fails with
 `MissingAsset`.
+
+
+## Spoken operator orders (version 8)
+
+`Project.voice` is an optional ElevenLabs voice ID. Operator tracks use
+`{ "type": "operator", "voice"?: "voice-id", "orders": [...] }`. Missing voices inherit:
+track, then project, then the installation's voice. An installation's API key never travels in an archive.
+
+Each order holds `id`, `at` (timeline-relative frames), `dialogue`, `alignment` (`start` or `end`), and
+optional `generated`: `{ asset, dialogue, voice, model, samples }`. `samples` is the decoded duration at
+`ENGINE_RATE`, not the MP3 source rate. The asset is bundled under `audio/` like imported audio.
+A generation preserves its exact dialogue, voice ID and model (`eleven_multilingual_v2`).
+
+The backend derives `ungenerated`, `synced` or `stale` by comparing the current dialogue and effective
+voice with the saved generation. It never stores a status flag that can contradict that comparison.
+Changing a voice or dialogue never initiates a billable request. Stale orders keep playing their saved audio.
+Moving an order and changing its alignment do not make its speech stale.
+
+The anchor remains at `at`. For start alignment the audio begins at the anchor; for end alignment it ends
+at the anchor, subtracting the exact decoded sample count. An end-aligned order that would start before
+the timeline origin is visibly invalid and silent; Flux neither truncates it nor moves its anchor.
+
+Version 7 and earlier archives migrate to version 8 without voice overrides or operator tracks. New
+operator fields are optional, and old Flux versions reject version 8 archives before parsing.
+
+The operator interface and mono/stereo channels belong to `preferences.json`, alongside the installation's
+voice ID. They are resolved into `OutputConfig.operator`. An unassigned or missing route stays silent.
+The operator bus follows Flux's clock; no speech generation or network activity runs during playback.
