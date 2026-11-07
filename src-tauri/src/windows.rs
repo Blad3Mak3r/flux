@@ -10,6 +10,9 @@ use std::sync::{Mutex, PoisonError};
 
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+use crate::commands::SharedSession;
+use crate::transport_commands::{SharedOutput, release};
+
 const LAUNCHER: &str = "launcher";
 const WELCOME: &str = "welcome";
 const EDITOR: &str = "main";
@@ -105,7 +108,21 @@ pub async fn window_show_welcome(
 
 /// Replaces the welcome window with the editor, which opens `path` or starts a new show.
 #[tauri::command]
-pub async fn window_open_editor(app: AppHandle, path: Option<PathBuf>) -> Result<(), String> {
+pub async fn window_open_editor(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    output: State<'_, SharedOutput>,
+    path: Option<PathBuf>,
+) -> Result<(), String> {
+    if app.get_webview_window(EDITOR).is_some() {
+        return Err("the editor is already open".into());
+    }
+    // Only a reload of the same editor may restore its document. A new window must honor `path`.
+    session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clear();
+    release(&output).await;
     build(&app, EDITOR, &editor_url(path.as_deref()))?;
     close(&app, WELCOME);
     Ok(())
