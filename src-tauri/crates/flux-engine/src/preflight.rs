@@ -33,6 +33,7 @@ pub struct Issue {
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub orders: usize,
+    pub ready: usize,
     pub errors: usize,
     pub warnings: usize,
     pub issues: Vec<Issue>,
@@ -120,15 +121,22 @@ pub fn check(
                     VoiceStatus::Synced => {}
                 }
                 if let Some(g) = &order.generated {
-                    if project
+                    let readable = project
                         .assets
                         .iter()
                         .find(|a| a.id == g.asset)
-                        .is_none_or(|a| samples(a) != Some(g.samples))
-                    {
+                        .is_some_and(|a| samples(a) == Some(g.samples));
+                    if !readable {
                         report.issues.push(issue(IssueCode::MissingAudio, true));
                     }
                     if let Some((from, to)) = order.interval(clock) {
+                        if readable
+                            && order.status(voice) == VoiceStatus::Synced
+                            && route.available
+                            && !route.ltc_conflict
+                        {
+                            report.ready += 1;
+                        }
                         intervals.push((from, to, order));
                     } else {
                         report.issues.push(issue(IssueCode::BeforeOrigin, true));
@@ -213,11 +221,16 @@ mod tests {
             kind: TrackKind::Operator {
                 voice: None,
                 orders: vec![VoiceOrder {
+                    synthesis_text: None,
+                    trim_start: 0,
+                    trim_end: 0,
                     id: "first".into(),
                     at: 25,
                     dialogue: "Go".into(),
                     alignment: Alignment::Start,
                     generated: Some(GeneratedVoice {
+                        origin: flux_project::operator::RecordingOrigin::Generated,
+                        synthesis_text: None,
                         asset: "audio".into(),
                         dialogue: "Go".into(),
                         voice: "voice".into(),

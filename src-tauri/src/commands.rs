@@ -61,7 +61,9 @@ pub async fn project_new(
     audio: State<'_, SharedAudio>,
     name: String,
     frame_rate: FrameRate,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<ProjectState> {
+    let _voice_transition = voice.begin_transition()?;
     audio.clear();
     log::info!("new project {name:?}");
     recovery::transition(&session, &store, move |s| {
@@ -81,7 +83,9 @@ pub async fn project_open(
     store: State<'_, SharedRecoveries>,
     audio: State<'_, SharedAudio>,
     path: PathBuf,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<ProjectState> {
+    let _voice_transition = voice.begin_transition()?;
     audio.clear();
     let opened = path.clone();
     let voice_directory = app

@@ -17,8 +17,8 @@ pub use super::meta::Meta;
 /// written while the format was changing can hold either shape, so the migration looks at the
 /// shape, not at the number.
 /// Version 6 separates portable signals from local hardware routing.
-/// Version 7 adds project-owned autosave preferences. Version 8 adds spoken operator tracks and inherited voices.
-pub const FORMAT_VERSION: u32 = 8;
+/// Version 9 adds recording origin, pronunciation text and non-destructive speech trims.
+pub const FORMAT_VERSION: u32 = 9;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -931,7 +931,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 8,
+        "formatVersion": 9,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {

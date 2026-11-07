@@ -462,6 +462,16 @@ pub fn build(
     timeline: &Timeline,
     mut load: impl FnMut(&AudioAsset) -> Result<Arc<Decoded>, AudioError>,
 ) -> Programme {
+    // Keep one buffer per asset in this programme even when the bounded global cache evicts it.
+    let mut decoded = std::collections::HashMap::<String, Arc<Decoded>>::new();
+    let mut load = |asset: &AudioAsset| -> Result<Arc<Decoded>, AudioError> {
+        if let Some(audio) = decoded.get(&asset.id) {
+            return Ok(Arc::clone(audio));
+        }
+        let audio = load(asset)?;
+        decoded.insert(asset.id.clone(), Arc::clone(&audio));
+        Ok(audio)
+    };
     let clock = Clock::new(ENGINE_RATE, timeline.timecode.frame_rate);
     let mut clips = Vec::new();
     let mut tracks = Vec::new();
@@ -494,7 +504,7 @@ pub fn build(
                     Ok(audio) => clips.push(ClipPlayer {
                         audio,
                         span: Span {
-                            origin: from as i64,
+                            origin: from as i64 - order.trim_start as i64,
                             from,
                             to,
                             fade_in: 0,
@@ -590,11 +600,16 @@ mod tests {
             kind: TrackKind::Operator {
                 voice: None,
                 orders: vec![flux_project::VoiceOrder {
+                    synthesis_text: None,
+                    trim_start: 0,
+                    trim_end: 0,
                     id: "go".into(),
                     at: 1,
                     dialogue: "Changed dialogue".into(),
                     alignment: flux_project::Alignment::End,
                     generated: Some(flux_project::GeneratedVoice {
+                        origin: flux_project::operator::RecordingOrigin::Generated,
+                        synthesis_text: None,
                         asset: "voice".into(),
                         dialogue: "Go".into(),
                         voice: "v".into(),
@@ -612,6 +627,25 @@ mod tests {
         assert_eq!(
             left,
             [0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0]
+        );
+        if let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind {
+            orders[0].trim_start = 2;
+            orders[0].trim_end = 3;
+        }
+        let trimmed = build(&project, &project.timelines[0], |_| Ok(ramp(10))).set;
+        let mut left = [0.0; 7];
+        trimmed.mix_operator(1914, &mut left, &mut [0.0; 7]);
+        assert_eq!(
+            left,
+            [
+                0.0,
+                2.0 * SCALE,
+                3.0 * SCALE,
+                4.0 * SCALE,
+                5.0 * SCALE,
+                6.0 * SCALE,
+                0.0
+            ]
         );
         if let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind {
             orders[0].at = 0;
@@ -1067,6 +1101,35 @@ mod tests {
         assert!(programme.set.is_empty());
         assert_eq!(programme.warnings.len(), 1);
         assert!(programme.warnings[0].starts_with("gone is silent"));
+    }
+
+    #[test]
+    fn a_programme_shares_audio_even_when_it_does_not_fit_the_global_cache() {
+        let project = project_with(
+            vec![audio_track(
+                "track",
+                false,
+                vec![clip("first", "a1", 0, 0.0), clip("second", "a1", 100, 0.0)],
+            )],
+            vec![asset("a1")],
+        );
+        let cache = flux_audio::AudioCache::with_budget(0);
+        let mut decodes = 0;
+        let programme = build(&project, &project.timelines[0], |asset| {
+            if let Some(audio) = cache.get(&asset.id) {
+                return Ok(audio);
+            }
+            decodes += 1;
+            let decoded = audio(1, 1, 10);
+            cache.insert(&asset.id, Arc::clone(&decoded));
+            Ok(decoded)
+        });
+        assert_eq!(decodes, 1);
+        assert!(Arc::ptr_eq(
+            &programme.set.clips[0].audio,
+            &programme.set.clips[1].audio
+        ));
+        assert_eq!(cache.retained_bytes(), 0);
     }
 
     fn on_track(mut player: ClipPlayer, track: usize) -> ClipPlayer {

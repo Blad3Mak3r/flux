@@ -480,7 +480,12 @@ impl Session {
         let asset = AudioAsset {
             id: id.into(),
             name: name.chars().take(64).collect(),
-            file: format!("audio/{id}.mp3"),
+            file: format!(
+                "audio/{id}.{}",
+                file.extension()
+                    .and_then(|e| e.to_str())
+                    .ok_or_else(|| ProjectError::Invalid("missing recording format".into()))?
+            ),
             bpm: None,
         };
         let source = AssetSource::Disk(path);
@@ -499,7 +504,14 @@ impl Session {
             _ => {
                 let bytes = self.asset_bytes(asset)?;
                 fs::create_dir_all(directory)?;
-                let path = directory.join(format!("{}.mp3", Uuid::new_v4()));
+                let path = directory.join(format!(
+                    "{}.{}",
+                    Uuid::new_v4(),
+                    Path::new(&asset.file)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("mp3")
+                ));
                 fs::write(&path, bytes)?;
                 AssetSource::Disk(path)
             }

@@ -2935,11 +2935,16 @@ mod tests {
             kind: TrackKind::Operator {
                 voice: None,
                 orders: vec![VoiceOrder {
+                    synthesis_text: None,
+                    trim_start: 0,
+                    trim_end: 0,
                     id: "o".into(),
                     at: 0,
                     dialogue: "Go".into(),
                     alignment: Alignment::Start,
                     generated: Some(GeneratedVoice {
+                        origin: flux_project::operator::RecordingOrigin::Generated,
+                        synthesis_text: None,
                         asset: "a".into(),
                         dialogue: "Go".into(),
                         voice: "v".into(),

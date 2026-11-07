@@ -537,11 +537,16 @@ mod tests {
             TrackKind::Operator {
                 voice: None,
                 orders: vec![VoiceOrder {
+                    synthesis_text: None,
+                    trim_start: 0,
+                    trim_end: 0,
                     id: "speech".into(),
                     at: 10,
                     dialogue: "New draft".into(),
                     alignment: Alignment::Start,
                     generated: Some(GeneratedVoice {
+                        origin: flux_project::operator::RecordingOrigin::Generated,
+                        synthesis_text: None,
                         asset: "a1".into(),
                         dialogue: "Recorded words".into(),
                         voice: "voice".into(),
