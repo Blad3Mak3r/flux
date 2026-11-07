@@ -1,4 +1,4 @@
-# Flux Timecode
+# FLUX
 
 Desktop application to build timecode tracks from songs, events and cues. It is a hybrid: QLab's cue / show-control
 model with a REAPER-style timeline and track interface, in a modern look.
@@ -20,7 +20,7 @@ the cues from the project and computes their state and countdowns (`src-tauri/cr
 
 ## Project file format
 
-Projects use the `.fxtc` extension. A `.fxtc` is a **zip container** holding:
+New projects use the `.flx` extension; legacy `.fxtc` projects remain supported. Both are the same **zip container** holding:
 
 - `project.json` — the full project description: one or more **timelines** (each with its own tracks, audio and notes,
   frame rate and start offset), the audio assets they share, and the output configuration (MTC/LTC settings, device
@@ -65,7 +65,7 @@ The logic lives in `src-tauri/crates/`, none of which depends on Tauri:
 | Crate | Holds |
 | --- | --- |
 | `flux-core` | `FrameRate`, `Timecode`, the sample `Clock`, `ENGINE_RATE`. |
-| `flux-project` | The `.fxtc` model, archive, migrations, the editing `Session` and its operations. |
+| `flux-project` | The `.flx` / legacy `.fxtc` model, archive, migrations, the editing `Session` and its operations. |
 | `flux-audio` | Decoding, waveform peaks, tempo detection. |
 | `flux-engine` | Transport, LTC/MTC, mixer, cues, outputs, device lookup, cue firing (MIDI/OSC). |
 
