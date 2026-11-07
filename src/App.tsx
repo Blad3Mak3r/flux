@@ -98,7 +98,7 @@ function Shell({ devices }: { devices: Devices }) {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
       const ui = useUi.getState();
-      if (ui.pending || ui.setup || ui.removing !== null || isTyping(event.target)) return;
+      if (ui.pending || ui.setup || ui.showCheck || ui.removing !== null || isTyping(event.target)) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       const fps = nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
