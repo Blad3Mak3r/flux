@@ -306,6 +306,16 @@ impl Preferences {
         validate(self)
     }
 
+    /// Language and persistence metadata never require an output change.
+    pub fn same_routing(&self, other: &Self) -> bool {
+        self.driver == other.driver
+            && self.audio == other.audio
+            && self.preview == other.preview
+            && self.metronome == other.metronome
+            && self.ltc == other.ltc
+            && self.mtc == other.mtc
+    }
+
     pub fn resolve(&self, show: &ShowOutputs, audition: bool) -> OutputConfig {
         OutputConfig {
             driver: self.driver.clone(),
@@ -423,6 +433,19 @@ pub fn preferences_resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn locale_changes_do_not_count_as_hardware_changes() {
+        let before = Preferences::default();
+        let mut after = before.clone();
+        after.locale = Some(Locale::Es);
+        assert!(before.same_routing(&after));
+        after.audio = Some(AudioOutput {
+            device_name: "Main".into(),
+            channels: vec![1, 2],
+        });
+        assert!(!before.same_routing(&after));
+    }
+
     #[test]
     fn saving_replaces_previous_preferences_and_failure_keeps_old_file() {
         let dir = tempfile::tempdir().unwrap();

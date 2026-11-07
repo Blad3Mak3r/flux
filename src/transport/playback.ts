@@ -1,13 +1,17 @@
 import { resolveOutput, usePreferences } from "../preferences/store";
 // Drives the backend output for the open project. The output connects by itself: when the window
 // starts, and whenever the output settings change, the devices are opened, so there is no Start
-// button. A change made while playing waits until playback stops or pauses, so the timecode never
-// glitches mid-show. The UI still works with no output running (a device is missing, or this is
+// button. Physical routing changes wait for pause/stop. Signal-only LTC/MTC changes can be applied without
+// touching the programme's stream; a change that reaches the programme's stream (its device, channels,
+// the LTC on it, the metronome, the frame rate) waits until playback stops or pauses, so the timecode
+// never glitches mid-show. When the programme's device is lost and comes back, the output reopens at the
+// same frame, stopped. The UI still works with no output running (a device is missing, or this is
 // not the desktop app): the playhead is parked and seeking only moves it.
 //
 // Plain functions over the stores rather than a hook: nothing here renders, so nothing re-renders
 // when it works, and every export is one stable function.
 
+import { listen } from "@tauri-apps/api/event";
 import { useLive } from "../live/store";
 import { errorMessage } from "../project/api";
 import { activeTimeline } from "../state/doc";
@@ -54,6 +58,8 @@ let openedFor: string | null = null;
 let openedStart: number | null = null;
 /** The timeline the open output plays; its parked playhead belongs to no other. */
 let openedTimeline: string | null = null;
+/** The view the open output was opened for; the other view may play through other outputs. */
+let openedView: string | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 /** Counts the outputs opened; a tick that comes from one closed since is dropped. */
 let run = 0;
@@ -92,6 +98,7 @@ function attach(): Promise<void> {
     openedFor = attached.matches ? JSON.stringify(requested) : null;
     openedStart = attached.start;
     openedTimeline = attached.timelineId;
+    openedView = attached.matches ? useUi.getState().view : null;
     if (!useTransport.getState().position) subscriber.onPosition(attached.position);
     useTransport.setState({ info: attached.info });
   })().catch((error) => {
@@ -141,7 +148,9 @@ export function bindTransport(): () => void {
   const unsubscribePrefs = usePreferences.subscribe((now, before) => {
     if (now.saved !== before.saved) reconnect();
   });
+  const listening = listen("output-device-back", () => reconnect(true)).catch(() => undefined);
   return () => {
+    void listening.then((unlisten) => unlisten?.());
     unsubscribePrefs();
     unsubscribeDoc();
     unsubscribeTransport();
@@ -178,14 +187,19 @@ async function connect(force: boolean): Promise<void> {
     report(error);
     return;
   }
-  const { position, info } = useTransport.getState();
-  const current = !force && info && openedFor === signature(useDoc.getState());
-  if (position?.state === "playing") {
-    if (!current) useTransport.setState({ pendingReconfigure: true });
+  if (!force && useTransport.getState().info && openedFor === signature(useDoc.getState())) {
+    useTransport.setState({ pendingReconfigure: false });
+    return;
+  }
+  if (!force && useTransport.getState().info && (await reconfigureInPlace())) return;
+  // The state may have moved while the backend answered.
+  const { position } = useTransport.getState();
+  // A lost device is not playing anything, whatever the last position says: it reopens at once.
+  if (position?.state === "playing" && !position.deviceLost) {
+    useTransport.setState({ pendingReconfigure: true });
     return;
   }
   useTransport.setState({ pendingReconfigure: false });
-  if (current) return;
   try {
     await open(true);
   } catch (error) {
@@ -195,6 +209,26 @@ async function connect(force: boolean): Promise<void> {
   }
 }
 
+/**
+ * Asks the backend to bring the open output in line with the project without reopening it. False
+ * when that is not possible (another timeline or view, or the change reaches the programme's
+ * stream) and the output has to be opened again.
+ */
+async function reconfigureInPlace(): Promise<boolean> {
+  const doc = useDoc.getState();
+  const requested = setup(doc);
+  const { timelineId, timecode, audition } = requested;
+  if (openedTimeline !== timelineId || openedStart !== timecode.start || openedView !== useUi.getState().view) return false;
+  try {
+    const result = await api.reconfigureOutput(doc.project, audition);
+    if (result.kind !== "applied") return false;
+    openedFor = JSON.stringify(requested);
+    useTransport.setState({ info: result.info, pendingReconfigure: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
 async function open(force = false): Promise<void> {
   const doc = useDoc.getState();
   const requested = setup(doc);
@@ -211,6 +245,7 @@ async function open(force = false): Promise<void> {
   openedFor = key;
   openedStart = timecode.start;
   openedTimeline = timelineId;
+  openedView = useUi.getState().view;
   useTransport.setState({ info, clipWarnings: [], position: null });
   scheduleClips();
   await api.seek(useTransport.getState().parked);
@@ -223,6 +258,7 @@ async function closeOutput(): Promise<void> {
   openedFor = null;
   openedStart = null;
   openedTimeline = null;
+  openedView = null;
   useTransport.setState({ info: null, position: null });
 }
 

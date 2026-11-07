@@ -41,13 +41,22 @@ pub fn start(app: &AppHandle) {
 
 /// Logs the output that was just opened: where each part ended up, and what did not open.
 pub fn output_started(info: &OutputInfo) {
+    log_output("output started", info);
+}
+
+/// Logs how the output ended up after a change of the settings that did not reopen it.
+pub fn output_reconfigured(info: &OutputInfo) {
+    log_output("output reconfigured", info);
+}
+
+fn log_output(what: &str, info: &OutputInfo) {
     let resolved = OutputInfo {
         warnings: Vec::new(),
         ..info.clone()
     };
     match serde_json::to_string(&resolved) {
-        Ok(json) => log::info!("output started: {json}"),
-        Err(err) => log::info!("output started on {} ({err})", info.device),
+        Ok(json) => log::info!("{what}: {json}"),
+        Err(err) => log::info!("{what} on {} ({err})", info.device),
     }
     log_warnings(&info.warnings);
 }

@@ -41,6 +41,8 @@ function Footer() {
   const info = useTransport((transport) => transport.info);
   const localError = usePreferences((p) => p.error);
   const pending = useTransport((transport) => transport.pendingReconfigure);
+  const position = useTransport((transport) => transport.position);
+  const lost = !!position && (position.deviceLost || position.ltcLost !== 0 || position.mtcLost !== 0 || position.metronomeLost);
   const clipWarnings = useTransport((transport) => transport.clipWarnings);
   const warnings = [...(info?.warnings ?? []), ...clipWarnings];
   return (
@@ -48,6 +50,7 @@ function Footer() {
       {localError && <p className="error" role="alert">{t("setup.preferencesError", { error: localError })}</p>}
       <p>{info ? t("out.runningOn", { device: info.device, rate: info.sampleRate }) : t("setup.status.off")}</p>
       {pending && <p>{t("setup.status.pending")}</p>}
+      {lost && <p className="warning">{t("setup.status.lost")}</p>}
       {warnings.map((warning) => (
         <p key={warning} className="warning">
           {warning}

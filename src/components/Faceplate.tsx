@@ -9,6 +9,7 @@ import { useDoc } from "../state/store";
 import { openSetup } from "../state/ui";
 import { formatFrames } from "../timecode";
 import { pause, play, stop } from "../transport/playback";
+import { isLost } from "../transport/lost";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
 import { DotMatrix } from "./DotMatrix";
 import { PauseIcon, PlayIcon, StopIcon } from "./icons";
@@ -119,7 +120,8 @@ function Lamps({ devices }: { devices: Devices }) {
   const output = useOutputView();
   const info = useTransport((transport) => transport.info);
   const deviceLost = useTransport((transport) => transport.position?.deviceLost);
-  const ltcLost = useTransport((transport) => transport.position?.ltcLost);
+  const ltcLost = useTransport((transport) => transport.position?.ltcLost ?? 0);
+  const mtcLost = useTransport((transport) => transport.position?.mtcLost ?? 0);
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced);
   const running = info !== null;
   const { ltc } = output;
@@ -134,12 +136,15 @@ function Lamps({ devices }: { devices: Devices }) {
   // A row with no port chosen is not an output yet.
   const ports = output.mtc.map((mtc, index) => ({ mtc, reported: info?.mtc.length === output.mtc.length ? info.mtc[index] : undefined })).filter(({ mtc }) => mtc.portName !== "");
 
-  const ltcDetails = ltc.map((one) =>
-    one.deviceName === UNASSIGNED ? t("setup.unassigned") : [t("output.channel", { channel: one.channel }), one.deviceName !== deviceName ? one.deviceName || t("output.default") : null]
+  const ltcDetails = ltc.map((one, index) =>
+    one.deviceName === UNASSIGNED ? t("setup.unassigned") : [t("output.channel", { channel: one.channel }), one.deviceName !== deviceName ? one.deviceName || t("output.default") : null, deviceLost || isLost(ltcLost, index) ? t("output.state.lost") : null]
       .filter(Boolean)
       .join(" · "),
   );
-  const mtcDetails = ports.map(({ mtc }) => mtc.portName);
+  // The bits of the mask count every row of the project, including those with no port yet.
+  const mtcDetails = output.mtc
+    .map((mtc, index) => (isLost(mtcLost, index) ? `${mtc.portName} · ${t("output.state.lost")}` : mtc.portName))
+    .filter((_, index) => output.mtc[index].portName !== "");
   const summary = (details: string[]) => (details.length > 1 ? t("output.count", { count: details.length }) : (details[0] ?? t("output.notSet")));
 
   const rows: OutputRow[] = [
@@ -156,11 +161,11 @@ function Lamps({ devices }: { devices: Devices }) {
         ltc.length > 0,
         devices.ltcPresence,
         ltcInfo !== null && ltcInfo.every((one) => one.ok),
-        deviceLost || ltcLost,
+        deviceLost || ltcLost !== 0,
         ltcInfo?.some((one) => !one.ok),
       ),
       detail: summary(ltcDetails),
-      title: ltcDetails.length > 1 ? ltcDetails.join("\n") : undefined,
+      title: ltcDetails.length > 1 || ltcLost !== 0 || deviceLost ? ltcDetails.join("\n") : undefined,
     },
     {
       legend: "output.mtc",
@@ -169,11 +174,11 @@ function Lamps({ devices }: { devices: Devices }) {
         ports.length > 0,
         devices.mtcPresence,
         ports.every(({ reported }) => reported?.ok === true),
-        false,
+        mtcLost !== 0,
         ports.some(({ reported }) => reported?.ok === false),
       ),
       detail: summary(mtcDetails),
-      title: mtcDetails.length > 1 ? mtcDetails.join("\n") : undefined,
+      title: mtcDetails.length > 1 || mtcLost !== 0 ? mtcDetails.join("\n") : undefined,
     },
   ];
 

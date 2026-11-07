@@ -34,6 +34,7 @@ import { LanguageSelect } from "../i18n/LanguageSelect";
 import { useDoc, useTimeline } from "../state/store";
 import { renameTimeline, setTimecode } from "../state/timelines";
 import { reconnect } from "../transport/playback";
+import { isLost } from "../transport/lost";
 import { isPlaying } from "../transport/store";
 import { useTransport } from "../transport/store";
 import { portChoices, portKey, portLabel } from "./outputs";
@@ -91,9 +92,11 @@ function OutputRow({
 function rowState(
   reported: { ok: boolean } | undefined,
   connected: boolean,
+  lost = false,
 ): { state: LampState; word: MessageKey } {
   if (!connected) return { state: "fault", word: "output.state.missing" };
   if (!reported) return { state: "off", word: "setup.state.waiting" };
+  if (reported.ok && lost) return { state: "fault", word: "output.state.lost" };
   return reported.ok
     ? { state: "on", word: "output.state.running" }
     : { state: "fault", word: "output.state.missing" };
@@ -299,6 +302,14 @@ export function AudioPage({ devices }: { devices: Devices }) {
 export function MetronomePage({ devices }: { devices: Devices }) {
   const t = useT();
   const click = useDoc((d) => d.project.output.metronome);
+  const route = usePreferences((p) => p.saved.metronome);
+  const info = useTransport((p) => p.info?.metronome);
+  const lost = useTransport((p) => p.position?.metronomeLost ?? false);
+  const connected =
+    Boolean(route) &&
+    (!devices.available ||
+      route?.deviceName === "" ||
+      devices.audio.some((d) => d.name === route?.deviceName));
   return (
     <div className="setup-fields">
       <Scope project />
@@ -329,6 +340,9 @@ export function MetronomePage({ devices }: { devices: Devices }) {
         channelsLabel="out.metronomeChannels"
         devices={devices}
       />
+      {click && route && (
+        <RowStatus {...rowState(info ?? undefined, connected, lost)} />
+      )}
     </div>
   );
 }
@@ -338,6 +352,7 @@ export function LtcPage({ devices }: { devices: Devices }) {
   const signals = useDoc((d) => d.project.output.ltc);
   const routes = usePreferences((p) => p.saved.ltc);
   const info = useTransport((p) => p.info);
+  const lostMask = useTransport((p) => p.position?.ltcLost ?? 0);
   return (
     <div className="setup-fields">
       <p className="field-note">{t("setup.scope.shared")}</p>
@@ -362,7 +377,11 @@ export function LtcPage({ devices }: { devices: Devices }) {
               name={name}
               {...(!route
                 ? { state: "off" as const, word: "setup.unassigned" as const }
-                : rowState(info?.ltc[index], connected))}
+                : rowState(
+                    info?.ltc[index],
+                    connected,
+                    isLost(lostMask, index),
+                  ))}
               onRemove={() =>
                 signalEdit({ op: "removeLtc", slot: signal.slot })
               }
@@ -444,6 +463,7 @@ export function MtcPage({ devices }: { devices: Devices }) {
   const routes = usePreferences((p) => p.saved.mtc);
   const info = useTransport((p) => p.info);
   const choices = portChoices(devices.midi.map((p) => p.name));
+  const lostMask = useTransport((p) => p.position?.mtcLost ?? 0);
   return (
     <div className="setup-fields">
       <p className="field-note">{t("setup.scope.shared")}</p>
@@ -465,7 +485,11 @@ export function MtcPage({ devices }: { devices: Devices }) {
               name={name}
               {...(!route
                 ? { state: "off" as const, word: "setup.unassigned" as const }
-                : rowState(info?.mtc[index], connected))}
+                : rowState(
+                    info?.mtc[index],
+                    connected,
+                    isLost(lostMask, index),
+                  ))}
               onRemove={() =>
                 signalEdit({ op: "removeMtc", slot: signal.slot })
               }

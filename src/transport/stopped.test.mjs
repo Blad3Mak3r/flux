@@ -8,7 +8,9 @@ const playing = {
   frame: 90_123,
   positionSamples: 4_800_000,
   deviceLost: false,
-  ltcLost: false,
+  ltcLost: 0,
+  mtcLost: 0,
+  metronomeLost: false,
   clockUnpaced: false,
 };
 
