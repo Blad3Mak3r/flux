@@ -1,4 +1,4 @@
-# `.fxtc` project format (v5)
+# `.fxtc` project format (v6)
 
 A `.fxtc` file is a zip archive. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -24,9 +24,10 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `5`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `6`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
+| `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
 | `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
 | `timelines[]` | `{ id, name, timecode, tempo, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
 | `timelines[].tempo` | `{ bpm, beatsPerBar, click }` | The beat grid of the timeline, counted from its origin: `bpm` 20 to 400, `beatsPerBar` 1 to 16 (the beat is a quarter note), `click` whether the metronome plays while this timeline runs. Absent in files written before it existed, read as 120 BPM, 4 beats, click off, without a version bump. Which bars the ruler shows is a view setting of the window and is not stored. |
@@ -184,12 +185,38 @@ is the one it keeps. Saving writes the current version, which older builds canno
 - **4**: `timecode` and `tracks` moved from the top level into `timelines`. An older file becomes a project with one
   timeline, named like the project, with a new `id`. The listing of recent projects reads the frame rate of the first
   timeline and the tracks of all of them (it also reads the older top-level shape).
+- **6**: added `autosave`, owned by the project. Older files receive `{ "enabled": true, "intervalSeconds": 30 }`.
 
 ## Saving
 
 `save` writes the archive to `<target>.tmp` and renames it over the target, so a failed save leaves the existing file
 as it was. Each asset is taken from either a file on disk (newly imported) or an existing `.fxtc`, from which the entry
 (and its preview) is copied without recompressing.
+
+## Autosave and crash recovery
+
+The dedicated `flux-recovery` worker saves dirty projects after two seconds without edits or after the project's
+interval during continuous editing. It copies a session snapshot under its mutex, then releases it before serialization
+and disk I/O. No recovery work runs on audio callbacks or engine lanes. Unchanged projects are not rewritten.
+
+Recovery copies live under the app data directory's `recovery/`, not next to the user's file. Each session has an opaque
+UUID filename. Its version-1 JSON holds `id`, `savedAt`, the document (`project`, original `path` or null, `baseline`,
+`active`) and an asset-id map of sources: `{ "kind": "archive" | "disk", "path": "<absolute path>" }`.
+The project retains `meta.id`; audio bytes, waveform previews and undo history are never included. Writes flush and sync
+the temporary JSON before renaming it over the previous copy. The original `.fxtc` is never touched by autosave.
+
+An OS lock on a companion `.lock` file keeps live sessions out of the recovery list and prevents two processes from
+restoring the same copy. A killed process releases the lock automatically. Welcome lists abandoned copies with their
+dates and offers Restore, Discard (with confirmation), or Open original. Opening the original removes the recovery only
+after successfully opening the file and creating the editor. Pending file-association requests remain available there.
+
+Restoration keeps the unsaved baseline and reads bundled assets from their original archives, newly imported assets
+from their original disk paths. Missing sources are reported by the audio-loading path without rejecting the restored
+document. Saving still requires the referenced audio to be available. Recovery is not an audio backup.
+
+Successful explicit save, confirmed close, project replacement or restart removes that session's recovery. A failed save
+or cancelled close preserves it. Disabling autosave stops new writes but preserves any existing copy. Options are edited
+in Preferences > Project, enter undo history and are stored in both the `.fxtc` and recovery JSON.
 
 ## File association
 
@@ -211,6 +238,12 @@ Defined in `src-tauri/src/commands.rs`, typed wrappers (with the file dialogs) i
 | `project_open` | `path` | The `Project` read from that `.fxtc`. |
 | `project_import_audio` | `path` | An `AudioAsset` (generated id, file `audio/<id>_<name>`) to add to the project. |
 | `project_save` | `project`, `path` | Writes the archive; afterwards all assets are read from `path`. |
+| `project_set_autosave` | `project`, `enabled`, `intervalSeconds` (text) | Validates the interval in Rust and returns `ProjectState` for the undo history. |
+| `recovery_list` | | Recovery summaries, newest first; corrupt/incompatible records remain discardable. |
+| `recovery_discard` | `id` | Removes an abandoned recovery after confirmation. |
+| `window_restore_recovery` | `id` | Installs the recovery in the session and opens the editor. |
+| `window_open_original` | `id` | Opens the original and discards the recovery only on success. |
+| `project_close` | | Clears the session and its recovery before the editor window is destroyed. |
 | `cue_edit` | `project`, `op` | Edits the MIDI and OSC tracks and the OSC destinations. `op` is tagged by `op`: `addTrack`, `addEvent` (a valid default event; the track is picked or created), `setMidi`, `setOsc`, `moveEvent`, `removeEvent`, `setMidiPort`, `setOscDestination`, `addDestination`, `updateDestination`, `removeDestination` (tracks that sent to it lose the destination). The backend validates, keeps events in order and answers with the project, the active timeline and the `id` it created, or the reason it refused; a refusal leaves the document as it was. |
 
 The Live view's commands (`live_cues`, `live_state`) read the project but write nothing, and cues are derived, not
