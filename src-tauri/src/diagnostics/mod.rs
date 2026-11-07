@@ -129,9 +129,11 @@ fn report(log_dir: &Path, output: Option<&OutputInfo>) -> String {
     }
     let midi = devices::list_midi()
         .map_or_else(|err| format!("unavailable ({err})"), |ports| json(&ports));
+    let midi_in = devices::list_midi_inputs()
+        .map_or_else(|err| format!("unavailable ({err})"), |ports| json(&ports));
     format!(
         "Flux Timecode {}\nSystem: {} {}\nExported: {}\nLog folder: {}\n\n\
-         Graphics:\n{}\n\nAudio drivers:\n{}\n\nAudio devices (default driver):\n{}\n\nMIDI ports:\n{midi}\n\nOutput:\n{}\n",
+         Graphics:\n{}\n\nAudio drivers:\n{}\n\nAudio devices (default driver):\n{}\n\nMIDI ports:\n{midi}\n\nMIDI input ports:\n{midi_in}\n\nOutput:\n{}\n",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH,

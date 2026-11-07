@@ -11,6 +11,7 @@ import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
+import { bindRemoteControl } from "./control/bind";
 import { bindLive } from "./live/feed";
 import { useLive } from "./live/store";
 import { TimelineConfirm } from "./components/TimelineConfirm";
@@ -245,6 +246,7 @@ function Editor() {
     return () => void listening.then((off) => off()).catch(() => undefined);
   }, [native, t]);
   useEffect(bindTimelineAdvance, []);
+  useEffect(bindRemoteControl, []);
   useEffect(() => {
     if (native) void startDocument(t, setPhase).then(() => setConnected(true));
   }, [native, t]);

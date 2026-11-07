@@ -571,6 +571,13 @@ pub fn is_playing(state: &SharedOutput) -> bool {
         .is_some_and(|running| running.output.reader().position().state == TransportState::Playing)
 }
 
+/// Where the transport of the running output is and the cues it plays, for the remote control.
+pub(crate) fn snapshot(state: &SharedOutput) -> Option<(Position, Arc<CueList>)> {
+    lock(state)
+        .as_ref()
+        .map(|running| (running.output.reader().position(), running.cues.current()))
+}
+
 /// How the running output ended up, for the diagnostics.
 pub fn running_info(state: &SharedOutput) -> Option<OutputInfo> {
     lock(state)
@@ -600,7 +607,7 @@ pub async fn output_stop(state: State<'_, SharedOutput>) -> Result<(), OutputErr
     Ok(())
 }
 
-fn send(state: &SharedOutput, command: Command) -> Result<(), OutputError> {
+pub(crate) fn send(state: &SharedOutput, command: Command) -> Result<(), OutputError> {
     match lock(state).as_ref() {
         Some(running) => running.output.send(command),
         None => Err(OutputError::NotRunning),

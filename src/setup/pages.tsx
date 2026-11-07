@@ -46,7 +46,7 @@ const NO_OSC_DESTINATIONS: OscDestination[] = [];
 type LampState = "off" | "on" | "fault";
 
 /** A state lamp with its word beside it: the state never rides on colour alone. */
-function RowStatus({ state, word }: { state: LampState; word: MessageKey }) {
+export function RowStatus({ state, word }: { state: LampState; word: MessageKey }) {
   const t = useT();
   return (
     <span className="row-status">

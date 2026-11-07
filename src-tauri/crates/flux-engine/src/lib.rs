@@ -2,6 +2,8 @@
 //! Live view and the output that opens the audio and MIDI devices. No Tauri in here, so it is
 //! testable without a window.
 
+pub mod control;
+pub mod control_in;
 pub mod cue_routes;
 pub mod cues;
 pub mod devices;

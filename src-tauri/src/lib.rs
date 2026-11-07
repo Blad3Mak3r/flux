@@ -1,5 +1,6 @@
 mod audio_commands;
 mod commands;
+mod control;
 mod device_commands;
 mod diagnostics;
 mod graphics;
@@ -37,11 +38,14 @@ pub fn run() {
         .manage(preferences::Store::default())
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
+        .manage(control::SharedControl::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
             recovery::start(app.handle())?;
             diagnostics::start(app.handle());
             log::info!("{}", graphics::describe());
+            let app = app.handle().clone();
+            tauri::async_runtime::spawn_blocking(move || control::start(&app));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -85,6 +89,9 @@ pub fn run() {
             device_commands::devices_list_midi,
             device_commands::devices_find_audio,
             device_commands::devices_find_midi,
+            control::control_get,
+            control::control_set,
+            control::control_learn,
             graphics::graphics_get,
             graphics::graphics_set,
             graphics::graphics_restart,

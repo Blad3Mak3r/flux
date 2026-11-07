@@ -19,7 +19,7 @@ use tauri::AppHandle;
 
 const FILE_NAME: &str = "graphics.json";
 /// The app's identifier (`tauri.conf.json`), which names its folder in the system's app data.
-const IDENTIFIER: &str = "com.fluxtimecode.app";
+pub(crate) const IDENTIFIER: &str = "com.fluxtimecode.app";
 
 /// The graphics API the webview draws through, on the systems that let one be chosen.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

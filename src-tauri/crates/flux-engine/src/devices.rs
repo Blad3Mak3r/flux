@@ -16,6 +16,7 @@ use thiserror::Error;
 const STANDARD_RATES: [u32; 6] = [44_100, 48_000, 88_200, 96_000, 176_400, 192_000];
 
 const MIDI_CLIENT_NAME: &str = "Flux Timecode";
+const MIDI_INPUT_CLIENT_NAME: &str = "Flux Timecode control";
 
 #[derive(Debug, Error)]
 pub enum DeviceError {
@@ -155,6 +156,18 @@ pub fn list_midi() -> Result<Vec<MidiPort>, DeviceError> {
         .ports()
         .iter()
         .filter_map(|port| output.port_name(port).ok())
+        .map(|name| MidiPort { name })
+        .collect())
+}
+
+/// The MIDI ports that send to Flux (controllers, pads), as [`list_midi`] lists those it sends to.
+pub fn list_midi_inputs() -> Result<Vec<MidiPort>, DeviceError> {
+    let input = midir::MidiInput::new(MIDI_INPUT_CLIENT_NAME)
+        .map_err(|err| DeviceError::Midi(err.to_string()))?;
+    Ok(input
+        .ports()
+        .iter()
+        .filter_map(|port| input.port_name(port).ok())
         .map(|name| MidiPort { name })
         .collect())
 }
