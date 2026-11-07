@@ -1,3 +1,4 @@
+import { useOutputView } from "./preferences/outputs";
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
@@ -229,7 +230,7 @@ function Editor() {
   const [phase, setPhase] = useState<EditorPhase>("project");
   const [connected, setConnected] = useState(!native);
   const [ready, setReady] = useState(!native);
-  const output = useDoc((doc) => doc.project.output);
+  const output = useOutputView();
   const view = useUi((ui) => ui.view);
   const devices = useDevices(output, !native || phase === "outputs");
   const liveEnabled = connected && view === "live";

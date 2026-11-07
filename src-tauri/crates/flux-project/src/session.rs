@@ -66,14 +66,6 @@ fn first_timeline(project: &Project) -> String {
         .unwrap_or_default()
 }
 
-/// Which kind of timecode output a setting is for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum OffsetKind {
-    Ltc,
-    Mtc,
-}
-
 /// A project and the timeline that is active in it: what the window shows after the backend
 /// changed something.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -148,9 +140,7 @@ impl Session {
         project
     }
 
-    /// Opens a `.fxtc`. A file written before projects carried metadata got an id while opening,
-    /// and is saved right away so that the id is the one it keeps; when it cannot be written (a
-    /// read-only disk) the project is still opened, and the next save does it.
+    /// Opens and migrates a project in memory. Only an explicit save upgrades the archive on disk.
     pub fn open(&mut self, path: &Path) -> Result<Project> {
         let path = std::path::absolute(path)?;
         let (project, _archive) = archive::open(&path)?;
@@ -159,11 +149,6 @@ impl Session {
         self.sources = archive_sources(&project, &path);
         self.previews.clear();
         self.document = Some(Document::new(project.clone(), Some(path.to_path_buf())));
-        if !project.meta.is_stamped()
-            && let Ok(saved) = self.save(&project, &path)
-        {
-            return Ok(saved);
-        }
         Ok(project)
     }
 
@@ -384,29 +369,8 @@ impl Session {
         Ok(CueEdited { state, id })
     }
 
-    /// Sets the latency offset of the LTC or MTC output at `index` to the ms in `text`. 0 is stored
-    /// as no offset, so the file stays as it was before the setting existed.
-    pub fn set_output_offset(
-        &mut self,
-        kind: OffsetKind,
-        index: usize,
-        text: &str,
-    ) -> Result<ProjectState> {
-        let ms: i32 = text
-            .trim()
-            .parse()
-            .map_err(|_| ProjectError::Invalid(format!("{text:?} is not a whole number of ms")))?;
-        let offset = (ms != 0).then_some(ms);
-        self.change(|project, _| {
-            let output = &mut project.output;
-            let slot = match kind {
-                OffsetKind::Ltc => output.ltc.get_mut(index).map(|ltc| &mut ltc.offset_ms),
-                OffsetKind::Mtc => output.mtc.get_mut(index).map(|mtc| &mut mtc.offset_ms),
-            };
-            *slot.ok_or_else(|| ProjectError::Invalid(format!("there is no output {index}")))? =
-                offset;
-            Ok(())
-        })
+    pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
+        self.change(|project, _| project.output.edit(op))
     }
 
     /// Applies `edit` to a copy of the project and the active id, and keeps the result only when it
@@ -660,57 +624,20 @@ mod tests {
         bytes
     }
 
-    /// A session whose project has one LTC and one MTC output.
-    fn session_with_outputs() -> Session {
+    #[test]
+    fn signal_edit_should_preserve_document_on_invalid_level() {
         let mut session = Session::default();
-        let mut project = session.new_project("Show", FrameRate::Fps25);
-        project.output.ltc.push(crate::LtcOutput {
-            device_name: "Main".into(),
-            channel: 3,
-            level: None,
-            offset_ms: None,
-        });
-        project.output.mtc.push(crate::MtcOutput {
-            port_name: "Bus".into(),
-            port_index: 0,
-            offset_ms: None,
-        });
-        session.update(project);
-        session
-    }
-
-    #[test]
-    fn set_output_offset_should_store_the_ms_of_each_kind() {
-        let mut session = session_with_outputs();
-        session
-            .set_output_offset(OffsetKind::Ltc, 0, " -12 ")
-            .unwrap();
-        let state = session.set_output_offset(OffsetKind::Mtc, 0, "30").unwrap();
-        assert_eq!(state.project.output.ltc[0].offset_ms, Some(-12));
-        assert_eq!(state.project.output.mtc[0].offset_ms, Some(30));
-    }
-
-    #[test]
-    fn set_output_offset_should_store_zero_as_no_offset() {
-        let mut session = session_with_outputs();
-        session.set_output_offset(OffsetKind::Ltc, 0, "5").unwrap();
-        let state = session.set_output_offset(OffsetKind::Ltc, 0, "0").unwrap();
-        assert_eq!(state.project.output.ltc[0].offset_ms, None);
-    }
-
-    #[test]
-    fn set_output_offset_should_refuse_bad_text_index_or_range_and_keep_the_document() {
-        let mut session = session_with_outputs();
+        session.new_project("Show", FrameRate::Fps25);
+        session.edit_signal(crate::SignalOp::AddLtc).unwrap();
         let before = session.document().unwrap();
-        for (kind, index, text) in [
-            (OffsetKind::Ltc, 0, "abc"),
-            (OffsetKind::Ltc, 0, ""),
-            (OffsetKind::Ltc, 0, "1.5"),
-            (OffsetKind::Ltc, 1, "5"),
-            (OffsetKind::Mtc, 0, "1001"),
-        ] {
-            assert!(session.set_output_offset(kind, index, text).is_err());
-        }
+        assert!(
+            session
+                .edit_signal(crate::SignalOp::SetLtcLevel {
+                    slot: 1,
+                    text: "2".into()
+                })
+                .is_err()
+        );
         assert_eq!(session.document().unwrap(), before);
     }
 
@@ -807,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn open_should_save_a_file_without_meta_so_it_keeps_the_id_it_was_given() {
+    fn open_should_leave_an_old_archive_unchanged_until_explicit_save() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("old.fxtc");
         let old = r##"{ "formatVersion": 2, "name": "Old", "timecode": { "frameRate": "fps25", "start": 0 },
@@ -818,11 +745,15 @@ mod tests {
         std::io::Write::write_all(&mut zip, old.as_bytes()).unwrap();
         zip.finish().unwrap();
 
-        let opened = Session::default().open(&path).unwrap();
+        let before = fs::read(&path).unwrap();
+        let mut session = Session::default();
+        let opened = session.open(&path).unwrap();
+        assert!(!opened.meta.is_stamped());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        session.save(&opened, &path).unwrap();
         let again = Session::default().open(&path).unwrap();
-
-        assert!(opened.meta.is_stamped());
-        assert_eq!(again.meta, opened.meta);
+        assert!(again.meta.is_stamped());
+        assert_eq!(again.meta.id, opened.meta.id);
         assert_eq!(again.output.mtc.len(), 1);
     }
 

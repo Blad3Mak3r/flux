@@ -133,8 +133,8 @@ export type Reconfigured = { kind: "applied"; info: OutputInfo } | { kind: "need
  * programme's stream, so the change applies while playing. `needsRestart` means the change reaches
  * the programme's stream and the output has to be started again; nothing was changed.
  */
-export function reconfigureOutput(project: Project): Promise<Reconfigured> {
-  return invoke<Reconfigured>("output_reconfigure", { project });
+export function reconfigureOutput(project: Project, audition: boolean): Promise<Reconfigured> {
+  return invoke<Reconfigured>("output_reconfigure", { project, audition });
 }
 
 /**

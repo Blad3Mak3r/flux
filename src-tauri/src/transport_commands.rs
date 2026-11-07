@@ -186,6 +186,7 @@ pub struct AttachedOutput {
 pub struct Running {
     output: Output,
     setup: OutputSetup,
+    preferences: crate::preferences::Preferences,
     cues: SharedCues,
     on_position: Sender<Channel<Position>>,
     on_levels: Sender<Channel<Vec<TrackPeak>>>,
@@ -203,6 +204,7 @@ impl Running {
     fn new(
         output: Output,
         setup: OutputSetup,
+        preferences: crate::preferences::Preferences,
         cues: SharedCues,
         app: AppHandle,
         advance: Option<Advance>,
@@ -217,6 +219,7 @@ impl Running {
         let mut running = Self {
             output,
             setup,
+            preferences,
             cues,
             on_position: position_tx,
             on_levels: levels_tx,
@@ -344,6 +347,7 @@ fn lock(state: &SharedOutput) -> MutexGuard<'_, Option<Running>> {
 pub async fn output_start(
     app: AppHandle,
     state: State<'_, SharedOutput>,
+    prefs: State<'_, crate::preferences::Store>,
     session: State<'_, SharedSession>,
     audio: State<'_, SharedAudio>,
     project: Project,
@@ -353,6 +357,11 @@ pub async fn output_start(
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
 ) -> Result<OutputInfo, OutputError> {
+    project.validate()?;
+    let prefs =
+        crate::preferences::preferences_get(app.clone(), prefs).map_err(OutputError::Stream)?;
+    let audition = audition && prefs.preview.is_some();
+    let resolved = prefs.resolve(&project.output, audition);
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     let started = tauri::async_runtime::spawn_blocking(move || {
         let previous = lock(&state).take();
@@ -361,11 +370,11 @@ pub async fn output_start(
         let timeline = active_timeline(&session, &project)?;
         let list = cue_list(&project, timeline, &session, &audio);
         let programme = programme(&project, timeline, &session, &audio, &list);
-        let output = Output::start(&project, timeline, programme, !audition)?;
+        let output = Output::start(&resolved, timeline, programme, !audition)?;
         let setup = OutputSetup {
             timeline_id: timeline.id.clone(),
             timecode: timeline.timecode.clone(),
-            output: project.output,
+            output: resolved,
             advance,
             audition,
         };
@@ -380,6 +389,7 @@ pub async fn output_start(
         *lock(&state) = Some(Running::new(
             output,
             setup,
+            prefs,
             cues,
             app,
             advance,
@@ -403,20 +413,38 @@ pub async fn output_start(
 /// start): nothing was touched and the output has to be started again.
 #[tauri::command]
 pub async fn output_reconfigure(
+    app: AppHandle,
+    prefs: State<'_, crate::preferences::Store>,
     state: State<'_, SharedOutput>,
     session: State<'_, SharedSession>,
     project: Project,
+    audition: bool,
 ) -> Result<Reconfigured, OutputError> {
+    project.validate()?;
+    let prefs = crate::preferences::preferences_get(app, prefs).map_err(OutputError::Stream)?;
+    let audition = audition && prefs.preview.is_some();
     let (state, session) = (Arc::clone(&state), Arc::clone(&session));
     let done = tauri::async_runtime::spawn_blocking(move || {
         let timeline = active_timeline(&session, &project)?;
         match lock(&state).as_mut() {
             Some(running) => {
-                let done = running.output.reconfigure(&project, timeline);
+                if audition != running.setup.audition {
+                    return Ok(Reconfigured::NeedsRestart);
+                }
+                let position = running.output.reader().position();
+                if position.state == TransportState::Playing
+                    && !position.device_lost
+                    && !prefs.same_routing(&running.preferences)
+                {
+                    return Ok(Reconfigured::NeedsRestart);
+                }
+                let resolved = prefs.resolve(&project.output, audition);
+                let done = running.output.reconfigure(&resolved, timeline);
                 // The LTC and MTC outputs now play what the project asks for, so a window that
                 // attaches later must find them as requested.
                 if matches!(done, Reconfigured::Applied { .. }) {
-                    running.setup.output = project.output.clone();
+                    running.setup.output = resolved;
+                    running.preferences = prefs;
                 }
                 Ok(done)
             }

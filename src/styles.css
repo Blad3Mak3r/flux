@@ -3125,3 +3125,19 @@ input:disabled {
   font-size: 11px;
   pointer-events: none;
 }
+
+/* Local setup uses the existing instrument fields and flat menus. */
+.setup-scope { margin: 12px 0 0; font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--ink-dim); }
+.setup-check { display: flex; align-items: center; gap: 8px; }
+.language-select { position: relative; }
+.language-trigger, .language-options button { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 32px; padding: 0 8px; color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--screen); font: inherit; text-align: left; }
+.language-trigger svg, .language-options svg { margin-left: auto; }
+.language-flag { display: block; width: 20px; height: 15px; flex: 0 0 auto; object-fit: contain; }
+.language-options { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; right: 0; border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--panel-hi); padding: 4px; }
+.language-options button { border: 0; background: transparent; }
+.language-options button:hover, .language-options button:focus { background: var(--panel-lo); }
+.legacy-routes { min-width: 0; }
+.legacy-routes table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; table-layout: fixed; }
+.legacy-routes th, .legacy-routes td { padding: 8px 4px; border-bottom: 1px solid var(--rule); text-align: left; overflow-wrap: anywhere; }
+
+.setup-row-fields > .setup-scope { grid-column: 1 / -1; }

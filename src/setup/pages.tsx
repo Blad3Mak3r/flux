@@ -1,20 +1,36 @@
+import { LegacyRoutes } from "../preferences/LegacyRoutes";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { PlusIcon, RefreshIcon, TrashIcon } from "../components/icons";
 import { SelectField, TextField, TimecodeField } from "../components/fields";
 import type { Devices } from "../devices/useDevices";
-import { LOCALES, useI18n, useT } from "../i18n";
-import type { Locale, MessageKey } from "../i18n";
-import type { FrameRate, OscDestination, OutputConfig } from "../project/types";
-import { DEFAULT_GRAPHICS, graphicsGet, graphicsRestart, graphicsSet } from "../graphics/api";
-import type { GraphicsApi, GraphicsPrefs, GraphicsState } from "../graphics/api";
+import { useT } from "../i18n";
+import type { MessageKey } from "../i18n";
+import type { FrameRate, OscDestination } from "../project/types";
+import {
+  DEFAULT_GRAPHICS,
+  graphicsGet,
+  graphicsRestart,
+  graphicsSet,
+} from "../graphics/api";
+import type {
+  GraphicsApi,
+  GraphicsPrefs,
+  GraphicsState,
+} from "../graphics/api";
 import { errorMessage, projectSetAutosave } from "../project/api";
 import { edit } from "../state/actions";
 import { isDirty } from "../state/doc";
 import { ask } from "../state/ui";
-import { setName, setOutput } from "../state/edit";
-import { addDestination, removeDestination, updateDestination } from "../state/cues";
-import { setOutputOffset } from "../state/output";
+import { setName } from "../state/edit";
+import {
+  addDestination,
+  removeDestination,
+  updateDestination,
+} from "../state/cues";
+import { signalEdit } from "../state/output";
+import { routeEdit, UNASSIGNED, usePreferences } from "../preferences/store";
+import { LanguageSelect } from "../i18n/LanguageSelect";
 import { dispatch, useDoc, useTimeline } from "../state/store";
 import { flushDocumentSync } from "../state/persist";
 import { renameTimeline, setTimecode } from "../state/timelines";
@@ -22,27 +38,7 @@ import { reconnect } from "../transport/playback";
 import { isLost } from "../transport/lost";
 import { isPlaying } from "../transport/store";
 import { useTransport } from "../transport/store";
-import {
-  addLtc,
-  addMtc,
-  clearMetronome,
-  clearPreview,
-  DEFAULT_LTC_LEVEL,
-  isConnected,
-  portChoices,
-  portKey,
-  portLabel,
-  removeLtc,
-  removeMtc,
-  setDriver,
-  setMetronomeChannels,
-  setMetronomeDevice,
-  setMetronomeGain,
-  setMtcPort,
-  setPreviewDevice,
-  setProgrammeDevice,
-  updateLtc,
-} from "./outputs";
+import { portChoices, portKey, portLabel } from "./outputs";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const NO_OSC_DESTINATIONS: OscDestination[] = [];
@@ -93,11 +89,6 @@ function OutputRow({
   );
 }
 
-function useOutput(): [OutputConfig, (next: OutputConfig) => void] {
-  const project = useDoc((doc) => doc.project);
-  return [project.output, (next) => edit(setOutput(project, next))];
-}
-
 /** The lamp for one row: running, missing or not yet connected, from what the output reported. */
 function rowState(
   reported: { ok: boolean } | undefined,
@@ -141,6 +132,7 @@ export function ProjectPage() {
         {[15, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{t("autosave.seconds", { seconds })}</option>)}
       </SelectField>
       {problem && <p className="message" data-tone="error" role="alert">{problem}</p>}
+      <LegacyRoutes />
     </div>
   );
 }
@@ -180,15 +172,36 @@ export function TimelinePage() {
   );
 }
 
-/** The options of a device list: the system default, a stored name that is not connected, the devices. */
-function DeviceOptions({ current, devices }: { current: string; devices: Devices }) {
+function Scope({ project = false }: { project?: boolean }) {
+  const t = useT();
+  return (
+    <p className="setup-scope">
+      {t(project ? "setup.scope.project" : "setup.scope.machine")}
+    </p>
+  );
+}
+
+function DeviceOptions({
+  current,
+  devices,
+  optional = true,
+}: {
+  current: string;
+  devices: Devices;
+  optional?: boolean;
+}) {
   const t = useT();
   return (
     <>
+      {optional && <option value={UNASSIGNED}>{t("setup.unassigned")}</option>}
       <option value="">{t("output.default")}</option>
-      {!isConnected(current, devices.audio.map((d) => d.name)) && (
-        <option value={current}>{t("out.notConnected", { name: current })}</option>
-      )}
+      {current !== UNASSIGNED &&
+        current !== "" &&
+        !devices.audio.some((d) => d.name === current) && (
+          <option value={current}>
+            {t("out.notConnected", { name: current })}
+          </option>
+        )}
       {devices.audio.map((d) => (
         <option key={d.name} value={d.name}>
           {d.name}
@@ -198,340 +211,351 @@ function DeviceOptions({ current, devices }: { current: string; devices: Devices
   );
 }
 
-const channelsOf = (devices: Devices, name: string, fallback: number) =>
-  devices.audio.find((d) => d.name === name)?.outputChannels ?? fallback;
-
-/** The first pair stereo interfaces offer, then each following one; a mono device offers channel 1. */
-const pairsOf = (count: number): number[][] =>
-  count < 2 ? [[1]] : Array.from({ length: Math.floor(count / 2) }, (_, i) => [2 * i + 1, 2 * i + 2]);
-
-/** The select value that stands for "no preview device"; an empty name is the system default. */
-const NO_PREVIEW = "__none__";
+function AudioRoute({
+  kind,
+  deviceLabel,
+  channelsLabel,
+  devices,
+}: {
+  kind: "audio" | "preview" | "metronome";
+  deviceLabel: MessageKey;
+  channelsLabel: MessageKey;
+  devices: Devices;
+}) {
+  const t = useT();
+  const route = usePreferences((p) => p.saved[kind]);
+  const current = route?.deviceName ?? (kind === "audio" ? "" : UNASSIGNED);
+  const count =
+    devices.audio.find(
+      (d) => d.name === current || (current === "" && d.isDefault),
+    )?.outputChannels ?? 2;
+  const pairs =
+    count < 2
+      ? [[1]]
+      : Array.from({ length: Math.floor(count / 2) }, (_, i) => [
+          2 * i + 1,
+          2 * i + 2,
+        ]);
+  return (
+    <>
+      <SelectField
+        label={t(deviceLabel)}
+        value={current}
+        disabled={!devices.available}
+        onChange={(text) => routeEdit(kind, "device", text)}
+      >
+        <DeviceOptions
+          current={current}
+          devices={devices}
+          optional={kind !== "audio"}
+        />
+      </SelectField>
+      {route && (
+        <SelectField
+          label={t(channelsLabel)}
+          value={route.channels.join("-")}
+          disabled={!devices.available}
+          onChange={(text) => routeEdit(kind, "channels", text)}
+        >
+          {!pairs.some((p) => p.join("-") === route.channels.join("-")) && (
+            <option value={route.channels.join("-")}>
+              {route.channels.join(" / ")}
+            </option>
+          )}
+          {pairs.map((p) => (
+            <option key={p.join("-")} value={p.join("-")}>
+              {p.length === 1
+                ? t("out.mono", { channel: p[0] })
+                : t("out.pair", { first: p[0], second: p[1] })}
+            </option>
+          ))}
+        </SelectField>
+      )}
+    </>
+  );
+}
 
 export function AudioPage({ devices }: { devices: Devices }) {
   const t = useT();
-  const [output, change] = useOutput();
-  const deviceName = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? "";
-  const defaultHost = devices.hosts.find((host) => host.isDefault)?.name ?? "";
-  const driver = output.driver ?? defaultHost;
-  // A project from another system can name a driver this one lacks: it plays on the default one.
-  const driverFound = !devices.available || devices.hosts.length === 0 || devices.hosts.some((host) => host.name === driver);
-  const count = channelsOf(devices, deviceName, Math.max(...(output.audio?.channels ?? []), 2));
-  const programme = output.audio?.channels.length ? output.audio.channels : [1, 2];
-  const pairs = pairsOf(count);
-  const preview = output.preview;
-  const previewCount = channelsOf(devices, preview?.deviceName ?? "", Math.max(...(preview?.channels ?? []), 2));
-  const previewChannels = preview?.channels.length ? preview.channels : [1, 2];
+  const driver = usePreferences((p) => p.saved.driver) ?? "";
   return (
     <div className="setup-fields">
-      {!devices.available && <p className="field-note">{t("out.desktopOnly")}</p>}
-      {(devices.hosts.length > 1 || !driverFound) && (
-        <SelectField
-          label={t("out.driver")}
-          value={driver}
-          hint={t("setup.audio.driverNote")}
-          disabled={!devices.available}
-          onChange={(name) => change(setDriver(output, name === defaultHost ? undefined : name))}
-        >
-          {!driverFound && <option value={driver}>{t("out.driverMissing", { name: driver })}</option>}
-          {devices.hosts.map((host) => (
-            <option key={host.name} value={host.name}>
-              {host.name}
-            </option>
-          ))}
-        </SelectField>
-      )}
+      <Scope />
+      <p className="field-note">{t("setup.scope.shared")}</p>
       <SelectField
-        label={t("out.audioDevice")}
-        value={deviceName}
-        hint={t("setup.audio.note")}
+        label={t("out.driver")}
+        value={driver}
         disabled={!devices.available}
-        onChange={(name) => change(setProgrammeDevice(output, name, channelsOf(devices, name, 2)))}
+        onChange={(text) => routeEdit("driver", "driver", text)}
       >
-        <DeviceOptions current={deviceName} devices={devices} />
-      </SelectField>
-      {devices.available && devices.audio.length === 0 && <p className="field-note">{t("out.noDevices")}</p>}
-      <SelectField
-        label={t("out.programme")}
-        value={programme.join("-")}
-        disabled={!devices.available}
-        onChange={(pair) => change({ ...output, audio: { deviceName, channels: pair.split("-").map(Number) } })}
-      >
-        {pairs.map((pair) => (
-          <option key={pair.join("-")} value={pair.join("-")}>
-            {pair.length === 1
-              ? t("out.mono", { channel: pair[0] })
-              : t("out.pair", { first: pair[0], second: pair[1] })}
+        <option value="">{t("output.default")}</option>
+        {driver && !devices.hosts.some((h) => h.name === driver) && (
+          <option value={driver}>
+            {t("out.driverMissing", { name: driver })}
+          </option>
+        )}
+        {devices.hosts.map((h) => (
+          <option key={h.name} value={h.name}>
+            {h.name}
           </option>
         ))}
       </SelectField>
-      <SelectField
-        label={t("out.previewDevice")}
-        value={preview ? preview.deviceName : NO_PREVIEW}
-        hint={t("setup.audio.previewNote")}
-        disabled={!devices.available}
-        onChange={(name) =>
-          change(name === NO_PREVIEW ? clearPreview(output) : setPreviewDevice(output, name, channelsOf(devices, name, 2)))
-        }
-      >
-        <option value={NO_PREVIEW}>{t("out.previewNone")}</option>
-        <DeviceOptions current={preview?.deviceName ?? ""} devices={devices} />
-      </SelectField>
-      {preview && (
-        <SelectField
-          label={t("out.previewChannels")}
-          value={previewChannels.join("-")}
-          disabled={!devices.available}
-          onChange={(pair) => change({ ...output, preview: { ...preview, channels: pair.split("-").map(Number) } })}
-        >
-          {pairsOf(previewCount).map((pair) => (
-            <option key={pair.join("-")} value={pair.join("-")}>
-              {pair.length === 1
-                ? t("out.mono", { channel: pair[0] })
-                : t("out.pair", { first: pair[0], second: pair[1] })}
-            </option>
-          ))}
-        </SelectField>
+      <AudioRoute
+        kind="audio"
+        deviceLabel="out.audioDevice"
+        channelsLabel="out.programme"
+        devices={devices}
+      />
+      <AudioRoute
+        kind="preview"
+        deviceLabel="out.previewDevice"
+        channelsLabel="out.previewChannels"
+        devices={devices}
+      />
+      {!devices.available && (
+        <p className="field-note">{t("out.desktopOnly")}</p>
       )}
     </div>
   );
 }
 
-/** The select value that stands for "no metronome output". */
-const NO_METRONOME = "__none__";
-
-/** The metronome's own device, channels and level. It follows the tempo of the active timeline. */
 export function MetronomePage({ devices }: { devices: Devices }) {
   const t = useT();
-  const [output, change] = useOutput();
-  const info = useTransport((transport) => transport.info);
-  const metronomeLost = useTransport((transport) => transport.position?.metronomeLost ?? false);
-  const metronome = output.metronome;
-  const count = channelsOf(devices, metronome?.deviceName ?? "", Math.max(...(metronome?.channels ?? []), 2));
-  const channels = metronome?.channels.length ? metronome.channels : [1, 2];
-  const connected = !metronome || !devices.available || isConnected(metronome.deviceName, devices.audio.map((d) => d.name));
-  const state = !metronome
-    ? undefined
-    : !connected || info?.metronome?.ok === false
-      ? { state: "fault" as const, word: "output.state.missing" as const }
-      : metronomeLost
-        ? { state: "fault" as const, word: "output.state.lost" as const }
-        : info?.metronome
-          ? { state: "on" as const, word: "output.state.running" as const }
-          : { state: "off" as const, word: "setup.state.waiting" as const };
+  const click = useDoc((d) => d.project.output.metronome);
+  const route = usePreferences((p) => p.saved.metronome);
+  const info = useTransport((p) => p.info?.metronome);
+  const lost = useTransport((p) => p.position?.metronomeLost ?? false);
+  const connected =
+    Boolean(route) &&
+    (!devices.available ||
+      route?.deviceName === "" ||
+      devices.audio.some((d) => d.name === route?.deviceName));
   return (
     <div className="setup-fields">
-      <p className="setup-intro">{t("setup.metronome.intro")}</p>
-      {!devices.available && <p className="field-note">{t("out.desktopOnly")}</p>}
-      <SelectField
-        label={t("out.metronomeDevice")}
-        value={metronome ? metronome.deviceName : NO_METRONOME}
-        hint={t("setup.metronome.note")}
-        disabled={!devices.available}
-        onChange={(name) =>
-          change(name === NO_METRONOME ? clearMetronome(output) : setMetronomeDevice(output, name, channelsOf(devices, name, 2)))
-        }
-      >
-        <option value={NO_METRONOME}>{t("out.metronomeNone")}</option>
-        <DeviceOptions current={metronome?.deviceName ?? ""} devices={devices} />
-      </SelectField>
-      {metronome && (
-        <>
-          <SelectField
-            label={t("out.metronomeChannels")}
-            value={channels.join("-")}
-            disabled={!devices.available}
-            onChange={(pair) => change(setMetronomeChannels(output, pair.split("-").map(Number)))}
-          >
-            {pairsOf(count).map((pair) => (
-              <option key={pair.join("-")} value={pair.join("-")}>
-                {pair.length === 1
-                  ? t("out.mono", { channel: pair[0] })
-                  : t("out.pair", { first: pair[0], second: pair[1] })}
-              </option>
-            ))}
-          </SelectField>
-          <TextField
-            label={t("out.metronomeLevel")}
-            value={String(metronome.gainDb ?? 0)}
-            inputMode="decimal"
-            monospace
-            validate={(text) => (Number.isFinite(Number(text)) && text.trim() !== "" ? null : t("field.numberInvalid"))}
-            onCommit={(text) => change(setMetronomeGain(output, Number(text)))}
-          />
-          {state && <RowStatus {...state} />}
-        </>
+      <Scope project />
+      <label className="setup-check">
+        <input
+          type="checkbox"
+          checked={Boolean(click)}
+          onChange={(e) =>
+            signalEdit({ op: "setMetronome", enabled: e.target.checked })
+          }
+        />
+        {t("setup.metronome.enabled")}
+      </label>
+      {click && (
+        <TextField
+          label={t("out.metronomeLevel")}
+          value={String(click.gainDb)}
+          inputMode="decimal"
+          monospace
+          onCommit={(text) => signalEdit({ op: "setMetronomeGain", text })}
+        />
+      )}
+      <Scope />
+      <p className="field-note">{t("setup.scope.shared")}</p>
+      <AudioRoute
+        kind="metronome"
+        deviceLabel="out.metronomeDevice"
+        channelsLabel="out.metronomeChannels"
+        devices={devices}
+      />
+      {click && route && (
+        <RowStatus {...rowState(info ?? undefined, connected, lost)} />
       )}
     </div>
-  );
-}
-
-/** Lets a row's select be read without a visible label: the row's name and the control's purpose speak for it. */
-function RowSelect({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string;
-  value: string | number;
-  onChange: (value: string) => void;
-  children: ReactNode;
-}) {
-  return (
-    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
-      {children}
-    </select>
   );
 }
 
 export function LtcPage({ devices }: { devices: Devices }) {
   const t = useT();
-  const [output, change] = useOutput();
-  const info = useTransport((transport) => transport.info);
-  const lostMask = useTransport((transport) => transport.position?.ltcLost ?? 0);
-  const programmeDevice = output.audio?.deviceName ?? output.ltc[0]?.deviceName ?? "";
-  // What the output reported belongs to these rows only while it has one entry for each.
-  const reported = info && info.ltc.length === output.ltc.length ? info.ltc : [];
-  const names = devices.audio.map((d) => d.name);
+  const signals = useDoc((d) => d.project.output.ltc);
+  const routes = usePreferences((p) => p.saved.ltc);
+  const info = useTransport((p) => p.info);
+  const lostMask = useTransport((p) => p.position?.ltcLost ?? 0);
   return (
     <div className="setup-fields">
-      <p className="setup-intro">{t("setup.ltc.intro")}</p>
-      {output.ltc.length === 0 && <p className="empty-note">{t("setup.ltc.empty")}</p>}
+      <p className="field-note">{t("setup.scope.shared")}</p>
+      {signals.length === 0 && (
+        <p className="empty-note">{t("setup.ltc.empty")}</p>
+      )}
       <ul className="setup-rows">
-        {output.ltc.map((ltc, index) => {
-          const channels = channelsOf(devices, ltc.deviceName, Math.max(ltc.channel, 2));
-          const name = t("setup.ltc.name", { number: index + 1 });
-          const connected = !devices.available || isConnected(ltc.deviceName, names);
+        {signals.map((signal, index) => {
+          const route = routes[signal.slot];
+          const current = route?.deviceName ?? UNASSIGNED;
+          const count =
+            devices.audio.find(
+              (d) => d.name === current || (current === "" && d.isDefault),
+            )?.outputChannels ?? Math.max(route?.channel ?? 1, 2);
+          const name = t("setup.ltc.name", { number: signal.slot });
+          const connected =
+            Boolean(route) &&
+            (current === "" || devices.audio.some((d) => d.name === current));
           return (
             <OutputRow
-              key={index}
+              key={signal.slot}
               name={name}
-              {...rowState(reported[index], connected, isLost(lostMask, index))}
-              onRemove={() => change(removeLtc(output, index))}
+              {...(!route
+                ? { state: "off" as const, word: "setup.unassigned" as const }
+                : rowState(
+                    info?.ltc[index],
+                    connected,
+                    isLost(lostMask, index),
+                  ))}
+              onRemove={() =>
+                signalEdit({ op: "removeLtc", slot: signal.slot })
+              }
             >
-              <RowSelect
-                label={`${name}: ${t("out.ltcDevice")}`}
-                value={ltc.deviceName}
-                onChange={(deviceName) =>
-                  change(
-                    updateLtc(output, index, {
-                      deviceName,
-                      channel: Math.min(ltc.channel, channelsOf(devices, deviceName, 2)),
-                    }),
-                  )
-                }
-              >
-                <DeviceOptions current={ltc.deviceName} devices={devices} />
-              </RowSelect>
-              <RowSelect
-                label={`${name}: ${t("out.ltcChannel")}`}
-                value={ltc.channel}
-                onChange={(channel) => change(updateLtc(output, index, { channel: Number(channel) }))}
-              >
-                {Array.from({ length: channels }, (_, i) => i + 1).map((channel) => (
-                  <option key={channel} value={channel}>
-                    {t("output.channel", { channel })}
-                  </option>
-                ))}
-              </RowSelect>
+              <Scope project />
               <TextField
-                label={`${name}: ${t("out.ltcLevel")}`}
-                value={String(ltc.level ?? DEFAULT_LTC_LEVEL)}
+                label={t("out.ltcLevel")}
+                value={String(signal.level ?? 0.5)}
                 inputMode="decimal"
                 monospace
-                validate={(text) => {
-                  const level = Number(text);
-                  return text.trim() !== "" && level >= 0 && level <= 1 ? null : t("field.levelInvalid");
-                }}
-                onCommit={(text) => change(updateLtc(output, index, { level: Number(text) }))}
+                onCommit={(text) =>
+                  signalEdit({ op: "setLtcLevel", slot: signal.slot, text })
+                }
               />
-              <TextField
-                label={`${name}: ${t("out.offset")}`}
-                value={String(ltc.offsetMs ?? 0)}
-                inputMode="numeric"
-                monospace
-                onCommit={(text) => void setOutputOffset("ltc", index, text)}
-              />
+              <Scope />
+              <SelectField
+                label={t("out.ltcDevice")}
+                value={current}
+                disabled={!devices.available}
+                onChange={(text) =>
+                  routeEdit("ltc", "device", text, signal.slot)
+                }
+              >
+                <DeviceOptions current={current} devices={devices} />
+              </SelectField>
+              {route && (
+                <>
+                  <SelectField
+                    label={t("out.ltcChannel")}
+                    value={String(route.channel)}
+                    disabled={!devices.available}
+                    onChange={(text) =>
+                      routeEdit("ltc", "channel", text, signal.slot)
+                    }
+                  >
+                    {route.channel > count && (
+                      <option value={route.channel}>
+                        {t("output.channel", { channel: route.channel })}
+                      </option>
+                    )}
+                    {Array.from({ length: count }, (_, i) => i + 1).map(
+                      (channel) => (
+                        <option key={channel} value={channel}>
+                          {t("output.channel", { channel })}
+                        </option>
+                      ),
+                    )}
+                  </SelectField>
+                  <TextField
+                    label={t("out.offset")}
+                    value={String(route.offsetMs ?? 0)}
+                    inputMode="numeric"
+                    monospace
+                    onCommit={(text) =>
+                      routeEdit("ltc", "offset", text, signal.slot)
+                    }
+                  />
+                </>
+              )}
             </OutputRow>
           );
         })}
       </ul>
-      <div className="button-row">
-        <button
-          type="button"
-          className="button"
-          disabled={!devices.available}
-          onClick={() => change(addLtc(output, programmeDevice, channelsOf(devices, programmeDevice, 2)))}
-        >
-          <PlusIcon />
-          {t("setup.ltc.add")}
-        </button>
-      </div>
+      <button
+        type="button"
+        className="button"
+        onClick={() => signalEdit({ op: "addLtc" })}
+      >
+        <PlusIcon />
+        {t("setup.ltc.add")}
+      </button>
     </div>
   );
 }
 
 export function MtcPage({ devices }: { devices: Devices }) {
   const t = useT();
-  const [output, change] = useOutput();
-  const info = useTransport((transport) => transport.info);
-  const lostMask = useTransport((transport) => transport.position?.mtcLost ?? 0);
-  const reported = info && info.mtc.length === output.mtc.length ? info.mtc : [];
-  const ports = devices.midi.map((port) => port.name);
-  const choices = portChoices(ports);
-  const listed = choices.map(portKey);
+  const signals = useDoc((d) => d.project.output.mtc);
+  const routes = usePreferences((p) => p.saved.mtc);
+  const info = useTransport((p) => p.info);
+  const choices = portChoices(devices.midi.map((p) => p.name));
+  const lostMask = useTransport((p) => p.position?.mtcLost ?? 0);
   return (
     <div className="setup-fields">
-      <p className="setup-intro">{t("setup.mtc.intro")}</p>
-      {devices.midiError && <p className="field-note">{t("out.midiUnavailable")}</p>}
-      {output.mtc.length === 0 && <p className="empty-note">{t("setup.mtc.empty")}</p>}
+      <p className="field-note">{t("setup.scope.shared")}</p>
+      {devices.midiError && (
+        <p className="field-note">{t("out.midiUnavailable")}</p>
+      )}
+      {signals.length === 0 && (
+        <p className="empty-note">{t("setup.mtc.empty")}</p>
+      )}
       <ul className="setup-rows">
-        {output.mtc.map((mtc, index) => {
-          const name = t("setup.mtc.name", { number: index + 1 });
-          // A row with no port chosen has nothing to be missing.
-          const key = portKey(mtc);
-          const connected = key === "" || listed.includes(key);
-          const state = rowState(reported[index], connected, isLost(lostMask, index));
+        {signals.map((signal, index) => {
+          const route = routes[signal.slot];
+          const key = route ? portKey(route) : UNASSIGNED;
+          const connected = choices.some((c) => portKey(c) === key);
+          const name = t("setup.mtc.name", { number: signal.slot });
           return (
             <OutputRow
-              key={index}
+              key={signal.slot}
               name={name}
-              {...(mtc.portName === "" ? { state: "off" as const, word: "output.state.off" as const } : state)}
-              onRemove={() => change(removeMtc(output, index))}
+              {...(!route
+                ? { state: "off" as const, word: "setup.unassigned" as const }
+                : rowState(
+                    info?.mtc[index],
+                    connected,
+                    isLost(lostMask, index),
+                  ))}
+              onRemove={() =>
+                signalEdit({ op: "removeMtc", slot: signal.slot })
+              }
             >
-              <RowSelect
-                label={`${name}: ${t("out.mtcPort")}`}
+              <Scope />
+              <SelectField
+                label={t("out.mtcPort")}
                 value={key}
-                onChange={(picked) => change(setMtcPort(output, index, picked))}
+                disabled={!devices.available}
+                onChange={(text) => routeEdit("mtc", "port", text, signal.slot)}
               >
-                <option value="">{t("out.choose")}</option>
-                {key !== "" && !connected && (
-                  <option value={key}>{t("out.notConnected", { name: portLabel(mtc, choices) })}</option>
+                <option value={UNASSIGNED}>{t("setup.unassigned")}</option>
+                {route && !connected && (
+                  <option value={key}>
+                    {t("out.notConnected", { name: route.portName })}
+                  </option>
                 )}
-                {choices.map((choice) => (
-                  <option key={portKey(choice)} value={portKey(choice)}>
-                    {portLabel(choice, choices)}
+                {choices.map((c) => (
+                  <option key={portKey(c)} value={portKey(c)}>
+                    {portLabel(c, choices)}
                   </option>
                 ))}
-              </RowSelect>
-              <TextField
-                label={`${name}: ${t("out.offset")}`}
-                value={String(mtc.offsetMs ?? 0)}
-                inputMode="numeric"
-                monospace
-                onCommit={(text) => void setOutputOffset("mtc", index, text)}
-              />
+              </SelectField>
+              {route && (
+                <TextField
+                  label={t("out.offset")}
+                  value={String(route.offsetMs ?? 0)}
+                  inputMode="numeric"
+                  monospace
+                  onCommit={(text) =>
+                    routeEdit("mtc", "offset", text, signal.slot)
+                  }
+                />
+              )}
             </OutputRow>
           );
         })}
       </ul>
-      <div className="button-row">
-        <button type="button" className="button" onClick={() => change(addMtc(output, ports))}>
-          <PlusIcon />
-          {t("setup.mtc.add")}
-        </button>
-      </div>
+      <button
+        type="button"
+        className="button"
+        onClick={() => signalEdit({ op: "addMtc" })}
+      >
+        <PlusIcon />
+        {t("setup.mtc.add")}
+      </button>
     </div>
   );
 }
@@ -539,19 +563,31 @@ export function MtcPage({ devices }: { devices: Devices }) {
 /** The OSC receivers the OSC tracks choose from. The backend adds, checks and removes them. */
 export function OscPage() {
   const t = useT();
-  const destinations = useDoc((doc) => doc.project.output.osc ?? NO_OSC_DESTINATIONS);
+  const destinations = useDoc(
+    (doc) => doc.project.output.osc ?? NO_OSC_DESTINATIONS,
+  );
   const reported = useTransport((transport) => transport.info?.cues ?? []);
-  const integer = (text: string) => (/^\s*\d+\s*$/.test(text) ? null : t("field.integerInvalid"));
+  const integer = (text: string) =>
+    /^\s*\d+\s*$/.test(text) ? null : t("field.integerInvalid");
   return (
     <div className="setup-fields">
       <p className="setup-intro">{t("setup.osc.intro")}</p>
-      {destinations.length === 0 && <p className="empty-note">{t("setup.osc.empty")}</p>}
+      {destinations.length === 0 && (
+        <p className="empty-note">{t("setup.osc.empty")}</p>
+      )}
       <ul className="setup-rows">
         {destinations.map((destination) => {
-          const result = reported.find((cue) => cue.kind === "osc" && cue.target === destination.name);
+          const result = reported.find(
+            (cue) => cue.kind === "osc" && cue.target === destination.name,
+          );
           const save = (patch: Partial<typeof destination>) => {
             const next = { ...destination, ...patch };
-            void updateDestination(destination.id, next.name, next.host, next.port);
+            void updateDestination(
+              destination.id,
+              next.name,
+              next.host,
+              next.port,
+            );
           };
           return (
             <OutputRow
@@ -560,8 +596,17 @@ export function OscPage() {
               {...rowState(result, true)}
               onRemove={() => void removeDestination(destination.id)}
             >
-              <TextField label={`${destination.name}: ${t("setup.osc.name")}`} value={destination.name} onCommit={(name) => save({ name })} />
-              <TextField label={`${destination.name}: ${t("setup.osc.host")}`} value={destination.host} monospace onCommit={(host) => save({ host })} />
+              <TextField
+                label={`${destination.name}: ${t("setup.osc.name")}`}
+                value={destination.name}
+                onCommit={(name) => save({ name })}
+              />
+              <TextField
+                label={`${destination.name}: ${t("setup.osc.host")}`}
+                value={destination.host}
+                monospace
+                onCommit={(host) => save({ host })}
+              />
               <TextField
                 label={`${destination.name}: ${t("setup.osc.port")}`}
                 value={String(destination.port)}
@@ -578,7 +623,13 @@ export function OscPage() {
         <button
           type="button"
           className="button"
-          onClick={() => void addDestination(t("setup.osc.default", { number: destinations.length + 1 }), "127.0.0.1", 53000)}
+          onClick={() =>
+            void addDestination(
+              t("setup.osc.default", { number: destinations.length + 1 }),
+              "127.0.0.1",
+              53000,
+            )
+          }
         >
           <PlusIcon />
           {t("setup.osc.add")}
@@ -590,30 +641,22 @@ export function OscPage() {
 
 export function GeneralPage({ devices }: { devices: Devices }) {
   const t = useT();
-  const { locale, setLocale } = useI18n();
   return (
     <div className="setup-fields">
-      <SelectField label={t("menu.language")} value={locale} onChange={(next) => setLocale(next as Locale)}>
-        {LOCALES.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-      </SelectField>
-      <div className="setup-refresh">
-        <button
-          type="button"
-          className="button"
-          onClick={() => {
-            devices.refresh();
-            reconnect(true);
-          }}
-        >
-          <RefreshIcon />
-          {t("out.refresh")}
-        </button>
-        <p className="field-note">{t("setup.general.refreshNote")}</p>
-      </div>
+      <Scope />
+      <LanguageSelect />
+      <button
+        type="button"
+        className="button"
+        onClick={() => {
+          devices.refresh();
+          reconnect(true);
+        }}
+      >
+        <RefreshIcon />
+        {t("out.refresh")}
+      </button>
+      <p className="field-note">{t("setup.general.refreshNote")}</p>
     </div>
   );
 }
@@ -632,7 +675,10 @@ export function GraphicsPage() {
     graphicsGet().then(setState, (err) => setProblem(errorMessage(err)));
   }, []);
 
-  if (!state) return <p className="empty-note">{problem ?? t("setup.graphics.loading")}</p>;
+  if (!state)
+    return (
+      <p className="empty-note">{problem ?? t("setup.graphics.loading")}</p>
+    );
 
   const change = (prefs: GraphicsPrefs) => {
     setProblem(null);
@@ -651,7 +697,9 @@ export function GraphicsPage() {
   return (
     <div className="setup-fields">
       <p className="setup-intro">{t("setup.graphics.intro")}</p>
-      {!state.accelerationConfigurable && <p className="field-note">{t("setup.graphics.fixed")}</p>}
+      {!state.accelerationConfigurable && (
+        <p className="field-note">{t("setup.graphics.fixed")}</p>
+      )}
       {state.safeMode && (
         <p className="field-note" role="status">
           {t("setup.graphics.safe")}
@@ -662,7 +710,9 @@ export function GraphicsPage() {
           <input
             type="checkbox"
             checked={saved.hardwareAcceleration}
-            onChange={(event) => change({ ...saved, hardwareAcceleration: event.target.checked })}
+            onChange={(event) =>
+              change({ ...saved, hardwareAcceleration: event.target.checked })
+            }
           />
           <span>{t("setup.graphics.acceleration")}</span>
         </label>
@@ -672,7 +722,11 @@ export function GraphicsPage() {
           label={t("setup.graphics.api")}
           value={saved.api}
           disabled={!saved.hardwareAcceleration}
-          hint={saved.api === "vulkan" ? t("setup.graphics.vulkanNote") : t("setup.graphics.apiNote")}
+          hint={
+            saved.api === "vulkan"
+              ? t("setup.graphics.vulkanNote")
+              : t("setup.graphics.apiNote")
+          }
           onChange={(api) => change({ ...saved, api: api as GraphicsApi })}
         >
           {state.apis.map((api) => (
@@ -684,12 +738,19 @@ export function GraphicsPage() {
       )}
       {state.restartNeeded && (
         <div className="setup-refresh">
-          <button type="button" className="button" disabled={playing} onClick={restart}>
+          <button
+            type="button"
+            className="button"
+            disabled={playing}
+            onClick={restart}
+          >
             <RefreshIcon />
             {t("setup.graphics.restart")}
           </button>
           <p className="field-note" role="status">
-            {playing ? t("setup.graphics.restartPlaying") : t("setup.graphics.restartNote")}
+            {playing
+              ? t("setup.graphics.restartPlaying")
+              : t("setup.graphics.restartNote")}
           </p>
         </div>
       )}
@@ -697,7 +758,11 @@ export function GraphicsPage() {
         <button
           type="button"
           className="button"
-          disabled={saved.hardwareAcceleration === DEFAULT_GRAPHICS.hardwareAcceleration && saved.api === DEFAULT_GRAPHICS.api}
+          disabled={
+            saved.hardwareAcceleration ===
+              DEFAULT_GRAPHICS.hardwareAcceleration &&
+            saved.api === DEFAULT_GRAPHICS.api
+          }
           onClick={() => change(DEFAULT_GRAPHICS)}
         >
           {t("setup.graphics.reset")}

@@ -1,3 +1,4 @@
+import { usePreferences } from "../preferences/store";
 import { useEffect, useRef } from "react";
 import { CloseIcon } from "../components/icons";
 import type { Devices } from "../devices/useDevices";
@@ -38,6 +39,7 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
 function Footer() {
   const t = useT();
   const info = useTransport((transport) => transport.info);
+  const localError = usePreferences((p) => p.error);
   const pending = useTransport((transport) => transport.pendingReconfigure);
   const position = useTransport((transport) => transport.position);
   const lost = !!position && (position.deviceLost || position.ltcLost !== 0 || position.mtcLost !== 0 || position.metronomeLost);
@@ -45,6 +47,7 @@ function Footer() {
   const warnings = [...(info?.warnings ?? []), ...clipWarnings];
   return (
     <footer className="setup-foot" role="status">
+      {localError && <p className="error" role="alert">{t("setup.preferencesError", { error: localError })}</p>}
       <p>{info ? t("out.runningOn", { device: info.device, rate: info.sampleRate }) : t("setup.status.off")}</p>
       {pending && <p>{t("setup.status.pending")}</p>}
       {lost && <p className="warning">{t("setup.status.lost")}</p>}

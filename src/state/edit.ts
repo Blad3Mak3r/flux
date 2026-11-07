@@ -9,7 +9,6 @@ import type {
   FrameRate,
   MidiEvent,
   OscEvent,
-  OutputConfig,
   Project,
   Note,
   Tempo,
@@ -21,12 +20,12 @@ import { DEFAULT_TEMPO, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/t
 export function emptyProject(name: string, frameRate: FrameRate): Project {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   return {
-    formatVersion: 6,
+    formatVersion: 7,
     autosave: { enabled: true, intervalSeconds: 30 },
     name,
     meta: { id: crypto.randomUUID(), createdAt: now, modifiedAt: now, createdWith: "", savedWith: "" },
     assets: [],
-    output: { audio: null, ltc: [], mtc: [] },
+    output: { ltc: [], mtc: [] },
     timelines: [
       { id: crypto.randomUUID(), name, timecode: { frameRate, start: 0 }, tempo: DEFAULT_TEMPO, tracks: [] },
     ],
@@ -298,6 +297,7 @@ export function setTempo(project: Project, timeline: string, patch: Partial<Temp
   });
 }
 
+
 /** Records the tempo of an audio file; `null` forgets it, stored as no value. */
 export function setAssetBpm(project: Project, assetId: string, bpm: number | null): Project {
   const target = project.assets.find((asset) => asset.id === assetId);
@@ -313,8 +313,4 @@ export function setAssetBpm(project: Project, assetId: string, bpm: number | nul
 
 export function setName(project: Project, name: string): Project {
   return { ...project, name };
-}
-
-export function setOutput(project: Project, output: OutputConfig): Project {
-  return { ...project, output };
 }
