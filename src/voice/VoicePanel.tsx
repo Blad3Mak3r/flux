@@ -1,3 +1,5 @@
+import { RecoveredAudio } from "./RecoveredAudio";
+import { openShowCheck } from "./ShowCheckDialog";
 import { VoiceSelector } from "./VoiceSelector";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -48,6 +50,7 @@ export function VoicePage({ devices }: { devices: Devices }) {
     <VoiceSelector scope="flux" value={voice} />
     {error && <p className="error" role="alert">{error}</p>}
     {(!route || routeLost) && <p className="field-note" role="status">{t("voice.routeMissing")}</p>}
+    <button type="button" className="button" onClick={openShowCheck}>{t("check.title")}</button>
     <AudioRoute kind="operator" deviceLabel="voice.device" channelsLabel="voice.channels" devices={devices} />
   </div>;
 }
@@ -59,11 +62,12 @@ export function OrderPanel({ track, order, timeline }: { track: Track; order: Vo
   const error = useVoice((v) => v.error);
   const mode = useTransport(selectMode);
   const voices = useVoice((v) => v.voices);
-  useEffect(() => () => { void invoke("voice_preview_stop").catch(() => undefined); }, []);
-  const update = (patch: Partial<Pick<VoiceOrder, "dialogue" | "alignment" | "at">>) => operatorEdit({ op: "editOrder", id: order.id, dialogue: order.dialogue, alignment: order.alignment, at: order.at, ...patch });
+  useEffect(() => () => { void invoke("voice_preview_stop").catch(() => undefined); }, [order.id]);
+  const update = (patch: Partial<Pick<VoiceOrder, "dialogue" | "alignment" | "at">>) => operatorEdit({ op: "editOrder", id: order.id, ...patch });
   return <div className="panel-body">
     <h3>{t("voice.order")}</h3>
-    <p role="status">{t(busy === order.id ? "voice.generating" : `voice.status.${view?.status ?? "ungenerated"}`)}</p>
+    <p>{t(`voice.status.${view?.status ?? "ungenerated"}`)}</p>
+    {busy === order.id && <p role="status">{t("voice.generating")}</p>}
     {view?.beforeOrigin && <p className="error" role="alert">{t("voice.beforeOrigin")}</p>}
     <TextAreaField key={order.id} label={t("voice.dialogue")} value={order.dialogue} onCommit={(dialogue) => void update({ dialogue })} />
     <TimecodeField label={t("voice.position")} frame={timeline.timecode.start + order.at} rate={timeline.timecode.frameRate} onCommit={(frame) => void update({ at: frame - timeline.timecode.start })} />
@@ -75,8 +79,10 @@ export function OrderPanel({ track, order, timeline }: { track: Track; order: Vo
     {order.generated && <details><summary>{t("voice.generatedDialogue")}</summary><p className="voice-dialogue">{order.generated.dialogue}</p><p className="field-note">{order.generated.voice}</p></details>}
     <button className="button" type="button" disabled={busy !== null || mode !== "stopped" || !view?.voice} onClick={() => void generateOrder(order.id)}>{t(order.generated ? "voice.regenerate" : "voice.generate")}</button>
     {mode !== "stopped" && <p className="field-note">{t("voice.stopToGenerate")}</p>}
-    <button className="button" type="button" disabled={!order.generated || mode === "playing"} onClick={() => { void invoke("voice_preview", { project: useDoc.getState().project, id: order.id }).catch((e) => useVoice.setState({ error: voiceError(e) })); }}>{t("voice.listen")}</button>
+    <button className="button" type="button" disabled={!order.generated || mode !== "stopped"} onClick={() => { void invoke("voice_preview", { project: useDoc.getState().project, id: order.id }).catch((e) => useVoice.setState({ error: voiceError(e) })); }}>{t("voice.listen")}</button>
+    <button className="button" type="button" disabled={!order.generated || mode !== "stopped"} onClick={() => { void invoke("voice_preview_stop").catch((e) => useVoice.setState({ error: voiceError(e) })); }}>{t("voice.stopListen")}</button>
     {error && <p className="error" role="alert">{error}</p>}
+    <RecoveredAudio orderId={order.id} />
     <button className="button" type="button" onClick={() => void operatorEdit({ op: "duplicateOrder", id: order.id })}>{t("voice.duplicate")}</button>
     <button className="button" type="button" onClick={() => void addOrder(track.id, order.at)}>{t("voice.addOrder")}</button>
     <button className="button danger" type="button" onClick={() => void operatorEdit({ op: "removeOrder", id: order.id })}>{t("inspector.delete")}</button>

@@ -1,3 +1,4 @@
+import { ShowCheckDialog } from "./voice/ShowCheckDialog";
 import { bindVoice } from "./voice/store";
 import { useOutputView } from "./preferences/outputs";
 import { useEffect, useState } from "react";
@@ -203,6 +204,7 @@ function Shell({ devices }: { devices: Devices }) {
       </main>
       <StatusBar />
       <SetupDialog devices={devices} />
+      <ShowCheckDialog />
       <MenuHost />
       <TimelineConfirm />
       <UnsavedDialog

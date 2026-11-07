@@ -92,6 +92,7 @@ interface UiState {
   pending: Pending | null;
   /** The page of the Setup dialog that is open, or `null` while it is closed. */
   setup: SetupSection | null;
+  showCheck: boolean;
   menu: OpenMenu | null;
   /** The timeline waiting for the user to confirm that it is removed. */
   removing: string | null;
@@ -188,6 +189,7 @@ export const useUi = create<UiState>()(() => ({
   message: { key: "status.ready", tone: "info" },
   pending: null,
   setup: null,
+  showCheck: false,
   menu: null,
   removing: null,
 }));

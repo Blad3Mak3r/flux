@@ -1,3 +1,4 @@
+import { openShowCheck } from "../voice/ShowCheckDialog";
 import { addOperator, addOrder, selectedOperatorTrack, operatorEdit } from "../voice/store";
 // The items of every menu: the menu bar's and the ones a right click opens. They are built when the
 // menu opens, from the latest state, and call the same functions the keyboard does.
@@ -253,6 +254,8 @@ function transportMenu(t: Translate): MenuItem[] {
   const second = () => nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
   const by = (frames: () => number) => () => seek(currentFrame() + frames());
   return [
+    { label: t("check.title"), disabled: isPlaying(), run: openShowCheck },
+    "-",
     { label: t("menu.playPause"), shortcut: "Space", run: () => void toggle() },
     { label: t("menu.stop"), shortcut: "Home", run: () => void stop() },
     "-",

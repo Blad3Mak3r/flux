@@ -9,7 +9,8 @@ import { analyse } from "../state/audio";
 import { flushDocumentSync } from "../state/persist";
 
 export interface Voice { voice_id: string; name: string }
-export const useVoice = create<{ views: Record<string, VoiceView>; voices: Voice[]; busy: string | null; error: string | null; listError: string | null; loading: boolean }>(() => ({ views: {}, voices: [], busy: null, error: null, listError: null, loading: false }));
+export interface RecoverableJob { id: string; orderId: string; dialogue: string; voice: string; canAttach: boolean; matching: boolean }
+export const useVoice = create<{ views: Record<string, VoiceView>; voices: Voice[]; busy: string | null; error: string | null; listError: string | null; loading: boolean; jobs: RecoverableJob[]; unsaved: boolean }>(() => ({ views: {}, voices: [], busy: null, error: null, listError: null, loading: false, jobs: [], unsaved: false }));
 
 export function voiceError(error: unknown): string {
   const value = error as { code?: string; error?: { code?: string } };
@@ -27,11 +28,26 @@ export async function refreshVoiceViews(): Promise<void> {
   } catch (error) { if (current === revision) useVoice.setState({ error: voiceError(error) }); }
 }
 
+let jobsRevision = 0;
+export async function refreshJobs(): Promise<void> {
+  if (!isTauri()) return;
+  const request = ++jobsRevision;
+  const project = useDoc.getState().project;
+  try {
+    const [jobs, unsaved] = await Promise.all([
+      invoke<RecoverableJob[]>("voice_jobs", { project }),
+      invoke<boolean>("voice_pending", { projectId: project.meta.id }),
+    ]);
+    if (request === jobsRevision) useVoice.setState({ jobs, unsaved });
+  } catch (error) { if (request === jobsRevision) useVoice.setState({ error: voiceError(error) }); }
+}
+
 export function bindVoice(): () => void {
   void refreshVoiceViews();
-  const doc = useDoc.subscribe((next, previous) => { if (next.project !== previous.project) void refreshVoiceViews(); });
-  const prefs = usePreferences.subscribe((next, previous) => { if (next.saved.voice !== previous.saved.voice) void refreshVoiceViews(); });
-  return () => { revision++; doc(); prefs(); };
+  void refreshJobs();
+  const doc = useDoc.subscribe((next, previous) => { if (next.project !== previous.project) { void refreshVoiceViews(); void refreshJobs(); } });
+  const prefs = usePreferences.subscribe((next, previous) => { if (next.saved.voice !== previous.saved.voice) { void refreshVoiceViews(); void refreshJobs(); } });
+  return () => { revision++; jobsRevision++; doc(); prefs(); };
 }
 
 let edits: Promise<void> = Promise.resolve();
@@ -65,28 +81,51 @@ export async function loadVoices(): Promise<void> {
   finally { useVoice.setState({ loading: false }); }
 }
 
+async function attachJob(jobId: string, recover: boolean, docKey: number): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await edits;
+    await flushDocumentSync();
+    if (useUi.getState().docKey !== docKey) return;
+    const current = useDoc.getState().project;
+    let answer: ProjectState;
+    try { answer = await invoke<ProjectState>("voice_commit", { project: current, jobId, recover }); }
+    catch (error) { if (useUi.getState().docKey === docKey && useDoc.getState().project !== current) continue; throw error; }
+    if (useUi.getState().docKey !== docKey) return;
+    if (useDoc.getState().project !== current) continue;
+    dispatch({ type: "apply", ...answer });
+    await analyse(answer.project.assets.filter((a) => a.id === jobId));
+    return;
+  }
+  throw { code: "obsolete" };
+}
+
 export async function generateOrder(id: string): Promise<void> {
   if (useVoice.getState().busy) return;
   useVoice.setState({ busy: id, error: null });
   const docKey = useUi.getState().docKey;
-  let token: number | undefined;
   try {
     await edits;
     await flushDocumentSync();
-    token = await invoke<number>("voice_generate", { project: useDoc.getState().project, id });
-    if (useUi.getState().docKey !== docKey) return;
-    await edits;
-    await flushDocumentSync();
-    const current = useDoc.getState().project;
-    const answer = await invoke<ProjectState>("voice_commit", { project: current, token });
-    if (useDoc.getState().project !== current || useUi.getState().docKey !== docKey) throw { code: "obsolete" };
-    dispatch({ type: "apply", ...answer });
-    await analyse(answer.project.assets);
+    const jobId = await invoke<string>("voice_generate", { project: useDoc.getState().project, id });
+    await attachJob(jobId, false, docKey);
   } catch (error) { useVoice.setState({ error: voiceError(error) }); }
-  finally {
-    if (token !== undefined) await invoke("voice_discard", { token }).catch(() => undefined);
-    useVoice.setState({ busy: null });
-  }
+  finally { useVoice.setState({ busy: null }); await refreshJobs(); }
+}
+
+export async function recoverJob(jobId: string): Promise<void> {
+  if (useVoice.getState().busy) return;
+  useVoice.setState({ busy: "recovery", error: null });
+  try { await attachJob(jobId, true, useUi.getState().docKey); }
+  catch (error) { useVoice.setState({ error: voiceError(error) }); }
+  finally { useVoice.setState({ busy: null }); await refreshJobs(); }
+}
+
+export async function retrySave(): Promise<void> {
+  if (useVoice.getState().busy) return;
+  useVoice.setState({ busy: "saving", error: null });
+  try { await invoke("voice_retry_save"); }
+  catch (error) { useVoice.setState({ error: voiceError(error) }); }
+  finally { useVoice.setState({ busy: null }); await refreshJobs(); }
 }
 
 /** Resolve a selected operator item for menus; generation and timing remain backend-owned. */

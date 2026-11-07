@@ -3182,3 +3182,19 @@ input:disabled {
 .operator-order[data-range="false"] { min-width: 1px; width: 1px; padding: 0; border: 0; background: transparent; }
 .operator-order[data-range="false"] .operator-order-text { margin-left: 8px; padding: 4px 6px; width: max-content; max-width: 180px; background: var(--panel); border: 1px dashed var(--rule-strong); }
 .operator-order[data-range="false"] .operator-order-state { margin-left: 8px; width: max-content; max-width: 180px; padding: 2px 6px; background: var(--panel); }
+
+.show-check { width: 820px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); padding: 0; }
+.show-check .setup-head h2 { margin: 0; }
+.show-check-body { padding: 20px; overflow-y: auto; max-height: calc(100vh - 120px); }
+.show-check-list, .recovered-list { list-style: none; margin: 16px 0; padding: 0; }
+.show-check-list > li { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid var(--rule); }
+.show-check-list > li > div { min-width: 0; }
+.show-check-list p, .recovered-list p { margin: 6px 0; }
+.show-check-list .button { flex-shrink: 0; }
+.recovered-audio { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--rule); }
+.recovered-audio h4 { margin: 0 0 8px; }
+.recovered-list > li { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+
+@media (max-width: 560px) {
+  .show-check-list > li { flex-direction: column; gap: 8px; }
+}
