@@ -2018,10 +2018,46 @@ input:disabled {
   gap: 10px;
 }
 
+.welcome-body > .message {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .recents {
   display: grid;
   gap: 6px;
 }
+
+.recovery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.recovery-detail {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.recovery-path {
+  overflow-wrap: anywhere;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.recovery-detail time {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.recovery-actions { flex-wrap: wrap; }
 
 .recent {
   display: grid;

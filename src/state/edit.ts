@@ -21,7 +21,8 @@ import { DEFAULT_TEMPO, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/t
 export function emptyProject(name: string, frameRate: FrameRate): Project {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   return {
-    formatVersion: 5,
+    formatVersion: 6,
+    autosave: { enabled: true, intervalSeconds: 30 },
     name,
     meta: { id: crypto.randomUUID(), createdAt: now, modifiedAt: now, createdWith: "", savedWith: "" },
     assets: [],

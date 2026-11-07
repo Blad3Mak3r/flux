@@ -14,6 +14,7 @@ import {
 import type { BackendDocument } from "../project/api";
 import type { Project, ProjectState } from "../project/types";
 import { closeEditor } from "../welcome/api";
+import { flushDocumentSync } from "./persist";
 import { currentFrame } from "../transport/store";
 import { seek, startTransport } from "../transport/playback";
 import { analyse, detectTempos, forgetAnalyses } from "./audio";
@@ -99,6 +100,7 @@ export function startDocument(t: Translate, phase: (value: EditorPhase) => void)
 
 export const newDocument = (t: Translate) =>
   replaceDoc(async () => {
+    await flushDocumentSync();
     const fresh = await newProject(t("project.untitled"), "fps25").catch(() => offlineProject(t));
     load(fresh, null);
     say("status.ready");
@@ -106,6 +108,7 @@ export const newDocument = (t: Translate) =>
 
 async function openAt(path: string): Promise<Project | undefined> {
   try {
+    await flushDocumentSync();
     const opened = await openProjectAt(path);
     load(opened, path);
     say("status.opened", { name: basename(path) });
@@ -132,16 +135,20 @@ export const openDocument = () =>
   });
 
 /** Returns to the welcome window after the shared unsaved-changes flow has finished. */
-export const closeDocument = () => replaceDoc(closeEditor);
+export const closeDocument = () => replaceDoc(async () => {
+  await flushDocumentSync();
+  await closeEditor();
+});
 
 export async function saveDocument(asNew: boolean): Promise<boolean> {
   try {
+    await flushDocumentSync();
     const { project, path: current } = useDoc.getState();
     const saved = await saveProject(project, asNew ? null : current);
     if (saved === null) return false;
-    dispatch({ type: "saved", path: saved.path, meta: saved.meta });
+    dispatch({ type: "saved", path: saved.path, meta: saved.meta, snapshot: project });
     say("status.saved", { name: basename(saved.path) });
-    return true;
+    return !isDirty(useDoc.getState());
   } catch (err) {
     fail(err);
     return false;
