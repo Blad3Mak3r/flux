@@ -86,9 +86,16 @@ export interface Track {
   kind: TrackKind;
 }
 
-export interface GeneratedVoice { asset: string; dialogue: string; voice: string; model: string; samples: number }
-export interface VoiceOrder { id: string; at: number; dialogue: string; alignment: "start" | "end"; generated?: GeneratedVoice }
-export interface VoiceView { id: string; voice: string | null; source: "track" | "project" | "flux"; status: "ungenerated" | "synced" | "stale"; beforeOrigin: boolean; start: number | null; length: number | null }
+export interface GeneratedVoice {
+  origin?: "generated" | "imported";
+  synthesisText?: string; asset: string; dialogue: string; voice: string; model: string; samples: number }
+export interface VoiceOrder {
+  synthesisText?: string;
+  trimStart?: number;
+  trimEnd?: number; id: string; at: number; dialogue: string; alignment: "start" | "end"; generated?: GeneratedVoice }
+export interface VoiceView {
+  trimStartMs: string;
+  trimEndMs: string; id: string; voice: string | null; source: "track" | "project" | "flux"; status: "ungenerated" | "synced" | "stale"; beforeOrigin: boolean; start: number | null; length: number | null }
 
 export type TrackKind =
   | { type: "operator"; voice?: string; orders: VoiceOrder[] }

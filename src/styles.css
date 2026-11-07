@@ -3211,3 +3211,7 @@ input:disabled {
 @media (max-width: 560px) {
   .show-check-list > li { flex-direction: column; gap: 8px; }
 }
+
+.show-check-list > li[aria-current="true"] { background: var(--panel-lo); outline: 1px solid var(--ink-dim); outline-offset: -1px; }
+.show-check-list > li { padding-inline: 8px; }
+.recovered-list .field-note { overflow-wrap: anywhere; }

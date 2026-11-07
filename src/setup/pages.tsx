@@ -1,3 +1,4 @@
+import { freezeVoices, protectVoiceWork } from "../voice/store";
 import { VoiceSelector } from "../voice/VoiceSelector";
 import { LegacyRoutes } from "../preferences/LegacyRoutes";
 import { useEffect, useState } from "react";
@@ -134,6 +135,8 @@ export function ProjectPage() {
       </SelectField>
       {problem && <p className="message" data-tone="error" role="alert">{problem}</p>}
       <VoiceSelector scope="project" value={project.voice} />
+      <button type="button" className="button" onClick={() => void freezeVoices()}>{t("voice.freeze")}</button>
+      <p className="field-note">{t("voice.freezeNote")}</p>
       <LegacyRoutes />
     </div>
   );
@@ -689,7 +692,7 @@ export function GraphicsPage() {
   };
   // The restart drops the document and the output, so it asks first about work that was not saved.
   const restart = () => {
-    const go = () => void flushDocumentSync().then(graphicsRestart).catch((err) => setProblem(errorMessage(err)));
+    const go = () => void protectVoiceWork().then((safe) => { if (safe) return flushDocumentSync().then(graphicsRestart); }).catch((err) => setProblem(errorMessage(err)));
     if (isDirty(useDoc.getState())) ask(go);
     else go();
   };

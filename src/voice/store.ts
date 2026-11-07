@@ -1,3 +1,4 @@
+import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { useDoc, dispatch } from "../state/store";
@@ -9,7 +10,7 @@ import { analyse } from "../state/audio";
 import { flushDocumentSync } from "../state/persist";
 
 export interface Voice { voice_id: string; name: string }
-export interface RecoverableJob { id: string; orderId: string; dialogue: string; voice: string; canAttach: boolean; matching: boolean }
+export interface RecoverableJob { createdMillis: number; duration: string; voiceName: string | null; origin: "generated" | "imported"; id: string; orderId: string; dialogue: string; voice: string; canAttach: boolean; matching: boolean }
 export const useVoice = create<{ views: Record<string, VoiceView>; voices: Voice[]; busy: string | null; error: string | null; listError: string | null; loading: boolean; jobs: RecoverableJob[]; unsaved: boolean }>(() => ({ views: {}, voices: [], busy: null, error: null, listError: null, loading: false, jobs: [], unsaved: false }));
 
 export function voiceError(error: unknown): string {
@@ -36,7 +37,7 @@ export async function refreshJobs(): Promise<void> {
   try {
     const [jobs, unsaved] = await Promise.all([
       invoke<RecoverableJob[]>("voice_jobs", { project }),
-      invoke<boolean>("voice_pending", { projectId: project.meta.id }),
+      invoke<boolean>("voice_pending"),
     ]);
     if (request === jobsRevision) useVoice.setState({ jobs, unsaved });
   } catch (error) { if (request === jobsRevision) useVoice.setState({ error: voiceError(error) }); }
@@ -134,3 +135,40 @@ export function selectedOperatorTrack() {
   if (selection?.kind !== "operator") return null;
   return useDoc.getState().project.timelines.flatMap((t) => t.tracks).find((t) => t.kind.type === "operator" && t.kind.orders.some((o) => o.id === selection.id)) ?? null;
 }
+
+/** Prevent losing a paid result, including when the native close bypasses the editor menu. */
+export async function protectVoiceWork(): Promise<boolean> {
+  if (!isTauri()) return true;
+  try {
+    const activity = await invoke<{ generating: boolean; unsaved: boolean }>("voice_activity");
+    if (activity.generating) { useUi.setState({ showCheck: true, setup: null, menu: null }); sayError(translator(usePreferences.getState().saved.locale ?? initialLocale())("voice.closeGenerating")); return false; }
+    if (activity.unsaved) { await invoke("voice_retry_save"); await refreshJobs(); }
+    return true;
+  } catch (error) { sayError(voiceError(error)); useUi.setState({ showCheck: true, setup: null, menu: null }); await refreshJobs(); return false; }
+}
+
+export async function importRecording(id: string): Promise<void> {
+  if (useVoice.getState().busy) return;
+  const docKey = useUi.getState().docKey;
+  const t = translator(usePreferences.getState().saved.locale ?? initialLocale());
+  const path = await open({ multiple: false, filters: [{ name: t("voice.recordingFile"), extensions: ["wav", "aif", "aiff", "flac", "mp3", "ogg"] }] });
+  if (!path || useUi.getState().docKey !== docKey || useVoice.getState().busy) return;
+  useVoice.setState({ busy: id, error: null });
+  try {
+    await edits; await flushDocumentSync();
+    const jobId = await invoke<string>("voice_import", { project: useDoc.getState().project, id, path });
+    await attachJob(jobId, false, docKey);
+  } catch (error) { useVoice.setState({ error: voiceError(error) }); }
+  finally { useVoice.setState({ busy: null }); await refreshJobs(); }
+}
+
+export async function freezeVoices(): Promise<void> {
+  await edits; await flushDocumentSync();
+  try { dispatch({ type: "apply", ...await invoke<ProjectState>("operator_freeze", { project: useDoc.getState().project }) }); }
+  catch (error) { sayError(voiceError(error)); }
+}
+
+export function listenJob(jobId: string): void {
+  void invoke("voice_job_preview", { jobId }).catch((error) => useVoice.setState({ error: voiceError(error) }));
+}
+export function stopListening(): void { void invoke("voice_preview_stop").catch((error) => useVoice.setState({ error: voiceError(error) })); }

@@ -1,5 +1,5 @@
 import { ShowCheckDialog } from "./voice/ShowCheckDialog";
-import { bindVoice } from "./voice/store";
+import { bindVoice, protectVoiceWork } from "./voice/store";
 import { useOutputView } from "./preferences/outputs";
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -99,6 +99,7 @@ function Shell({ devices }: { devices: Devices }) {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
       const ui = useUi.getState();
       if (ui.pending || ui.setup || ui.showCheck || ui.removing !== null || isTyping(event.target)) return;
+      if (event.key === " " && event.target instanceof Element && event.target.closest("button, summary, [role='button']")) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       const fps = nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
@@ -274,8 +275,7 @@ function Editor() {
           await appWindow.destroy();
         } catch (err) { sayError(errorMessage(err)); }
       };
-      if (isDirty(useDoc.getState())) ask(close);
-      else void close();
+      void protectVoiceWork().then((safe) => { if (!safe) return; if (isDirty(useDoc.getState())) ask(close); else void close(); });
     }).catch(() => undefined);
     return () => void listening.then((off) => off?.());
   }, [native]);

@@ -1,9 +1,11 @@
-import { useT } from "../i18n";
-import { recoverJob, retrySave, useVoice } from "./store";
+import { useI18n, useT } from "../i18n";
+import { recoverJob, retrySave, useVoice, listenJob, stopListening } from "./store";
 import { selectMode, useTransport } from "../transport/store";
 
 export function RecoveredAudio({ orderId }: { orderId?: string }) {
   const t = useT();
+  const { locale } = useI18n();
+  const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" });
   const jobs = useVoice((v) => v.jobs);
   const unsaved = useVoice((v) => v.unsaved);
   const busy = useVoice((v) => v.busy);
@@ -20,7 +22,10 @@ export function RecoveredAudio({ orderId }: { orderId?: string }) {
     <ul className="recovered-list">
       {visible.map((job) => <li key={job.id}>
         <p className="voice-dialogue">{job.dialogue}</p>
-        <p className="field-note">{job.matching ? t("voice.recoveredMatches") : t("voice.recoveredDifferent")}</p>
+        <p className="field-note">{dateFormat.format(new Date(job.createdMillis))} · {t("voice.duration", { duration: job.duration })}</p>
+        <p className="field-note">{job.origin === "imported" ? t("voice.imported") : job.voiceName ?? job.voice}{job.origin === "imported" && job.voiceName ? ` · ${job.voiceName}` : ""}</p>
+        <div className="voice-actions"><button type="button" className="button" disabled={mode !== "stopped"} onClick={() => listenJob(job.id)}>{t("voice.listen")}</button><button type="button" className="button" onClick={stopListening}>{t("voice.stopListen")}</button></div>
+        <p className="field-note">{job.matching ? t(job.origin === "imported" ? "voice.recoveredImportedMatches" : "voice.recoveredMatches") : t("voice.recoveredDifferent")}</p>
         <button type="button" className="button" disabled={busy !== null || mode !== "stopped" || !job.canAttach} onClick={() => void recoverJob(job.id)}>{t("voice.useRecovered")}</button>
         {!job.canAttach && <p className="field-note">{t("voice.orderRemoved")}</p>}
       </li>)}
