@@ -5,6 +5,7 @@ mod diagnostics;
 mod graphics;
 mod live_commands;
 mod recents;
+mod recovery;
 mod startup;
 mod transport_commands;
 mod windows;
@@ -36,6 +37,7 @@ pub fn run() {
         .manage(transport_commands::SharedOutput::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
+            recovery::start(app.handle())?;
             diagnostics::start(app.handle());
             log::info!("{}", graphics::describe());
             Ok(())
@@ -57,11 +59,18 @@ pub fn run() {
             commands::project_open,
             commands::project_import_audio,
             commands::project_save,
+            commands::project_set_autosave,
+            recovery::recovery_list,
+            recovery::recovery_discard,
+            recovery::project_close,
+            windows::window_restore_recovery,
+            windows::window_open_original,
             commands::project_delete,
             recents::recents_list,
             recents::recents_forget,
             startup::startup_run,
             windows::window_show_welcome,
+            windows::window_pending_path,
             windows::window_open_editor,
             windows::window_close_editor,
             audio_commands::audio_analyze,

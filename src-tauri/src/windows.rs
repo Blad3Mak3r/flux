@@ -11,6 +11,7 @@ use std::sync::{Mutex, PoisonError};
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::commands::SharedSession;
+use crate::recovery::{self, SharedRecoveries};
 use crate::transport_commands::{SharedOutput, release};
 
 const LAUNCHER: &str = "launcher";
@@ -73,6 +74,18 @@ impl PendingOpen {
     fn take(&self) -> Option<PathBuf> {
         self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
+
+    fn path(&self) -> Option<PathBuf> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+}
+
+#[tauri::command]
+pub fn window_pending_path(pending: State<'_, PendingOpen>) -> Option<PathBuf> {
+    pending.path()
 }
 
 /// The first argument that is an existing `.fxtc` file.
@@ -97,11 +110,24 @@ fn editor_url(path: Option<&Path>) -> String {
 pub async fn window_show_welcome(
     app: AppHandle,
     pending: State<'_, PendingOpen>,
+    store: State<'_, SharedRecoveries>,
 ) -> Result<(), String> {
-    match pending.take() {
+    let dir = store.dir.clone();
+    let recoveries =
+        tauri::async_runtime::spawn_blocking(move || flux_project::recovery::list(&dir))
+            .await
+            .map_err(|err| err.to_string())?;
+    // Even an unreadable record is offered for discard. Failure to read the directory is nonfatal.
+    if recoveries.is_ok_and(|entries| !entries.is_empty()) {
+        build(&app, WELCOME, "index.html?view=welcome")?;
+        close(&app, LAUNCHER);
+        return Ok(());
+    }
+    match pending.path() {
         Some(path) => build(&app, EDITOR, &editor_url(Some(&path)))?,
         None => build(&app, WELCOME, "index.html?view=welcome")?,
     };
+    pending.take();
     close(&app, LAUNCHER);
     Ok(())
 }
@@ -112,27 +138,116 @@ pub async fn window_open_editor(
     app: AppHandle,
     session: State<'_, SharedSession>,
     output: State<'_, SharedOutput>,
+    pending: State<'_, PendingOpen>,
+    store: State<'_, SharedRecoveries>,
     path: Option<PathBuf>,
+    use_pending: Option<bool>,
 ) -> Result<(), String> {
     if app.get_webview_window(EDITOR).is_some() {
         return Err("the editor is already open".into());
     }
     // Only a reload of the same editor may restore its document. A new window must honor `path`.
-    session
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clear();
+    recovery::transition(&session, &store, |s| {
+        s.clear();
+        Ok(())
+    })
+    .await
+    .map_err(|err| err.to_string())?;
     release(&output).await;
+    let requested = pending.path();
+    let path = if use_pending == Some(true) {
+        requested
+    } else {
+        path
+    };
     build(&app, EDITOR, &editor_url(path.as_deref()))?;
+    pending.take();
     close(&app, WELCOME);
     Ok(())
 }
 
 /// Replaces the editor with the welcome window after its frontend has resolved unsaved changes.
 #[tauri::command]
-pub async fn window_close_editor(app: AppHandle) -> Result<(), String> {
+pub async fn window_close_editor(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    store: State<'_, SharedRecoveries>,
+) -> Result<(), String> {
     build(&app, WELCOME, "index.html?view=welcome")?;
+    recovery::transition(&session, &store, |s| {
+        s.clear();
+        Ok(())
+    })
+    .await
+    .map_err(|err| err.to_string())?;
     close(&app, EDITOR);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn window_restore_recovery(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    store: State<'_, SharedRecoveries>,
+    pending: State<'_, PendingOpen>,
+    id: String,
+) -> Result<(), String> {
+    if app.get_webview_window(EDITOR).is_some() {
+        return Err("the editor is already open".into());
+    }
+    recovery::restore(&session, &store, id)
+        .await
+        .map_err(|err| err.to_string())?;
+    if let Err(err) = build(&app, EDITOR, &editor_url(None)) {
+        recovery::abandon(&session, &store)
+            .await
+            .map_err(|error| error.to_string())?;
+        return Err(err);
+    }
+    pending.take();
+    close(&app, WELCOME);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn window_open_original(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    store: State<'_, SharedRecoveries>,
+    pending: State<'_, PendingOpen>,
+    id: String,
+) -> Result<(), String> {
+    if app.get_webview_window(EDITOR).is_some() {
+        return Err("the editor is already open".into());
+    }
+    let dir = store.dir.clone();
+    let record_id = id.clone();
+    let (original, _lease) = tauri::async_runtime::spawn_blocking(move || {
+        let lease = flux_project::recovery::claim(&dir, &record_id)?;
+        let original = flux_project::recovery::read(&dir, &record_id)?
+            .document
+            .path
+            .ok_or_else(|| {
+                flux_project::ProjectError::Invalid("the project has never been saved".into())
+            })?;
+        Ok::<_, flux_project::ProjectError>((original, lease))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    .map_err(|err| err.to_string())?;
+    let recent = original.clone();
+    recovery::transition(&session, &store, move |s| s.open(&original))
+        .await
+        .map_err(|err| err.to_string())?;
+    build(&app, EDITOR, &editor_url(None))?;
+    crate::recents::remember(&app, &recent);
+    let dir = store.dir.clone();
+    tauri::async_runtime::spawn_blocking(move || flux_project::recovery::remove(&dir, &id))
+        .await
+        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())?;
+    pending.take();
+    close(&app, WELCOME);
     Ok(())
 }
 

@@ -300,7 +300,17 @@ pub fn graphics_set(prefs: GraphicsPrefs) -> Result<GraphicsState, String> {
 
 /// Restarts the app, so the webview starts with the saved preferences.
 #[tauri::command]
-pub fn graphics_restart(app: AppHandle) {
+pub async fn graphics_restart(
+    app: AppHandle,
+    session: tauri::State<'_, crate::commands::SharedSession>,
+    store: tauri::State<'_, crate::recovery::SharedRecoveries>,
+) -> Result<(), String> {
+    crate::recovery::transition(&session, &store, |s| {
+        s.clear();
+        Ok(())
+    })
+    .await
+    .map_err(|err| err.to_string())?;
     log::info!("graphics: restarting to apply the preferences");
     app.restart();
 }

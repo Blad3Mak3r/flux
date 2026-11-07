@@ -152,14 +152,15 @@ impl Session {
     /// and is saved right away so that the id is the one it keeps; when it cannot be written (a
     /// read-only disk) the project is still opened, and the next save does it.
     pub fn open(&mut self, path: &Path) -> Result<Project> {
-        let (project, _archive) = archive::open(path)?;
+        let path = std::path::absolute(path)?;
+        let (project, _archive) = archive::open(&path)?;
         self.recovery_id = Uuid::new_v4().to_string();
         self.recovery_revision += 1;
-        self.sources = archive_sources(&project, path);
+        self.sources = archive_sources(&project, &path);
         self.previews.clear();
         self.document = Some(Document::new(project.clone(), Some(path.to_path_buf())));
         if !project.meta.is_stamped()
-            && let Ok(saved) = self.save(&project, path)
+            && let Ok(saved) = self.save(&project, &path)
         {
             return Ok(saved);
         }
@@ -186,6 +187,21 @@ impl Session {
                 self.document = Some(Document::new(project, None));
             }
         }
+    }
+
+    /// A delayed window sync must not resurrect a closed document or replace a different one.
+    pub fn sync(&mut self, project: Project) -> Result<String> {
+        if self
+            .document
+            .as_ref()
+            .is_none_or(|doc| doc.project.meta.id != project.meta.id)
+        {
+            return Err(ProjectError::Invalid(
+                "the document is no longer open".into(),
+            ));
+        }
+        self.update(project);
+        Ok(self.active())
     }
 
     /// The id of the active timeline, empty before a document was started.
@@ -417,7 +433,8 @@ impl Session {
 
     /// Registers an audio file from disk and returns the asset to add to the project.
     pub fn import_audio(&mut self, file: &Path) -> Result<AudioAsset> {
-        if !fs::metadata(file)?.is_file() {
+        let file = std::path::absolute(file)?;
+        if !fs::metadata(&file)?.is_file() {
             return Err(ProjectError::Invalid(format!(
                 "not a file: {}",
                 file.display()
@@ -480,11 +497,12 @@ impl Session {
     /// Writes `project` to `path` and returns it as written, with the save recorded in its
     /// metadata. Afterwards every asset is read from that file.
     pub fn save(&mut self, project: &Project, path: &Path) -> Result<Project> {
+        let path = std::path::absolute(path)?;
         let mut saved = project.clone();
         saved.format_version = FORMAT_VERSION;
         saved.meta.stamp();
-        archive::save(path, &saved, &self.sources, &self.previews)?;
-        self.sources = archive_sources(&saved, path);
+        archive::save(&path, &saved, &self.sources, &self.previews)?;
+        self.sources = archive_sources(&saved, &path);
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
         let mut document = Document::new(saved.clone(), Some(path.to_path_buf()));
@@ -538,6 +556,68 @@ fn archive_sources(project: &Project, path: &Path) -> HashMap<String, AssetSourc
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn delayed_sync_should_not_resurrect_a_closed_or_replaced_document() {
+        let mut session = super::Session::default();
+        let old = session.new_project("Old", flux_core::FrameRate::Fps25);
+        session.clear();
+        assert!(session.sync(old.clone()).is_err());
+        assert!(session.document().is_none());
+        let current = session.new_project("Current", flux_core::FrameRate::Fps25);
+        assert!(session.sync(old).is_err());
+        assert_eq!(session.document().unwrap().project, current);
+    }
+
+    #[test]
+    fn imported_relative_sources_should_be_absolute_in_recovery() {
+        let mut session = super::Session::default();
+        let mut project = session.new_project("Show", flux_core::FrameRate::Fps25);
+        project.assets.push(
+            session
+                .import_audio(std::path::Path::new("Cargo.toml"))
+                .unwrap(),
+        );
+        session.update(project);
+        let record = session.recovery().unwrap();
+        record.validate().unwrap();
+        assert!(record.sources.values().all(|source| match source {
+            crate::AssetSource::Disk(path) | crate::AssetSource::Archive(path) =>
+                path.is_absolute(),
+        }));
+    }
+
+    #[test]
+    fn autosave_options_should_validate_roundtrip_and_follow_the_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("show.fxtc");
+        let mut session = super::Session::default();
+        session.new_project("Show", flux_core::FrameRate::Fps25);
+        for interval_seconds in [15, 30, 60] {
+            let prefs = crate::Autosave {
+                enabled: false,
+                interval_seconds,
+            };
+            let state = session.set_autosave(prefs).unwrap();
+            session.save(&state.project, &file).unwrap();
+            session.new_project("Other", flux_core::FrameRate::Fps25);
+            assert_eq!(
+                session.document().unwrap().project.autosave,
+                crate::Autosave::default()
+            );
+            assert_eq!(session.open(&file).unwrap().autosave, prefs);
+        }
+        let before = session.document();
+        assert!(
+            session
+                .set_autosave(crate::Autosave {
+                    enabled: true,
+                    interval_seconds: 17
+                })
+                .is_err()
+        );
+        assert_eq!(session.document(), before);
+    }
+
     use std::io::Read;
 
     use tempfile::TempDir;
