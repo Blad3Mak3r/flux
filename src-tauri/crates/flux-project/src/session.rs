@@ -468,6 +468,27 @@ impl Session {
         Ok(asset)
     }
 
+    /// Registers a durable speech job with a stable identity, so attaching it is idempotent.
+    pub fn import_voice_job(&mut self, file: &Path, id: &str, name: &str) -> Result<AudioAsset> {
+        if !id.starts_with("job-") || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+            return Err(ProjectError::Invalid("invalid speech job".into()));
+        }
+        let path = std::path::absolute(file)?;
+        if !path.is_file() {
+            return Err(ProjectError::Invalid("missing speech audio".into()));
+        }
+        let asset = AudioAsset {
+            id: id.into(),
+            name: name.chars().take(64).collect(),
+            file: format!("audio/{id}.mp3"),
+            bpm: None,
+        };
+        let source = AssetSource::Disk(path);
+        self.sources.insert(id.into(), source.clone());
+        self.voice_sources.insert(id.into(), source);
+        Ok(asset)
+    }
+
     /// Keeps a generated version readable across saves and undo, even after it leaves the archive.
     pub fn retain_voice_asset(&mut self, asset: &AudioAsset, directory: &Path) -> Result<()> {
         if self.voice_sources.contains_key(&asset.id) {

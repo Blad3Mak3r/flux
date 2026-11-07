@@ -177,9 +177,12 @@ pub enum OperatorOp {
     },
     EditOrder {
         id: String,
-        dialogue: String,
-        at: u64,
-        alignment: Alignment,
+        #[serde(default)]
+        dialogue: Option<String>,
+        #[serde(default)]
+        at: Option<u64>,
+        #[serde(default)]
+        alignment: Option<Alignment>,
     },
     MoveOrder {
         id: String,
@@ -285,9 +288,15 @@ pub fn apply(project: &mut Project, active: &str, op: OperatorOp) -> Result<()> 
                 alignment,
             } if orders.iter().any(|o| o.id == *id) => {
                 if let Some(o) = orders.iter_mut().find(|o| o.id == *id) {
-                    o.dialogue.clone_from(dialogue);
-                    o.at = *at;
-                    o.alignment = *alignment;
+                    if let Some(dialogue) = dialogue {
+                        o.dialogue.clone_from(dialogue);
+                    }
+                    if let Some(at) = at {
+                        o.at = *at;
+                    }
+                    if let Some(alignment) = alignment {
+                        o.alignment = *alignment;
+                    }
                 }
             }
             _ => continue,
@@ -333,6 +342,53 @@ mod tests {
         assert_eq!(order.status(Some("other")), VoiceStatus::Stale);
         order.generated = None;
         assert_eq!(order.status(None), VoiceStatus::Ungenerated);
+    }
+
+    #[test]
+    fn partial_edits_preserve_other_fields_and_generated_content() {
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        project.timelines[0].tracks.push(Track {
+            id: "track".into(),
+            name: "Operator".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Operator {
+                voice: Some("voice".into()),
+                orders: vec![order()],
+            },
+        });
+        let active = project.timelines[0].id.clone();
+        apply(
+            &mut project,
+            &active,
+            OperatorOp::EditOrder {
+                id: "order".into(),
+                dialogue: None,
+                at: Some(200),
+                alignment: None,
+            },
+        )
+        .unwrap();
+        apply(
+            &mut project,
+            &active,
+            OperatorOp::EditOrder {
+                id: "order".into(),
+                dialogue: None,
+                at: None,
+                alignment: Some(Alignment::End),
+            },
+        )
+        .unwrap();
+        let TrackKind::Operator { orders, .. } = &project.timelines[0].tracks[0].kind else {
+            panic!()
+        };
+        assert_eq!(orders[0].at, 200);
+        assert_eq!(orders[0].alignment, Alignment::End);
+        assert_eq!(orders[0].dialogue, order().dialogue);
+        assert_eq!(orders[0].generated, order().generated);
+        assert_eq!(orders[0].status(Some("voice")), VoiceStatus::Synced);
     }
 
     #[test]

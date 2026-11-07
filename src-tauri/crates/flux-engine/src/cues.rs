@@ -188,9 +188,12 @@ impl CueList {
                         let length = interval.map(|(from, to)| clock.samples_to_frames(to - from));
                         end = end
                             .max(interval.map_or(clock.frames_to_samples(order.at), |(_, to)| to));
-                        let mut item =
-                            cue(&order.id, CueKind::Operator, &order.dialogue, at, length);
-                        item.text = Some(order.dialogue.clone());
+                        let spoken = order
+                            .generated
+                            .as_ref()
+                            .map_or(order.dialogue.as_str(), |g| g.dialogue.as_str());
+                        let mut item = cue(&order.id, CueKind::Operator, spoken, at, length);
+                        item.text = Some(spoken.to_owned());
                         item.muted |= interval.is_none();
                         cues.push(item);
                     }
@@ -522,6 +525,35 @@ mod tests {
 
     fn list(project: &Project) -> CueList {
         CueList::build(project, &project.timelines[0], |_| Some(2 * SECOND))
+    }
+
+    #[test]
+    fn live_uses_the_dialogue_that_will_actually_be_spoken() {
+        use flux_project::{Alignment, GeneratedVoice, VoiceOrder};
+        let mut p = project(false);
+        p.timelines[0].tracks.push(track(
+            "operator",
+            false,
+            TrackKind::Operator {
+                voice: None,
+                orders: vec![VoiceOrder {
+                    id: "speech".into(),
+                    at: 10,
+                    dialogue: "New draft".into(),
+                    alignment: Alignment::Start,
+                    generated: Some(GeneratedVoice {
+                        asset: "a1".into(),
+                        dialogue: "Recorded words".into(),
+                        voice: "voice".into(),
+                        model: flux_project::operator::VOICE_MODEL.into(),
+                        samples: SECOND * 2,
+                    }),
+                }],
+            },
+        ));
+        let cue = cue_named(&list(&p), "speech");
+        assert_eq!(cue.name, "Recorded words");
+        assert_eq!(cue.text.as_deref(), Some("Recorded words"));
     }
 
     fn cue_named(list: &CueList, id: &str) -> Cue {

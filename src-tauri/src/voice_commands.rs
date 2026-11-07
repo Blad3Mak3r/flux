@@ -1,4 +1,5 @@
 //! Credentials and speech workers. Provider responses and secrets never reach diagnostics.
+use crate::voice_jobs::{JobStore, Snapshot, StoredJob};
 use crate::{
     commands::SharedSession,
     preferences,
@@ -6,7 +7,6 @@ use crate::{
 };
 use flux_project::{GeneratedVoice, OperatorOp, Project, ProjectState, TrackKind, VoiceView};
 use serde::Serialize;
-use std::io::Write;
 use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicU64, Ordering},
@@ -36,35 +36,31 @@ pub struct VoiceState {
     pending: Mutex<Option<Pending>>,
     serial: AtomicU64,
     preview: Mutex<Option<flux_engine::output::Output>>,
+    control: Mutex<()>,
+    preview_epoch: AtomicU64,
 }
 
-#[derive(Clone, PartialEq, Eq)]
-struct Snapshot {
-    project: String,
-    timeline: String,
-    order: String,
-    dialogue: String,
-    voice: String,
-}
 struct Pending {
     token: u64,
-    session_id: String,
+    unsaved: Option<Unsaved>,
+}
+struct Unsaved {
     snapshot: Snapshot,
-    audio: Option<(Vec<u8>, u64)>,
+    session_id: String,
+    bytes: Vec<u8>,
+    samples: u64,
 }
 
 impl VoiceState {
-    fn reserve(&self, snapshot: Snapshot, session_id: String) -> Result<u64> {
+    fn reserve(&self) -> Result<u64> {
         let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
-        if pending.as_ref().is_some_and(|p| p.audio.is_none()) {
+        if pending.is_some() {
             return Err(Error::Busy);
         }
         let token = self.serial.fetch_add(1, Ordering::Relaxed) + 1;
         *pending = Some(Pending {
             token,
-            session_id,
-            snapshot,
-            audio: None,
+            unsaved: None,
         });
         Ok(token)
     }
@@ -88,6 +84,7 @@ fn snapshot(project: &Project, id: &str, local: Option<&str>) -> Result<Snapshot
                     order: id.into(),
                     dialogue: order.dialogue.clone(),
                     voice: voice.into(),
+                    previous_asset: order.generated.as_ref().map(|g| g.asset.clone()),
                 });
             }
         }
@@ -225,7 +222,45 @@ pub fn operator_edit(
     session.operator_edit(op).map_err(|_| Error::InvalidInput)
 }
 
-/// Prepare only: committing against the window's latest project prevents overwriting intervening edits.
+#[tauri::command]
+pub async fn operator_preflight(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    cache: State<'_, flux_audio::SharedAudio>,
+    output: State<'_, SharedOutput>,
+    project: Project,
+) -> Result<flux_engine::preflight::Report> {
+    if !transport_stopped(&output) {
+        return Err(Error::Stopped);
+    }
+    project.validate().map_err(|_| Error::InvalidInput)?;
+    let prefs = preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
+        .map_err(|_| Error::Storage)?;
+    let resolved = prefs.resolve(&project.output, false);
+    let session = Arc::clone(&session);
+    let cache = Arc::clone(&cache);
+    worker(move || {
+        let route = flux_engine::preflight::probe(&resolved);
+        Ok(flux_engine::preflight::check(
+            &project,
+            prefs.voice.as_deref(),
+            route,
+            |asset| crate::live_commands::samples_of(&session, &cache, asset),
+        ))
+    })
+    .await
+}
+
+fn job_store(app: &AppHandle) -> Result<JobStore> {
+    Ok(JobStore::new(
+        app.path()
+            .app_data_dir()
+            .map_err(|_| Error::Storage)?
+            .join("generated-voice")
+            .join("jobs"),
+    ))
+}
+
 #[tauri::command]
 pub async fn voice_generate(
     app: AppHandle,
@@ -234,22 +269,31 @@ pub async fn voice_generate(
     output: State<'_, SharedOutput>,
     project: Project,
     id: String,
-) -> Result<u64> {
-    if crate::transport_commands::snapshot(&output)
-        .is_some_and(|(p, _)| p.state != flux_engine::transport::TransportState::Stopped)
-    {
+) -> Result<String> {
+    if !transport_stopped(&output) {
         return Err(Error::Stopped);
     }
     project.validate().map_err(|_| Error::InvalidInput)?;
     let snapshot = snapshot(&project, &id, local_voice(&app)?.as_deref())?;
+    let session_id = {
+        let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+        if session
+            .document()
+            .is_none_or(|d| d.project.meta.id != snapshot.project || d.active != snapshot.timeline)
+        {
+            return Err(Error::Obsolete);
+        }
+        session.recovery_revision().0.to_owned()
+    };
+    let store = job_store(&app)?;
     let state = Arc::clone(&state);
-    let session_id = session
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .recovery_revision()
-        .0
-        .to_owned();
-    let token = state.reserve(snapshot.clone(), session_id)?;
+    let token = {
+        let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+        if !transport_stopped(&output) {
+            return Err(Error::Stopped);
+        }
+        state.reserve()?
+    };
     worker(move || {
         let result = (|| {
             let api_key = key(&state)?;
@@ -261,19 +305,118 @@ pub async fn voice_generate(
             if samples == 0 || samples > u64::from(flux_core::ENGINE_RATE) * 3600 {
                 return Err(Error::Audio);
             }
-            Ok((bytes, samples))
+            Ok(Unsaved {
+                snapshot,
+                session_id,
+                bytes,
+                samples,
+            })
         })();
-        let mut pending = state.pending.lock().unwrap_or_else(PoisonError::into_inner);
-        match result {
-            Ok(audio) => {
-                pending.as_mut().ok_or(Error::Obsolete)?.audio = Some(audio);
-                Ok(token)
-            }
-            Err(error) => {
-                *pending = None;
-                Err(error)
+        {
+            let mut pending = state.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            match result {
+                Ok(audio) => {
+                    let current = pending
+                        .as_mut()
+                        .filter(|p| p.token == token)
+                        .ok_or(Error::Obsolete)?;
+                    current.unsaved = Some(audio);
+                }
+                Err(error) => {
+                    *pending = None;
+                    return Err(error);
+                }
             }
         }
+        persist_pending(&state, &store)
+    })
+    .await
+}
+
+fn persist_pending(state: &VoiceState, store: &JobStore) -> Result<String> {
+    let mut pending = state.pending.lock().unwrap_or_else(PoisonError::into_inner);
+    let audio = pending
+        .as_ref()
+        .and_then(|p| p.unsaved.as_ref())
+        .ok_or(Error::Busy)?;
+    let job = store
+        .save(
+            audio.snapshot.clone(),
+            audio.session_id.clone(),
+            &audio.bytes,
+            audio.samples,
+        )
+        .map_err(|_| Error::Storage)?;
+    *pending = None;
+    Ok(job.id)
+}
+
+#[tauri::command]
+pub fn voice_pending(state: State<'_, Arc<VoiceState>>, project_id: String) -> bool {
+    state
+        .pending
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .and_then(|p| p.unsaved.as_ref())
+        .is_some_and(|a| a.snapshot.project == project_id)
+}
+
+#[tauri::command]
+pub async fn voice_retry_save(app: AppHandle, state: State<'_, Arc<VoiceState>>) -> Result<String> {
+    let state = Arc::clone(&state);
+    let store = job_store(&app)?;
+    worker(move || persist_pending(&state, &store)).await
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverableJob {
+    id: String,
+    order_id: String,
+    dialogue: String,
+    voice: String,
+    can_attach: bool,
+    matching: bool,
+}
+
+#[tauri::command]
+pub async fn voice_jobs(app: AppHandle, project: Project) -> Result<Vec<RecoverableJob>> {
+    project.validate().map_err(|_| Error::InvalidInput)?;
+    let local = local_voice(&app)?;
+    let store = job_store(&app)?;
+    worker(move || {
+        Ok(store
+            .list(&project.meta.id)
+            .map_err(|_| Error::Storage)?
+            .into_iter()
+            .filter_map(|job| {
+                let current = project
+                    .timelines
+                    .iter()
+                    .flat_map(|t| &t.tracks)
+                    .filter_map(|t| match &t.kind {
+                        TrackKind::Operator { orders, .. } => Some(orders),
+                        _ => None,
+                    })
+                    .flatten()
+                    .find(|o| o.id == job.snapshot.order);
+                if current.is_some_and(|o| o.generated.as_ref().is_some_and(|g| g.asset == job.id))
+                {
+                    return None;
+                }
+                let matching = snapshot(&project, &job.snapshot.order, local.as_deref())
+                    .is_ok_and(|s| s == job.snapshot);
+                Some(RecoverableJob {
+                    id: job.id,
+                    order_id: job.snapshot.order,
+                    dialogue: job.snapshot.dialogue,
+                    voice: job.snapshot.voice,
+                    can_attach: current.is_some(),
+                    matching,
+                })
+            })
+            .collect())
     })
     .await
 }
@@ -285,124 +428,127 @@ pub async fn voice_commit(
     session: State<'_, SharedSession>,
     output: State<'_, SharedOutput>,
     project: Project,
-    token: u64,
+    job_id: String,
+    recover: bool,
 ) -> Result<ProjectState> {
-    let pending = {
-        let mut guard = state.pending.lock().unwrap_or_else(PoisonError::into_inner);
-        if guard.as_ref().is_none_or(|p| p.token != token) {
-            return Err(Error::Obsolete);
-        }
-        guard.take().ok_or(Error::Obsolete)?
-    };
-    if is_playing(&output) {
-        return Err(Error::Stopped);
-    }
     project.validate().map_err(|_| Error::InvalidInput)?;
-    if snapshot(
-        &project,
-        &pending.snapshot.order,
-        local_voice(&app)?.as_deref(),
-    )? != pending.snapshot
-    {
-        return Err(Error::Obsolete);
-    }
-    let (bytes, samples) = pending.audio.ok_or(Error::Obsolete)?;
+    let store = job_store(&app)?;
+    let state = Arc::clone(&state);
     let session = Arc::clone(&session);
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| Error::Storage)?
-        .join("generated-voice");
+    let output = Arc::clone(&output);
     worker(move || {
-        std::fs::create_dir_all(&directory).map_err(|_| Error::Storage)?;
-        let mut file = tempfile::Builder::new()
-            .prefix("flux-voice-")
-            .suffix(".mp3")
-            .tempfile_in(&directory)
-            .map_err(|_| Error::Storage)?;
-        file.write_all(&bytes).map_err(|_| Error::Storage)?;
-        file.as_file().sync_all().map_err(|_| Error::Storage)?;
-        let (_, path) = file.keep().map_err(|_| Error::Storage)?;
+        let job = store.read(&job_id).map_err(|_| Error::Storage)?;
+        let audio = store.audio(&job_id).map_err(|_| Error::Storage)?;
+        let decoded = flux_audio::decode(
+            std::fs::read(&audio).map_err(|_| Error::Storage)?,
+            Some("mp3"),
+        )
+        .map_err(|_| Error::Audio)?;
+        if decoded.frames() as u64 != job.samples {
+            return Err(Error::Audio);
+        }
+        drop(decoded);
+        let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+        if !transport_stopped(&output) {
+            return Err(Error::Stopped);
+        }
+        let local = local_voice(&app)?;
         let mut session = session.lock().unwrap_or_else(PoisonError::into_inner);
-        if session.recovery_revision().0 != pending.session_id
-            || session.document().is_none_or(|d| {
-                d.project != project
-                    || d.project.meta.id != pending.snapshot.project
-                    || d.active != pending.snapshot.timeline
-            })
-        {
-            return Err(Error::Obsolete);
-        }
-        for asset in project
-            .timelines
-            .iter()
-            .flat_map(|t| &t.tracks)
-            .filter_map(|t| match &t.kind {
-                TrackKind::Operator { orders, .. } => Some(orders),
-                _ => None,
-            })
-            .flatten()
-            .filter_map(|o| o.generated.as_ref())
-            .filter_map(|g| project.assets.iter().find(|a| a.id == g.asset))
-        {
-            session
-                .retain_voice_asset(asset, &directory)
-                .map_err(|_| Error::Storage)?;
-        }
-        session.update(project);
-        let mut asset = session.import_audio(&path).map_err(|_| Error::Storage)?;
-        asset.name = pending.snapshot.dialogue.chars().take(64).collect();
-        session
-            .retain_voice_asset(&asset, &directory)
-            .map_err(|_| Error::Storage)?;
-        let generated = GeneratedVoice {
-            asset: asset.id.clone(),
-            dialogue: pending.snapshot.dialogue,
-            voice: pending.snapshot.voice,
-            model: flux_project::operator::VOICE_MODEL.into(),
-            samples,
-        };
-        let result = session
-            .change(|project, _| {
-                for timeline in &mut project.timelines {
-                    for track in &mut timeline.tracks {
-                        if let TrackKind::Operator { orders, .. } = &mut track.kind
-                            && let Some(order) =
-                                orders.iter_mut().find(|o| o.id == pending.snapshot.order)
-                        {
-                            order.generated = Some(generated);
-                            project.assets.push(asset);
-                            return Ok(());
-                        }
-                    }
-                }
-                Err(flux_project::ProjectError::Invalid("unknown order".into()))
-            })
-            .map_err(|_| Error::InvalidInput)?;
-
-        Ok(result)
+        attach_recording(
+            &mut session,
+            project,
+            job,
+            &audio,
+            local.as_deref(),
+            recover,
+        )
     })
     .await
 }
 
-#[tauri::command]
-pub fn voice_discard(state: State<'_, Arc<VoiceState>>, token: u64) {
-    let mut pending = state.pending.lock().unwrap_or_else(PoisonError::into_inner);
-    if pending
-        .as_ref()
-        .is_some_and(|p| p.token == token && p.audio.is_some())
-    {
-        *pending = None;
+fn attach_recording(
+    session: &mut flux_project::Session,
+    project: Project,
+    job: StoredJob,
+    audio: &std::path::Path,
+    local: Option<&str>,
+    recover: bool,
+) -> Result<ProjectState> {
+    if job.snapshot.project != project.meta.id {
+        return Err(Error::Obsolete);
     }
+    if !recover && session.recovery_revision().0 != job.session_id {
+        return Err(Error::Obsolete);
+    }
+    if !recover && snapshot(&project, &job.snapshot.order, local)? != job.snapshot {
+        return Err(Error::Obsolete);
+    }
+    if session.document().is_none_or(|d| d.project != project) {
+        return Err(Error::Obsolete);
+    }
+    let asset = session
+        .import_voice_job(audio, &job.id, &job.snapshot.dialogue)
+        .map_err(|_| Error::Storage)?;
+    session
+        .change(|project, _| {
+            let order = project
+                .timelines
+                .iter_mut()
+                .find(|t| t.id == job.snapshot.timeline)
+                .into_iter()
+                .flat_map(|t| &mut t.tracks)
+                .filter_map(|t| match &mut t.kind {
+                    TrackKind::Operator { orders, .. } => Some(orders),
+                    _ => None,
+                })
+                .flatten()
+                .find(|o| o.id == job.snapshot.order)
+                .ok_or_else(|| flux_project::ProjectError::Invalid("unknown voice order".into()))?;
+            order.generated = Some(GeneratedVoice {
+                asset: asset.id.clone(),
+                dialogue: job.snapshot.dialogue,
+                voice: job.snapshot.voice,
+                model: flux_project::operator::VOICE_MODEL.into(),
+                samples: job.samples,
+            });
+            if !project.assets.iter().any(|a| a.id == asset.id) {
+                project.assets.push(asset);
+            }
+            Ok(())
+        })
+        .map_err(|_| Error::Obsolete)
 }
 
-pub fn stop_preview(state: &VoiceState) {
+fn transport_stopped(output: &SharedOutput) -> bool {
+    !is_playing(output)
+        && crate::transport_commands::snapshot(output).is_none_or(|(position, _)| {
+            position.state == flux_engine::transport::TransportState::Stopped
+        })
+}
+
+fn invalidate_preview(state: &VoiceState) {
+    state.preview_epoch.fetch_add(1, Ordering::AcqRel);
     let previous = state
         .preview
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .take();
     drop(previous);
+}
+
+pub fn stop_preview(state: &VoiceState) {
+    let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+    invalidate_preview(state);
+}
+
+pub fn send_transport(
+    state: &VoiceState,
+    output: &SharedOutput,
+    command: flux_engine::transport::Command,
+) -> std::result::Result<(), flux_engine::output::OutputError> {
+    let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+    invalidate_preview(state);
+    crate::transport_commands::send(output, command)
 }
 
 #[tauri::command]
@@ -415,10 +561,21 @@ pub async fn voice_preview(
     project: Project,
     id: String,
 ) -> Result<()> {
-    if is_playing(&output) {
-        return Err(Error::Stopped);
-    }
     project.validate().map_err(|_| Error::InvalidInput)?;
+    let epoch = {
+        let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+        if !transport_stopped(&output) {
+            return Err(Error::Stopped);
+        }
+        invalidate_preview(&state);
+        state.preview_epoch.load(Ordering::Acquire)
+    };
+    let session_id = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .recovery_revision()
+        .0
+        .to_owned();
     let prefs = preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
         .map_err(|_| Error::Storage)?;
     let route = prefs
@@ -431,8 +588,8 @@ pub async fn voice_preview(
     let state = Arc::clone(&state);
     let session = Arc::clone(&session);
     let cache = Arc::clone(&cache);
+    let output = Arc::clone(&output);
     worker(move || {
-        stop_preview(&state);
         let mut timeline = project.timelines.iter().find(|t| t.tracks.iter().any(|track| matches!(&track.kind, TrackKind::Operator { orders, .. } if orders.iter().any(|o| o.id == id)))).cloned().ok_or(Error::Obsolete)?;
         timeline.timecode.start = 0;
         let mut samples = 0;
@@ -455,6 +612,12 @@ pub async fn voice_preview(
         programme.set = programme.set.with_end(Some(samples));
         let config = flux_project::OutputConfig { driver: prefs.driver, audio: Some(route.clone()), operator: Some(route), ..Default::default() };
         let preview = flux_engine::output::Output::start(&config, &timeline, programme, false).map_err(|_| Error::Audio)?;
+        let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.preview_epoch.load(Ordering::Acquire) != epoch || !transport_stopped(&output) { return Err(Error::Obsolete); }
+        {
+            let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+            if session.recovery_revision().0 != session_id || session.document().is_none_or(|d| d.project.meta.id != project.meta.id || d.active != timeline.id) { return Err(Error::Obsolete); }
+        }
         preview.send(flux_engine::transport::Command::Play).map_err(|_| Error::Audio)?;
         *state.preview.lock().unwrap_or_else(PoisonError::into_inner) = Some(preview);
         Ok(())
@@ -467,21 +630,55 @@ mod tests {
     #[test]
     fn duplicate_requests_are_refused_before_contacting_the_provider() {
         let state = VoiceState::default();
-        let snapshot = Snapshot {
-            project: "show".into(),
-            timeline: "timeline".into(),
-            order: "order".into(),
-            dialogue: "Go".into(),
-            voice: "voice".into(),
-        };
-        let token = state.reserve(snapshot.clone(), "session".into()).unwrap();
+        let token = state.reserve().unwrap();
+        assert!(matches!(state.reserve(), Err(Error::Busy)));
+        assert_eq!(state.pending.lock().unwrap().as_ref().unwrap().token, token);
+        *state.pending.lock().unwrap() = None;
+        assert_ne!(state.reserve().unwrap(), token);
+    }
+
+    #[test]
+    fn stopping_preview_invalidates_an_inflight_start() {
+        let state = VoiceState::default();
+        let epoch = state.preview_epoch.load(Ordering::Acquire);
+        stop_preview(&state);
+        assert_ne!(state.preview_epoch.load(Ordering::Acquire), epoch);
+    }
+
+    #[test]
+    fn failed_disk_write_preserves_paid_result_and_retry_never_calls_provider() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("jobs");
+        std::fs::write(&root, b"blocks directory creation").unwrap();
+        let store = JobStore::new(root.clone());
+        let state = VoiceState::default();
+        let token = state.reserve().unwrap();
+        state.pending.lock().unwrap().as_mut().unwrap().unsaved = Some(Unsaved {
+            snapshot: Snapshot {
+                project: "project".into(),
+                timeline: "timeline".into(),
+                order: "order".into(),
+                dialogue: "Go".into(),
+                voice: "voice".into(),
+                previous_asset: None,
+            },
+            session_id: "session".into(),
+            bytes: b"paid result".to_vec(),
+            samples: 48_000,
+        });
         assert!(matches!(
-            state.reserve(snapshot.clone(), "session".into()),
-            Err(Error::Busy)
+            persist_pending(&state, &store),
+            Err(Error::Storage)
         ));
         assert_eq!(state.pending.lock().unwrap().as_ref().unwrap().token, token);
-        state.pending.lock().unwrap().as_mut().unwrap().audio = Some((vec![1], 1));
-        assert_ne!(state.reserve(snapshot, "session".into()).unwrap(), token);
+        assert!(matches!(state.reserve(), Err(Error::Busy)));
+        std::fs::remove_file(root).unwrap();
+        let id = persist_pending(&state, &store).unwrap();
+        assert!(state.pending.lock().unwrap().is_none());
+        assert_eq!(
+            std::fs::read(store.audio(&id).unwrap()).unwrap(),
+            b"paid result"
+        );
     }
 
     #[test]
@@ -512,6 +709,18 @@ mod tests {
         orders[0].dialogue = "Go".into();
         let id = orders[0].id.clone();
         let before = snapshot(&project, &id, Some("voice")).unwrap();
+        project.name = "Renamed show".into();
+        flux_project::operator::apply(
+            &mut project,
+            &active,
+            OperatorOp::EditOrder {
+                id: id.clone(),
+                dialogue: None,
+                at: Some(50),
+                alignment: Some(flux_project::Alignment::End),
+            },
+        )
+        .unwrap();
         assert!(before == snapshot(&project, &id, Some("voice")).unwrap());
         assert!(before != snapshot(&project, &id, Some("other")).unwrap());
         flux_project::operator::apply(
@@ -519,9 +728,9 @@ mod tests {
             &active,
             OperatorOp::EditOrder {
                 id: id.clone(),
-                dialogue: "Stand by".into(),
-                at: 10,
-                alignment: flux_project::Alignment::Start,
+                dialogue: Some("Stand by".into()),
+                at: None,
+                alignment: None,
             },
         )
         .unwrap();
@@ -548,6 +757,129 @@ mod tests {
             json,
             r#"{"code":"provider","error":{"code":"credentials"}}"#
         );
+    }
+
+    #[test]
+    fn attaching_preserves_anchor_and_rejects_stale_edits_without_losing_the_job() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = JobStore::new(dir.path().join("jobs"));
+        let mut session = flux_project::Session::default();
+        session.new_project("Show", flux_project::FrameRate::Fps25);
+        session
+            .operator_edit(OperatorOp::AddTrack {
+                name: "Operator".into(),
+            })
+            .unwrap();
+        let track = session.document().unwrap().project.timelines[0].tracks[0]
+            .id
+            .clone();
+        let mut project = session
+            .operator_edit(OperatorOp::AddOrder {
+                track_id: track,
+                at: 50,
+            })
+            .unwrap()
+            .project;
+        let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind else {
+            panic!()
+        };
+        orders[0].dialogue = "Go".into();
+        let id = orders[0].id.clone();
+        session.sync(project.clone()).unwrap();
+        let job = store
+            .save(
+                snapshot(&project, &id, Some("voice")).unwrap(),
+                session.recovery_revision().0.into(),
+                b"audio fixture",
+                48_000,
+            )
+            .unwrap();
+        let audio = store.audio(&job.id).unwrap();
+        let old_command = project;
+        let moved = session
+            .operator_edit(OperatorOp::EditOrder {
+                id: id.clone(),
+                dialogue: None,
+                at: Some(100),
+                alignment: Some(flux_project::Alignment::End),
+            })
+            .unwrap()
+            .project;
+        assert!(matches!(
+            attach_recording(
+                &mut session,
+                old_command,
+                job.clone(),
+                &audio,
+                Some("voice"),
+                false
+            ),
+            Err(Error::Obsolete)
+        ));
+        assert_eq!(session.document().unwrap().project, moved);
+        let attached = attach_recording(
+            &mut session,
+            moved,
+            job.clone(),
+            &audio,
+            Some("voice"),
+            false,
+        )
+        .unwrap();
+        let TrackKind::Operator { orders, .. } = &attached.project.timelines[0].tracks[0].kind
+        else {
+            panic!()
+        };
+        assert_eq!(
+            (orders[0].at, orders[0].alignment),
+            (100, flux_project::Alignment::End)
+        );
+        assert_eq!(orders[0].generated.as_ref().unwrap().asset, job.id);
+        let changed = session
+            .operator_edit(OperatorOp::EditOrder {
+                id,
+                dialogue: Some("New draft".into()),
+                at: None,
+                alignment: None,
+            })
+            .unwrap()
+            .project;
+        assert!(matches!(
+            attach_recording(
+                &mut session,
+                changed.clone(),
+                job.clone(),
+                &audio,
+                Some("voice"),
+                false
+            ),
+            Err(Error::Obsolete)
+        ));
+        let recovered = attach_recording(
+            &mut session,
+            changed,
+            job.clone(),
+            &audio,
+            Some("other"),
+            true,
+        )
+        .unwrap();
+        let TrackKind::Operator { orders, .. } = &recovered.project.timelines[0].tracks[0].kind
+        else {
+            panic!()
+        };
+        assert_eq!(orders[0].dialogue, "New draft");
+        assert_eq!(orders[0].generated.as_ref().unwrap().dialogue, "Go");
+        assert_eq!(
+            orders[0].status(Some("other")),
+            flux_project::VoiceStatus::Stale
+        );
+        assert_eq!(
+            recovered.project.assets.len(),
+            1,
+            "recovering twice reuses the durable asset id"
+        );
+        assert_eq!(store.list(&recovered.project.meta.id).unwrap().len(), 1);
     }
 }
 

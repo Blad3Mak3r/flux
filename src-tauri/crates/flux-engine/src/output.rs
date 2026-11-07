@@ -156,7 +156,9 @@ pub struct SharedClock {
     /// them and writes the log, because nothing on those threads may wait for a file.
     faults: [AtomicU64; 4],
     operator_route: Option<flux_project::AudioOutput>,
-    operator_set: RwLock<Arc<ClipSet>>,
+    operator_set: Mutex<Arc<ClipSet>>,
+    operator_subscribers: Mutex<Vec<Sender<Arc<ClipSet>>>>,
+    pending_plays: AtomicU64,
     operator_health: RwLock<Option<Arc<AtomicBool>>>,
     operator_invalid: AtomicBool,
 }
@@ -192,8 +194,38 @@ impl SharedClock {
             operator_route: None,
             operator_health: RwLock::new(None),
             operator_invalid: AtomicBool::new(false),
-            operator_set: RwLock::new(Arc::new(ClipSet::default())),
+            operator_set: Mutex::new(Arc::new(ClipSet::default())),
+            operator_subscribers: Mutex::new(Vec::new()),
+            pending_plays: AtomicU64::new(0),
         }
+    }
+
+    fn subscribe_operator(&self) -> (Arc<ClipSet>, Receiver<Arc<ClipSet>>) {
+        let mut subscribers = self
+            .operator_subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let (tx, rx) = mpsc::channel();
+        let current = Arc::clone(
+            &self
+                .operator_set
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        subscribers.push(tx);
+        (current, rx)
+    }
+
+    fn update_operator(&self, set: Arc<ClipSet>) {
+        let mut subscribers = self
+            .operator_subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        *self
+            .operator_set
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&set);
+        subscribers.retain(|tx| tx.send(Arc::clone(&set)).is_ok());
     }
 
     /// A stream reported an error. Safe to call from the error callback: it only touches atomics.
@@ -503,9 +535,15 @@ impl Renderer {
 
     /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
     pub fn render<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
+        let mut consumed_plays = 0;
         while let Ok(message) = self.messages.try_recv() {
             match message {
-                Message::Transport(command) => self.transport.apply(command),
+                Message::Transport(command) => {
+                    if matches!(command, Command::Play) {
+                        consumed_plays += 1;
+                    }
+                    self.transport.apply(command);
+                }
                 Message::Clips(clips) => {
                     self.transport.set_end(clips.end());
                     self.clips = clips;
@@ -537,6 +575,11 @@ impl Renderer {
             position: self.transport.position_samples(),
             stamp: now,
         });
+        let _ = self.shared.pending_plays.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |pending| Some(pending.saturating_sub(consumed_plays)),
+        );
     }
 
     /// Writes the programme, the metronome and LTC into `data`, which holds the buffer's frames.
@@ -638,12 +681,61 @@ impl Fill for Renderer {
     }
 }
 
+/// A continuous voice cursor for an independent device clock. Small clock drift is corrected
+/// by bounded resampling, rather than skipping or repeating chunks of spoken words.
+#[derive(Debug, Default)]
+struct VoiceCursor {
+    next: Option<f64>,
+    step: f64,
+}
+
+impl VoiceCursor {
+    fn follow(&mut self, target: u64, reset: bool) {
+        let target = target as f64;
+        let position = self.next.unwrap_or(target);
+        if reset || (position - target).abs() > f64::from(ENGINE_RATE) * 0.25 {
+            self.next = Some(target);
+            self.step = 1.0;
+        } else {
+            self.next = Some(position);
+            self.step =
+                1.0 + ((target - position) / (f64::from(ENGINE_RATE) * 2.0)).clamp(-0.002, 0.002);
+        }
+    }
+
+    fn mix(&mut self, clips: &ClipSet, left: &mut [f32], right: &mut [f32]) {
+        let position = self.next.unwrap_or(0.0);
+        let from = position.floor() as u64;
+        let fraction = position.fract();
+        // At most MIX_CHUNK output frames, with a rate within 0.2% of unity.
+        let needed = (fraction + left.len() as f64 * self.step).ceil() as usize + 1;
+        let mut source_left = [0.0; MIX_CHUNK + 4];
+        let mut source_right = [0.0; MIX_CHUNK + 4];
+        clips.mix_operator(
+            from,
+            &mut source_left[..needed],
+            &mut source_right[..needed],
+        );
+        for (i, (left, right)) in left.iter_mut().zip(right).enumerate() {
+            let sample = fraction + i as f64 * self.step;
+            let at = sample.floor() as usize;
+            let blend = sample.fract() as f32;
+            *left = source_left[at] + (source_left[at + 1] - source_left[at]) * blend;
+            *right = source_right[at] + (source_right[at + 1] - source_right[at]) * blend;
+        }
+        self.next = Some(position + left.len() as f64 * self.step);
+    }
+}
+
 /// Plays LTC on an audio device that is not the master's. The two sample clocks are independent
 /// and drift apart, so this does not count samples against the transport: it reads where the
 /// master is, plays LTC from there, and starts over from the master's position whenever it is a
 /// frame or more away, or the master seeks.
 #[derive(Debug)]
 pub struct LtcFollower {
+    voice_cursor: VoiceCursor,
+    operator_clips: Arc<ClipSet>,
+    operator_updates: Receiver<Arc<ClipSet>>,
     operator_channels: Vec<usize>,
     /// One lane per distinct latency offset; none when the stream plays only the click.
     lanes: Vec<LtcChannel>,
@@ -672,7 +764,11 @@ impl LtcFollower {
         shared: Arc<SharedClock>,
     ) -> Self {
         let snapshot = shared.load();
+        let (operator_clips, operator_updates) = shared.subscribe_operator();
         Self {
+            voice_cursor: VoiceCursor::default(),
+            operator_clips,
+            operator_updates,
             operator_channels: Vec::new(),
             lanes,
             channels,
@@ -695,11 +791,15 @@ impl LtcFollower {
     /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
     pub fn render<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
         data.fill(T::EQUILIBRIUM);
+        while let Ok(set) = self.operator_updates.try_recv() {
+            self.operator_clips = set;
+        }
         if let Some(snapshot) = self.shared.try_load() {
             self.snapshot = snapshot;
         }
         let snapshot = self.snapshot;
         if snapshot.state != TransportState::Playing {
+            self.voice_cursor.next = None;
             self.next = None;
             self.click_next = None;
             self.seen_epoch = snapshot.epoch;
@@ -709,6 +809,8 @@ impl LtcFollower {
         let target = snapshot.estimated_position(now, self.clock);
         let one_frame = self.clock.frames_to_samples(1);
         let changed_epoch = self.seen_epoch != snapshot.epoch;
+        self.voice_cursor
+            .follow(target, changed_epoch || self.shared.is_lost());
         if changed_epoch {
             self.click_next = None;
         }
@@ -729,12 +831,7 @@ impl LtcFollower {
             .as_ref()
             .and_then(|click| click.shared.grid(ENGINE_RATE));
         let mut click_at = match self.click_next {
-            Some(next)
-                if (grid.is_some() || !self.operator_channels.is_empty())
-                    && next.abs_diff(target) < CLICK_SYNC_SAMPLES =>
-            {
-                next
-            }
+            Some(next) if grid.is_some() && next.abs_diff(target) < CLICK_SYNC_SAMPLES => next,
             _ => target,
         };
         let click_channels: &[usize] = self.click.as_ref().map_or(&[], |click| &click.channels);
@@ -746,12 +843,9 @@ impl LtcFollower {
             }
             let mut operator_left = [0.0f32; MIX_CHUNK];
             let mut operator_right = [0.0f32; MIX_CHUNK];
-            if !self.operator_channels.is_empty()
-                && !self.shared.is_lost()
-                && let Ok(set) = self.shared.operator_set.try_read()
-            {
-                set.mix_operator(
-                    click_at,
+            if !self.operator_channels.is_empty() && !self.shared.is_lost() {
+                self.voice_cursor.mix(
+                    &self.operator_clips,
                     &mut operator_left[..frames],
                     &mut operator_right[..frames],
                 );
@@ -787,8 +881,7 @@ impl LtcFollower {
                 }
             }
         }
-        self.click_next =
-            (grid.is_some() || !self.operator_channels.is_empty()).then_some(click_at);
+        self.click_next = grid.is_some().then_some(click_at);
         let written = (data.len() / self.channels) as u64;
         self.next = self.next.map(|next| next + written);
     }
@@ -1762,10 +1855,7 @@ impl Output {
         let (messages, message_rx) = mpsc::channel();
         let Programme { set, warnings } = programme;
         let clips = Arc::new(set);
-        *shared
-            .operator_set
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&clips);
+        shared.update_operator(Arc::clone(&clips));
         let levels = SharedLevels::new(clips.levels());
 
         let programme_device = ProgrammeDevice {
@@ -1924,20 +2014,35 @@ impl Output {
     }
 
     pub fn send(&self, command: Command) -> Result<(), OutputError> {
+        let play = matches!(command, Command::Play);
+        if play {
+            self.reader
+                .shared
+                .pending_plays
+                .fetch_add(1, Ordering::AcqRel);
+        }
         self.messages
             .send(Message::Transport(command))
-            .map_err(|_| OutputError::NotRunning)
+            .map_err(|_| {
+                if play {
+                    self.reader
+                        .shared
+                        .pending_plays
+                        .fetch_sub(1, Ordering::AcqRel);
+                }
+                OutputError::NotRunning
+            })
+    }
+
+    pub fn playing_or_pending(&self) -> bool {
+        self.reader.shared.pending_plays.load(Ordering::Acquire) > 0
+            || self.reader.shared.load().state == TransportState::Playing
     }
 
     /// Replaces the audio being played, after the project's clips changed.
     pub fn set_clips(&self, set: ClipSet) -> Result<(), OutputError> {
         let set = Arc::new(set);
-        *self
-            .reader
-            .shared
-            .operator_set
-            .write()
-            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&set);
+        self.reader.shared.update_operator(Arc::clone(&set));
         self.levels.replace(set.levels());
         let mut sets = self
             .clip_sets
@@ -2809,6 +2914,10 @@ mod tests {
     }
 
     fn spoken_clips() -> Arc<ClipSet> {
+        spoken_clips_with(vec![16_384; 96_000])
+    }
+
+    fn spoken_clips_with(samples: Vec<i16>) -> Arc<ClipSet> {
         use flux_project::{Alignment, AudioAsset, GeneratedVoice, Track, TrackKind, VoiceOrder};
         let mut project = flux_project::Project::new("Show", FrameRate::Fps25);
         project.assets.push(AudioAsset {
@@ -2843,7 +2952,7 @@ mod tests {
         Arc::new(
             super::super::mixer::build(&project, &project.timelines[0], |_| {
                 Ok(Arc::new(flux_audio::Decoded {
-                    samples: vec![16_384; 96_000],
+                    samples: samples.clone(),
                     source_rate: ENGINE_RATE,
                 }))
             })
@@ -2882,7 +2991,7 @@ mod tests {
     #[test]
     fn operator_follower_tracks_seek_and_silences_when_master_is_lost() {
         let shared = Arc::new(SharedClock::new());
-        *shared.operator_set.write().unwrap() = spoken_clips();
+        shared.update_operator(spoken_clips());
         let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
         let mut follower = LtcFollower::new(vec![], 3, clock, Arc::clone(&shared));
         follower.operator_channels = vec![2];
@@ -2902,10 +3011,93 @@ mod tests {
             stamp: 0,
         });
         follower.render(&mut buffer, 0);
-        assert_eq!(follower.click_next, Some(2));
+        assert_eq!(follower.voice_cursor.next, Some(2.0));
         shared.lost.store(true, Ordering::Relaxed);
         follower.render(&mut buffer, 0);
         assert_eq!(buffer, [0.0; 6]);
+    }
+
+    #[test]
+    fn operator_callback_keeps_playing_while_control_plane_is_locked() {
+        let shared = Arc::new(SharedClock::new());
+        shared.update_operator(spoken_clips());
+        let mut follower = LtcFollower::new(vec![], 1, clock(), Arc::clone(&shared));
+        follower.operator_channels = vec![0];
+        shared.publish(Snapshot {
+            state: TransportState::Playing,
+            epoch: 1,
+            position: 0,
+            stamp: 0,
+        });
+        let locked = shared.operator_set.lock().unwrap();
+        let mut buffer = [0.0f32; 256];
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.5; 256]);
+        drop(locked);
+        shared.update_operator(Arc::new(ClipSet::default()));
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.0; 256]);
+    }
+
+    #[test]
+    fn follower_corrects_device_drift_without_jumping_spoken_samples() {
+        let mut cursor = VoiceCursor::default();
+        let clips = ClipSet::default();
+        let mut left = [0.0; MIX_CHUNK];
+        let mut right = [0.0; MIX_CHUNK];
+        let mut master = 0.0;
+        // One hour at 100 ppm clock disagreement, in fixed callback blocks.
+        for _ in 0..675_000 {
+            let before = cursor.next;
+            cursor.follow(master as u64, false);
+            if let Some(before) = before {
+                assert_eq!(cursor.next, Some(before));
+            }
+            assert!((cursor.next.unwrap() - master).abs() < 12.0);
+            cursor.mix(&clips, &mut left, &mut right);
+            master += MIX_CHUNK as f64 * 1.0001;
+        }
+        cursor.follow(0, true);
+        assert_eq!(cursor.next, Some(0.0), "a seek resets immediately");
+        assert_eq!(cursor.step, 1.0);
+    }
+
+    #[test]
+    fn follower_interpolates_stereo_continuously_across_callback_boundaries() {
+        let clips = spoken_clips_with(
+            (0..48_000)
+                .flat_map(|i| {
+                    let v = (i % 1000) as i16;
+                    [v, -v]
+                })
+                .collect(),
+        );
+        let mut cursor = VoiceCursor {
+            next: Some(3.25),
+            step: 1.001,
+        };
+        let mut left = [0.0; MIX_CHUNK];
+        let mut right = [0.0; MIX_CHUNK];
+        for block in 0..2 {
+            cursor.mix(&clips, &mut left, &mut right);
+            for i in 0..MIX_CHUNK {
+                let expected = (3.25 + (block * MIX_CHUNK + i) as f64 * 1.001) as f32 / 32768.0;
+                assert!((left[i] - expected).abs() < 1e-7);
+                assert!((right[i] + expected).abs() < 1e-7);
+            }
+        }
+    }
+
+    #[test]
+    fn consuming_play_does_not_clear_a_later_queued_play() {
+        let (mut renderer, tx, shared) = renderer(1, 0);
+        shared.pending_plays.store(2, Ordering::Release);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut [0.0f32; 1], 0);
+        assert_eq!(shared.pending_plays.load(Ordering::Acquire), 1);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut [0.0f32; 1], 0);
+        assert_eq!(shared.pending_plays.load(Ordering::Acquire), 0);
     }
 
     #[test]

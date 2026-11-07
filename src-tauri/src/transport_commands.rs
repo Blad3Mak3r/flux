@@ -568,7 +568,7 @@ pub fn output_set_tempo(state: State<'_, SharedOutput>, tempo: Tempo) {
 pub fn is_playing(state: &SharedOutput) -> bool {
     lock(state)
         .as_ref()
-        .is_some_and(|running| running.output.reader().position().state == TransportState::Playing)
+        .is_some_and(|running| running.output.playing_or_pending())
 }
 
 /// Where the transport of the running output is and the cues it plays, for the remote control.
@@ -619,13 +619,15 @@ pub fn transport_play(
     state: State<'_, SharedOutput>,
     voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<(), OutputError> {
-    crate::voice_commands::stop_preview(&voice);
-    send(&state, Command::Play)
+    crate::voice_commands::send_transport(&voice, &state, Command::Play)
 }
 
 #[tauri::command(async)]
-pub fn transport_pause(state: State<'_, SharedOutput>) -> Result<(), OutputError> {
-    send(&state, Command::Pause)
+pub fn transport_pause(
+    state: State<'_, SharedOutput>,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
+) -> Result<(), OutputError> {
+    crate::voice_commands::send_transport(&voice, &state, Command::Pause)
 }
 
 /// Stops and goes back to the start of the timeline.
@@ -634,14 +636,17 @@ pub fn transport_stop(
     state: State<'_, SharedOutput>,
     voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<(), OutputError> {
-    crate::voice_commands::stop_preview(&voice);
-    send(&state, Command::Stop)
+    crate::voice_commands::send_transport(&voice, &state, Command::Stop)
 }
 
 /// Moves to a timecode given as a frame count.
 #[tauri::command(async)]
-pub fn transport_seek(state: State<'_, SharedOutput>, frame: u64) -> Result<(), OutputError> {
-    send(&state, Command::Seek(frame))
+pub fn transport_seek(
+    state: State<'_, SharedOutput>,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
+    frame: u64,
+) -> Result<(), OutputError> {
+    crate::voice_commands::send_transport(&voice, &state, Command::Seek(frame))
 }
 
 /// The current position, or `null` when no output is running.

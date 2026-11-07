@@ -11,6 +11,7 @@ mod recovery;
 mod startup;
 mod transport_commands;
 mod voice_commands;
+mod voice_jobs;
 mod windows;
 
 /// WSLg's Wayland compositor places every window itself and ignores the position an app asks for,
@@ -56,10 +57,13 @@ pub fn run() {
             voice_commands::voice_key_delete,
             voice_commands::voice_list,
             voice_commands::operator_views,
+            voice_commands::operator_preflight,
             voice_commands::operator_edit,
             voice_commands::voice_generate,
             voice_commands::voice_commit,
-            voice_commands::voice_discard,
+            voice_commands::voice_jobs,
+            voice_commands::voice_pending,
+            voice_commands::voice_retry_save,
             voice_commands::voice_preview,
             voice_commands::voice_preview_stop,
             commands::project_document,
