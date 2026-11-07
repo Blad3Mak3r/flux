@@ -365,15 +365,33 @@ pub async fn operator_preflight(
     project.validate().map_err(|_| Error::InvalidInput)?;
     let prefs = preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
         .map_err(|_| Error::Storage)?;
-    let resolved = prefs.resolve(&project.output, false);
+
     let session = Arc::clone(&session);
     worker(move || {
-        let route = flux_engine::preflight::probe(&resolved);
+        let mut routes = std::collections::HashMap::new();
+        for timeline in &project.timelines {
+            let resolved = prefs.resolve_project(&project, timeline, false);
+            for bus in &resolved.audio_routes {
+                let mut config = resolved.clone();
+                config.operator = bus.route.clone();
+                routes
+                    .entry(bus.id.clone())
+                    .or_insert_with(|| flux_engine::preflight::probe(&config));
+            }
+        }
         let mut checked = std::collections::HashMap::new();
-        Ok(flux_engine::preflight::check(
+        Ok(flux_engine::preflight::check_routes(
             &project,
             prefs.voice.as_deref(),
-            route,
+            |_, track| {
+                flux_project::routing::target(track)
+                    .and_then(|id| routes.get(id))
+                    .copied()
+                    .unwrap_or(flux_engine::preflight::RouteCheck {
+                        available: false,
+                        ltc_conflict: false,
+                    })
+            },
             |asset| {
                 *checked.entry(asset.id.clone()).or_insert_with(|| {
                     let bytes = session

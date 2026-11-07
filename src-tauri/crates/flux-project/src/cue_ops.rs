@@ -117,6 +117,7 @@ fn is_kind(track: &Track, kind: CueTrackKind) -> bool {
 
 fn empty_track(project: &Project, kind: CueTrackKind, name: &str) -> Track {
     Track {
+        audio_output: Default::default(),
         id: new_id(),
         name: name.to_owned(),
         muted: false,

@@ -369,7 +369,12 @@ impl ClipSet {
             .zip(right.chunks_mut(MIX_CHUNK))
             .enumerate()
         {
-            self.mix_chunk(position + (index * MIX_CHUNK) as u64, left, right, false);
+            self.mix_chunk(
+                position + (index * MIX_CHUNK) as u64,
+                left,
+                right,
+                |i, _| !self.operator_tracks.contains(&i),
+            );
         }
     }
 
@@ -380,15 +385,48 @@ impl ClipSet {
             .zip(right.chunks_mut(MIX_CHUNK))
             .enumerate()
         {
-            self.mix_chunk(position + (index * MIX_CHUNK) as u64, left, right, true);
+            self.mix_chunk(
+                position + (index * MIX_CHUNK) as u64,
+                left,
+                right,
+                |i, _| self.operator_tracks.contains(&i),
+            );
         }
     }
 
-    fn mix_chunk(&self, position: u64, left: &mut [f32], right: &mut [f32], operator: bool) {
+    /// Mixes a frozen routing membership. Newly added tracks stay silent until routes are applied.
+    pub fn mix_tracks(
+        &self,
+        position: u64,
+        left: &mut [f32],
+        right: &mut [f32],
+        tracks: &[String],
+    ) {
+        for (index, (left, right)) in left
+            .chunks_mut(MIX_CHUNK)
+            .zip(right.chunks_mut(MIX_CHUNK))
+            .enumerate()
+        {
+            self.mix_chunk(
+                position + (index * MIX_CHUNK) as u64,
+                left,
+                right,
+                |_, id| tracks.iter().any(|t| t == id),
+            );
+        }
+    }
+
+    fn mix_chunk(
+        &self,
+        position: u64,
+        left: &mut [f32],
+        right: &mut [f32],
+        selected: impl Fn(usize, &str) -> bool,
+    ) {
         let frames = left.len();
         let window_end = position + frames as u64;
         for (index, meter) in self.levels.tracks.iter().enumerate() {
-            if self.operator_tracks.contains(&index) != operator {
+            if !selected(index, &meter.id) {
                 continue;
             }
             let mut track_left = [0.0f32; MIX_CHUNK];
@@ -592,6 +630,7 @@ mod tests {
             bpm: None,
         });
         project.timelines[0].tracks.push(Track {
+            audio_output: Default::default(),
             id: "operator".into(),
             name: "Operator".into(),
             muted: false,
@@ -1031,6 +1070,7 @@ mod tests {
 
     fn audio_track(id: &str, muted: bool, clips: Vec<AudioClip>) -> Track {
         Track {
+            audio_output: Default::default(),
             id: id.into(),
             name: id.into(),
             muted,

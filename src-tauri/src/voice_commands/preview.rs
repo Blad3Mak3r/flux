@@ -31,6 +31,8 @@ fn audition(
     let set = flux_engine::mixer::ClipSet::new(vec![clip], vec![("preview".into(), 1.0)])
         .with_end(Some(frames));
     let config = flux_project::OutputConfig {
+        audio_routes: Vec::new(),
+        track_routes: Vec::new(),
         driver,
         audio: Some(route),
         ..Default::default()
@@ -62,13 +64,24 @@ fn audition(
 #[tauri::command]
 pub async fn voice_test_output(
     app: AppHandle,
+    output_id: Option<String>,
     state: State<'_, Arc<VoiceState>>,
     output: State<'_, SharedOutput>,
 ) -> Result<()> {
     let epoch = preview_epoch(&state, &output)?;
     let prefs = preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
         .map_err(|_| Error::Storage)?;
-    let route = prefs.operator.ok_or(Error::MissingRoute)?;
+    let route = match output_id.as_deref().unwrap_or("operator") {
+        "programme" => prefs.audio.clone().or_else(|| {
+            Some(flux_project::AudioOutput {
+                device_name: String::new(),
+                channels: vec![1, 2],
+            })
+        }),
+        "operator" => prefs.operator.clone(),
+        id => prefs.audio_routes.get(id).cloned(),
+    }
+    .ok_or(Error::MissingRoute)?;
     let state = Arc::clone(&state);
     let output = Arc::clone(&output);
     worker(move || {
@@ -174,7 +187,7 @@ pub async fn voice_preview(
         let mut programme = flux_engine::mixer::build(&project, &timeline, |a| crate::audio_commands::load(&session, &cache, a));
         if !programme.warnings.is_empty() { return Err(Error::Audio); }
         programme.set = programme.set.with_end(Some(samples));
-        let config = flux_project::OutputConfig { driver: prefs.driver, audio: Some(route.clone()), operator: Some(route), ..Default::default() };
+        let config = flux_project::OutputConfig { audio_routes: Vec::new(), track_routes: Vec::new(), driver: prefs.driver, audio: Some(route.clone()), operator: Some(route), ..Default::default() };
         let preview = flux_engine::output::Output::start(&config, &timeline, programme, false).map_err(|_| Error::Output)?;
         let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
         if state.preview_epoch.load(Ordering::Acquire) != epoch || !transport_stopped(&output) { return Err(Error::Obsolete); }

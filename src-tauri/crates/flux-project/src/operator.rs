@@ -299,6 +299,7 @@ pub fn apply(project: &mut Project, active: &str, op: OperatorOp) -> Result<()> 
             return Err(ProjectError::Invalid("invalid track name".into()));
         }
         timeline.tracks.push(Track {
+            audio_output: Default::default(),
             id: Uuid::new_v4().to_string(),
             name: name.into(),
             muted: false,
@@ -536,6 +537,7 @@ mod tests {
     fn partial_edits_preserve_other_fields_and_generated_content() {
         let mut project = Project::new("Show", FrameRate::Fps25);
         project.timelines[0].tracks.push(Track {
+            audio_output: Default::default(),
             id: "track".into(),
             name: "Operator".into(),
             muted: false,

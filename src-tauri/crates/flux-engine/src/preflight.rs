@@ -15,6 +15,7 @@ pub enum IssueCode {
     Overlap,
     MissingRoute,
     LtcConflict,
+    SilentOutput,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,6 +88,15 @@ pub fn check(
     project: &Project,
     local_voice: Option<&str>,
     route: RouteCheck,
+    samples: impl FnMut(&AudioAsset) -> Option<u64>,
+) -> Report {
+    check_routes(project, local_voice, |_, _| route, samples)
+}
+
+pub fn check_routes(
+    project: &Project,
+    local_voice: Option<&str>,
+    mut route: impl FnMut(&flux_project::Timeline, &flux_project::Track) -> RouteCheck,
     mut samples: impl FnMut(&AudioAsset) -> Option<u64>,
 ) -> Report {
     let mut report = Report::default();
@@ -97,6 +107,7 @@ pub fn check(
             let TrackKind::Operator { orders, .. } = &track.kind else {
                 continue;
             };
+            let route = route(timeline, track);
             let voice = flux_project::operator::effective_voice(project, track, local_voice).0;
             for order in orders {
                 report.orders += 1;
@@ -143,6 +154,26 @@ pub fn check(
                     }
                 }
             }
+            if !orders.is_empty() {
+                let silent = flux_project::routing::target(track).is_none();
+                for (code, present, blocking) in [
+                    (IssueCode::SilentOutput, silent, false),
+                    (IssueCode::MissingRoute, !route.available && !silent, true),
+                    (IssueCode::LtcConflict, route.ltc_conflict, true),
+                ] {
+                    if present {
+                        report.issues.push(Issue {
+                            code,
+                            blocking,
+                            timeline_id: Some(timeline.id.clone()),
+                            timeline_name: Some(timeline.name.clone()),
+                            order_id: None,
+                            name: track.name.clone(),
+                            frame: None,
+                        });
+                    }
+                }
+            }
         }
         intervals.sort_by_key(|(from, _, _)| *from);
         let mut longest: Option<(u64, u64, &flux_project::VoiceOrder)> = None;
@@ -175,24 +206,6 @@ pub fn check(
             }
         }
     }
-    if report.orders > 0 {
-        for (code, present) in [
-            (IssueCode::MissingRoute, !route.available),
-            (IssueCode::LtcConflict, route.ltc_conflict),
-        ] {
-            if present {
-                report.issues.push(Issue {
-                    code,
-                    blocking: true,
-                    timeline_id: None,
-                    timeline_name: None,
-                    order_id: None,
-                    name: String::new(),
-                    frame: None,
-                });
-            }
-        }
-    }
     report.errors = report.issues.iter().filter(|i| i.blocking).count();
     report.warnings = report.issues.len() - report.errors;
     report
@@ -213,6 +226,7 @@ mod tests {
             bpm: None,
         });
         p.timelines[0].tracks.push(Track {
+            audio_output: Default::default(),
             id: "operator".into(),
             name: "Operator".into(),
             muted: false,
@@ -324,5 +338,53 @@ mod tests {
         let report = check(&p, None, READY, |_| Some(48_000));
         assert_eq!(codes(&report), [IssueCode::Overlap; 3]);
         assert_eq!((report.errors, report.warnings), (0, 3));
+    }
+
+    #[test]
+    fn each_operator_track_uses_its_own_route_check_and_silent_is_explicit() {
+        let mut p = project();
+        let mut other = p.timelines[0].tracks[0].clone();
+        other.id = "other".into();
+        other.name = "Stage".into();
+        if let TrackKind::Operator { orders, .. } = &mut other.kind {
+            orders[0].id = "second".into();
+            orders[0].at = 100;
+        }
+        p.timelines[0].tracks.push(other);
+        let report = check_routes(
+            &p,
+            None,
+            |_, track| {
+                if track.id == "other" {
+                    RouteCheck {
+                        available: false,
+                        ltc_conflict: false,
+                    }
+                } else {
+                    READY
+                }
+            },
+            |_| Some(48_000),
+        );
+        assert_eq!((report.orders, report.ready, report.errors), (2, 1, 1));
+        assert_eq!(report.issues[0].name, "Stage");
+        p.timelines[0].tracks[1].audio_output = flux_project::routing::AudioAssignment::Silent;
+        let report = check_routes(
+            &p,
+            None,
+            |_, track| {
+                if track.id == "other" {
+                    RouteCheck {
+                        available: false,
+                        ltc_conflict: false,
+                    }
+                } else {
+                    READY
+                }
+            },
+            |_| Some(48_000),
+        );
+        assert_eq!(codes(&report), [IssueCode::SilentOutput]);
+        assert_eq!((report.errors, report.warnings), (0, 1));
     }
 }

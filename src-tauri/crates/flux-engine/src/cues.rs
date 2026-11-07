@@ -473,6 +473,7 @@ mod tests {
 
     fn track(id: &str, muted: bool, kind: TrackKind) -> Track {
         Track {
+            audio_output: Default::default(),
             id: id.into(),
             name: format!("Track {id}"),
             muted,

@@ -78,6 +78,7 @@ pub fn run() {
             commands::cue_edit,
             commands::item_edit,
             commands::output_signal_edit,
+            commands::audio_routing_edit,
             preferences::preferences_get,
             preferences::preferences_change,
             preferences::preferences_resolve,

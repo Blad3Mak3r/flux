@@ -18,7 +18,7 @@ pub use super::meta::Meta;
 /// shape, not at the number.
 /// Version 6 separates portable signals from local hardware routing.
 /// Version 9 adds recording origin, pronunciation text and non-destructive speech trims.
-pub const FORMAT_VERSION: u32 = 9;
+pub const FORMAT_VERSION: u32 = 10;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -167,6 +167,11 @@ pub struct AudioAsset {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
+    #[serde(
+        default,
+        skip_serializing_if = "crate::routing::AudioAssignment::is_inherit"
+    )]
+    pub audio_output: crate::routing::AudioAssignment,
     pub id: String,
     pub name: String,
     pub muted: bool,
@@ -351,6 +356,10 @@ pub struct Note {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutputConfig {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio_routes: Vec<crate::routing::ResolvedAudioBus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub track_routes: Vec<crate::routing::TrackRoute>,
     /// The audio API every audio device below is opened through (`"ALSA"`, `"PipeWire"`, `"JACK"`,
     /// `"WASAPI"`, `"CoreAudio"`, ...). Absent is the system's default one, which is also what plays
     /// when this machine does not have the named driver.
@@ -477,6 +486,7 @@ impl Project {
     /// asset files living directly under `audio/`.
     pub fn validate(&self) -> Result<()> {
         crate::operator::validate_voice(self.voice.as_deref())?;
+        crate::routing::validate(self)?;
         self.meta.validate()?;
         self.autosave.validate()?;
         let mut asset_ids = HashSet::new();
@@ -661,6 +671,16 @@ impl OutputConfig {
             }
             validate_channels(&route.channels)?;
         }
+        for bus in &self.audio_routes {
+            if let Some(route) = &bus.route {
+                if !(1..=2).contains(&route.channels.len()) {
+                    return Err(ProjectError::Invalid(
+                        "choose mono or stereo channels".into(),
+                    ));
+                }
+                validate_channels(&route.channels)?;
+            }
+        }
         for ltc in &self.ltc {
             check_channel(ltc.channel)?;
             if !ltc.level.is_none_or(|level| (0.0..=1.0).contains(&level)) {
@@ -805,6 +825,7 @@ pub(super) mod tests {
                 },
                 tracks: vec![
                     Track {
+                        audio_output: Default::default(),
                         id: "t1".into(),
                         name: "Backing".into(),
                         muted: false,
@@ -818,6 +839,7 @@ pub(super) mod tests {
                         },
                     },
                     Track {
+                        audio_output: Default::default(),
                         id: "t2".into(),
                         name: "Notes".into(),
                         muted: true,
@@ -841,6 +863,7 @@ pub(super) mod tests {
                         },
                     },
                     Track {
+                        audio_output: Default::default(),
                         id: "t3".into(),
                         name: "Console".into(),
                         muted: false,
@@ -877,6 +900,7 @@ pub(super) mod tests {
                         },
                     },
                     Track {
+                        audio_output: Default::default(),
                         id: "t4".into(),
                         name: "QLab".into(),
                         muted: false,
@@ -895,6 +919,8 @@ pub(super) mod tests {
                 ],
             }],
             output: OutputConfig {
+                audio_routes: Vec::new(),
+                track_routes: Vec::new(),
                 operator: None,
                 driver: Some("PipeWire".into()),
                 audio: Some(AudioOutput {
@@ -931,7 +957,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 9,
+        "formatVersion": 10,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {
@@ -1349,6 +1375,7 @@ pub(super) mod tests {
         let mut project = sample_project();
         let mut second = Timeline::new("Second", FrameRate::Fps25);
         second.tracks.push(Track {
+            audio_output: Default::default(),
             id: "t9".into(),
             name: "Notes".into(),
             muted: false,
@@ -1400,6 +1427,7 @@ pub(super) mod tests {
         let mut project = two_timelines();
         let clip = AudioClip::new("c2", "a1", 0);
         project.timelines[1].tracks.push(Track {
+            audio_output: Default::default(),
             id: "t4".into(),
             name: "Backing".into(),
             muted: false,

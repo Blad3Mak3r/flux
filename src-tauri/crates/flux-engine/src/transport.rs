@@ -25,6 +25,11 @@ pub enum Command {
     /// Moves to a timecode, given as a frame count like every position in the project. Positions
     /// before the timeline start go to the start.
     Seek(u64),
+    /// Restores a stationary transport after reopening hardware; never enters Play.
+    Restore {
+        samples: u64,
+        paused: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +69,15 @@ impl Transport {
 
     pub fn apply(&mut self, command: Command) {
         match command {
+            Command::Restore { samples, paused } => {
+                self.position = self.end.map_or(samples, |end| samples.min(end));
+                self.state = if paused {
+                    TransportState::Paused
+                } else {
+                    TransportState::Stopped
+                };
+                self.epoch += 1;
+            }
             Command::Play => {
                 if self.state != TransportState::Playing {
                     self.state = TransportState::Playing;
@@ -138,6 +152,39 @@ impl Transport {
 mod tests {
     use super::*;
     use flux_core::FrameRate;
+
+    #[test]
+    fn hardware_restore_preserves_exact_samples_and_never_enters_play() {
+        for rate in [
+            FrameRate::Fps24,
+            FrameRate::Fps25,
+            FrameRate::Fps2997Drop,
+            FrameRate::Fps30,
+        ] {
+            let mut t = Transport::new(Clock::new(48_000, rate), 900);
+            t.apply(Command::Restore {
+                samples: 12_345,
+                paused: true,
+            });
+            assert_eq!(
+                (t.position_samples(), t.state()),
+                (12_345, TransportState::Paused)
+            );
+            assert!(!t.advance(256));
+            assert_eq!(t.position_samples(), 12_345);
+            t.apply(Command::Play);
+            t.advance(256);
+            assert_eq!(t.position_samples(), 12_601);
+            t.apply(Command::Restore {
+                samples: 456,
+                paused: false,
+            });
+            assert_eq!(
+                (t.position_samples(), t.state()),
+                (456, TransportState::Stopped)
+            );
+        }
+    }
 
     fn transport(start: u64) -> Transport {
         Transport::new(Clock::new(48_000, FrameRate::Fps25), start)

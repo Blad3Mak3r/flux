@@ -411,6 +411,13 @@ impl Session {
         self.change(|project, active| crate::operator::apply(project, active, op))
     }
 
+    pub fn edit_audio_routing(
+        &mut self,
+        op: crate::routing::AudioRoutingOp,
+    ) -> Result<ProjectState> {
+        self.change(|project, active| crate::routing::apply(project, active, op))
+    }
+
     pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
         self.change(|project, _| project.output.edit(op))
     }
@@ -696,6 +703,7 @@ mod tests {
         let mut project = session.new_project("Show", FrameRate::Fps25);
         let asset = session.import_audio(&wav).unwrap();
         project.timelines[0].tracks.push(Track {
+            audio_output: Default::default(),
             id: "t1".into(),
             name: "Backing".into(),
             muted: false,

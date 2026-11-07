@@ -204,6 +204,7 @@ mod tests {
 
     fn track(id: &str, muted: bool, destination: Option<&str>, at: u64) -> Track {
         Track {
+            audio_output: Default::default(),
             id: id.into(),
             name: id.into(),
             muted,

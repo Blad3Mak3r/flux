@@ -108,9 +108,14 @@ pub async fn diagnostics_export(
     path: PathBuf,
 ) -> Result<(), DiagnosticsError> {
     let dir = log_dir(&app)?;
+    let routing = crate::transport_commands::routing_snapshot(&output);
     let output = running_info(&output);
     let exported = tauri::async_runtime::spawn_blocking(move || {
-        let report = report(&dir, output.as_ref());
+        let mut report = report(&dir, output.as_ref());
+        if let Some(routing) = routing {
+            report.push_str("\nAudio routing:\n");
+            report.push_str(&serde_json::to_string_pretty(&routing).unwrap_or_default());
+        }
         write_bundle(&path, &logger::files(&dir), &report)
     })
     .await

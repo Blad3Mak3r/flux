@@ -310,6 +310,23 @@ pub async fn output_signal_edit(
     .await
 }
 
+#[tauri::command]
+pub async fn audio_routing_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: flux_project::routing::AudioRoutingOp,
+) -> std::result::Result<ProjectState, flux_project::routing::RoutingError> {
+    run(&session, move |s| {
+        s.update(project);
+        s.edit_audio_routing(op)
+    })
+    .await
+    .map_err(|error| match error {
+        ProjectError::AudioRouting(code) => code,
+        _ => flux_project::routing::RoutingError::InvalidProject,
+    })
+}
+
 /// Registers an audio file; the returned asset is for the frontend to add to its project.
 #[tauri::command]
 pub async fn project_import_audio(

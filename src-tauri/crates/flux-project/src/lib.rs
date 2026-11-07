@@ -14,6 +14,7 @@ pub use operator::{Alignment, GeneratedVoice, OperatorOp, VoiceOrder, VoiceStatu
 mod outputs;
 mod preview;
 pub mod recovery;
+pub mod routing;
 pub use outputs::{ClickSettings, LtcSignal, MtcSignal, ShowOutputs, SignalOp, UNASSIGNED_DEVICE};
 mod session;
 

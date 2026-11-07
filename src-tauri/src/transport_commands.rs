@@ -118,6 +118,7 @@ impl EndLane {
 
 /// What the end lane does when the show ends: the next timeline becomes the active one, stopped at
 /// its start, and the window is told.
+#[derive(Clone)]
 struct Advance {
     app: AppHandle,
     session: SharedSession,
@@ -183,7 +184,50 @@ pub struct AttachedOutput {
 }
 
 /// A running output and the threads that report it to the UI.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioRoutingState {
+    active: Vec<flux_engine::audio_routing::AudioRouteState>,
+    active_tracks: Vec<flux_project::routing::TrackRoute>,
+    desired_tracks: Vec<flux_project::routing::TrackRoute>,
+    pending: bool,
+}
+#[derive(Default)]
+struct AudioRoutingLane {
+    last: Option<AudioRoutingState>,
+}
+impl AudioRoutingLane {
+    fn next(&mut self, state: AudioRoutingState) -> Option<AudioRoutingState> {
+        if self.last.as_ref() == Some(&state) {
+            return None;
+        }
+        self.last = Some(state.clone());
+        Some(state)
+    }
+}
+
+#[derive(Clone)]
+struct OutputChannels {
+    position: Channel<Position>,
+    levels: Channel<Vec<TrackPeak>>,
+    live: Channel<LiveState>,
+    routing: Channel<AudioRoutingState>,
+}
+struct PendingAudio {
+    config: OutputConfig,
+    timeline: Timeline,
+    programme: Programme,
+    preferences: crate::preferences::Preferences,
+    audition: bool,
+}
 pub struct Running {
+    pending_audio: Option<PendingAudio>,
+    stationary_requested: bool,
+    channels: OutputChannels,
+    app: AppHandle,
+    advance: Option<Advance>,
+    desired_audio: Arc<Mutex<OutputConfig>>,
+    on_audio_routing: Sender<Channel<AudioRoutingState>>,
     output: Output,
     setup: OutputSetup,
     preferences: crate::preferences::Preferences,
@@ -211,12 +255,26 @@ impl Running {
         on_position: Channel<Position>,
         on_levels: Channel<Vec<TrackPeak>>,
         on_live: Channel<LiveState>,
+        on_audio_routing: Channel<AudioRoutingState>,
     ) -> Result<Self, OutputError> {
         let (position_tx, position_rx) = mpsc::channel();
         let (levels_tx, levels_rx) = mpsc::channel();
         let (live_tx, live_rx) = mpsc::channel();
+        let (audio_tx, audio_rx) = mpsc::channel();
         // Built before the lanes, so that failing to start one stops the other: `Drop` joins them.
         let mut running = Self {
+            pending_audio: None,
+            stationary_requested: false,
+            channels: OutputChannels {
+                position: on_position.clone(),
+                levels: on_levels.clone(),
+                live: on_live.clone(),
+                routing: on_audio_routing.clone(),
+            },
+            app: app.clone(),
+            advance: advance.clone(),
+            desired_audio: Arc::new(Mutex::new(setup.output.clone())),
+            on_audio_routing: audio_tx,
             output,
             setup,
             preferences,
@@ -228,6 +286,26 @@ impl Running {
             lanes: Vec::new(),
         };
 
+        let reader = running.output.reader();
+        let active = running.setup.output.clone();
+        let desired = Arc::clone(&running.desired_audio);
+        running.spawn_lane(
+            "flux-audio-routing",
+            report(
+                audio_rx,
+                on_audio_routing,
+                move |lane: &mut AudioRoutingLane| {
+                    let desired = desired.lock().unwrap_or_else(PoisonError::into_inner);
+                    lane.next(AudioRoutingState {
+                        active: reader.audio_routes(),
+                        active_tracks: active.track_routes.clone(),
+                        desired_tracks: desired.track_routes.clone(),
+                        pending: desired.audio_routes != active.audio_routes
+                            || desired.track_routes != active.track_routes,
+                    })
+                },
+            ),
+        )?;
         let reader = running.output.reader();
         running.spawn_lane(
             "flux-position",
@@ -266,10 +344,24 @@ impl Running {
 
         let reader = running.output.reader();
         let mut log = LogLane::default();
+        let mut previous_routes: Vec<flux_engine::audio_routing::AudioRouteState> = Vec::new();
         running.spawn_lane("flux-log", move || {
             for (level, line) in log.next(reader.position(), reader.faults(), Instant::now()) {
                 log::log!(level, "{line}");
             }
+            let routes = reader.audio_routes();
+            for route in &routes {
+                if previous_routes.iter().find(|r| r.id == route.id) != Some(route) {
+                    log::info!(
+                        "audio destination {}: {:?}, device {}, channels {:?}",
+                        route.id,
+                        route.status,
+                        route.device,
+                        route.channels
+                    );
+                }
+            }
+            previous_routes = routes;
         })?;
 
         let levels = running.output.levels();
@@ -356,21 +448,39 @@ pub async fn output_start(
     on_position: Channel<Position>,
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
+    on_audio_routing: Channel<AudioRoutingState>,
 ) -> Result<OutputInfo, OutputError> {
     project.validate()?;
     let prefs =
         crate::preferences::preferences_get(app.clone(), prefs).map_err(OutputError::Stream)?;
     let audition = audition && prefs.preview.is_some();
-    let resolved = prefs.resolve(&project.output, audition);
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     let started = tauri::async_runtime::spawn_blocking(move || {
+        let _transition = transition();
         let previous = lock(&state).take();
+        let parked = previous.as_ref().map(|r| {
+            (
+                r.setup.timeline_id.clone(),
+                r.setup.timecode.clone(),
+                r.output.reader().position(),
+            )
+        });
         drop(previous);
 
         let timeline = active_timeline(&session, &project)?;
+        let resolved = prefs.resolve_project(&project, timeline, audition);
         let list = cue_list(&project, timeline, &session, &audio);
         let programme = programme(&project, timeline, &session, &audio, &list);
         let output = Output::start(&resolved, timeline, programme, !audition)?;
+        if let Some((id, timecode, position)) = parked
+            && id == timeline.id
+            && timecode == timeline.timecode
+        {
+            output.send(Command::Restore {
+                samples: position.position_samples,
+                paused: position.state == TransportState::Paused,
+            })?;
+        }
         let setup = OutputSetup {
             timeline_id: timeline.id.clone(),
             timecode: timeline.timecode.clone(),
@@ -396,6 +506,7 @@ pub async fn output_start(
             on_position,
             on_levels,
             on_live,
+            on_audio_routing,
         )?);
         Ok(info)
     })
@@ -413,6 +524,7 @@ pub async fn output_start(
 /// start): nothing was touched and the output has to be started again.
 #[tauri::command]
 pub async fn output_reconfigure(
+    audio: State<'_, SharedAudio>,
     app: AppHandle,
     prefs: State<'_, crate::preferences::Store>,
     state: State<'_, SharedOutput>,
@@ -423,23 +535,58 @@ pub async fn output_reconfigure(
     project.validate()?;
     let prefs = crate::preferences::preferences_get(app, prefs).map_err(OutputError::Stream)?;
     let audition = audition && prefs.preview.is_some();
-    let (state, session) = (Arc::clone(&state), Arc::clone(&session));
+    let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     let done = tauri::async_runtime::spawn_blocking(move || {
+        let _transition = transition();
         let timeline = active_timeline(&session, &project)?;
-        match lock(&state).as_mut() {
+        let resolved = prefs.resolve_project(&project, timeline, audition);
+        {
+            let mut guard = lock(&state);
+            if let Some(running) = guard.as_mut()
+                && running.setup.output == resolved
+                && running.setup.timecode == timeline.timecode
+                && running.setup.audition == audition
+            {
+                running.pending_audio = None;
+                running.preferences = prefs.clone();
+                *running
+                    .desired_audio
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = resolved;
+                return Ok(Reconfigured::Applied {
+                    info: running.output.info().clone(),
+                });
+            }
+        }
+        let list = cue_list(&project, timeline, &session, &audio);
+        let programme = programme(&project, timeline, &session, &audio, &list);
+        let done = match lock(&state).as_mut() {
             Some(running) => {
-                if audition != running.setup.audition {
-                    return Ok(Reconfigured::NeedsRestart);
-                }
+                *running
+                    .desired_audio
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = resolved.clone();
                 let position = running.output.reader().position();
-                if position.state == TransportState::Playing
-                    && !position.device_lost
-                    && !prefs.same_routing(&running.preferences)
-                {
-                    return Ok(Reconfigured::NeedsRestart);
+                let needs_restart = audition != running.setup.audition
+                    || (running.output.playing_or_pending()
+                        && !position.device_lost
+                        && !prefs.same_routing(&running.preferences));
+                let done = if needs_restart {
+                    Reconfigured::NeedsRestart
+                } else {
+                    running.output.reconfigure(&resolved, timeline)
+                };
+                if matches!(done, Reconfigured::NeedsRestart) {
+                    running.pending_audio = Some(PendingAudio {
+                        config: resolved.clone(),
+                        timeline: timeline.clone(),
+                        programme,
+                        preferences: prefs.clone(),
+                        audition,
+                    });
+                } else {
+                    running.pending_audio = None;
                 }
-                let resolved = prefs.resolve(&project.output, audition);
-                let done = running.output.reconfigure(&resolved, timeline);
                 // The LTC and MTC outputs now play what the project asks for, so a window that
                 // attaches later must find them as requested.
                 if matches!(done, Reconfigured::Applied { .. }) {
@@ -449,7 +596,18 @@ pub async fn output_reconfigure(
                 Ok(done)
             }
             None => Err(OutputError::NotRunning),
+        };
+        if matches!(done, Ok(Reconfigured::NeedsRestart)) && !is_playing(&state) {
+            apply_pending(&state)?;
+            let info = lock(&state)
+                .as_ref()
+                .ok_or(OutputError::NotRunning)?
+                .output
+                .info()
+                .clone();
+            return Ok(Reconfigured::Applied { info });
         }
+        done
     })
     .await
     .map_err(|err| OutputError::Stream(err.to_string()))?;
@@ -469,13 +627,21 @@ pub fn output_attach(
     on_position: Channel<Position>,
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
+    on_audio_routing: Channel<AudioRoutingState>,
 ) -> Option<AttachedOutput> {
-    let running = lock(&state);
-    let running = running.as_ref()?;
+    let mut running = lock(&state);
+    let running = running.as_mut()?;
     let position = running.output.reader().position();
+    running.channels = OutputChannels {
+        position: on_position.clone(),
+        levels: on_levels.clone(),
+        live: on_live.clone(),
+        routing: on_audio_routing.clone(),
+    };
     let _ = running.on_position.send(on_position);
     let _ = running.on_levels.send(on_levels);
     let _ = running.on_live.send(on_live);
+    let _ = running.on_audio_routing.send(on_audio_routing);
     Some(AttachedOutput {
         info: running.output.info().clone(),
         position,
@@ -514,11 +680,19 @@ pub async fn output_set_clips(
         let list = cue_list(&project, timeline, &session, &audio);
         let Programme { set, mut warnings } =
             programme(&project, timeline, &session, &audio, &list);
+        let _transition = transition();
         match lock(&state).as_mut() {
             Some(running) => {
                 running.cues.replace(list);
                 // The cue tracks follow the edit too (their schedules, and any new port).
                 warnings.extend(running.output.set_events(timeline, &project.output.osc));
+                if let Some(pending) = &mut running.pending_audio {
+                    pending.programme = Programme {
+                        set: set.clone(),
+                        warnings: warnings.clone(),
+                    };
+                    pending.timeline = timeline.clone();
+                }
                 running.output.set_clips(set).map(|()| warnings)
             }
             None => Err(OutputError::NotRunning),
@@ -585,12 +759,29 @@ pub fn running_info(state: &SharedOutput) -> Option<OutputInfo> {
         .map(|running| running.output.info().clone())
 }
 
+pub fn routing_snapshot(state: &SharedOutput) -> Option<AudioRoutingState> {
+    let guard = lock(state);
+    let running = guard.as_ref()?;
+    let desired = running
+        .desired_audio
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    Some(AudioRoutingState {
+        active: running.output.reader().audio_routes(),
+        active_tracks: running.setup.output.track_routes.clone(),
+        desired_tracks: desired.track_routes.clone(),
+        pending: desired.audio_routes != running.setup.output.audio_routes
+            || desired.track_routes != running.setup.output.track_routes,
+    })
+}
+
 /// Closes the running output, if any. Taken first and dropped after: stopping waits for threads,
 /// and the lock must be free for the `transport_*` commands, which run on the main thread, in the
 /// meantime.
 pub async fn release(state: &SharedOutput) {
     let state = Arc::clone(state);
     let _ = tauri::async_runtime::spawn_blocking(move || {
+        let _transition = transition();
         let previous = lock(&state).take();
         let running = previous.is_some();
         drop(previous);
@@ -607,11 +798,126 @@ pub async fn output_stop(state: State<'_, SharedOutput>) -> Result<(), OutputErr
     Ok(())
 }
 
-pub(crate) fn send(state: &SharedOutput, command: Command) -> Result<(), OutputError> {
-    match lock(state).as_ref() {
-        Some(running) => running.output.send(command),
-        None => Err(OutputError::NotRunning),
+/// Serializes hardware transitions with transport commands, including remote control.
+static OUTPUT_TRANSITION: Mutex<()> = Mutex::new(());
+fn transition() -> MutexGuard<'static, ()> {
+    OUTPUT_TRANSITION
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+}
+
+fn apply_pending(state: &SharedOutput) -> Result<(), OutputError> {
+    let mut guard = lock(state);
+    let Some(running) = guard.as_mut() else {
+        return Err(OutputError::NotRunning);
+    };
+    if running.output.reader().position().state == TransportState::Playing
+        || running.pending_audio.is_none()
+    {
+        return Ok(());
     }
+    let pending = running
+        .pending_audio
+        .take()
+        .ok_or(OutputError::NotRunning)?;
+    let position = running.output.reader().position();
+    let setup = OutputSetup {
+        timeline_id: pending.timeline.id.clone(),
+        timecode: pending.timeline.timecode.clone(),
+        output: pending.config.clone(),
+        advance: running.setup.advance,
+        audition: pending.audition,
+    };
+    let channels = running.channels.clone();
+    let app = running.app.clone();
+    let advance = running.advance.clone();
+    let cues = running.cues.clone();
+    let old = guard.take();
+    drop(guard);
+    drop(old);
+    let output = Output::start(
+        &pending.config,
+        &pending.timeline,
+        pending.programme,
+        !pending.audition,
+    )?;
+    output.send(Command::Restore {
+        samples: position.position_samples,
+        paused: position.state == TransportState::Paused,
+    })?;
+    diagnostics::output_reconfigured(output.info());
+    let running = Running::new(
+        output,
+        setup,
+        pending.preferences,
+        cues,
+        app,
+        advance,
+        channels.position,
+        channels.levels,
+        channels.live,
+        channels.routing,
+    )?;
+    *lock(state) = Some(running);
+    Ok(())
+}
+
+pub(crate) fn send(state: &SharedOutput, command: Command) -> Result<(), OutputError> {
+    let _transition = transition();
+    if matches!(command, Command::Play) {
+        for _ in 0..200 {
+            let waiting = lock(state).as_ref().is_some_and(|r| {
+                r.stationary_requested
+                    && r.pending_audio.is_some()
+                    && r.output.reader().position().state == TransportState::Playing
+            });
+            if !waiting {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        if lock(state).as_ref().is_some_and(|r| {
+            r.stationary_requested
+                && r.pending_audio.is_some()
+                && r.output.reader().position().state == TransportState::Playing
+        }) {
+            return Err(OutputError::Stream(
+                "waiting for the audio device to pause before applying routing".into(),
+            ));
+        }
+        apply_pending(state)?;
+    }
+    {
+        let mut guard = lock(state);
+        let running = guard.as_mut().ok_or(OutputError::NotRunning)?;
+        running.output.send(command)?;
+        if matches!(command, Command::Pause | Command::Stop) {
+            running.stationary_requested = true;
+        }
+        if matches!(command, Command::Play) {
+            running.stationary_requested = false;
+        }
+    }
+    if matches!(command, Command::Pause | Command::Stop) {
+        let state = Arc::clone(state);
+        tauri::async_runtime::spawn_blocking(move || {
+            // Wait for the callback to consume Pause/Stop before closing any stream.
+            for _ in 0..200 {
+                thread::sleep(Duration::from_millis(5));
+                let _transition = transition();
+                let stationary = lock(&state)
+                    .as_ref()
+                    .is_none_or(|r| r.output.reader().position().state != TransportState::Playing);
+                if stationary {
+                    if let Err(error) = apply_pending(&state) {
+                        log::warn!("pending audio routing could not apply: {error}");
+                    }
+                    break;
+                }
+            }
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]

@@ -18,3 +18,5 @@ pub mod output;
 pub mod transport;
 
 pub mod preflight;
+
+pub mod audio_routing;
