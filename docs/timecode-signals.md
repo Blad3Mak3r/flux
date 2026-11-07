@@ -341,5 +341,18 @@ outputs of each kind have a bit. `Position.metronomeLost` covers the stream the 
 programme's own device; the LTC outputs and the click that play on the programme's stream are lost with it, so their
 bits (and `metronomeLost`) are set as well. Each stream and each MTC thread owns an atomic flag (`Health` in
 `output.rs`) that its error callback or send loop sets; `PositionReader::position` folds them into the masks, and the
-`flux-log` lane logs each output that becomes lost (and, later, back). The UI shows the lamp, the faceplate tooltip and
+`flux-log` lane logs each output that becomes lost and each that comes back. The UI shows the lamp, the faceplate tooltip and
 the Setup rows from the masks.
+
+### Detecting and recovering
+
+- A stream is lost when its cpal error callback reports anything but a dropout, or when it stops calling back for a
+  second (a watchdog on the stream's thread counts the callbacks, because some hosts never report an unplugged
+  device). A MIDI port is lost when it refuses a message.
+- The stream of an LTC or click device that is not the programme's is closed and opened again on its own thread once a
+  second until its device is back; it follows the master's position, so nothing else needs to change. An MTC thread
+  does the same with its port and sends a full frame when it is back. The other outputs keep running meanwhile.
+- The programme's stream cannot be reopened in place (the `Renderer` owns the transport's command receiver). The
+  `flux-device` lane looks for the device once a second while `deviceLost` is set and, when it is there, emits
+  `output-device-back`. The window reopens the output, which carries the playhead over and leaves it stopped: a show
+  never resumes by itself.

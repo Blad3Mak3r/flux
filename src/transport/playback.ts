@@ -1,12 +1,14 @@
 // Drives the backend output for the open project. The output connects by itself: when the window
 // starts, and whenever the output settings change, the devices are opened, so there is no Start
 // button. A change made while playing waits until playback stops or pauses, so the timecode never
-// glitches mid-show. The UI still works with no output running (a device is missing, or this is
+// glitches mid-show. When the programme's device is lost and comes back, the output reopens at the
+// same frame, stopped. The UI still works with no output running (a device is missing, or this is
 // not the desktop app): the playhead is parked and seeking only moves it.
 //
 // Plain functions over the stores rather than a hook: nothing here renders, so nothing re-renders
 // when it works, and every export is one stable function.
 
+import { listen } from "@tauri-apps/api/event";
 import { useLive } from "../live/store";
 import { errorMessage } from "../project/api";
 import type { Project } from "../project/types";
@@ -114,8 +116,11 @@ export function bindTransport(): () => void {
   const unsubscribeView = useUi.subscribe((now, before) => {
     if (now.view !== before.view) reconnect();
   });
+  // The programme's device came back after it was lost: reopen the output, which parks the playhead.
+  const listening = listen("output-device-back", () => reconnect(true)).catch(() => undefined);
   reconnect();
   return () => {
+    void listening.then((unlisten) => unlisten?.());
     unsubscribeDoc();
     unsubscribeTransport();
     unsubscribeView();
@@ -137,7 +142,8 @@ async function connect(force: boolean): Promise<void> {
   // Outside the desktop app there is no backend to open anything on.
   if (!hasNativeWindow()) return;
   const { position, info } = useTransport.getState();
-  if (position?.state === "playing") {
+  // A lost device is not playing anything, whatever the last position says: it reopens at once.
+  if (position?.state === "playing" && !position.deviceLost) {
     useTransport.setState({ pendingReconfigure: true });
     return;
   }

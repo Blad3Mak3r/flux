@@ -36,6 +36,39 @@ const LANE_INTERVAL: Duration = Duration::from_millis(33);
 /// payload is the [`ProjectState`] after the change.
 pub const TIMELINE_ADVANCED: &str = "timeline-advanced";
 
+/// The event the window hears when the programme's audio device, lost while the output ran, can be
+/// opened again. The window reopens the output, which carries the playhead over, stopped.
+pub const OUTPUT_DEVICE_BACK: &str = "output-device-back";
+
+/// How often a lost programme device is looked for.
+const DEVICE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+
+/// The device lane: says once when the programme's device is back after it was lost.
+#[derive(Default)]
+struct DeviceLane {
+    last_check: Option<Instant>,
+    announced: bool,
+}
+
+impl DeviceLane {
+    /// Whether to tell the window now. `present` looks for the device, which is not cheap, so it
+    /// only runs while the device is lost, at most once an interval.
+    fn back(&mut self, lost: bool, now: Instant, present: impl FnOnce() -> bool) -> bool {
+        if !lost || self.announced {
+            return false;
+        }
+        let due = self
+            .last_check
+            .is_none_or(|last| now.duration_since(last) >= DEVICE_CHECK_INTERVAL);
+        if !due {
+            return false;
+        }
+        self.last_check = Some(now);
+        self.announced = present();
+        self.announced
+    }
+}
+
 /// The position lane: a position that did not move is not sent again.
 #[derive(Default)]
 struct PositionLane {
@@ -136,6 +169,7 @@ impl Running {
     fn new(
         output: Output,
         cues: SharedCues,
+        app: AppHandle,
         advance: Option<Advance>,
         on_position: Channel<Position>,
         on_levels: Channel<Vec<TrackPeak>>,
@@ -175,6 +209,16 @@ impl Running {
                 }
             })?;
         }
+
+        let (reader, device) = (running.output.reader(), running.output.programme_device());
+        let mut back = DeviceLane::default();
+        running.spawn_lane("flux-device", move || {
+            let lost = reader.position().device_lost;
+            if back.back(lost, Instant::now(), || device.is_present()) {
+                log::info!("audio device is back");
+                let _ = app.emit(OUTPUT_DEVICE_BACK, ());
+            }
+        })?;
 
         let reader = running.output.reader();
         let mut log = LogLane::default();
@@ -264,12 +308,13 @@ pub async fn output_start(
         let cues = SharedCues::new(list);
         // With `advance`, the show running to its end makes the next timeline the active one.
         let advance = advance.then(|| Advance {
-            app,
+            app: app.clone(),
             session: Arc::clone(&session),
         });
         *lock(&state) = Some(Running::new(
             output,
             cues,
+            app,
             advance,
             on_position,
             on_levels,
@@ -537,6 +582,32 @@ mod tests {
     #[test]
     fn levels_lane_should_stay_quiet_from_the_start_while_the_tracks_are_silent() {
         assert_eq!(LevelsLane::new().next(peak(0.0)), None);
+    }
+
+    #[test]
+    fn device_lane_should_not_look_for_a_device_that_is_not_lost() {
+        let mut lane = DeviceLane::default();
+
+        assert!(!lane.back(false, Instant::now(), || panic!("looked")));
+    }
+
+    #[test]
+    fn device_lane_should_look_once_a_second_and_announce_once() {
+        let mut lane = DeviceLane::default();
+        let start = Instant::now();
+
+        assert!(!lane.back(true, start, || false));
+        assert!(
+            !lane.back(true, start + Duration::from_millis(500), || panic!(
+                "too soon"
+            ))
+        );
+        assert!(lane.back(true, start + DEVICE_CHECK_INTERVAL, || true));
+        assert!(
+            !lane.back(true, start + 3 * DEVICE_CHECK_INTERVAL, || panic!(
+                "announced"
+            ))
+        );
     }
 
     #[test]

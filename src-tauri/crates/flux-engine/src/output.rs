@@ -145,7 +145,7 @@ impl Snapshot {
 pub struct SharedClock {
     snapshot: Mutex<Snapshot>,
     base: Instant,
-    lost: AtomicBool,
+    lost: Arc<AtomicBool>,
     /// Which of the other outputs (LTC on a device of its own, the click, MTC ports) are lost.
     health: Health,
     unpaced: AtomicBool,
@@ -179,7 +179,7 @@ impl SharedClock {
                 stamp: 0,
             }),
             base: Instant::now(),
-            lost: AtomicBool::new(false),
+            lost: Arc::new(AtomicBool::new(false)),
             health: Health::default(),
             unpaced: AtomicBool::new(false),
             shows_ended: AtomicU64::new(0),
@@ -196,7 +196,12 @@ impl SharedClock {
             return;
         }
         self.faults[1].fetch_add(1, Ordering::Relaxed);
-        flag.unwrap_or(&self.lost).store(true, Ordering::Relaxed);
+        flag.unwrap_or(&*self.lost).store(true, Ordering::Relaxed);
+    }
+
+    /// The flag a stream of the programme's device raises when it is lost.
+    pub(crate) fn lost_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.lost)
     }
 
     /// Which outputs are lost, per output.
@@ -852,6 +857,20 @@ impl PositionReader {
     }
 }
 
+/// The audio API and device name hint the programme's stream was opened with.
+#[derive(Debug, Clone)]
+pub struct ProgrammeDevice {
+    driver: Option<String>,
+    hint: String,
+}
+
+impl ProgrammeDevice {
+    /// Whether the device is there to be opened.
+    pub fn is_present(&self) -> bool {
+        devices::open_audio(&self.hint, self.driver.as_deref()).is_some()
+    }
+}
+
 /// A running output. Dropping it stops the threads and closes the devices.
 pub struct Output {
     messages: Sender<Message>,
@@ -870,6 +889,7 @@ pub struct Output {
     /// Whether the cue tracks fire at all. Auditioning in Edit on a preview device does not.
     fire_cues: bool,
     info: OutputInfo,
+    programme_device: ProgrammeDevice,
 }
 
 impl Output {
@@ -974,6 +994,10 @@ impl Output {
         let clips = Arc::new(set);
         let levels = SharedLevels::new(clips.levels());
 
+        let programme_device = ProgrammeDevice {
+            driver: output.driver.clone(),
+            hint: device_hint.clone(),
+        };
         let spec = AudioSpec {
             driver: output.driver.clone(),
             device_hint,
@@ -987,9 +1011,21 @@ impl Output {
             start,
             clock,
         };
-        let (audio_thread, audio) = spawn_stream("flux-audio", Arc::clone(&stop), {
+        // The programme's stream cannot be reopened in place: the renderer owns the receiver of
+        // the transport's commands. A new output takes over when its device is back.
+        let beat: Arc<AtomicU64> = Arc::default();
+        let watch = Watch {
+            beat: Arc::clone(&beat),
+            lost: shared.lost_flag(),
+            retry: false,
+        };
+        let (audio_thread, audio) = spawn_stream("flux-audio", Arc::clone(&stop), watch, {
             let shared = Arc::clone(&shared);
-            move || open_stream(spec, message_rx, shared)
+            let mut once = Some((spec, message_rx));
+            move || {
+                let (spec, messages) = once.take().ok_or(OutputError::NotRunning)?;
+                open_stream(spec, messages, Arc::clone(&shared), Arc::clone(&beat))
+            }
         })?;
 
         let mut threads = vec![audio_thread];
@@ -1029,10 +1065,7 @@ impl Output {
             };
             let with_click = spec.click.is_some();
             let lost = Arc::new(AtomicBool::new(false));
-            let opened = spawn_stream("flux-ltc", Arc::clone(&stop), {
-                let (shared, lost) = (Arc::clone(&shared), Arc::clone(&lost));
-                move || open_ltc_stream(spec, shared, lost)
-            });
+            let opened = spawn_follower("flux-ltc", &stop, &shared, &lost, spec);
             match opened {
                 Ok((handle, device)) => {
                     threads.push(handle);
@@ -1071,10 +1104,7 @@ impl Output {
                 clock,
             };
             let lost = Arc::new(AtomicBool::new(false));
-            let opened = spawn_stream("flux-click", Arc::clone(&stop), {
-                let (shared, lost) = (Arc::clone(&shared), Arc::clone(&lost));
-                move || open_ltc_stream(spec, shared, lost)
-            });
+            let opened = spawn_follower("flux-click", &stop, &shared, &lost, spec);
             match opened {
                 Ok((handle, name)) => {
                     threads.push(handle);
@@ -1118,9 +1148,14 @@ impl Output {
                     let lost = Arc::new(AtomicBool::new(false));
                     let (shared, stop, flag) =
                         (Arc::clone(&shared), Arc::clone(&stop), Arc::clone(&lost));
+                    let link = PortLink {
+                        connection,
+                        hint: hint.to_owned(),
+                        index: mtc.port_index,
+                    };
                     let spawned = thread::Builder::new()
                         .name("flux-mtc".into())
-                        .spawn(move || run_mtc(scheduler, clock, connection, shared, stop, flag));
+                        .spawn(move || run_mtc(scheduler, clock, link, shared, stop, flag));
                     match spawned {
                         Ok(handle) => {
                             threads.push(handle);
@@ -1186,6 +1221,7 @@ impl Output {
             cues,
             fire_cues,
             info,
+            programme_device,
         })
     }
 
@@ -1206,6 +1242,11 @@ impl Output {
         if let Some(metronome) = &self.metronome {
             metronome.set(tempo);
         }
+    }
+
+    /// The device the programme plays on, to find out whether it is back after it was unplugged.
+    pub fn programme_device(&self) -> ProgrammeDevice {
+        self.programme_device.clone()
     }
 
     pub fn info(&self) -> &OutputInfo {
@@ -1284,6 +1325,7 @@ struct AudioInfo {
     channels: u16,
 }
 
+#[derive(Clone)]
 struct LtcSpec {
     driver: Option<String>,
     device_hint: String,
@@ -1422,13 +1464,131 @@ fn plan_ltc(
     plan
 }
 
+/// How long a stream may go without calling back before its device counts as gone. Hosts that
+/// never report an unplugged device just stop calling.
+const STREAM_STALL: Duration = Duration::from_millis(1_000);
+/// How long a stream just opened has to call back for the first time.
+const STREAM_GRACE: Duration = Duration::from_millis(3_000);
+/// How often a lost stream or MIDI port is tried again.
+const RETRY_INTERVAL: Duration = Duration::from_millis(1_000);
+
+/// Notices a stream that stopped calling back. Fed the callback count and the time.
+#[derive(Debug)]
+struct Watchdog {
+    beats: u64,
+    /// When the count last moved (or the stream opened).
+    since: Duration,
+    started: bool,
+}
+
+impl Watchdog {
+    fn new(now: Duration) -> Self {
+        Self {
+            beats: 0,
+            since: now,
+            started: false,
+        }
+    }
+
+    /// Whether the stream has been silent for too long as of `now`.
+    fn stalled(&mut self, beats: u64, now: Duration) -> bool {
+        if beats != self.beats {
+            self.beats = beats;
+            self.since = now;
+            self.started = true;
+        }
+        let allowed = if self.started {
+            STREAM_STALL
+        } else {
+            STREAM_GRACE
+        };
+        now.saturating_sub(self.since) > allowed
+    }
+}
+
+/// What the thread that holds a stream should do next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Idle,
+    /// The device is gone: raise the lost flag, and close the stream when it will be retried.
+    Lose,
+    /// Try to open the stream again.
+    Reopen,
+}
+
+/// Decides when a stream is lost and, for a follower, when to try to get it back.
+#[derive(Debug)]
+struct Supervisor {
+    watchdog: Watchdog,
+    retry: bool,
+    state: StreamState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamState {
+    Open,
+    /// Closed and waiting until this time to try again.
+    Down(Duration),
+    /// Lost, and not to be reopened.
+    Gone,
+}
+
+impl Supervisor {
+    fn new(now: Duration, retry: bool) -> Self {
+        Self {
+            watchdog: Watchdog::new(now),
+            retry,
+            state: StreamState::Open,
+        }
+    }
+
+    fn step(&mut self, now: Duration, beats: u64, lost: bool) -> Step {
+        match self.state {
+            StreamState::Open if lost || self.watchdog.stalled(beats, now) => {
+                self.state = if self.retry {
+                    StreamState::Down(now + RETRY_INTERVAL)
+                } else {
+                    StreamState::Gone
+                };
+                Step::Lose
+            }
+            StreamState::Down(at) if now >= at => Step::Reopen,
+            _ => Step::Idle,
+        }
+    }
+
+    /// The stream opened again.
+    fn reopened(&mut self, now: Duration) {
+        self.watchdog = Watchdog::new(now);
+        self.state = StreamState::Open;
+    }
+
+    /// Opening it again failed.
+    fn reopen_failed(&mut self, now: Duration) {
+        self.state = StreamState::Down(now + RETRY_INTERVAL);
+    }
+}
+
+/// What a stream thread watches on the stream it holds.
+struct Watch {
+    /// Bumped by every callback.
+    beat: Arc<AtomicU64>,
+    /// Raised when the stream is lost; lowered when a retry opens it again.
+    lost: Arc<AtomicBool>,
+    /// Whether to open the stream again once it is lost.
+    retry: bool,
+}
+
 /// Runs `open` on a thread of its own, which keeps the stream it returns for as long as the output
 /// runs, and waits until the stream is open or has failed. A cpal stream is not `Send` on every
-/// platform, so it is created, played and dropped on that one thread.
+/// platform, so it is created, played and dropped on that one thread. The same thread notices a
+/// stream that is lost without an error and, when `watch.retry`, opens it again when the device
+/// comes back.
 fn spawn_stream<I: Send + 'static>(
     name: &str,
     stop: Arc<AtomicBool>,
-    open: impl FnOnce() -> Result<(cpal::Stream, I), OutputError> + Send + 'static,
+    watch: Watch,
+    mut open: impl FnMut() -> Result<(cpal::Stream, I), OutputError> + Send + 'static,
 ) -> Result<(JoinHandle<()>, I), OutputError> {
     let (ready_tx, ready_rx) = mpsc::channel();
     let thread = thread::Builder::new()
@@ -1442,8 +1602,30 @@ fn spawn_stream<I: Send + 'static>(
                 }
             };
             let _ = ready_tx.send(Ok(info));
+            let base = Instant::now();
+            let mut stream = Some(stream);
+            let mut supervisor = Supervisor::new(base.elapsed(), watch.retry);
             while !stop.load(Ordering::Relaxed) {
                 thread::park_timeout(AUDIO_PARK);
+                let now = base.elapsed();
+                let beats = watch.beat.load(Ordering::Relaxed);
+                match supervisor.step(now, beats, watch.lost.load(Ordering::Relaxed)) {
+                    Step::Idle => {}
+                    Step::Lose => {
+                        watch.lost.store(true, Ordering::Relaxed);
+                        if watch.retry {
+                            stream = None;
+                        }
+                    }
+                    Step::Reopen => match open() {
+                        Ok((reopened, _)) => {
+                            stream = Some(reopened);
+                            watch.lost.store(false, Ordering::Relaxed);
+                            supervisor.reopened(base.elapsed());
+                        }
+                        Err(_) => supervisor.reopen_failed(base.elapsed()),
+                    },
+                }
             }
             drop(stream);
         })
@@ -1459,6 +1641,32 @@ fn spawn_stream<I: Send + 'static>(
             Err(OutputError::Stream("the audio thread stopped".into()))
         }
     }
+}
+
+/// Starts the stream of an LTC (or click) device that is not the programme's. When its device goes
+/// away the thread opens it again as soon as it is back.
+fn spawn_follower(
+    name: &str,
+    stop: &Arc<AtomicBool>,
+    shared: &Arc<SharedClock>,
+    lost: &Arc<AtomicBool>,
+    spec: LtcSpec,
+) -> Result<(JoinHandle<()>, String), OutputError> {
+    let beat: Arc<AtomicU64> = Arc::default();
+    let watch = Watch {
+        beat: Arc::clone(&beat),
+        lost: Arc::clone(lost),
+        retry: true,
+    };
+    let (shared, lost) = (Arc::clone(shared), Arc::clone(lost));
+    spawn_stream(name, Arc::clone(stop), watch, move || {
+        open_ltc_stream(
+            spec.clone(),
+            Arc::clone(&shared),
+            Arc::clone(&lost),
+            Arc::clone(&beat),
+        )
+    })
 }
 
 /// An output device and the stream format chosen for it.
@@ -1516,6 +1724,7 @@ fn open_stream(
     spec: AudioSpec,
     messages: Receiver<Message>,
     shared: Arc<SharedClock>,
+    beat: Arc<AtomicU64>,
 ) -> Result<(cpal::Stream, AudioInfo), OutputError> {
     let rate = spec.ltc_config.sample_rate;
     let opened = open_device(&spec.device_hint, spec.driver.as_deref(), spec.needed, rate)?;
@@ -1546,7 +1755,7 @@ fn open_stream(
     )
     .with_click(spec.click.as_ref().map(|click| click.out(channels)));
     let failed = Arc::clone(&shared);
-    let stream = start_stream(&opened, rate, renderer, shared, move |err| {
+    let stream = start_stream(&opened, rate, renderer, shared, beat, move |err| {
         failed.stream_failed(err.kind(), None);
     })?;
     Ok((
@@ -1564,6 +1773,7 @@ fn open_ltc_stream(
     spec: LtcSpec,
     shared: Arc<SharedClock>,
     lost: Arc<AtomicBool>,
+    beat: Arc<AtomicU64>,
 ) -> Result<(cpal::Stream, String), OutputError> {
     let rate = spec.config.sample_rate;
     let needed = spec
@@ -1586,7 +1796,7 @@ fn open_ltc_stream(
     )
     .with_click(spec.click.as_ref().map(|click| click.out(opened.channels)));
     let failed = Arc::clone(&shared);
-    let stream = start_stream(&opened, rate, follower, shared, move |err| {
+    let stream = start_stream(&opened, rate, follower, shared, beat, move |err| {
         failed.stream_failed(err.kind(), Some(&lost));
     })?;
     Ok((stream, opened.name))
@@ -1598,6 +1808,7 @@ fn start_stream<F: Fill>(
     rate: u32,
     filler: F,
     shared: Arc<SharedClock>,
+    beat: Arc<AtomicU64>,
     on_error: impl FnMut(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, OutputError> {
     let config = cpal::StreamConfig {
@@ -1607,9 +1818,9 @@ fn start_stream<F: Fill>(
     };
     let device = &opened.device;
     let stream = match opened.format {
-        SampleFormat::F32 => build::<f32, _>(device, config, filler, shared, on_error),
-        SampleFormat::I32 => build::<i32, _>(device, config, filler, shared, on_error),
-        SampleFormat::I16 => build::<i16, _>(device, config, filler, shared, on_error),
+        SampleFormat::F32 => build::<f32, _>(device, config, filler, shared, beat, on_error),
+        SampleFormat::I32 => build::<i32, _>(device, config, filler, shared, beat, on_error),
+        SampleFormat::I16 => build::<i16, _>(device, config, filler, shared, beat, on_error),
         other => Err(OutputError::Stream(format!(
             "unsupported sample format {other}"
         ))),
@@ -1625,6 +1836,7 @@ fn build<T, F>(
     config: cpal::StreamConfig,
     mut filler: F,
     shared: Arc<SharedClock>,
+    beat: Arc<AtomicU64>,
     on_error: impl FnMut(cpal::Error) + Send + 'static,
 ) -> Result<cpal::Stream, OutputError>
 where
@@ -1634,7 +1846,10 @@ where
     device
         .build_output_stream(
             config,
-            move |data: &mut [T], _| filler.fill(data, shared.now()),
+            move |data: &mut [T], _| {
+                beat.fetch_add(1, Ordering::Relaxed);
+                filler.fill(data, shared.now());
+            },
             on_error,
             None,
         )
@@ -1697,36 +1912,120 @@ pub(crate) fn mtc_wait(until_due: Duration, fresh: bool) -> MtcWait {
     }
 }
 
+/// A MIDI output port as `run_mtc` uses it.
+trait MidiLink {
+    /// Sends one message. `false` means the port did not take it.
+    fn send(&mut self, message: &[u8]) -> bool;
+    /// Opens the port again after it was lost. `false` means it is still not there.
+    fn reconnect(&mut self) -> bool;
+}
+
+/// The connection to a MIDI port and the name it was found by, to find it again after it is
+/// unplugged.
+struct PortLink {
+    connection: midir::MidiOutputConnection,
+    hint: String,
+    index: usize,
+}
+
+impl MidiLink for PortLink {
+    fn send(&mut self, message: &[u8]) -> bool {
+        self.connection.send(message).is_ok()
+    }
+
+    fn reconnect(&mut self) -> bool {
+        match connect_midi(&self.hint, self.index, MIDI_CLIENT_NAME) {
+            Ok((_, _, connection)) => {
+                self.connection = connection;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
+
+/// One MIDI port MTC goes to. A message the port refuses marks it lost; nothing is sent to it
+/// until it is opened again, which is tried once a second.
+struct MtcPort<L> {
+    link: L,
+    lost: Arc<AtomicBool>,
+    shared: Arc<SharedClock>,
+    /// When a lost port is tried again, in the clock's nanoseconds.
+    retry_at: u64,
+}
+
+impl<L: MidiLink> MtcPort<L> {
+    fn new(link: L, lost: Arc<AtomicBool>, shared: Arc<SharedClock>) -> Self {
+        Self {
+            link,
+            lost,
+            shared,
+            retry_at: 0,
+        }
+    }
+
+    fn is_lost(&self) -> bool {
+        self.lost.load(Ordering::Relaxed)
+    }
+
+    fn send(&mut self, message: &[u8], now: u64) {
+        if self.is_lost() {
+            return;
+        }
+        if !self.link.send(message) {
+            self.shared.mtc_failed();
+            self.lost.store(true, Ordering::Relaxed);
+            self.retry_at = now + RETRY_INTERVAL.as_nanos() as u64;
+        }
+    }
+
+    /// Tries to open a lost port again when it is time. Returns whether it is back, in which case
+    /// the next message must be a full frame.
+    fn retry(&mut self, now: u64) -> bool {
+        if !self.is_lost() || now < self.retry_at {
+            return false;
+        }
+        if self.link.reconnect() {
+            self.lost.store(false, Ordering::Relaxed);
+            return true;
+        }
+        self.retry_at = now + RETRY_INTERVAL.as_nanos() as u64;
+        false
+    }
+}
+
 /// Sends MTC from the position the audio callback publishes: a full frame whenever playback
-/// starts or jumps, and quarter frames as they fall due.
+/// starts or jumps, and quarter frames as they fall due. A port that goes away is marked lost and
+/// opened again when it comes back.
 fn run_mtc(
     mut scheduler: MtcScheduler,
     clock: Clock,
-    mut connection: midir::MidiOutputConnection,
+    link: PortLink,
     shared: Arc<SharedClock>,
     stop: Arc<AtomicBool>,
     lost: Arc<AtomicBool>,
 ) {
+    let mut port = MtcPort::new(link, lost, Arc::clone(&shared));
     let mut seen_epoch = None;
     while !stop.load(Ordering::Relaxed) {
+        if port.is_lost() {
+            if port.retry(shared.now()) {
+                seen_epoch = None;
+            } else {
+                thread::park_timeout(AUDIO_PARK);
+                continue;
+            }
+        }
         let snapshot = shared.load();
         let now = shared.now();
         let position = snapshot.estimated_position(now, clock);
         if seen_epoch != Some(snapshot.epoch) {
             seen_epoch = Some(snapshot.epoch);
-            if connection.send(&scheduler.resync(position)).is_err() {
-                shared.mtc_failed();
-                lost.store(true, Ordering::Relaxed);
-            }
+            port.send(&scheduler.resync(position), now);
         }
         let mut wait = MtcWait::Park(MTC_TICK);
-        if snapshot.state == TransportState::Playing {
-            scheduler.poll(position, |message| {
-                if connection.send(&message).is_err() {
-                    shared.mtc_failed();
-                    lost.store(true, Ordering::Relaxed);
-                }
-            });
+        if snapshot.state == TransportState::Playing && !port.is_lost() {
+            scheduler.poll(position, |message| port.send(&message, now));
             let samples = scheduler.next_due().saturating_sub(position);
             let until_due = Duration::from_nanos(
                 (u128::from(samples) * 1_000_000_000 / u128::from(clock.sample_rate())) as u64,
@@ -2342,6 +2641,163 @@ mod tests {
         share_lamp(&mut lamps, &lamp_of, 1, 3);
 
         assert_eq!(lamps[0].outputs, 0b101);
+    }
+
+    fn ms(millis: u64) -> Duration {
+        Duration::from_millis(millis)
+    }
+
+    #[test]
+    fn watchdog_should_stay_quiet_while_the_stream_keeps_calling_back() {
+        let mut dog = Watchdog::new(ms(0));
+
+        for step in 1..=100 {
+            assert!(!dog.stalled(step, ms(step * 500)));
+        }
+    }
+
+    #[test]
+    fn watchdog_should_flag_a_stream_that_stops_calling_back() {
+        let mut dog = Watchdog::new(ms(0));
+        assert!(!dog.stalled(10, ms(100)));
+
+        assert!(!dog.stalled(10, ms(1_100)));
+        assert!(dog.stalled(10, ms(1_101)));
+    }
+
+    #[test]
+    fn watchdog_should_give_a_stream_that_has_not_started_time_to_do_so() {
+        let mut dog = Watchdog::new(ms(0));
+
+        assert!(!dog.stalled(0, ms(2_900)));
+        assert!(dog.stalled(0, ms(3_100)));
+    }
+
+    #[test]
+    fn supervisor_should_close_a_lost_follower_and_reopen_it_a_second_later() {
+        let mut supervisor = Supervisor::new(ms(0), true);
+        assert_eq!(supervisor.step(ms(100), 5, false), Step::Idle);
+
+        assert_eq!(supervisor.step(ms(200), 6, true), Step::Lose);
+        assert_eq!(supervisor.step(ms(900), 6, true), Step::Idle);
+        assert_eq!(supervisor.step(ms(1_200), 6, true), Step::Reopen);
+
+        // Still not there: it waits another second.
+        supervisor.reopen_failed(ms(1_200));
+        assert_eq!(supervisor.step(ms(2_000), 6, true), Step::Idle);
+        assert_eq!(supervisor.step(ms(2_300), 6, true), Step::Reopen);
+
+        supervisor.reopened(ms(2_300));
+        assert_eq!(supervisor.step(ms(2_400), 7, false), Step::Idle);
+    }
+
+    #[test]
+    fn supervisor_should_lose_a_stream_that_went_silent_without_an_error() {
+        let mut supervisor = Supervisor::new(ms(0), true);
+        supervisor.step(ms(100), 5, false);
+
+        assert_eq!(supervisor.step(ms(1_200), 5, false), Step::Lose);
+    }
+
+    #[test]
+    fn supervisor_should_report_the_programme_stream_once_and_never_reopen_it() {
+        let mut supervisor = Supervisor::new(ms(0), false);
+
+        assert_eq!(supervisor.step(ms(100), 0, true), Step::Lose);
+        assert_eq!(supervisor.step(ms(5_000), 0, true), Step::Idle);
+    }
+
+    /// A MIDI port that takes messages until it is told to go away, and comes back when told to.
+    struct FakePort {
+        present: Arc<AtomicBool>,
+        sent: Sent,
+        reconnects: u32,
+    }
+
+    impl MidiLink for FakePort {
+        fn send(&mut self, message: &[u8]) -> bool {
+            let present = self.present.load(Ordering::Relaxed);
+            if present {
+                self.sent.lock().unwrap().push(message.to_vec());
+            }
+            present
+        }
+
+        fn reconnect(&mut self) -> bool {
+            self.reconnects += 1;
+            self.present.load(Ordering::Relaxed)
+        }
+    }
+
+    type Sent = Arc<Mutex<Vec<Vec<u8>>>>;
+
+    fn fake_port() -> (MtcPort<FakePort>, Arc<AtomicBool>, Sent) {
+        let present = Arc::new(AtomicBool::new(true));
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let link = FakePort {
+            present: Arc::clone(&present),
+            sent: Arc::clone(&sent),
+            reconnects: 0,
+        };
+        let port = MtcPort::new(
+            link,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(SharedClock::new()),
+        );
+        (port, present, sent)
+    }
+
+    const SECOND: u64 = 1_000_000_000;
+
+    #[test]
+    fn mtc_port_should_send_while_the_port_is_there() {
+        let (mut port, _, sent) = fake_port();
+
+        port.send(&[1, 2], 0);
+
+        assert_eq!(*sent.lock().unwrap(), [vec![1, 2]]);
+        assert!(!port.is_lost());
+    }
+
+    #[test]
+    fn mtc_port_should_be_lost_when_the_port_refuses_a_message_and_send_nothing_more() {
+        let (mut port, present, sent) = fake_port();
+        present.store(false, Ordering::Relaxed);
+
+        port.send(&[1], 0);
+        port.send(&[2], 1);
+
+        assert!(port.is_lost());
+        // Only the first refusal is counted: a lost port is not tried per message.
+        assert_eq!(port.shared.faults().mtc_errors, 1);
+        assert!(sent.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn mtc_port_should_try_again_once_a_second_until_the_port_is_back() {
+        let (mut port, present, sent) = fake_port();
+        present.store(false, Ordering::Relaxed);
+        port.send(&[1], 0);
+
+        assert!(!port.retry(SECOND / 2));
+        assert_eq!(port.link.reconnects, 0);
+        assert!(!port.retry(SECOND));
+        assert!(!port.retry(SECOND + 1));
+        assert_eq!(port.link.reconnects, 1);
+
+        present.store(true, Ordering::Relaxed);
+        assert!(port.retry(2 * SECOND));
+        assert!(!port.is_lost());
+        port.send(&[3], 2 * SECOND);
+        assert_eq!(*sent.lock().unwrap(), [vec![3]]);
+    }
+
+    #[test]
+    fn mtc_port_should_have_nothing_to_retry_while_it_works() {
+        let (mut port, _, _) = fake_port();
+
+        assert!(!port.retry(10 * SECOND));
+        assert_eq!(port.link.reconnects, 0);
     }
 
     #[test]

@@ -289,7 +289,7 @@ export const es: Record<MessageKey, string> = {
   "setup.general.refreshNote": "¿Has conectado un dispositivo después de abrir Flux? Actualiza para reconectar.",
   "setup.status.off": "Salida sin conectar",
   "setup.status.pending": "Los cambios se aplican cuando se detenga la reproducción.",
-  "setup.status.lost": "Una salida dejó de responder durante la ejecución.",
+  "setup.status.lost": "Una salida dejó de responder. Flux la reconecta cuando vuelva.",
 
   "dialog.unsaved.title": "¿Guardar los cambios de {name}?",
   "dialog.unsaved.body": "Si no los guardas, los cambios se perderán.",
