@@ -8,7 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::live_commands::samples_of;
 use crate::recents;
@@ -84,8 +84,28 @@ pub async fn project_open(
 ) -> Result<ProjectState> {
     audio.clear();
     let opened = path.clone();
+    let voice_directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| ProjectError::Io(io::Error::other(e)))?
+        .join("generated-voice");
     let state = recovery::transition(&session, &store, move |s| {
         let project = s.open(&path)?;
+        for generation in project
+            .timelines
+            .iter()
+            .flat_map(|t| &t.tracks)
+            .filter_map(|t| match &t.kind {
+                flux_project::TrackKind::Operator { orders, .. } => Some(orders),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|o| o.generated.as_ref())
+        {
+            if let Some(asset) = project.assets.iter().find(|a| a.id == generation.asset) {
+                s.retain_voice_asset(asset, &voice_directory)?;
+            }
+        }
         Ok(ProjectState {
             project,
             active: s.active(),

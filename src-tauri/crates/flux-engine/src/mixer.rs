@@ -314,6 +314,7 @@ pub struct ClipSet {
     levels: Arc<TrackLevels>,
     /// Samples at which the show ends; `None` while it has no end (see [`ClipSet::with_end`]).
     end: Option<u64>,
+    operator_tracks: Vec<usize>,
 }
 
 /// A clip set plus what could not be included in it.
@@ -331,6 +332,7 @@ impl ClipSet {
             clips,
             levels: Arc::new(TrackLevels::new(tracks)),
             end: None,
+            operator_tracks: Vec::new(),
         }
     }
 
@@ -367,15 +369,28 @@ impl ClipSet {
             .zip(right.chunks_mut(MIX_CHUNK))
             .enumerate()
         {
-            self.mix_chunk(position + (index * MIX_CHUNK) as u64, left, right);
+            self.mix_chunk(position + (index * MIX_CHUNK) as u64, left, right, false);
         }
     }
 
     /// One chunk of at most [`MIX_CHUNK`] frames.
-    fn mix_chunk(&self, position: u64, left: &mut [f32], right: &mut [f32]) {
+    pub fn mix_operator(&self, position: u64, left: &mut [f32], right: &mut [f32]) {
+        for (index, (left, right)) in left
+            .chunks_mut(MIX_CHUNK)
+            .zip(right.chunks_mut(MIX_CHUNK))
+            .enumerate()
+        {
+            self.mix_chunk(position + (index * MIX_CHUNK) as u64, left, right, true);
+        }
+    }
+
+    fn mix_chunk(&self, position: u64, left: &mut [f32], right: &mut [f32], operator: bool) {
         let frames = left.len();
         let window_end = position + frames as u64;
         for (index, meter) in self.levels.tracks.iter().enumerate() {
+            if self.operator_tracks.contains(&index) != operator {
+                continue;
+            }
             let mut track_left = [0.0f32; MIX_CHUNK];
             let mut track_right = [0.0f32; MIX_CHUNK];
             for clip in self.clips.iter().filter(|clip| clip.track == index) {
@@ -452,8 +467,50 @@ pub fn build(
     let mut tracks = Vec::new();
     let mut warnings = Vec::new();
     let mut failed: Vec<&str> = Vec::new();
+    let mut operator_tracks = Vec::new();
 
     for track in timeline.tracks.iter().filter(|track| !track.muted) {
+        if let TrackKind::Operator { orders, .. } = &track.kind {
+            let index = tracks.len();
+            operator_tracks.push(index);
+            tracks.push((
+                track.id.clone(),
+                track.gain_db.map_or(1.0, track_gain_from_db),
+            ));
+            for order in orders {
+                let Some(generated) = &order.generated else {
+                    continue;
+                };
+                let Some((from, to)) = order.interval(clock) else {
+                    continue;
+                };
+                let Some(asset) = project.assets.iter().find(|a| a.id == generated.asset) else {
+                    continue;
+                };
+                match load(asset) {
+                    Ok(audio) if audio.frames() as u64 != generated.samples => {
+                        warnings.push(format!("{} has inconsistent speech duration", asset.name))
+                    }
+                    Ok(audio) => clips.push(ClipPlayer {
+                        audio,
+                        span: Span {
+                            origin: from as i64,
+                            from,
+                            to,
+                            fade_in: 0,
+                            fade_out: 0,
+                            fade_in_curve: FadeCurve::Linear,
+                            fade_out_curve: FadeCurve::Linear,
+                        },
+                        envelope: None,
+                        gain: 1.0,
+                        track: index,
+                    }),
+                    Err(err) => warnings.push(format!("{} is silent: {err}", asset.name)),
+                }
+            }
+            continue;
+        }
         let TrackKind::Audio { clips: track_clips } = &track.kind else {
             continue;
         };
@@ -487,16 +544,82 @@ pub fn build(
             }
         }
     }
-    Programme {
-        set: ClipSet::new(clips, tracks),
-        warnings,
-    }
+    let mut set = ClipSet::new(clips, tracks);
+    set.operator_tracks = operator_tracks;
+    Programme { set, warnings }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use flux_project::{AudioClip, ClipOp, FrameRate, Track, apply_clip_op};
+
+    #[test]
+    fn operator_bus_is_separate_and_obeys_faders_and_overlap() {
+        let mut clips = set(vec![
+            player(audio(8192, 8192, 8), 0, 1.0),
+            player(audio(8192, 8192, 8), 0, 1.0),
+        ]);
+        clips.operator_tracks.push(0);
+        assert_eq!(mix(&clips, 0, 4).0, vec![0.0; 4]);
+        let (mut left, mut right) = ([0.0; 4], [0.0; 4]);
+        clips.mix_operator(0, &mut left, &mut right);
+        assert_eq!(left, [0.5; 4]);
+        clips.levels().set_gain_db("t1", -60.0);
+        clips.mix_operator(4, &mut [0.0; 4], &mut [0.0; 4]);
+        let mut silent = [0.0; 4];
+        clips.mix_operator(4, &mut silent, &mut [0.0; 4]);
+        assert_eq!(silent, [0.0; 4]);
+    }
+
+    #[test]
+    fn operator_end_alignment_is_exact_and_invalid_positions_are_silent() {
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        project.assets.push(AudioAsset {
+            id: "voice".into(),
+            name: "Voice".into(),
+            file: "audio/voice.mp3".into(),
+            bpm: None,
+        });
+        project.timelines[0].tracks.push(Track {
+            id: "operator".into(),
+            name: "Operator".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Operator {
+                voice: None,
+                orders: vec![flux_project::VoiceOrder {
+                    id: "go".into(),
+                    at: 1,
+                    dialogue: "Changed dialogue".into(),
+                    alignment: flux_project::Alignment::End,
+                    generated: Some(flux_project::GeneratedVoice {
+                        asset: "voice".into(),
+                        dialogue: "Go".into(),
+                        voice: "v".into(),
+                        model: flux_project::operator::VOICE_MODEL.into(),
+                        samples: 10,
+                    }),
+                }],
+            },
+        });
+        let build_set =
+            |p: &Project| build(p, &p.timelines[0], |_| Ok(audio(16384, 16384, 10))).set;
+        let set = build_set(&project);
+        let mut left = [0.0; 12];
+        set.mix_operator(1909, &mut left, &mut [0.0; 12]);
+        assert_eq!(
+            left,
+            [0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0]
+        );
+        if let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind {
+            orders[0].at = 0;
+        }
+        assert!(build_set(&project).is_empty());
+        project.timelines[0].tracks[0].muted = true;
+        assert!(build_set(&project).is_empty());
+    }
 
     fn audio(left: i16, right: i16, frames: usize) -> Arc<Decoded> {
         Arc::new(Decoded {

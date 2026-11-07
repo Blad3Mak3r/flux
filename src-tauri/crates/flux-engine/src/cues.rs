@@ -20,6 +20,7 @@ use flux_project::{AudioAsset, FrameRate, MidiMessage, OscArg, Project, Timeline
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CueKind {
+    Operator,
     Audio,
     Note,
     Midi,
@@ -179,6 +180,21 @@ impl CueList {
                 shown_until: None,
             };
             match &track.kind {
+                TrackKind::Operator { orders, .. } => {
+                    for order in orders {
+                        let interval = order.interval(clock);
+                        let at =
+                            interval.map_or(order.at, |(from, _)| clock.samples_to_frames(from));
+                        let length = interval.map(|(from, to)| clock.samples_to_frames(to - from));
+                        end = end
+                            .max(interval.map_or(clock.frames_to_samples(order.at), |(_, to)| to));
+                        let mut item =
+                            cue(&order.id, CueKind::Operator, &order.dialogue, at, length);
+                        item.text = Some(order.dialogue.clone());
+                        item.muted |= interval.is_none();
+                        cues.push(item);
+                    }
+                }
                 TrackKind::Audio { clips } => {
                     for clip in clips {
                         let Some(asset) = project.assets.iter().find(|a| a.id == clip.asset) else {

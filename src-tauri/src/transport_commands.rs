@@ -615,7 +615,11 @@ pub(crate) fn send(state: &SharedOutput, command: Command) -> Result<(), OutputE
 }
 
 #[tauri::command(async)]
-pub fn transport_play(state: State<'_, SharedOutput>) -> Result<(), OutputError> {
+pub fn transport_play(
+    state: State<'_, SharedOutput>,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
+) -> Result<(), OutputError> {
+    crate::voice_commands::stop_preview(&voice);
     send(&state, Command::Play)
 }
 
@@ -626,7 +630,11 @@ pub fn transport_pause(state: State<'_, SharedOutput>) -> Result<(), OutputError
 
 /// Stops and goes back to the start of the timeline.
 #[tauri::command(async)]
-pub fn transport_stop(state: State<'_, SharedOutput>) -> Result<(), OutputError> {
+pub fn transport_stop(
+    state: State<'_, SharedOutput>,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
+) -> Result<(), OutputError> {
+    crate::voice_commands::stop_preview(&voice);
     send(&state, Command::Stop)
 }
 
@@ -658,6 +666,7 @@ mod tests {
             ltc_lost: 0,
             mtc_lost: 0,
             metronome_lost: false,
+            operator_lost: false,
             clock_unpaced: false,
         }
     }

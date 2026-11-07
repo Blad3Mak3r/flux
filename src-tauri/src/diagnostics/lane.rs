@@ -44,6 +44,11 @@ impl LogLane {
                     position.device_lost,
                 ),
                 (
+                    "operator device lost",
+                    before.operator_lost,
+                    position.operator_lost,
+                ),
+                (
                     "metronome device lost",
                     before.metronome_lost,
                     position.metronome_lost,
@@ -126,6 +131,7 @@ mod tests {
             ltc_lost: 0,
             mtc_lost: 0,
             metronome_lost: false,
+            operator_lost: false,
             clock_unpaced: false,
         }
     }

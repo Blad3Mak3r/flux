@@ -21,6 +21,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+flux-voice = { path = "crates/flux-voice" }
+keyring = { version = "4.2", features = ["v1"] }
+tempfile = "3.27.0"
 flux-core = { path = "crates/flux-core" }
 flux-project = { path = "crates/flux-project" }
 flux-audio = { path = "crates/flux-audio" }

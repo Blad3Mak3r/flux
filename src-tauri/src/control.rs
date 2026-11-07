@@ -396,6 +396,9 @@ impl Dispatcher {
     /// Sends `command` to the running output. With none running, only play does something: the
     /// window opens the output, which it owns, and plays.
     fn transport(&self, output: &SharedOutput, command: Command, open: bool) {
+        crate::voice_commands::stop_preview(
+            &self.app.state::<Arc<crate::voice_commands::VoiceState>>(),
+        );
         match send(output, command) {
             Ok(()) => {}
             Err(OutputError::NotRunning) if open => self.tell(WindowAction::Play),

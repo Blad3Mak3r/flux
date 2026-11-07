@@ -18,6 +18,8 @@ pub struct Preferences {
     pub driver: Option<String>,
     pub audio: Option<AudioOutput>,
     pub preview: Option<AudioOutput>,
+    pub operator: Option<AudioOutput>,
+    pub voice: Option<String>,
     pub metronome: Option<AudioOutput>,
     pub ltc: BTreeMap<u32, LtcOutput>,
     pub mtc: BTreeMap<u32, MtcOutput>,
@@ -40,6 +42,9 @@ pub struct Store(pub Mutex<Option<Preferences>>);
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Change {
+    Voice {
+        voice: Option<String>,
+    },
     Locale {
         locale: Locale,
         #[serde(default)]
@@ -51,7 +56,7 @@ pub enum Change {
         text: String,
     },
     Import {
-        routes: OutputConfig,
+        routes: Box<OutputConfig>,
     },
     Route {
         kind: String,
@@ -108,6 +113,7 @@ fn save(path: &Path, prefs: &Preferences) -> Result<(), String> {
 }
 
 fn validate(p: &Preferences) -> Result<(), String> {
+    flux_project::operator::validate_voice(p.voice.as_deref()).map_err(|e| e.to_string())?;
     if p.ltc.keys().chain(p.mtc.keys()).any(|s| *s == 0) {
         return Err("invalid output slot".into());
     }
@@ -115,6 +121,7 @@ fn validate(p: &Preferences) -> Result<(), String> {
         driver: p.driver.clone(),
         audio: p.audio.clone(),
         preview: p.preview.clone(),
+        operator: p.operator.clone(),
         metronome: p.metronome.as_ref().map(|m| MetronomeOutput {
             device_name: m.device_name.clone(),
             channels: m.channels.clone(),
@@ -125,7 +132,7 @@ fn validate(p: &Preferences) -> Result<(), String> {
         osc: vec![],
     };
     output.validate().map_err(|e| e.to_string())?;
-    if [&p.audio, &p.preview, &p.metronome]
+    if [&p.audio, &p.preview, &p.metronome, &p.operator]
         .into_iter()
         .flatten()
         .any(|a| a.channels.is_empty())
@@ -138,6 +145,7 @@ fn validate(p: &Preferences) -> Result<(), String> {
 impl Preferences {
     fn apply(&mut self, change: Change) -> Result<(), String> {
         match change {
+            Change::Voice { voice } => self.voice = voice,
             Change::Route {
                 kind,
                 field,
@@ -200,6 +208,7 @@ impl Preferences {
             // A host switch must not silently reroute timecode to its default device.
             self.audio = None;
             self.preview = None;
+            self.operator = None;
             self.metronome = None;
             self.ltc.clear();
             return Ok(());
@@ -277,6 +286,7 @@ impl Preferences {
                 "audio" => &mut self.audio,
                 "preview" => &mut self.preview,
                 "metronome" => &mut self.metronome,
+                "operator" => &mut self.operator,
                 _ => return Err("unknown route".into()),
             };
             if field == "device" {
@@ -310,6 +320,7 @@ impl Preferences {
     pub fn same_routing(&self, other: &Self) -> bool {
         self.driver == other.driver
             && self.audio == other.audio
+            && self.operator == other.operator
             && self.preview == other.preview
             && self.metronome == other.metronome
             && self.ltc == other.ltc
@@ -319,6 +330,11 @@ impl Preferences {
     pub fn resolve(&self, show: &ShowOutputs, audition: bool) -> OutputConfig {
         OutputConfig {
             driver: self.driver.clone(),
+            operator: if audition {
+                self.preview.clone()
+            } else {
+                self.operator.clone()
+            },
             audio: if audition {
                 self.preview.clone()
             } else {
@@ -525,7 +541,10 @@ mod tests {
             }],
             ..Default::default()
         };
-        p.apply(Change::Import { routes: imported }).unwrap();
+        p.apply(Change::Import {
+            routes: Box::new(imported),
+        })
+        .unwrap();
         assert_eq!(p.mtc[&1].port_index, 2);
         assert_eq!(p.mtc[&2].port_name, "Keep");
         assert!(matches!(p.locale, Some(Locale::Es)));
@@ -588,7 +607,10 @@ mod tests {
         let show = ShowOutputs::from(legacy.clone());
         let mut p = Preferences::default();
         assert_eq!(p.resolve(&show, false).ltc[0].device_name, UNASSIGNED);
-        p.apply(Change::Import { routes: legacy }).unwrap();
+        p.apply(Change::Import {
+            routes: Box::new(legacy),
+        })
+        .unwrap();
         let resolved = p.resolve(&show, false);
         assert_eq!(
             (
