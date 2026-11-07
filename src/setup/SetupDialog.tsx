@@ -10,7 +10,7 @@ import { useTransport } from "../transport/store";
 import { SETUP_SECTIONS, isAvailable, stepSection } from "./outputs";
 import type { SetupSection } from "./outputs";
 import { ControlPage } from "./ControlPage";
-import { AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
+import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
   switch (section) {
@@ -22,6 +22,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <ProjectPage />;
     case "audio":
       return <AudioPage devices={devices} />;
+    case "audioOutputs":
+      return <AudioOutputsPage devices={devices} />;
     case "metronome":
       return <MetronomePage devices={devices} />;
     case "ltc":

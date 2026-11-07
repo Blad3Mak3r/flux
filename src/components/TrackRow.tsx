@@ -1,3 +1,6 @@
+import { useAudioOutputName } from "../audio/routing";
+import { usePreferences } from "../preferences/store";
+import { setCollapsed } from "../state/ui";
 import { addOrder, operatorEdit, useVoice } from "../voice/store";
 import type { VoiceOrder } from "../project/types";
 import { memo, useRef, useState } from "react";
@@ -53,11 +56,16 @@ export const TrackHeader = memo(function TrackHeader({
 }) {
   const t = useT();
   const audio = track.kind.type === "audio" || track.kind.type === "operator";
+  const outputName = useAudioOutputName();
+  const output = usePreferences((p) => p.output.trackRoutes?.find((r) => r.trackId === track.id)?.output);
+  const selected = useUi((ui) => ui.selection?.kind === "track" && ui.selection.id === track.id);
   const renaming = useUi((ui) => ui.renaming?.kind === "track" && ui.renaming.id === track.id);
   return (
     <div
       className="track-header"
       style={{ height: laneHeight(track), ...traceStyle(track.color) }}
+      data-selected={selected}
+      onClick={() => select({ kind: "track", id: track.id })}
       data-muted={track.muted}
       data-audio={audio}
       data-colored={track.color !== undefined}
@@ -104,6 +112,8 @@ export const TrackHeader = memo(function TrackHeader({
       </div>
       {audio && (
         <>
+          <button type="button" className="track-output" title={`${t("routing.trackOutput")}: ${outputName(output)}`}
+            onClick={() => { select({ kind: "track", id: track.id }); setCollapsed(false); }}>{outputName(output)}</button>
           <Fader
             name={track.name}
             valueDb={track.gainDb ?? 0}

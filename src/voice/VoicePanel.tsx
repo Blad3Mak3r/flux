@@ -1,3 +1,4 @@
+import { TrackRouteField } from "../audio/routing";
 import { RecoveredAudio } from "./RecoveredAudio";
 import { openShowCheck } from "./ShowCheckDialog";
 import { VoiceSelector } from "./VoiceSelector";
@@ -85,6 +86,7 @@ export function OrderPanel({ track, order, timeline }: { track: Track; order: Vo
     <SelectField label={t("voice.alignment")} value={order.alignment} onChange={(alignment) => void update({ alignment: alignment as VoiceOrder["alignment"] })}>
       <option value="start">{t("voice.start")}</option><option value="end">{t("voice.end")}</option>
     </SelectField>
+    <TrackRouteField track={track} />
     <VoiceSelector scope="track" trackId={track.id} value={track.kind.type === "operator" ? track.kind.voice : undefined} />
     <p className="field-note">{t("voice.effective", { voice: voices.find((v) => v.voice_id === view?.voice)?.name ?? view?.voice ?? t("voice.none"), source: t(`voice.source.${view?.source ?? "flux"}`) })}</p>
     {order.generated && <details><summary>{t("voice.generatedDialogue")}</summary><p className="voice-dialogue">{order.generated.dialogue}</p><p className="field-note">{order.generated.origin === "imported" ? t("voice.imported") : order.generated.voice}</p>{order.generated.synthesisText && <><p className="field-note">{t("voice.synthesisText")}</p><p className="voice-dialogue">{order.generated.synthesisText}</p></>}</details>}

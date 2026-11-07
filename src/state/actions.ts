@@ -50,6 +50,7 @@ export function deleteTrack(trackId: string): void {
 export function deleteSelection(): void {
   const { selection } = useUi.getState();
   if (!selection) return;
+  if (selection.kind === "track") { deleteTrack(selection.id); return; }
   if (selection.kind === "operator") { void operatorEdit({ op: "removeOrder", id: selection.id }); select(null); return; }
   if (selection.kind === "event") {
     void removeCueEvent(selection.id);
@@ -63,6 +64,6 @@ export function deleteSelection(): void {
 /** Opens the name of the track that holds the selected item for typing (F2). */
 export function renameSelectedTrack(): void {
   const { selection } = useUi.getState();
-  const track = (selection && findItem(useDoc.getState().project, selection.id)?.track) || selectedOperatorTrack();
+  const track = selection?.kind === "track" ? activeTimeline(useDoc.getState()).tracks.find((t) => t.id === selection.id) : (selection && findItem(useDoc.getState().project, selection.id)?.track) || selectedOperatorTrack();
   if (track) rename({ kind: "track", id: track.id });
 }

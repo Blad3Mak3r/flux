@@ -77,6 +77,7 @@ async function guard(action: () => Promise<void>): Promise<void> {
 
 /** Each lane writes only its own field, so the meters never wait for the timecode or the other way round. */
 const lanes = (id: number): OutputLanes => ({
+  onAudioRouting: (audioRouting) => id === run && useTransport.setState({ audioRouting }),
   onPosition: (position) => {
     if (id !== run) return;
     const { timecode } = timeline();
@@ -146,7 +147,7 @@ export function bindTransport(): () => void {
     if (now.view !== before.view) reconnect();
   });
   const unsubscribePrefs = usePreferences.subscribe((now, before) => {
-    if (now.saved !== before.saved) reconnect();
+    if (now.saved !== before.saved || JSON.stringify(now.output) !== JSON.stringify(before.output) || JSON.stringify(now.editOutput) !== JSON.stringify(before.editOutput)) reconnect();
   });
   const listening = listen("output-device-back", () => reconnect(true)).catch(() => undefined);
   return () => {
@@ -177,11 +178,16 @@ export async function startTransport(): Promise<void> {
   if (useTransport.getState().pendingReconfigure && useTransport.getState().position?.state !== "playing") reconnect();
 }
 
-async function connect(force: boolean): Promise<void> {
+let connecting = Promise.resolve();
+function connect(force: boolean): Promise<void> {
+  connecting = connecting.then(() => connectNow(force));
+  return connecting;
+}
+async function connectNow(force: boolean): Promise<void> {
   // Outside the desktop app there is no backend to open anything on.
   if (!hasNativeWindow()) return;
   try {
-    await resolveOutput(useDoc.getState().project.output);
+    await resolveOutput(useDoc.getState().project);
     await attach();
   } catch (error) {
     report(error);
@@ -241,6 +247,7 @@ async function open(force = false): Promise<void> {
   if (position && openedStart === timecode.start && openedTimeline === timelineId) {
     useTransport.setState({ parked: position.frame });
   }
+  const restored = position && openedStart === timecode.start && openedTimeline === timelineId;
   const info = await api.startOutput(doc.project, advance, audition, lanes(++run));
   openedFor = key;
   openedStart = timecode.start;
@@ -248,7 +255,7 @@ async function open(force = false): Promise<void> {
   openedView = useUi.getState().view;
   useTransport.setState({ info, clipWarnings: [], position: null });
   scheduleClips();
-  await api.seek(useTransport.getState().parked);
+  if (!restored) await api.seek(useTransport.getState().parked);
 }
 
 async function closeOutput(): Promise<void> {
@@ -259,7 +266,7 @@ async function closeOutput(): Promise<void> {
   openedStart = null;
   openedTimeline = null;
   openedView = null;
-  useTransport.setState({ info: null, position: null });
+  useTransport.setState({ info: null, position: null, audioRouting: null });
 }
 
 export const stopOutput = () =>
@@ -271,6 +278,8 @@ export const stopOutput = () =>
 
 export const play = () =>
   guard(async () => {
+    clearTimeout(reconnectTimer);
+    await connect(false);
     await attach();
     await open();
     await api.play();
@@ -287,7 +296,7 @@ export const stop = () =>
     const { info, position } = useTransport.getState();
     if (!info) return;
     // An output opened for another start counts from the old one, so its position is wrong.
-    if (openedFor !== signature(doc)) return closeOutput();
+    if (openedTimeline !== activeTimeline(doc).id || openedStart !== start) return closeOutput();
     if (position) useTransport.setState({ position: stoppedAt(position, start) });
     await api.stop();
   });

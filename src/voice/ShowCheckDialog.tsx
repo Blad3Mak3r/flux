@@ -12,7 +12,7 @@ import { CloseIcon } from "../components/icons";
 import { voiceError, stopListening, useVoice } from "./store";
 import { RecoveredAudio } from "./RecoveredAudio";
 
-type IssueCode = "ungenerated" | "stale" | "beforeOrigin" | "missingAudio" | "overlap" | "missingRoute" | "ltcConflict";
+type IssueCode = "ungenerated" | "stale" | "beforeOrigin" | "missingAudio" | "overlap" | "missingRoute" | "ltcConflict" | "silentOutput";
 export interface ShowIssue { code: IssueCode; blocking: boolean; timelineId: string | null; timelineName: string | null; orderId: string | null; name: string; frame: number | null }
 export interface ShowReport { ready: number; orders: number; errors: number; warnings: number; issues: ShowIssue[] }
 export const openShowCheck = () => useUi.setState({ showCheck: true, setup: null, menu: null });

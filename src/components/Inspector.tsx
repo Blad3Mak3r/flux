@@ -1,3 +1,5 @@
+import { TrackRouteField } from "../audio/routing";
+import { VoiceSelector } from "../voice/VoiceSelector";
 import { OrderPanel } from "../voice/VoicePanel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
@@ -102,6 +104,18 @@ function SelectionPanel({
   onDelete: () => void;
 }) {
   const t = useT();
+  if (selection?.kind === "track") {
+    const track = timeline.tracks.find((t) => t.id === selection.id);
+    if (!track) return null;
+    return <div className="panel-body">
+      <h3>{t(`track.kind.${track.kind.type}`)}</h3>
+      <TrackNameField track={track} />
+      <TrackRouteField track={track} />
+      {track.kind.type === "operator" && <VoiceSelector scope="track" trackId={track.id} value={track.kind.voice} />}
+      <TrackColorField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
+      <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
+    </div>;
+  }
   if (selection?.kind === "operator") {
     for (const track of timeline.tracks) {
       if (track.kind.type === "operator") {
@@ -133,6 +147,7 @@ function SelectionPanel({
           onCommit={(text) => void nameClip(clip.id, text)}
         />
         <TrackNameField track={track} />
+        <TrackRouteField track={track} />
         <TimecodeField
           label={t("clip.start")}
           frame={start + clip.start}

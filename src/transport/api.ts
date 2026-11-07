@@ -76,7 +76,14 @@ export interface TrackPeak {
 }
 
 /** Where a running output sends what it reports, about 30 times a second each, over lanes of their own. */
+export interface AudioRoutingState {
+  active: { id: string; device: string; channels: number[]; status: "ready" | "missing" | "conflict" | "lost" | "unused" }[];
+  activeTracks: { trackId: string; output: string | null }[];
+  desiredTracks: { trackId: string; output: string | null }[];
+  pending: boolean;
+}
 export interface OutputLanes {
+  onAudioRouting: (state: AudioRoutingState) => void;
   /** The position, when it moved. */
   onPosition: (position: Position) => void;
   /** The peak of each track; silence once after the sound stops, then nothing. */
@@ -103,7 +110,9 @@ function channels(lanes: OutputLanes) {
   levels.onmessage = lanes.onLevels;
   const live = new Channel<LiveState>();
   live.onmessage = lanes.onLive;
-  return { onPosition: position, onLevels: levels, onLive: live };
+  const routing = new Channel<AudioRoutingState>();
+  routing.onmessage = lanes.onAudioRouting;
+  return { onPosition: position, onLevels: levels, onLive: live, onAudioRouting: routing };
 }
 
 export interface OutputSetup {

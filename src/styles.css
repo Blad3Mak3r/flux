@@ -3215,3 +3215,19 @@ input:disabled {
 .show-check-list > li[aria-current="true"] { background: var(--panel-lo); outline: 1px solid var(--ink-dim); outline-offset: -1px; }
 .show-check-list > li { padding-inline: 8px; }
 .recovered-list .field-note { overflow-wrap: anywhere; }
+
+/* Routing is a quiet measurement on the track faceplate, with a keyboard-accessible action. */
+.track-header[data-selected="true"] { box-shadow: inset 3px 0 var(--phosphor); }
+.track-header[data-audio="true"] { gap: 3px; }
+.track-output { background: transparent; border: 0; cursor: pointer; align-self: stretch; text-align: start; height: 22px; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-dim); font-size: 11px; }
+.track-output:hover { color: var(--phosphor); }
+.track-output:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+.audio-routing-status { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.audio-routing-status:empty { display: none; }
+.live > .audio-routing-status { padding: 8px 16px; border-bottom: 1px solid var(--rule); }
+.audio-routing-status .field-note { flex-basis: 100%; }
+.audio-output-fields > .field:first-child { grid-column: 1 / -1; }
+.audio-output-fields > .button { justify-self: start; }
+
+.audio-output-row { grid-template-columns: minmax(0, 1fr) auto; }
+.audio-output-row > .setup-row-name { overflow-wrap: anywhere; }

@@ -3,11 +3,12 @@ import { useDoc } from "../state/store";
 import { resolveOutput, usePreferences } from "./store";
 
 export function useOutputView() {
-  const show = useDoc((d) => d.project.output);
+  const project = useDoc((d) => d.project);
+  const active = useDoc((d) => d.active);
   const revision = usePreferences((p) => p.saved.revision);
   const output = usePreferences((p) => p.output);
   useEffect(() => {
-    void resolveOutput(show).catch(() => undefined);
-  }, [show, revision]);
+    void resolveOutput(project).catch(() => undefined);
+  }, [project, active, revision]);
   return output;
 }

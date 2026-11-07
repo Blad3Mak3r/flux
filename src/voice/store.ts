@@ -132,6 +132,7 @@ export async function retrySave(): Promise<void> {
 /** Resolve a selected operator item for menus; generation and timing remain backend-owned. */
 export function selectedOperatorTrack() {
   const selection = useUi.getState().selection;
+  if (selection?.kind === "track") return useDoc.getState().project.timelines.flatMap((t) => t.tracks).find((t) => t.id === selection.id && t.kind.type === "operator") ?? null;
   if (selection?.kind !== "operator") return null;
   return useDoc.getState().project.timelines.flatMap((t) => t.tracks).find((t) => t.kind.type === "operator" && t.kind.orders.some((o) => o.id === selection.id)) ?? null;
 }

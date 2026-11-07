@@ -75,7 +75,11 @@ export interface AudioAsset {
   bpm?: number;
 }
 
+export type AudioAssignment = { type: "inherit" } | { type: "silent" } | { type: "output"; id: string };
+export interface AudioBus { id: string; name: string }
+
 export interface Track {
+  audioOutput?: AudioAssignment;
   id: string;
   name: string;
   muted: boolean;
@@ -211,6 +215,7 @@ export interface Note {
 
 /** Portable signals; physical routing lives in this installation's preferences. */
 export interface ShowOutputs {
+  audio?: AudioBus[];
   metronome?: { gainDb: number } | null;
   ltc: { slot: number; level?: number }[];
   mtc: { slot: number }[];
@@ -220,6 +225,8 @@ export interface ShowOutputs {
 
 /** Devices are stored by name hint only, never by OS identifier. */
 export interface OutputConfig {
+  audioRoutes?: { id: string; route: OutputConfig["audio"] }[];
+  trackRoutes?: { trackId: string; output: string | null }[];
   operator?: OutputConfig["audio"];
   /** The audio driver (API) the audio devices below belong to, e.g. "PipeWire". Absent: the system's default one. */
   driver?: string;
