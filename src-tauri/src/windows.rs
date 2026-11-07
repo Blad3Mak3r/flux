@@ -55,7 +55,7 @@ fn encode_component(path: &Path) -> String {
         })
 }
 
-/// The `.fxtc` file the OS asked Flux to open, kept until the launcher is done.
+/// The project file the OS asked FLUX to open, kept until the launcher is done.
 #[derive(Default)]
 pub struct PendingOpen(Mutex<Option<PathBuf>>);
 
@@ -88,13 +88,11 @@ pub fn window_pending_path(pending: State<'_, PendingOpen>) -> Option<PathBuf> {
     pending.path()
 }
 
-/// The first argument that is an existing `.fxtc` file.
+/// The first argument that is an existing `.flx` or legacy `.fxtc` file.
 fn project_arg(args: impl IntoIterator<Item = OsString>) -> Option<PathBuf> {
-    args.into_iter().map(PathBuf::from).find(|path| {
-        path.extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("fxtc"))
-            && path.is_file()
-    })
+    args.into_iter()
+        .map(PathBuf::from)
+        .find(|path| flux_project::is_project_path(path) && path.is_file())
 }
 
 fn editor_url(path: Option<&Path>) -> String {
@@ -256,19 +254,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn project_arg_should_pick_the_existing_fxtc_file_only() {
+    fn project_arg_should_pick_an_existing_project_of_either_extension() {
         let dir = tempfile::tempdir().unwrap();
-        let show = dir.path().join("Show.FXTC");
-        std::fs::write(&show, b"").unwrap();
-        let args = [
-            "--flag",
-            "notes.txt",
-            "missing.fxtc",
-            show.to_str().unwrap(),
-        ]
-        .map(OsString::from);
+        let folder = dir.path().join("folder.flx");
+        std::fs::create_dir(&folder).unwrap();
+        for name in ["Show.flx", "Show.FLX", "Show.fxtc", "Show.FXTC"] {
+            let show = dir.path().join(name);
+            std::fs::write(&show, b"").unwrap();
+            let args = [
+                "--flag",
+                "notes.txt",
+                "missing.flx",
+                "missing.fxtc",
+                folder.to_str().unwrap(),
+                show.to_str().unwrap(),
+            ]
+            .map(OsString::from);
 
-        assert_eq!(project_arg(args), Some(show));
+            assert_eq!(project_arg(args), Some(show));
+        }
     }
 
     #[test]

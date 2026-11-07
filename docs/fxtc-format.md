@@ -1,6 +1,8 @@
-# `.fxtc` project format (v7)
+# `.flx` / `.fxtc` project format (v7)
 
-A `.fxtc` file is a zip archive. Implementation: `src-tauri/crates/flux-project/src/`.
+A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
+
+New projects and Save as use `.flx` by default. Opening accepts either extension, case-insensitively. Saving an existing project preserves its path and extension, so legacy projects stay `.fxtc` unless saved as a new `.flx` file. Changing the extension requires no archive migration or format-version bump.
 
 ```
 project.json          deflated
@@ -165,8 +167,8 @@ never fails because of hardware.
 | `id` | string | A UUID, created with the project. It survives renames, copies of the file and saves, so two files with the same id are the same project. |
 | `createdAt` | string | RFC 3339 UTC, e.g. `2026-11-05T14:29:03Z`. |
 | `modifiedAt` | string | Same format. The time of the last save. |
-| `createdWith` | string | FluxTimecode version that created the project; empty when unknown. |
-| `savedWith` | string | FluxTimecode version of the last save. Empty marks a file written before `meta` existed. |
+| `createdWith` | string | FLUX version that created the project; empty when unknown. |
+| `savedWith` | string | FLUX version of the last save. Empty marks a file written before `meta` existed. |
 | `author` | string | Free text. Left out when empty. |
 | `description` | string | Free text. Left out when empty. |
 
@@ -231,7 +233,8 @@ in Preferences > Project, enter undo history and are stored in both the `.fxtc` 
 
 ## File association
 
-`bundle.fileAssociations` in `tauri.conf.json` registers `.fxtc` (`application/x-fxtc`) with Flux in the installed
+`bundle.fileAssociations` in `tauri.conf.json` registers `.flx` (`application/x-flx`) and legacy `.fxtc`
+(`application/x-fxtc`) with FLUX in the installed
 bundles. A file opened from the OS arrives on the command line (Linux, Windows) or as a `RunEvent::Opened` (macOS),
 is kept in `windows::PendingOpen`, and when the launcher finishes the editor opens it instead of the welcome window.
 Opening a file while Flux already runs starts a second instance; the macOS event is only honoured during start-up.

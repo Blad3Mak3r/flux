@@ -92,7 +92,7 @@ user. After the last timeline nothing changes and the show stays where it ended.
 
 The Live view runs the timeline on stage, and the backend does all of its thinking; the UI only draws what it is
 sent. A **cue** is not stored in the project: every clip of an audio track and every note of a notes track is one,
-so the `.fxtc` format does not change. `CueList::build` derives the list, ordered by frame (cues at the same frame keep
+so the `.flx` format does not change. `CueList::build` derives the list, ordered by frame (cues at the same frame keep
 the order of their tracks) and numbered from 1. A clip's length comes from its decoded audio, trimmed by its `offset` and `length`; a file that cannot be read
 gives a cue without length, never an error. `Cue.frame` is the absolute timecode frame, so the UI seeks to it as it is.
 
@@ -297,7 +297,7 @@ The music is decoded once and mixed in the same callback that renders LTC, on th
 - **Peaks** (`audio/peaks.rs`): the min and max of every 10 ms as signed bytes, which is what the timeline draws.
 - **Commands**: `audio_analyze(asset)` returns `{ durationSeconds, sourceRate, peaksPerSecond, peaks }`; the UI calls
   it on import and when a project opens, so clip lengths and waveforms are real. It first looks for the preview stored
-  in the `.fxtc` (`peaks/`, see [fxtc-format.md](fxtc-format.md)) and only decodes the asset (cached by asset id) when
+  in the `.flx` (`peaks/`, see [fxtc-format.md](fxtc-format.md)) and only decodes the asset (cached by asset id) when
   there is none or it was made from other audio; the result is kept for the next save. Opening a project whose
   previews are stored decodes nothing. `output_set_clips(project)` sends the current clips to a running output.
   `output_start` decodes whatever has not been decoded yet.

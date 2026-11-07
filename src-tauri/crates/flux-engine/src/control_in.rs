@@ -18,7 +18,7 @@ use midir::{Ignore, MidiInput, MidiInputConnection};
 use crate::control::{ControlAction, MidiTrigger, decode_midi, decode_osc, osc_action};
 use crate::devices::find_by_name;
 
-const MIDI_CLIENT_NAME: &str = "Flux Timecode control";
+const MIDI_CLIENT_NAME: &str = "FLUX control";
 
 /// How long the socket thread waits for a packet before it looks at the stop flag again.
 const POLL: Duration = Duration::from_millis(100);

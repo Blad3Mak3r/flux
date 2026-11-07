@@ -1,7 +1,7 @@
 [package]
 name = "flux-project"
 version = "0.1.0"
-description = "The .fxtc project: model, archive, migrations and the editing session"
+description = "The .flx / legacy .fxtc project: model, archive, migrations and the editing session"
 edition = "2024"
 
 [dependencies]

@@ -37,7 +37,7 @@ pub struct CueInfo {
     pub ok: bool,
 }
 
-const MIDI_CLIENT_NAME: &str = "Flux Timecode cues";
+const MIDI_CLIENT_NAME: &str = "FLUX cues";
 
 /// The firing threads of an output and what they are sent.
 pub(crate) struct CueRoutes {

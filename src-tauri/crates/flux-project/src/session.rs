@@ -911,18 +911,21 @@ mod tests {
     }
 
     #[test]
-    fn save_should_copy_audio_from_the_opened_file_when_saving_as_another_file() {
+    fn save_should_copy_legacy_project_and_audio_to_flx_without_changing_the_original() {
         let dir = TempDir::new().unwrap();
         let (mut session, project) = imported_project(&dir);
         let original = dir.path().join("show.fxtc");
         session.save(&project, &original).unwrap();
+        let original_bytes = fs::read(&original).unwrap();
 
         let mut reopened = Session::default();
         let opened = reopened.open(&original).unwrap();
-        let copy = dir.path().join("copy.fxtc");
-        reopened.save(&opened, &copy).unwrap();
+        let copy = dir.path().join("copy.flx");
+        let saved = reopened.save(&opened, &copy).unwrap();
 
         assert_eq!(read_asset(&copy, &opened.assets[0].file), AUDIO_BYTES);
+        assert_eq!(Session::default().open(&copy).unwrap(), saved);
+        assert_eq!(fs::read(&original).unwrap(), original_bytes);
     }
 
     #[test]
