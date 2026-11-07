@@ -20,7 +20,7 @@ use flux_core::FrameRate;
 
 /// The document being edited, as the backend last heard of it. The window that edits it can be
 /// reloaded, and picks it up from here again.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Document {
     pub project: Project,
@@ -91,18 +91,56 @@ pub struct ProjectState {
 /// next save writes into the file.
 #[derive(Debug, Default)]
 pub struct Session {
+    recovery_id: String,
+    recovery_revision: u64,
     document: Option<Document>,
     sources: HashMap<String, AssetSource>,
     previews: HashMap<String, StoredPreview>,
 }
 
 impl Session {
+    /// Lets the worker skip cloning an unchanged document on each timer tick.
+    pub fn recovery_revision(&self) -> (&str, u64) {
+        (&self.recovery_id, self.recovery_revision)
+    }
+
+    /// Captures metadata and source paths only; never reads audio or preview bytes.
+    pub fn recovery(&self) -> Option<super::recovery::Recovery> {
+        self.document.as_ref().map(|document| {
+            super::recovery::Recovery::new(
+                self.recovery_id.clone(),
+                document.clone(),
+                self.sources.clone(),
+            )
+        })
+    }
+
+    pub fn restore_recovery(&mut self, recovery: super::recovery::Recovery) -> Result<Document> {
+        recovery.validate()?;
+        self.recovery_id.clone_from(&recovery.id);
+        self.recovery_revision += 1;
+        self.sources = recovery.sources;
+        self.previews.clear();
+        self.document = Some(recovery.document.clone());
+        Ok(recovery.document)
+    }
+
+    pub fn set_autosave(&mut self, autosave: super::model::Autosave) -> Result<ProjectState> {
+        autosave.validate()?;
+        self.change(|project, _| {
+            project.autosave = autosave;
+            Ok(())
+        })
+    }
+
     /// Forgets the open document and its audio sources without touching any project files.
     pub fn clear(&mut self) {
         *self = Self::default();
     }
 
     pub fn new_project(&mut self, name: &str, frame_rate: FrameRate) -> Project {
+        self.recovery_id = Uuid::new_v4().to_string();
+        self.recovery_revision += 1;
         self.sources.clear();
         self.previews.clear();
         let project = Project::new(name, frame_rate);
@@ -115,6 +153,8 @@ impl Session {
     /// read-only disk) the project is still opened, and the next save does it.
     pub fn open(&mut self, path: &Path) -> Result<Project> {
         let (project, _archive) = archive::open(path)?;
+        self.recovery_id = Uuid::new_v4().to_string();
+        self.recovery_revision += 1;
         self.sources = archive_sources(&project, path);
         self.previews.clear();
         self.document = Some(Document::new(project.clone(), Some(path.to_path_buf())));
@@ -128,12 +168,23 @@ impl Session {
 
     /// Remembers the latest state of the project being edited.
     pub fn update(&mut self, project: Project) {
+        if self
+            .document
+            .as_ref()
+            .is_some_and(|doc| doc.project == project)
+        {
+            return;
+        }
+        self.recovery_revision += 1;
         match &mut self.document {
             Some(document) => {
                 document.project = project;
                 document.settle();
             }
-            None => self.document = Some(Document::new(project, None)),
+            None => {
+                self.recovery_id = Uuid::new_v4().to_string();
+                self.document = Some(Document::new(project, None));
+            }
         }
     }
 
@@ -355,6 +406,7 @@ impl Session {
         project.validate()?;
         document.project = project.clone();
         document.active.clone_from(&active);
+        self.recovery_revision += 1;
         Ok(ProjectState { project, active })
     }
 
@@ -389,6 +441,7 @@ impl Session {
         check_asset_path(&asset.file)?;
         self.sources
             .insert(asset.id.clone(), AssetSource::Disk(file.to_path_buf()));
+        self.recovery_revision += 1;
         Ok(asset)
     }
 
@@ -439,6 +492,7 @@ impl Session {
             document.select(&previous.active);
         }
         self.document = Some(document);
+        self.recovery_revision += 1;
         Ok(saved)
     }
 }

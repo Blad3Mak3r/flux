@@ -10,6 +10,7 @@ pub(crate) mod meta;
 mod migrate;
 mod model;
 mod preview;
+pub mod recovery;
 mod session;
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
@@ -22,7 +23,7 @@ pub use events::{
 pub use flux_core::FrameRate;
 pub use item_ops::{Fade, ItemOp, MAX_TRACK_NAME};
 pub use model::{
-    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, DEFAULT_LTC_LEVEL, ENVELOPE_MAX_DB,
+    AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, Autosave, DEFAULT_LTC_LEVEL, ENVELOPE_MAX_DB,
     ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, EnvPoint, FORMAT_VERSION, FadeCurve,
     LtcOutput, MAX_BPM, MAX_CLIP_NAME, MAX_ENVELOPE_POINTS, MAX_OFFSET_MS, MIN_BPM, Meta,
     MetronomeOutput, MtcOutput, Note, OutputConfig, Project, Tempo, TimecodeSettings, Timeline,

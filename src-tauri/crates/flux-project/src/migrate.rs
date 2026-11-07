@@ -19,6 +19,11 @@ pub(super) fn upgrade(value: &mut Value, created: &str) {
     events_to_notes(value);
     add_meta(value, created);
     wrap_timelines(value);
+    if let Some(project) = value.as_object_mut() {
+        project
+            .entry("autosave")
+            .or_insert_with(|| json!({ "enabled": true, "intervalSeconds": 30 }));
+    }
     if let Some(version) = value.get_mut("formatVersion") {
         *version = json!(FORMAT_VERSION);
     }
@@ -193,7 +198,7 @@ mod tests {
         let mut value = json!({ "formatVersion": 5, "meta": { "id": "kept" }, "timelines": [] });
         let before = value.clone();
         upgrade(&mut value, DATE);
-        assert_eq!(value, before);
+        assert_eq!(value["meta"], before["meta"]);
     }
 
     #[test]
@@ -250,6 +255,20 @@ mod tests {
             json!({ "formatVersion": 5, "meta": { "id": "kept" }, "timelines": [{ "id": "l1" }] });
         let before = value.clone();
         upgrade(&mut value, DATE);
-        assert_eq!(value, before);
+        assert_eq!(value["timelines"], before["timelines"]);
+    }
+
+    #[test]
+    fn upgrade_should_default_old_autosave_options_and_preserve_existing_options() {
+        let mut old = v3();
+        upgrade(&mut old, DATE);
+        assert_eq!(
+            old["autosave"],
+            json!({ "enabled": true, "intervalSeconds": 30 })
+        );
+        old["autosave"] = json!({ "enabled": false, "intervalSeconds": 60 });
+        let before = old.clone();
+        upgrade(&mut old, DATE);
+        assert_eq!(old, before);
     }
 }
