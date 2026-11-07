@@ -7,6 +7,7 @@ import { closeSetup, openSetup, useUi } from "../state/ui";
 import { useTransport } from "../transport/store";
 import { SETUP_SECTIONS, isAvailable, stepSection } from "./outputs";
 import type { SetupSection } from "./outputs";
+import { ControlPage } from "./ControlPage";
 import { AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
@@ -25,6 +26,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <MtcPage devices={devices} />;
     case "osc":
       return <OscPage />;
+    case "control":
+      return <ControlPage />;
     case "graphics":
       return <GraphicsPage />;
     case "general":
