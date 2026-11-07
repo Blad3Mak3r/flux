@@ -1,3 +1,4 @@
+import { addOperator, addOrder, selectedOperatorTrack, operatorEdit } from "../voice/store";
 // The items of every menu: the menu bar's and the ones a right click opens. They are built when the
 // menu opens, from the latest state, and call the same functions the keyboard does.
 
@@ -59,7 +60,7 @@ const state = () => ({ doc: useDoc.getState(), ui: useUi.getState() });
 /** The track of the selected clip or note, if anything is selected. */
 function selectedTrack(): Track | null {
   const { doc, ui } = state();
-  return (ui.selection && findItem(doc.project, ui.selection.id)?.track) || null;
+  return (ui.selection && findItem(doc.project, ui.selection.id)?.track) || selectedOperatorTrack();
 }
 
 /** The magnet, ticked while it is on. Every menu of the timeline offers it. */
@@ -151,6 +152,7 @@ function trackMenu(t: Translate): MenuItem[] {
   return [
     { label: t("menu.addSong"), shortcut: "I", run: () => void importAudioFiles() },
     { label: t("menu.addNote"), shortcut: "N", disabled: !editing, run: () => addNoteAt(t) },
+    { label: t("voice.addTrack"), disabled: !editing, run: () => void addOperator(t("track.kind.operator")) },
     { label: t("menu.addMidiTrack"), disabled: !editing, run: () => void addCueTrack("midi", t("track.kind.midi")) },
     { label: t("menu.addOscTrack"), disabled: !editing, run: () => void addCueTrack("osc", t("track.kind.osc")) },
     "-",
@@ -289,6 +291,7 @@ const deleteNote = (id: string) => () => {
 export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuItem[] {
   const { start } = activeTimeline(useDoc.getState()).timecode;
   return [
+    ...(track.kind.type === "operator" ? [{ label: t("voice.addOrder"), run: () => void addOrder(track.id, currentFrame() - start) }] : []),
     ...(clip
       ? [
           { label: t("context.goToStart"), run: () => seek(start + clip.start) },
@@ -300,9 +303,18 @@ export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuIte
     muteItem(t, track),
     { label: t("context.resetVolume"), disabled: (track.gainDb ?? 0) === 0, run: () => setGain(track.id, 0) },
     "-",
-    { label: t("context.deleteSong"), run: () => deleteTrack(track.id) },
+    { label: t(track.kind.type === "operator" ? "menu.deleteTrack" : "context.deleteSong"), run: () => deleteTrack(track.id) },
     "-",
     snapItem(t),
+  ];
+}
+
+export function operatorOrderMenu(t: Translate, track: Track, id: string): MenuItem[] {
+  return [
+    { label: t("voice.duplicate"), run: () => void operatorEdit({ op: "duplicateOrder", id }) },
+    muteItem(t, track),
+    "-",
+    { label: t("inspector.delete"), run: () => { select({ kind: "operator", id }); deleteSelection(); } },
   ];
 }
 
@@ -363,9 +375,10 @@ export function eventMenu(t: Translate, track: Track, id: string, at: number): M
 /** Empty timeline; on a notes, MIDI or OSC lane `here` is the frame under the pointer. */
 export function emptyMenu(
   t: Translate,
-  here?: { frame: number; trackId: string; kind: "notes" | "midi" | "osc" },
+  here?: { frame: number; trackId: string; kind: "notes" | "midi" | "osc" | "operator" },
 ): MenuItem[] {
   return [
+    here?.kind === "operator" ? { label: t("voice.addOrder"), run: () => void addOrder(here.trackId, here.frame - activeTimeline(useDoc.getState()).timecode.start) } :
     here?.kind === "midi" || here?.kind === "osc"
       ? {
           label: t(here.kind === "osc" ? "context.addOscHere" : "context.addMidiHere"),

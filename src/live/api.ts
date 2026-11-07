@@ -4,7 +4,7 @@ import type { Project } from "../project/types";
 // Mirrors src-tauri/crates/flux-engine/src/cues.rs and src-tauri/src/live_commands.rs. The backend derives the
 // cues and says where the show stands; nothing here orders, compares or formats them.
 
-export type CueKind = "audio" | "note" | "midi" | "osc";
+export type CueKind = "audio" | "note" | "midi" | "osc" | "operator";
 
 /** What a MIDI or OSC cue sends; `Cue.detail` holds its notation. */
 export type CueAction = "noteOn" | "noteOff" | "controlChange" | "programChange" | "msc" | "sysEx" | "osc";

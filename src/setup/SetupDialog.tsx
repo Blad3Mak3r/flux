@@ -1,3 +1,4 @@
+import { VoicePage } from "../voice/VoicePanel";
 import { usePreferences } from "../preferences/store";
 import { useEffect, useRef } from "react";
 import { CloseIcon } from "../components/icons";
@@ -13,6 +14,8 @@ import { AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, 
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
   switch (section) {
+    case "operator":
+      return <VoicePage devices={devices} />;
     case "timeline":
       return <TimelinePage />;
     case "project":

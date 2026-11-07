@@ -1,3 +1,5 @@
+import { addOrder, operatorEdit, useVoice } from "../voice/store";
+import type { VoiceOrder } from "../project/types";
 import { memo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
@@ -24,15 +26,16 @@ import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
-import { MidiIcon, MuteIcon, NoteIcon, OscIcon, WaveIcon } from "./icons";
-import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu } from "./menus";
+import { MidiIcon, MuteIcon, NoteIcon, OscIcon, WaveIcon, VoiceIcon } from "./icons";
+import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu } from "./menus";
 
 export function laneHeight(track: Track): number {
-  return track.kind.type === "audio" ? AUDIO_LANE_H : NOTES_LANE_H;
+  return track.kind.type === "audio" || track.kind.type === "operator" ? AUDIO_LANE_H : NOTES_LANE_H;
 }
 
 const KIND_ICONS = {
   audio: <WaveIcon />,
+  operator: <VoiceIcon />,
   notes: <NoteIcon />,
   midi: <MidiIcon />,
   osc: <OscIcon />,
@@ -49,7 +52,7 @@ export const TrackHeader = memo(function TrackHeader({
   onGrab: (event: PointerEvent<HTMLElement>, id: string) => void;
 }) {
   const t = useT();
-  const audio = track.kind.type === "audio";
+  const audio = track.kind.type === "audio" || track.kind.type === "operator";
   const renaming = useUi((ui) => ui.renaming?.kind === "track" && ui.renaming.id === track.id);
   return (
     <div
@@ -120,7 +123,7 @@ export const TrackHeader = memo(function TrackHeader({
  */
 function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
-  const move = kind === "event" ? moveCueEvent : moveTo;
+  const move = kind === "operator" ? (id: string, at: number) => operatorEdit({ op: "moveOrder", id, at }) : kind === "event" ? moveCueEvent : moveTo;
   const [delta, setDelta] = useState(0);
   const origin = useRef<{ x: number; position: number; targets: SnapTarget[] } | null>(null);
 
@@ -471,6 +474,23 @@ function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEve
   );
 }
 
+function OrderBlock({ track, order, pxPerFrame }: { track: Track; order: VoiceOrder; pxPerFrame: number }) {
+  const t = useT();
+  const view = useVoice((v) => v.views[order.id]);
+  const busy = useVoice((v) => v.busy === order.id);
+  const selected = useUi((ui) => ui.selection?.id === order.id);
+  const { shown, handlers } = useDrag(order.id, "operator", order.at, 0, pxPerFrame);
+  return <div className="operator-order" role="button" tabIndex={0} aria-pressed={selected}
+    data-selected={selected} data-muted={track.muted} data-status={view?.status ?? "ungenerated"} data-range={view?.start != null}
+    style={{ left: frameX(view?.start ?? order.at, pxPerFrame), transform: `translateX(${(shown - order.at) * pxPerFrame}px)`, width: view?.start !== null && view?.length ? Math.max(24, view.length * pxPerFrame) : undefined }}
+    onContextMenu={(event) => { select({ kind: "operator", id: order.id }); menuAtPointer(event, operatorOrderMenu(t, track, order.id)); }}
+    title={order.dialogue} onFocus={() => select({ kind: "operator", id: order.id })} {...handlers}>
+    <span className="operator-anchor" data-end={order.alignment === "end" && !view?.beforeOrigin} />
+    <span className="operator-order-text">{order.dialogue || t("voice.empty")}</span>
+    <span className="operator-order-state">{t(busy ? "voice.generating" : `voice.status.${view?.status ?? "ungenerated"}`)}{view?.beforeOrigin && ` · ${t("voice.positionInvalid")}`}</span>
+  </div>;
+}
+
 export const TrackLane = memo(function TrackLane({
   track,
   assetNames,
@@ -494,7 +514,8 @@ export const TrackLane = memo(function TrackLane({
     if (kind === "audio" || event.target !== event.currentTarget) return;
     const { start } = activeTimeline(useDoc.getState()).timecode;
     const frame = start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame), snapTargets());
-    if (kind === "notes") addNoteAt(t, frame, track.id);
+    if (kind === "operator") void addOrder(track.id, frame - start);
+    else if (kind === "notes") addNoteAt(t, frame, track.id);
     else void addCueEvent(kind, frame, t(`track.kind.${kind}`), track.id);
   };
   return (
@@ -514,6 +535,7 @@ export const TrackLane = memo(function TrackLane({
         );
       }}
     >
+      {track.kind.type === "operator" && track.kind.orders.length === 0 && <button className="button operator-add" type="button" onClick={() => void addOrder(track.id, 0)}>{t("voice.addOrder")}</button>}
       {track.kind.type === "audio"
         ? track.kind.clips.map((clip) => (
             <ClipBlock
@@ -533,6 +555,8 @@ export const TrackLane = memo(function TrackLane({
           ? track.kind.notes.map((note) => (
               <NoteBlock key={note.id} track={track} note={note} pxPerFrame={pxPerFrame} />
             ))
+          : track.kind.type === "operator"
+            ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} pxPerFrame={pxPerFrame} />)
           : track.kind.events.map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
             ))}

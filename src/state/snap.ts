@@ -1,3 +1,4 @@
+import { useVoice } from "../voice/store";
 // The magnet as the editor uses it: on or off, and onto the lines the ruler is drawing now, the
 // edges of the clips and notes, the playhead and the origin.
 
@@ -50,6 +51,11 @@ function timelineItems(): SnapItem[] {
           start: note.at,
           end: note.length === undefined ? undefined : note.at + note.length,
         }));
+      case "operator":
+        return track.kind.orders.map((order) => {
+          const view = useVoice.getState().views[order.id];
+          return { id: order.id, start: view?.start ?? order.at, end: view?.start != null && view.length != null ? view.start + view.length : undefined };
+        });
       default:
         return track.kind.events.map((event) => ({ id: event.id, start: event.at }));
     }

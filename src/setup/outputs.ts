@@ -2,7 +2,7 @@
 import type { MtcOutputConfig } from "../project/types";
 
 /** The pages of the Setup dialog, in the order they are listed. */
-export const SETUP_SECTIONS = ["timeline", "project", "audio", "metronome", "ltc", "mtc", "osc", "control", "graphics", "general", "video"] as const;
+export const SETUP_SECTIONS = ["timeline", "project", "audio", "operator", "metronome", "ltc", "mtc", "osc", "control", "graphics", "general", "video"] as const;
 export type SetupSection = (typeof SETUP_SECTIONS)[number];
 
 /** Video is listed so the user can see it is planned, but has no page yet. */

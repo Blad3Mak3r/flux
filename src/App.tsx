@@ -1,3 +1,4 @@
+import { bindVoice } from "./voice/store";
 import { useOutputView } from "./preferences/outputs";
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -239,6 +240,7 @@ function Editor() {
   const waiting = !connected || devices.loading || (liveEnabled && !cuesReady);
 
   useEffect(bindTransport, []);
+  useEffect(bindVoice, []);
   useEffect(bindDocumentSync, []);
   useEffect(() => {
     if (!native) return;

@@ -38,7 +38,7 @@ export interface SnapGuide {
 }
 
 export interface Selected {
-  kind: "clip" | "note" | "event";
+  kind: "clip" | "note" | "event" | "operator";
   id: string;
 }
 

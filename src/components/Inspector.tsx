@@ -1,3 +1,4 @@
+import { OrderPanel } from "../voice/VoicePanel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { FadeCurve, Project, Timeline, Track } from "../project/types";
@@ -101,6 +102,14 @@ function SelectionPanel({
   onDelete: () => void;
 }) {
   const t = useT();
+  if (selection?.kind === "operator") {
+    for (const track of timeline.tracks) {
+      if (track.kind.type === "operator") {
+        const order = track.kind.orders.find((o) => o.id === selection.id);
+        if (order) return <OrderPanel key={order.id} track={track} order={order} timeline={timeline} />;
+      }
+    }
+  }
   const found = selection ? findItem(project, selection.id) : null;
   const { frameRate, start } = timeline.timecode;
 

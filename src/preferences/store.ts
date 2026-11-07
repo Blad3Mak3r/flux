@@ -8,6 +8,8 @@ import { errorMessage } from "../project/api";
 export const UNASSIGNED = "__flux_unassigned__";
 export const EMPTY_OUTPUT: OutputConfig = { audio: null, ltc: [], mtc: [] };
 export interface Preferences {
+  voice: string | null;
+  operator: OutputConfig["audio"];
   locale: Locale | null;
   driver: string | null;
   audio: OutputConfig["audio"];
@@ -19,6 +21,8 @@ export interface Preferences {
   warning?: string | null;
 }
 const defaults: Preferences = {
+  voice: null,
+  operator: null,
   locale: null,
   driver: null,
   audio: null,

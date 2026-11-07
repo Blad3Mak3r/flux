@@ -1,3 +1,4 @@
+import { addOperator, useVoice } from "../voice/store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
@@ -41,6 +42,11 @@ function contentEnd(timeline: TimelineData, audio: Record<string, AssetAudio>, f
       for (const clip of track.kind.clips) end = Math.max(end, clip.start + clipLength(clip, audio[clip.asset], fps, guess));
     } else if (track.kind.type === "notes") {
       for (const note of track.kind.notes) end = Math.max(end, note.at + (note.length ?? 25));
+    } else if (track.kind.type === "operator") {
+      for (const order of track.kind.orders) {
+        const view = useVoice.getState().views[order.id];
+        end = Math.max(end, view?.start !== null && view?.start !== undefined ? view.start + (view.length ?? 0) : order.at);
+      }
     } else {
       for (const event of track.kind.events) end = Math.max(end, event.at + 25);
     }
@@ -105,6 +111,7 @@ export function Timeline() {
   const assets = useDoc((doc) => doc.project.assets);
   const timeline = useTimeline();
   const audio = useDoc((doc) => doc.audio);
+  useVoice((v) => v.views);
   const pxPerFrame = useUi((ui) => ui.zoom);
   const bars = useUi((ui) => ui.ruler === "bars");
   const { frameRate, start } = timeline.timecode;
@@ -287,6 +294,7 @@ export function Timeline() {
               <PlusIcon />
               {t("tracks.addNote")}
             </button>
+            <button type="button" className="add-note" onClick={() => void addOperator(t("track.kind.operator"))}><PlusIcon />{t("tracks.addOperator")}</button>
             <button type="button" className="add-note" onClick={() => void addCueTrack("midi", t("track.kind.midi"))}>
               <PlusIcon />
               {t("tracks.addMidi")}

@@ -1,3 +1,4 @@
+import { VoiceSelector } from "../voice/VoiceSelector";
 import { LegacyRoutes } from "../preferences/LegacyRoutes";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
@@ -132,6 +133,7 @@ export function ProjectPage() {
         {[15, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{t("autosave.seconds", { seconds })}</option>)}
       </SelectField>
       {problem && <p className="message" data-tone="error" role="alert">{problem}</p>}
+      <VoiceSelector scope="project" value={project.voice} />
       <LegacyRoutes />
     </div>
   );
@@ -211,13 +213,13 @@ function DeviceOptions({
   );
 }
 
-function AudioRoute({
+export function AudioRoute({
   kind,
   deviceLabel,
   channelsLabel,
   devices,
 }: {
-  kind: "audio" | "preview" | "metronome";
+  kind: "audio" | "preview" | "metronome" | "operator";
   deviceLabel: MessageKey;
   channelsLabel: MessageKey;
   devices: Devices;
@@ -236,6 +238,7 @@ function AudioRoute({
           2 * i + 1,
           2 * i + 2,
         ]);
+  const channelChoices = kind === "operator" ? [...Array.from({ length: count }, (_, index) => [index + 1]), ...pairs.filter((p) => p.length === 2)] : pairs;
   return (
     <>
       <SelectField
@@ -257,12 +260,12 @@ function AudioRoute({
           disabled={!devices.available}
           onChange={(text) => routeEdit(kind, "channels", text)}
         >
-          {!pairs.some((p) => p.join("-") === route.channels.join("-")) && (
+          {!channelChoices.some((p) => p.join("-") === route.channels.join("-")) && (
             <option value={route.channels.join("-")}>
               {route.channels.join(" / ")}
             </option>
           )}
-          {pairs.map((p) => (
+          {channelChoices.map((p) => (
             <option key={p.join("-")} value={p.join("-")}>
               {p.length === 1
                 ? t("out.mono", { channel: p[0] })

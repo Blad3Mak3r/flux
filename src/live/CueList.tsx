@@ -1,3 +1,6 @@
+import { useVoice } from "../voice/store";
+import { useTransport } from "../transport/store";
+import { usePreferences } from "../preferences/store";
 import { memo, useEffect, useRef } from "react";
 import { useT } from "../i18n";
 import { seek } from "../transport/playback";
@@ -24,6 +27,9 @@ interface RowProps {
 const CueRow = memo(function CueRow({ cue, status, progress }: RowProps) {
   const t = useT();
   const name = cueName(cue, t);
+  const voice = useVoice((v) => v.views[cue.id]);
+  const route = usePreferences((p) => p.saved.operator);
+  const routeLost = useTransport((s) => s.position?.operatorLost || s.info?.operator?.ok === false);
   const style = {
     ...traceStyle(cue.color ?? undefined),
     ...(progress !== undefined && { "--progress": `${progress * 100}%` }),
@@ -52,6 +58,7 @@ const CueRow = memo(function CueRow({ cue, status, progress }: RowProps) {
         </span>
         <span className="cue-name" title={name}>
           {name}
+          {cue.kind === "operator" && <span className="voice-live-state">{t(`voice.status.${voice?.status ?? "ungenerated"}`)}{voice?.beforeOrigin && ` · ${t("voice.positionInvalid")}`}{(!route || routeLost) && ` · ${t("voice.routeMissing")}`}</span>}
         </span>
         <span className="cue-track" title={cue.trackName}>
           {cue.trackName}
