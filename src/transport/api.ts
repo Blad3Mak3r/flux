@@ -57,8 +57,12 @@ export interface Position {
   positionSamples: number;
   /** The audio device failed or went away while running. */
   deviceLost: boolean;
-  /** The LTC device, when it is not the programme's, failed or went away. */
-  ltcLost: boolean;
+  /** Bit *i* is set when `OutputInfo.ltc[i]` failed or went away (see `isLost`). */
+  ltcLost: number;
+  /** Bit *i* is set when `OutputInfo.mtc[i]` failed or went away. */
+  mtcLost: number;
+  /** The stream the metronome plays on failed or went away. */
+  metronomeLost: boolean;
   /** The device renders audio faster than real time (ALSA's null device does): the clock is wrong. */
   clockUnpaced: boolean;
 }

@@ -163,8 +163,8 @@ on the grid at once. It sounds only while the transport plays.
   `Renderer` (a metronome channel the programme also uses gets the click added; one it does not use carries the click
   alone); on the device of an own LTC stream it is written by that stream's `LtcFollower`; on any other device a stream
   of its own (`flux-click`) is a follower with no LTC outputs. If the device cannot be opened, the output still starts
-  and `warnings` says so; `OutputInfo.metronome` reports `{ device, ok }`. A click stream that fails while running is
-  only logged, there is no lamp for it yet.
+  and `warnings` says so; `OutputInfo.metronome` reports `{ device, ok }`. A click stream that fails while running sets
+  `Position.metronomeLost`.
 - **Following the master.** A follower reads the master's published position like LTC does, but starts the click over
   from it only when 10 ms or more away (an LTC frame, 40 ms, would be too coarse for a click). The two devices have
   independent clocks and no latency compensation, so the click can sit a few milliseconds off the music.
@@ -205,7 +205,7 @@ device as its only output (no LTC or MTC), so auditioning never emits timecode; 
 | `output_stop` | | Closes the devices. |
 | `transport_play` / `transport_pause` / `transport_stop` | | Stop goes back to the timeline start. Error if no output runs. |
 | `transport_seek` | `frame` | Moves to a timecode given as a frame count. |
-| `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`, `ltcLost`, `clockUnpaced`) or `null` when no output runs. |
+| `transport_position` | | `Position` (`state`, `frame`, `positionSamples`, `deviceLost`, `ltcLost`, `mtcLost`, `metronomeLost`, `clockUnpaced`) or `null` when no output runs. |
 
 While an output runs it reports over three lanes, each with a thread of its own and the `Channel` that
 `output_start` was given for it, about 30 times a second each:
@@ -262,7 +262,7 @@ output to open) and sends dragged seeks and faders one at a time, newest value l
   The two devices' output delays are not measured, so LTC and the music can be offset by the difference between them
   (ms); the output's `offsetMs` (see Latency offset) compensates it by hand. If the LTC device is missing or
   cannot be opened, the output still starts without LTC and `warnings` says so (like MTC); if it fails while
-  running, `Position.ltcLost` is set.
+  running, its bit of `Position.ltcLost` is set (see Lost outputs).
 - The audio device's sample clock is the master. The callback owns the `Transport`, drains commands with
   `try_recv`, renders LTC into its channel, advances the position and publishes it with `try_lock`: it never
   allocates or waits. A reader holding the lock only makes it skip one update.
@@ -332,3 +332,14 @@ and JACK. When PipeWire is running it is the default driver, otherwise ALSA is. 
 start-up, so the deb and rpm declare it as a dependency; JACK loads `libjack` only when it is used. Names belong to
 one driver: a project that stored an ALSA device name and names no driver looks it up on the default driver, which is
 PipeWire on a PipeWire system, and shows it as not connected until the device is chosen again.
+
+## Lost outputs
+
+A device or port that fails while the output runs is reported output by output. `Position.ltcLost` and
+`Position.mtcLost` are bitmasks: bit *i* is set when `OutputInfo.ltc[i]` (or `.mtc[i]`) is lost, so only the first 32
+outputs of each kind have a bit. `Position.metronomeLost` covers the stream the click plays on and `deviceLost` the
+programme's own device; the LTC outputs and the click that play on the programme's stream are lost with it, so their
+bits (and `metronomeLost`) are set as well. Each stream and each MTC thread owns an atomic flag (`Health` in
+`output.rs`) that its error callback or send loop sets; `PositionReader::position` folds them into the masks, and the
+`flux-log` lane logs each output that becomes lost (and, later, back). The UI shows the lamp, the faceplate tooltip and
+the Setup rows from the masks.

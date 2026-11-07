@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -146,8 +146,8 @@ pub struct SharedClock {
     snapshot: Mutex<Snapshot>,
     base: Instant,
     lost: AtomicBool,
-    /// The LTC stream, when it runs on a device of its own, failed or went away.
-    ltc_lost: AtomicBool,
+    /// Which of the other outputs (LTC on a device of its own, the click, MTC ports) are lost.
+    health: Health,
     unpaced: AtomicBool,
     /// How many times the show ran to its end by itself (not stopped by the user).
     shows_ended: AtomicU64,
@@ -180,7 +180,7 @@ impl SharedClock {
             }),
             base: Instant::now(),
             lost: AtomicBool::new(false),
-            ltc_lost: AtomicBool::new(false),
+            health: Health::default(),
             unpaced: AtomicBool::new(false),
             shows_ended: AtomicU64::new(0),
             faults: Default::default(),
@@ -188,16 +188,20 @@ impl SharedClock {
     }
 
     /// A stream reported an error. Safe to call from the error callback: it only touches atomics.
-    /// A dropout is counted and the device stays in use; any other error loses the device, or the
-    /// LTC device when `ltc`.
-    pub fn stream_failed(&self, kind: cpal::ErrorKind, ltc: bool) {
+    /// A dropout is counted and the device stays in use; any other error loses the device: the
+    /// programme's, or the one `flag` belongs to when the stream is not the programme's.
+    pub fn stream_failed(&self, kind: cpal::ErrorKind, flag: Option<&AtomicBool>) {
         if kind == cpal::ErrorKind::Xrun {
             self.faults[0].fetch_add(1, Ordering::Relaxed);
             return;
         }
         self.faults[1].fetch_add(1, Ordering::Relaxed);
-        let lost = if ltc { &self.ltc_lost } else { &self.lost };
-        lost.store(true, Ordering::Relaxed);
+        flag.unwrap_or(&self.lost).store(true, Ordering::Relaxed);
+    }
+
+    /// Which outputs are lost, per output.
+    pub fn health(&self) -> &Health {
+        &self.health
     }
 
     /// A MIDI message could not be sent.
@@ -250,11 +254,6 @@ impl SharedClock {
         self.lost.load(Ordering::Relaxed)
     }
 
-    /// Whether the LTC device, when it is not the programme's, failed or went away while running.
-    pub fn is_ltc_lost(&self) -> bool {
-        self.ltc_lost.load(Ordering::Relaxed)
-    }
-
     /// Whether the device renders audio faster than real time, so the position cannot be trusted.
     pub fn is_unpaced(&self) -> bool {
         self.unpaced.load(Ordering::Relaxed)
@@ -269,6 +268,100 @@ impl SharedClock {
 impl Default for SharedClock {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// The lost flag of one stream or MTC thread and the project outputs that depend on it. The thread
+/// only ever stores into the flag, so it is safe to set from an audio callback.
+#[derive(Debug, Clone)]
+pub(crate) struct Lamp {
+    /// Bit *i* is the output at position *i* of `OutputInfo.ltc` (or `.mtc`).
+    outputs: u32,
+    lost: Arc<AtomicBool>,
+}
+
+impl Lamp {
+    pub(crate) fn new(outputs: impl IntoIterator<Item = usize>, lost: &Arc<AtomicBool>) -> Self {
+        Self {
+            outputs: mask(outputs),
+            lost: Arc::clone(lost),
+        }
+    }
+}
+
+/// The bits of the outputs at these positions.
+fn mask(outputs: impl IntoIterator<Item = usize>) -> u32 {
+    outputs.into_iter().fold(0, |mask, index| mask | bit(index))
+}
+
+/// The bit of the output at `index`. Outputs past the 32nd have none: they are never shown as lost.
+fn bit(index: usize) -> u32 {
+    u32::try_from(index)
+        .ok()
+        .and_then(|index| 1u32.checked_shl(index))
+        .unwrap_or(0)
+}
+
+/// What a running output has in each of its streams and ports, to tell which are lost.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Lamps {
+    /// The LTC outputs that play on the programme's stream: they are lost with it.
+    pub(crate) programme_ltc: u32,
+    /// Whether the metronome plays on the programme's stream.
+    pub(crate) programme_click: bool,
+    /// The streams LTC plays on when it is not the programme's.
+    pub(crate) ltc: Vec<Lamp>,
+    /// One per MIDI port MTC goes to.
+    pub(crate) mtc: Vec<Lamp>,
+    /// The stream the metronome plays on, when it is not the programme's.
+    pub(crate) click: Option<Arc<AtomicBool>>,
+}
+
+/// Which outputs are lost, one by one. Written when the output opens; read by whoever reports the
+/// position, never by an audio callback.
+#[derive(Debug, Default)]
+pub struct Health(RwLock<Lamps>);
+
+impl Health {
+    pub(crate) fn replace(&self, lamps: Lamps) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = lamps;
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, Lamps> {
+        self.0.read().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Bit *i* is set when `OutputInfo.ltc[i]` is lost. `programme_lost` is the programme's stream.
+    pub fn ltc_lost(&self, programme_lost: bool) -> u32 {
+        let lamps = self.read();
+        let own = lamps
+            .ltc
+            .iter()
+            .filter(|lamp| lamp.lost.load(Ordering::Relaxed))
+            .fold(0, |mask, lamp| mask | lamp.outputs);
+        own | if programme_lost {
+            lamps.programme_ltc
+        } else {
+            0
+        }
+    }
+
+    /// Bit *i* is set when `OutputInfo.mtc[i]` is lost.
+    pub fn mtc_lost(&self) -> u32 {
+        self.read()
+            .mtc
+            .iter()
+            .filter(|lamp| lamp.lost.load(Ordering::Relaxed))
+            .fold(0, |mask, lamp| mask | lamp.outputs)
+    }
+
+    /// Whether the stream the metronome plays on is lost.
+    pub fn click_lost(&self, programme_lost: bool) -> bool {
+        let lamps = self.read();
+        match &lamps.click {
+            Some(lost) => lost.load(Ordering::Relaxed),
+            None => lamps.programme_click && programme_lost,
+        }
     }
 }
 
@@ -707,9 +800,15 @@ pub struct Position {
     /// Frame count of the timecode being played, including the project's start offset.
     pub frame: u64,
     pub position_samples: u64,
+    /// The programme's audio device failed or went away.
     pub device_lost: bool,
-    /// The LTC device, when it is not the programme's, failed or went away.
-    pub ltc_lost: bool,
+    /// Bit *i* is set when `OutputInfo.ltc[i]` failed or went away. Only the first 32 outputs
+    /// have a bit.
+    pub ltc_lost: u32,
+    /// Bit *i* is set when `OutputInfo.mtc[i]` failed or went away.
+    pub mtc_lost: u32,
+    /// The stream the metronome plays on failed or went away.
+    pub metronome_lost: bool,
     /// The device renders audio faster than real time (ALSA's null device does), so the position
     /// and the timecode are wrong. Pick another device.
     pub clock_unpaced: bool,
@@ -738,12 +837,16 @@ impl PositionReader {
     pub fn position(&self) -> Position {
         let snapshot = self.shared.load();
         let position = snapshot.estimated_position(self.shared.now(), self.clock);
+        let device_lost = self.shared.is_lost();
+        let health = self.shared.health();
         Position {
             state: snapshot.state,
             frame: self.start + self.clock.samples_to_frames(position),
             position_samples: position,
-            device_lost: self.shared.is_lost(),
-            ltc_lost: self.shared.is_ltc_lost(),
+            device_lost,
+            ltc_lost: health.ltc_lost(device_lost),
+            mtc_lost: health.mtc_lost(),
+            metronome_lost: health.click_lost(device_lost),
             clock_unpaced: self.shared.is_unpaced(),
         }
     }
@@ -854,6 +957,17 @@ impl Output {
         let start = timeline.timecode.start;
         let clock = Clock::new(ltc_config.sample_rate, rate);
         let shared = Arc::new(SharedClock::new());
+        let mut lamps = Lamps {
+            programme_ltc: mask(
+                shared_ltc
+                    .iter()
+                    .flat_map(|slot| slot.outputs.iter().copied()),
+            ),
+            programme_click: click
+                .as_ref()
+                .is_some_and(|(_, place, _)| *place == ClickPlace::Programme),
+            ..Lamps::default()
+        };
         let stop = Arc::new(AtomicBool::new(false));
         let (messages, message_rx) = mpsc::channel();
         let Programme { set, warnings } = programme;
@@ -914,16 +1028,23 @@ impl Output {
                 clock,
             };
             let with_click = spec.click.is_some();
+            let lost = Arc::new(AtomicBool::new(false));
             let opened = spawn_stream("flux-ltc", Arc::clone(&stop), {
-                let shared = Arc::clone(&shared);
-                move || open_ltc_stream(spec, shared)
+                let (shared, lost) = (Arc::clone(&shared), Arc::clone(&lost));
+                move || open_ltc_stream(spec, shared, lost)
             });
             match opened {
                 Ok((handle, device)) => {
                     threads.push(handle);
                     place(&group.slots, &device, true);
+                    let outputs = group
+                        .slots
+                        .iter()
+                        .flat_map(|slot| slot.outputs.iter().copied());
+                    lamps.ltc.push(Lamp::new(outputs, &lost));
                     if let (true, Some(info)) = (with_click, &mut metronome_info) {
                         *info = MetronomeInfo { device, ok: true };
+                        lamps.click = Some(lost);
                     }
                 }
                 Err(err) => {
@@ -949,13 +1070,15 @@ impl Output {
                 start,
                 clock,
             };
+            let lost = Arc::new(AtomicBool::new(false));
             let opened = spawn_stream("flux-click", Arc::clone(&stop), {
-                let shared = Arc::clone(&shared);
-                move || open_ltc_stream(spec, shared)
+                let (shared, lost) = (Arc::clone(&shared), Arc::clone(&lost));
+                move || open_ltc_stream(spec, shared, lost)
             });
             match opened {
                 Ok((handle, name)) => {
                     threads.push(handle);
+                    lamps.click = Some(lost);
                     metronome_info = Some(MetronomeInfo {
                         device: name,
                         ok: true,
@@ -972,27 +1095,37 @@ impl Output {
         let mut by_hint: HashMap<(&str, usize), usize> = HashMap::new();
         // The system's own position of each port taken, since two ports can share a name.
         let mut by_port: HashMap<usize, usize> = HashMap::new();
+        // The lamp of each port that opened, by the position of the output that opened it.
+        let mut lamp_of: HashMap<usize, usize> = HashMap::new();
         for mtc in &output.mtc {
             let hint = mtc.port_name.as_str();
             if let Some(&first) = by_hint.get(&(hint, mtc.port_index)) {
+                share_lamp(&mut lamps.mtc, &lamp_of, first, mtc_info.len());
                 mtc_info.push(mtc_info[first].clone());
                 continue;
             }
             let here = mtc_info.len();
             by_hint.insert((hint, mtc.port_index), here);
             let result = match connect_midi(hint, mtc.port_index, MIDI_CLIENT_NAME) {
-                Ok((at, _, _)) if by_port.contains_key(&at) => mtc_info[by_port[&at]].clone(),
+                Ok((at, _, _)) if by_port.contains_key(&at) => {
+                    share_lamp(&mut lamps.mtc, &lamp_of, by_port[&at], here);
+                    mtc_info[by_port[&at]].clone()
+                }
                 Ok((at, name, connection)) => {
                     by_port.insert(at, here);
                     let scheduler = MtcScheduler::new(clock, rate, start)
                         .with_offset(clock.ms_to_samples(mtc.offset_ms.unwrap_or(0)));
-                    let (shared, stop) = (Arc::clone(&shared), Arc::clone(&stop));
+                    let lost = Arc::new(AtomicBool::new(false));
+                    let (shared, stop, flag) =
+                        (Arc::clone(&shared), Arc::clone(&stop), Arc::clone(&lost));
                     let spawned = thread::Builder::new()
                         .name("flux-mtc".into())
-                        .spawn(move || run_mtc(scheduler, clock, connection, shared, stop));
+                        .spawn(move || run_mtc(scheduler, clock, connection, shared, stop, flag));
                     match spawned {
                         Ok(handle) => {
                             threads.push(handle);
+                            lamp_of.insert(here, lamps.mtc.len());
+                            lamps.mtc.push(Lamp::new([here], &lost));
                             MtcInfo {
                                 port: name,
                                 ok: true,
@@ -1017,6 +1150,8 @@ impl Output {
             };
             mtc_info.push(result);
         }
+
+        shared.health().replace(lamps);
 
         // The cue tracks: one thread per MIDI port and per OSC destination.
         let mut cues = CueRoutes::new(clock, Arc::clone(&shared), Arc::clone(&stop));
@@ -1412,7 +1547,7 @@ fn open_stream(
     .with_click(spec.click.as_ref().map(|click| click.out(channels)));
     let failed = Arc::clone(&shared);
     let stream = start_stream(&opened, rate, renderer, shared, move |err| {
-        failed.stream_failed(err.kind(), false);
+        failed.stream_failed(err.kind(), None);
     })?;
     Ok((
         stream,
@@ -1428,6 +1563,7 @@ fn open_stream(
 fn open_ltc_stream(
     spec: LtcSpec,
     shared: Arc<SharedClock>,
+    lost: Arc<AtomicBool>,
 ) -> Result<(cpal::Stream, String), OutputError> {
     let rate = spec.config.sample_rate;
     let needed = spec
@@ -1451,7 +1587,7 @@ fn open_ltc_stream(
     .with_click(spec.click.as_ref().map(|click| click.out(opened.channels)));
     let failed = Arc::clone(&shared);
     let stream = start_stream(&opened, rate, follower, shared, move |err| {
-        failed.stream_failed(err.kind(), true);
+        failed.stream_failed(err.kind(), Some(&lost));
     })?;
     Ok((stream, opened.name))
 }
@@ -1533,6 +1669,13 @@ pub(crate) fn connect_midi(
         .map_err(|err| format!("cannot open {name}: {err}"))
 }
 
+/// A port that shares the thread of the output at `first` is lost with it.
+fn share_lamp(lamps: &mut [Lamp], lamp_of: &HashMap<usize, usize>, first: usize, output: usize) {
+    if let Some(lamp) = lamp_of.get(&first).and_then(|&at| lamps.get_mut(at)) {
+        lamp.outputs |= bit(output);
+    }
+}
+
 /// How the MTC thread waits for the next quarter frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MtcWait {
@@ -1562,6 +1705,7 @@ fn run_mtc(
     mut connection: midir::MidiOutputConnection,
     shared: Arc<SharedClock>,
     stop: Arc<AtomicBool>,
+    lost: Arc<AtomicBool>,
 ) {
     let mut seen_epoch = None;
     while !stop.load(Ordering::Relaxed) {
@@ -1572,6 +1716,7 @@ fn run_mtc(
             seen_epoch = Some(snapshot.epoch);
             if connection.send(&scheduler.resync(position)).is_err() {
                 shared.mtc_failed();
+                lost.store(true, Ordering::Relaxed);
             }
         }
         let mut wait = MtcWait::Park(MTC_TICK);
@@ -1579,6 +1724,7 @@ fn run_mtc(
             scheduler.poll(position, |message| {
                 if connection.send(&message).is_err() {
                     shared.mtc_failed();
+                    lost.store(true, Ordering::Relaxed);
                 }
             });
             let samples = scheduler.next_due().saturating_sub(position);
@@ -2085,23 +2231,117 @@ mod tests {
     fn stream_failed_should_count_an_xrun_without_losing_the_device() {
         let clock = SharedClock::new();
 
-        clock.stream_failed(cpal::ErrorKind::Xrun, false);
-        clock.stream_failed(cpal::ErrorKind::Xrun, true);
+        let flag = AtomicBool::new(false);
+        clock.stream_failed(cpal::ErrorKind::Xrun, None);
+        clock.stream_failed(cpal::ErrorKind::Xrun, Some(&flag));
 
         assert_eq!(clock.faults().xruns, 2);
         assert_eq!(clock.faults().stream_errors, 0);
-        assert!(!clock.is_lost() && !clock.is_ltc_lost());
+        assert!(!clock.is_lost() && !flag.load(Ordering::Relaxed));
     }
 
     #[test]
     fn stream_failed_should_lose_the_device_that_failed() {
         let clock = SharedClock::new();
 
-        clock.stream_failed(cpal::ErrorKind::DeviceNotAvailable, true);
+        let flag = AtomicBool::new(false);
+
+        clock.stream_failed(cpal::ErrorKind::DeviceNotAvailable, Some(&flag));
 
         assert_eq!(clock.faults().stream_errors, 1);
-        assert!(clock.is_ltc_lost());
+        assert!(flag.load(Ordering::Relaxed));
         assert!(!clock.is_lost());
+    }
+
+    fn lamps() -> (Lamps, Arc<AtomicBool>, Arc<AtomicBool>, Arc<AtomicBool>) {
+        let [ltc, mtc, click] = std::array::from_fn(|_| Arc::new(AtomicBool::new(false)));
+        let lamps = Lamps {
+            programme_ltc: 0b001,
+            programme_click: false,
+            // Two LTC outputs share the second stream; the click has a stream of its own.
+            ltc: vec![Lamp::new([1, 3], &ltc)],
+            mtc: vec![Lamp::new([0, 2], &mtc)],
+            click: Some(Arc::clone(&click)),
+        };
+        (lamps, ltc, mtc, click)
+    }
+
+    #[test]
+    fn health_should_report_nothing_lost_while_everything_runs() {
+        let health = Health::default();
+        health.replace(lamps().0);
+
+        assert_eq!(health.ltc_lost(false), 0);
+        assert_eq!(health.mtc_lost(), 0);
+        assert!(!health.click_lost(false));
+    }
+
+    #[test]
+    fn health_should_mark_only_the_outputs_of_the_stream_that_failed() {
+        let health = Health::default();
+        let (all, ltc, mtc, click) = lamps();
+        health.replace(all);
+
+        ltc.store(true, Ordering::Relaxed);
+        assert_eq!((health.ltc_lost(false), health.mtc_lost()), (0b1010, 0));
+
+        mtc.store(true, Ordering::Relaxed);
+        assert_eq!(health.mtc_lost(), 0b101);
+        assert!(!health.click_lost(false));
+
+        click.store(true, Ordering::Relaxed);
+        assert!(health.click_lost(false));
+    }
+
+    #[test]
+    fn health_should_lose_the_outputs_on_the_programme_stream_with_it() {
+        let health = Health::default();
+        health.replace(Lamps {
+            programme_ltc: 0b01,
+            programme_click: true,
+            ..lamps().0
+        });
+
+        assert_eq!(health.ltc_lost(true), 0b01);
+        assert_eq!(health.ltc_lost(false), 0);
+        let health = Health::default();
+        health.replace(Lamps {
+            programme_click: true,
+            ..Lamps::default()
+        });
+        assert!(health.click_lost(true));
+    }
+
+    #[test]
+    fn health_should_forget_the_old_flags_when_replaced() {
+        let health = Health::default();
+        let (all, ltc, ..) = lamps();
+        health.replace(all);
+        ltc.store(true, Ordering::Relaxed);
+
+        health.replace(Lamps::default());
+
+        assert_eq!(health.ltc_lost(false), 0);
+    }
+
+    #[test]
+    fn lamp_should_give_no_bit_to_the_outputs_past_the_32nd() {
+        let lost = Arc::new(AtomicBool::new(true));
+
+        assert_eq!(Lamp::new([31, 32, 100], &lost).outputs, 1 << 31);
+    }
+
+    #[test]
+    fn share_lamp_should_add_a_repeated_port_to_the_lamp_of_the_first() {
+        let lost = Arc::new(AtomicBool::new(false));
+        let mut lamps = vec![Lamp::new([0], &lost)];
+        let lamp_of = HashMap::from([(0, 0)]);
+
+        share_lamp(&mut lamps, &lamp_of, 0, 2);
+        // A port that never opened has no lamp to share.
+        share_lamp(&mut lamps, &lamp_of, 1, 3);
+
+        assert_eq!(lamps[0].outputs, 0b101);
     }
 
     #[test]

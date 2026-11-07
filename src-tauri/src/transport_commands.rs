@@ -448,7 +448,9 @@ mod tests {
             frame,
             position_samples: frame * 1_920,
             device_lost: false,
-            ltc_lost: false,
+            ltc_lost: 0,
+            mtc_lost: 0,
+            metronome_lost: false,
             clock_unpaced: false,
         }
     }
@@ -542,6 +544,9 @@ mod tests {
         let position = serde_json::to_value(at(3)).unwrap();
         assert_eq!(position["frame"], 3);
         assert_eq!(position["positionSamples"], 3 * 1_920);
+        assert_eq!(position["ltcLost"], 0);
+        assert_eq!(position["mtcLost"], 0);
+        assert_eq!(position["metronomeLost"], false);
         let levels = serde_json::to_value(peak(0.5)).unwrap();
         assert_eq!(levels[0]["id"], "t1");
     }

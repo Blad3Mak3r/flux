@@ -284,6 +284,7 @@ export const en = {
   "setup.general.refreshNote": "Plugged in a device since Flux started? Refresh to reconnect.",
   "setup.status.off": "Output not connected",
   "setup.status.pending": "Changes apply when playback stops.",
+  "setup.status.lost": "An output stopped responding while running.",
 
   "dialog.unsaved.title": "Save changes to {name}?",
   "dialog.unsaved.body": "Your changes are lost if you do not save them.",
