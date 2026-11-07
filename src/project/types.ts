@@ -8,6 +8,7 @@ export interface Project {
   name: string;
   meta: ProjectMeta;
   autosave: Autosave;
+  voice?: string;
   assets: AudioAsset[];
   output: ShowOutputs;
   /** Never empty. The backend decides which one is active; only that one plays. */
@@ -74,7 +75,11 @@ export interface AudioAsset {
   bpm?: number;
 }
 
+export type AudioAssignment = { type: "inherit" } | { type: "silent" } | { type: "output"; id: string };
+export interface AudioBus { id: string; name: string }
+
 export interface Track {
+  audioOutput?: AudioAssignment;
   id: string;
   name: string;
   muted: boolean;
@@ -85,7 +90,19 @@ export interface Track {
   kind: TrackKind;
 }
 
+export interface GeneratedVoice {
+  origin?: "generated" | "imported";
+  synthesisText?: string; asset: string; dialogue: string; voice: string; model: string; samples: number }
+export interface VoiceOrder {
+  synthesisText?: string;
+  trimStart?: number;
+  trimEnd?: number; id: string; at: number; dialogue: string; alignment: "start" | "end"; generated?: GeneratedVoice }
+export interface VoiceView {
+  trimStartMs: string;
+  trimEndMs: string; id: string; voice: string | null; source: "track" | "project" | "flux"; status: "ungenerated" | "synced" | "stale"; beforeOrigin: boolean; start: number | null; length: number | null }
+
 export type TrackKind =
+  | { type: "operator"; voice?: string; orders: VoiceOrder[] }
   | { type: "audio"; clips: AudioClip[] }
   | { type: "notes"; notes: Note[] }
   | { type: "midi"; port?: MidiPortRef; events: MidiEvent[] }
@@ -198,6 +215,7 @@ export interface Note {
 
 /** Portable signals; physical routing lives in this installation's preferences. */
 export interface ShowOutputs {
+  audio?: AudioBus[];
   metronome?: { gainDb: number } | null;
   ltc: { slot: number; level?: number }[];
   mtc: { slot: number }[];
@@ -207,6 +225,9 @@ export interface ShowOutputs {
 
 /** Devices are stored by name hint only, never by OS identifier. */
 export interface OutputConfig {
+  audioRoutes?: { id: string; route: OutputConfig["audio"] }[];
+  trackRoutes?: { trackId: string; output: string | null }[];
+  operator?: OutputConfig["audio"];
   /** The audio driver (API) the audio devices below belong to, e.g. "PipeWire". Absent: the system's default one. */
   driver?: string;
   /** Where the project's audio clips play. `channels` are 1-based, e.g. `[1, 2]`. */

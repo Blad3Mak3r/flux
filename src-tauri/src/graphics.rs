@@ -304,7 +304,9 @@ pub async fn graphics_restart(
     app: AppHandle,
     session: tauri::State<'_, crate::commands::SharedSession>,
     store: tauri::State<'_, crate::recovery::SharedRecoveries>,
+    voice: tauri::State<'_, std::sync::Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<(), String> {
+    let _voice_transition = voice.begin_transition().map_err(|e| e.to_string())?;
     crate::recovery::transition(&session, &store, |s| {
         s.clear();
         Ok(())

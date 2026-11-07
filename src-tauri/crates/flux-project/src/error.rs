@@ -21,6 +21,8 @@ pub enum ProjectError {
     InvalidAssetPath(String),
     #[error("invalid project: {0}")]
     Invalid(String),
+    #[error(transparent)]
+    AudioRouting(#[from] crate::routing::RoutingError),
 }
 
 /// Tauri sends command errors to the frontend as serialized values: use the message.

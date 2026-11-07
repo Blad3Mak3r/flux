@@ -598,6 +598,7 @@ mod tests {
             bpm: None,
         });
         let track = |id: &str, muted, kind| Track {
+            audio_output: Default::default(),
             id: id.into(),
             name: id.into(),
             muted,

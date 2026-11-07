@@ -1,6 +1,7 @@
 // What the File menu and the keyboard do to the open document. They read the latest state when
 // they run, so none of them closes over a project that has since changed.
 
+import { protectVoiceWork } from "../voice/store";
 import type { Translate } from "../i18n/messages";
 import {
   errorMessage,
@@ -34,8 +35,10 @@ const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
 const fail = (err: unknown) => sayError(errorMessage(err));
 
 /** Replace the document, asking first when there is work to lose. */
-const replaceDoc = (action: () => Promise<void> | void) =>
-  isDirty(useDoc.getState()) ? ask(action) : void action();
+const replaceDoc = async (action: () => Promise<void> | void) => {
+  if (!await protectVoiceWork()) return;
+  if (isDirty(useDoc.getState())) ask(action); else await action();
+};
 
 function load({ project, active }: ProjectState, path: string | null): void {
   forgetAnalyses();

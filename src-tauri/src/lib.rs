@@ -10,6 +10,8 @@ mod recents;
 mod recovery;
 mod startup;
 mod transport_commands;
+mod voice_commands;
+mod voice_jobs;
 mod windows;
 
 /// WSLg's Wayland compositor places every window itself and ignores the position an app asks for,
@@ -36,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(commands::SharedSession::default())
         .manage(preferences::Store::default())
+        .manage(std::sync::Arc::new(voice_commands::VoiceState::default()))
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(control::SharedControl::default())
@@ -49,12 +52,33 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            voice_commands::voice_key_status,
+            voice_commands::voice_key_set,
+            voice_commands::voice_key_delete,
+            voice_commands::voice_list,
+            voice_commands::operator_views,
+            voice_commands::operator_preflight,
+            voice_commands::operator_edit,
+            voice_commands::voice_generate,
+            voice_commands::voice_commit,
+            voice_commands::voice_jobs,
+            voice_commands::voice_import,
+            voice_commands::voice_activity,
+            voice_commands::voice_cache,
+            voice_commands::operator_freeze,
+            voice_commands::preview::voice_test_output,
+            voice_commands::preview::voice_job_preview,
+            voice_commands::voice_pending,
+            voice_commands::voice_retry_save,
+            voice_commands::preview::voice_preview,
+            voice_commands::preview::voice_preview_stop,
             commands::project_document,
             commands::project_sync,
             commands::clip_edit,
             commands::cue_edit,
             commands::item_edit,
             commands::output_signal_edit,
+            commands::audio_routing_edit,
             preferences::preferences_get,
             preferences::preferences_change,
             preferences::preferences_resolve,

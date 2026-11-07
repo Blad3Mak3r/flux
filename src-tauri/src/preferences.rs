@@ -14,10 +14,13 @@ pub use flux_project::UNASSIGNED_DEVICE as UNASSIGNED;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Preferences {
+    pub audio_routes: BTreeMap<String, AudioOutput>,
     pub locale: Option<Locale>,
     pub driver: Option<String>,
     pub audio: Option<AudioOutput>,
     pub preview: Option<AudioOutput>,
+    pub operator: Option<AudioOutput>,
+    pub voice: Option<String>,
     pub metronome: Option<AudioOutput>,
     pub ltc: BTreeMap<u32, LtcOutput>,
     pub mtc: BTreeMap<u32, MtcOutput>,
@@ -40,6 +43,14 @@ pub struct Store(pub Mutex<Option<Preferences>>);
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Change {
+    AudioRoute {
+        id: String,
+        field: String,
+        text: String,
+    },
+    Voice {
+        voice: Option<String>,
+    },
     Locale {
         locale: Locale,
         #[serde(default)]
@@ -51,7 +62,7 @@ pub enum Change {
         text: String,
     },
     Import {
-        routes: OutputConfig,
+        routes: Box<OutputConfig>,
     },
     Route {
         kind: String,
@@ -108,13 +119,17 @@ fn save(path: &Path, prefs: &Preferences) -> Result<(), String> {
 }
 
 fn validate(p: &Preferences) -> Result<(), String> {
+    flux_project::operator::validate_voice(p.voice.as_deref()).map_err(|e| e.to_string())?;
     if p.ltc.keys().chain(p.mtc.keys()).any(|s| *s == 0) {
         return Err("invalid output slot".into());
     }
     let output = OutputConfig {
+        audio_routes: Vec::new(),
+        track_routes: Vec::new(),
         driver: p.driver.clone(),
         audio: p.audio.clone(),
         preview: p.preview.clone(),
+        operator: p.operator.clone(),
         metronome: p.metronome.as_ref().map(|m| MetronomeOutput {
             device_name: m.device_name.clone(),
             channels: m.channels.clone(),
@@ -125,7 +140,20 @@ fn validate(p: &Preferences) -> Result<(), String> {
         osc: vec![],
     };
     output.validate().map_err(|e| e.to_string())?;
-    if [&p.audio, &p.preview, &p.metronome]
+    for (id, route) in &p.audio_routes {
+        if !flux_project::routing::valid_id(id) {
+            return Err("invalid audio output id".into());
+        }
+        let config = OutputConfig {
+            audio: Some(route.clone()),
+            ..Default::default()
+        };
+        if !(1..=2).contains(&route.channels.len()) {
+            return Err("choose mono or stereo channels".into());
+        }
+        config.validate().map_err(|e| e.to_string())?;
+    }
+    if [&p.audio, &p.preview, &p.metronome, &p.operator]
         .into_iter()
         .flatten()
         .any(|a| a.channels.is_empty())
@@ -138,6 +166,20 @@ fn validate(p: &Preferences) -> Result<(), String> {
 impl Preferences {
     fn apply(&mut self, change: Change) -> Result<(), String> {
         match change {
+            Change::AudioRoute { id, field, text } => {
+                if !flux_project::routing::valid_id(&id) {
+                    return Err("invalid audio output id".into());
+                }
+                let mut local = self.clone();
+                local.audio = self.audio_routes.get(&id).cloned();
+                local.edit_route("audio", &field, &text, 0)?;
+                if let Some(route) = local.audio {
+                    self.audio_routes.insert(id, route);
+                } else {
+                    self.audio_routes.remove(&id);
+                }
+            }
+            Change::Voice { voice } => self.voice = voice,
             Change::Route {
                 kind,
                 field,
@@ -200,7 +242,9 @@ impl Preferences {
             // A host switch must not silently reroute timecode to its default device.
             self.audio = None;
             self.preview = None;
+            self.operator = None;
             self.metronome = None;
+            self.audio_routes.clear();
             self.ltc.clear();
             return Ok(());
         }
@@ -277,6 +321,7 @@ impl Preferences {
                 "audio" => &mut self.audio,
                 "preview" => &mut self.preview,
                 "metronome" => &mut self.metronome,
+                "operator" => &mut self.operator,
                 _ => return Err("unknown route".into()),
             };
             if field == "device" {
@@ -308,17 +353,71 @@ impl Preferences {
 
     /// Language and persistence metadata never require an output change.
     pub fn same_routing(&self, other: &Self) -> bool {
-        self.driver == other.driver
+        self.audio_routes == other.audio_routes
+            && self.driver == other.driver
             && self.audio == other.audio
+            && self.operator == other.operator
             && self.preview == other.preview
             && self.metronome == other.metronome
             && self.ltc == other.ltc
             && self.mtc == other.mtc
     }
 
+    pub fn resolve_project(
+        &self,
+        project: &flux_project::Project,
+        timeline: &flux_project::Timeline,
+        audition: bool,
+    ) -> OutputConfig {
+        use flux_project::routing::{
+            OPERATOR, PROGRAMME, ResolvedAudioBus, TrackRoute, audible, target,
+        };
+        let mut config = self.resolve(&project.output, audition);
+        config.audio_routes = vec![
+            ResolvedAudioBus {
+                id: PROGRAMME.into(),
+                route: config.audio.clone(),
+            },
+            ResolvedAudioBus {
+                id: OPERATOR.into(),
+                route: config.operator.clone(),
+            },
+        ];
+        config
+            .audio_routes
+            .extend(project.output.audio.iter().map(|b| ResolvedAudioBus {
+                id: b.id.clone(),
+                route: if audition {
+                    self.preview.clone()
+                } else {
+                    self.audio_routes.get(&b.id).cloned()
+                },
+            }));
+        config.track_routes = timeline
+            .tracks
+            .iter()
+            .filter(|t| audible(t))
+            .map(|t| TrackRoute {
+                track_id: t.id.clone(),
+                output: target(t).map(str::to_owned),
+            })
+            .collect();
+        config
+            .track_routes
+            .sort_by(|a, b| a.track_id.cmp(&b.track_id));
+        config
+    }
+
     pub fn resolve(&self, show: &ShowOutputs, audition: bool) -> OutputConfig {
         OutputConfig {
+            audio_routes: Vec::new(),
+            track_routes: Vec::new(),
             driver: self.driver.clone(),
+            operator: if audition {
+                self.preview.clone()
+            } else {
+                self.operator.clone()
+            },
             audio: if audition {
                 self.preview.clone()
             } else {
@@ -409,6 +508,7 @@ pub fn preferences_change(
 
 #[derive(Serialize)]
 pub struct ResolvedOutputs {
+    choices: Vec<flux_project::routing::AudioChoice>,
     live: OutputConfig,
     edit: OutputConfig,
     audition: bool,
@@ -418,14 +518,22 @@ pub struct ResolvedOutputs {
 pub fn preferences_resolve(
     app: AppHandle,
     state: State<'_, Store>,
-    show: ShowOutputs,
+    project: flux_project::Project,
+    session: State<'_, crate::commands::SharedSession>,
 ) -> Result<ResolvedOutputs, String> {
-    show.validate().map_err(|e| e.to_string())?;
+    project.validate().map_err(|e| e.to_string())?;
+    let timeline = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .active_timeline(&project)
+        .map_err(|e| e.to_string())?
+        .clone();
     let prefs = preferences_get(app, state)?;
     let audition = prefs.preview.is_some();
     Ok(ResolvedOutputs {
-        live: prefs.resolve(&show, false),
-        edit: prefs.resolve(&show, audition),
+        choices: flux_project::routing::choices(&project),
+        live: prefs.resolve_project(&project, &timeline, false),
+        edit: prefs.resolve_project(&project, &timeline, audition),
         audition,
     })
 }
@@ -433,6 +541,119 @@ pub fn preferences_resolve(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn project_destinations_resolve_locally_and_preview_preserves_silent_tracks() {
+        use flux_project::{
+            Track, TrackKind,
+            routing::{AudioAssignment, AudioBus},
+        };
+        let mut project = flux_project::Project::new("Show", flux_project::FrameRate::Fps25);
+        let id = "5fda6c22-87d3-40e9-9710-589f8c1ef8f0".to_owned();
+        project.output.audio.push(AudioBus {
+            id: id.clone(),
+            name: "Monitor".into(),
+        });
+        for (name, output) in [
+            ("Inherit", AudioAssignment::Inherit),
+            ("Custom", AudioAssignment::Output { id: id.clone() }),
+            ("Silent", AudioAssignment::Silent),
+        ] {
+            project.timelines[0].tracks.push(Track {
+                id: name.into(),
+                name: name.into(),
+                muted: false,
+                color: None,
+                gain_db: None,
+                audio_output: output,
+                kind: TrackKind::Operator {
+                    voice: None,
+                    orders: vec![],
+                },
+            });
+        }
+        let route = |name: &str| AudioOutput {
+            device_name: name.into(),
+            channels: vec![1, 2],
+        };
+        let mut prefs = Preferences {
+            operator: Some(route("Headphones")),
+            preview: Some(route("Preview")),
+            ..Default::default()
+        };
+        let live = prefs.resolve_project(&project, &project.timelines[0], false);
+        assert!(
+            live.audio_routes
+                .iter()
+                .find(|b| b.id == id)
+                .unwrap()
+                .route
+                .is_none()
+        );
+        prefs
+            .audio_routes
+            .insert(id.clone(), route("Monitor device"));
+        let live = prefs.resolve_project(&project, &project.timelines[0], false);
+        assert_eq!(
+            live.audio_routes[2].route.as_ref().unwrap().device_name,
+            "Monitor device"
+        );
+        let edit = prefs.resolve_project(&project, &project.timelines[0], true);
+        assert!(
+            edit.audio_routes
+                .iter()
+                .all(|b| b.route.as_ref().unwrap().device_name == "Preview")
+        );
+        assert_eq!(
+            edit.track_routes
+                .iter()
+                .find(|r| r.track_id == "Silent")
+                .unwrap()
+                .output,
+            None
+        );
+        assert_eq!(
+            edit.track_routes
+                .iter()
+                .find(|r| r.track_id == "Inherit")
+                .unwrap()
+                .output
+                .as_deref(),
+            Some("operator")
+        );
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(!json.contains("Monitor device") && !json.contains("Headphones"));
+    }
+    #[test]
+    fn named_hardware_routes_survive_preferences_roundtrip_and_driver_switch_clears_them() {
+        let id = "5fda6c22-87d3-40e9-9710-589f8c1ef8f0".to_owned();
+        let mut prefs = Preferences::default();
+        prefs.audio_routes.insert(
+            id.clone(),
+            AudioOutput {
+                device_name: "Monitor".into(),
+                channels: vec![5],
+            },
+        );
+        prefs
+            .apply(Change::AudioRoute {
+                id: id.clone(),
+                field: "channels".into(),
+                text: "7".into(),
+            })
+            .unwrap();
+        let loaded: Preferences =
+            serde_json::from_str(&serde_json::to_string(&prefs).unwrap()).unwrap();
+        assert_eq!(loaded.audio_routes[&id].channels, vec![7]);
+        prefs
+            .apply(Change::Route {
+                kind: "driver".into(),
+                field: "driver".into(),
+                text: "Other".into(),
+                slot: 0,
+            })
+            .unwrap();
+        assert!(prefs.audio_routes.is_empty());
+    }
     #[test]
     fn locale_changes_do_not_count_as_hardware_changes() {
         let before = Preferences::default();
@@ -487,6 +708,7 @@ mod tests {
             },
         );
         let show = |level| ShowOutputs {
+            audio: Vec::new(),
             ltc: vec![flux_project::LtcSignal {
                 slot: 2,
                 level: Some(level),
@@ -518,6 +740,8 @@ mod tests {
             },
         );
         let imported = OutputConfig {
+            audio_routes: Vec::new(),
+            track_routes: Vec::new(),
             mtc: vec![MtcOutput {
                 port_name: "New".into(),
                 port_index: 2,
@@ -525,7 +749,10 @@ mod tests {
             }],
             ..Default::default()
         };
-        p.apply(Change::Import { routes: imported }).unwrap();
+        p.apply(Change::Import {
+            routes: Box::new(imported),
+        })
+        .unwrap();
         assert_eq!(p.mtc[&1].port_index, 2);
         assert_eq!(p.mtc[&2].port_name, "Keep");
         assert!(matches!(p.locale, Some(Locale::Es)));
@@ -577,6 +804,8 @@ mod tests {
     #[test]
     fn local_routes_resolve_without_importing_legacy_hints() {
         let legacy = OutputConfig {
+            audio_routes: Vec::new(),
+            track_routes: Vec::new(),
             ltc: vec![LtcOutput {
                 device_name: "Old".into(),
                 channel: 3,
@@ -588,7 +817,10 @@ mod tests {
         let show = ShowOutputs::from(legacy.clone());
         let mut p = Preferences::default();
         assert_eq!(p.resolve(&show, false).ltc[0].device_name, UNASSIGNED);
-        p.apply(Change::Import { routes: legacy }).unwrap();
+        p.apply(Change::Import {
+            routes: Box::new(legacy),
+        })
+        .unwrap();
         let resolved = p.resolve(&show, false);
         assert_eq!(
             (

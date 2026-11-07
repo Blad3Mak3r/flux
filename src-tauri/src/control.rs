@@ -26,9 +26,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::SharedSession;
 use crate::graphics::IDENTIFIER;
-use crate::transport_commands::{
-    SharedOutput, TIMELINE_ADVANCED, is_playing, release, send, snapshot,
-};
+use crate::transport_commands::{SharedOutput, TIMELINE_ADVANCED, is_playing, release, snapshot};
 use flux_engine::control::{Binding, ControlAction, MidiTrigger, action_for, dedup, seek_target};
 use flux_engine::control_in::{Input, ListenError, MidiListener, OscListener};
 use flux_engine::devices::{self, MidiPort};
@@ -396,7 +394,11 @@ impl Dispatcher {
     /// Sends `command` to the running output. With none running, only play does something: the
     /// window opens the output, which it owns, and plays.
     fn transport(&self, output: &SharedOutput, command: Command, open: bool) {
-        match send(output, command) {
+        match crate::voice_commands::send_transport(
+            &self.app.state::<Arc<crate::voice_commands::VoiceState>>(),
+            output,
+            command,
+        ) {
             Ok(()) => {}
             Err(OutputError::NotRunning) if open => self.tell(WindowAction::Play),
             Err(OutputError::NotRunning) => log::debug!("remote control: no output is open"),
@@ -422,7 +424,11 @@ impl Dispatcher {
         let fps = timecode.frame_rate.nominal_fps();
         match seek_target(action, position.frame, cues.cues(), timecode.start, fps) {
             Some(frame) => {
-                if let Err(err) = send(output, Command::Seek(frame)) {
+                if let Err(err) = crate::voice_commands::send_transport(
+                    &self.app.state::<Arc<crate::voice_commands::VoiceState>>(),
+                    output,
+                    Command::Seek(frame),
+                ) {
                     log::warn!("remote control: seek failed: {err}");
                 }
             }

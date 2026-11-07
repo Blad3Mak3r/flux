@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v7)
+# `.flx` / `.fxtc` project format (v9)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -26,7 +26,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `7`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `10`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
@@ -199,6 +199,8 @@ does not rewrite a file, including files without `meta`; their generated identit
   metronome retains only its level. Previous routes survive as explicit-import hints. Saving in version 6 makes
   the archive unreadable by builds supporting version 5 or earlier; merely opening it does not rewrite it.
 - **7**: added `autosave`, owned by the project. Older files receive `{ "enabled": true, "intervalSeconds": 30 }`.
+- **8**: added operator tracks, spoken orders and inherited voice selections. Older projects have no operator tracks or explicit voice selections.
+- **9**: added recording origins, pronunciation overrides and non-destructive operator trims; earlier recordings default to generated origin and zero trims.
 
 ## Saving
 
@@ -278,3 +280,65 @@ the backend holds is always that window's own.
 The backend also remembers where each asset's bytes come from (the `.fxtc` it was opened or saved from, or an imported
 file not yet in any archive), so saving a project that references an asset the backend never saw fails with
 `MissingAsset`.
+
+
+## Spoken operator orders (version 8)
+
+`Project.voice` is an optional ElevenLabs voice ID. Operator tracks use
+`{ "type": "operator", "voice"?: "voice-id", "orders": [...] }`. Missing voices inherit:
+track, then project, then the installation's voice. An installation's API key never travels in an archive.
+
+Each order holds `id`, `at` (timeline-relative frames), `dialogue`, `alignment` (`start` or `end`), and
+optional `generated`: `{ asset, dialogue, voice, model, samples }`. `samples` is the decoded duration at
+`ENGINE_RATE`, not the MP3 source rate. The asset is bundled under `audio/` like imported audio.
+A generation preserves its exact dialogue, voice ID and model (`eleven_multilingual_v2`).
+
+The backend derives `ungenerated`, `synced` or `stale` by comparing the current dialogue and effective
+voice with the saved generation. It never stores a status flag that can contradict that comparison.
+Changing a voice or dialogue never initiates a billable request. Stale orders keep playing their saved audio.
+Moving an order and changing its alignment do not make its speech stale.
+
+The anchor remains at `at`. For start alignment the audio begins at the anchor; for end alignment it ends
+at the anchor, subtracting the exact decoded sample count. An end-aligned order that would start before
+the timeline origin is visibly invalid and silent; Flux neither truncates it nor moves its anchor.
+
+Version 7 and earlier archives migrate to version 8 without voice overrides or operator tracks. New
+operator fields are optional, and old Flux versions reject version 8 archives before parsing.
+
+The operator interface and mono/stereo channels belong to `preferences.json`, alongside the installation's
+voice ID. They are resolved into the inherited Operator destination (`OutputConfig.operator`). Format 10
+adds per-track destination overrides as described below. An unassigned or missing route stays silent.
+The operator bus follows FLUX's clock and uses saved audio offline. Generation can only start while stopped;
+a response arriving after playback starts is retained without replacing the order's recording.
+
+## Recording workflow (version 9)
+
+Orders add optional `synthesisText`, with empty UI input represented as absence, and sample counts
+`trimStart` / `trimEnd` (default zero). The audible sample count is `generated.samples - trimStart - trimEnd`;
+trims must leave at least one sample. An order without a recording cannot have nonzero trims. The anchor
+and alignment use the audible duration. The mixer offsets the source by `trimStart` without rewriting it.
+
+Recordings add `origin` (`generated`, default for older files, or `imported`) and optional `synthesisText`.
+Generated origin retains `eleven_multilingual_v2`; imported origin uses an empty model and its voice field
+is not used for content matching. Imported audio preserves its source format in the audio asset path.
+Generated matching compares the visible dialogue, pronunciation text and effective voice. Imported matching
+compares the visible dialogue only. Replacing a recording resets order trims.
+
+Version 8 and earlier migrate using serde defaults for these new fields. Saving writes the current version;
+changing between `.flx` and legacy `.fxtc` does not change these rules.
+
+## Audio routing (version 10)
+
+`output.audio` is an optional array of portable `{ "id": "<uuid>", "name": "Monitors" }` destinations shared by all timelines. IDs are stable; names are nonempty, at most 64 characters, and unique without case distinctions. The built-in IDs `programme` and `operator` are permanent and are not stored in that array.
+
+Audio and operator tracks may include `audioOutput`:
+
+- `{ "type": "inherit" }` (also the omitted default): audio inherits Programme; operator inherits Operator.
+- `{ "type": "silent" }`: no audible destination in either view.
+- `{ "type": "output", "id": "<uuid or builtin id>" }`: one explicit destination.
+
+Other track kinds must retain the inherited default. Removing a custom destination retargets its tracks across every timeline to Silent in one undoable edit. Undo restores both the destination ID and its assignments.
+
+Hardware mappings belong to installation preferences: `audioRoutes` maps custom output IDs to an interface name hint and mono/stereo channels. Programme and Operator reuse their existing local preference fields. These mappings are never written into the project. Unmapped or missing outputs remain silent in Live; they never fall back to Programme. Edit with a preview route auditions every assigned track through that route, while Silent remains silent.
+
+Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving writes version 10; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.

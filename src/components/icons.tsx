@@ -181,3 +181,10 @@ export const CheckIcon = () => (
     <path d="M3.5 8.5 L6.5 11.5 L12.5 4.5" />
   </Icon>
 );
+
+export const VoiceIcon = () => (
+  <Icon>
+    <rect x="6" y="1.5" width="4" height="8" rx="2" />
+    <path d="M3.5 7.5v.5a4.5 4.5 0 0 0 9 0v-.5M8 12.5v2M5.5 14.5h5" />
+  </Icon>
+);

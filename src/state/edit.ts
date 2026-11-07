@@ -20,7 +20,7 @@ import { DEFAULT_TEMPO, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/t
 export function emptyProject(name: string, frameRate: FrameRate): Project {
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
   return {
-    formatVersion: 7,
+    formatVersion: 10,
     autosave: { enabled: true, intervalSeconds: 30 },
     name,
     meta: { id: crypto.randomUUID(), createdAt: now, modifiedAt: now, createdWith: "", savedWith: "" },
@@ -72,7 +72,7 @@ export function findItem(project: Project, id: string): Found | null {
     } else if (track.kind.type === "midi") {
       const event = track.kind.events.find((e) => e.id === id);
       if (event) return { kind: "midiEvent", track, event };
-    } else {
+    } else if (track.kind.type === "osc") {
       const event = track.kind.events.find((e) => e.id === id);
       if (event) return { kind: "oscEvent", track, event };
     }
@@ -167,7 +167,7 @@ function dropUnused(project: Project, timeline: string): Project {
   });
   const used = new Set(
     pruned.timelines.flatMap((t) =>
-      t.tracks.flatMap((track) => (track.kind.type === "audio" ? track.kind.clips.map((c) => c.asset) : [])),
+      t.tracks.flatMap((track) => (track.kind.type === "audio" ? track.kind.clips.map((c) => c.asset) : track.kind.type === "operator" ? track.kind.orders.flatMap((o) => o.generated ? [o.generated.asset] : []) : [])),
     ),
   );
   const assets = pruned.assets.filter((asset) => used.has(asset.id));

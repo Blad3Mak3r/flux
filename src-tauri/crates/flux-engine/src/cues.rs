@@ -20,6 +20,7 @@ use flux_project::{AudioAsset, FrameRate, MidiMessage, OscArg, Project, Timeline
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CueKind {
+    Operator,
     Audio,
     Note,
     Midi,
@@ -179,6 +180,24 @@ impl CueList {
                 shown_until: None,
             };
             match &track.kind {
+                TrackKind::Operator { orders, .. } => {
+                    for order in orders {
+                        let interval = order.interval(clock);
+                        let at =
+                            interval.map_or(order.at, |(from, _)| clock.samples_to_frames(from));
+                        let length = interval.map(|(from, to)| clock.samples_to_frames(to - from));
+                        end = end
+                            .max(interval.map_or(clock.frames_to_samples(order.at), |(_, to)| to));
+                        let spoken = order
+                            .generated
+                            .as_ref()
+                            .map_or(order.dialogue.as_str(), |g| g.dialogue.as_str());
+                        let mut item = cue(&order.id, CueKind::Operator, spoken, at, length);
+                        item.text = Some(spoken.to_owned());
+                        item.muted |= interval.is_none();
+                        cues.push(item);
+                    }
+                }
                 TrackKind::Audio { clips } => {
                     for clip in clips {
                         let Some(asset) = project.assets.iter().find(|a| a.id == clip.asset) else {
@@ -454,6 +473,7 @@ mod tests {
 
     fn track(id: &str, muted: bool, kind: TrackKind) -> Track {
         Track {
+            audio_output: Default::default(),
             id: id.into(),
             name: format!("Track {id}"),
             muted,
@@ -506,6 +526,40 @@ mod tests {
 
     fn list(project: &Project) -> CueList {
         CueList::build(project, &project.timelines[0], |_| Some(2 * SECOND))
+    }
+
+    #[test]
+    fn live_uses_the_dialogue_that_will_actually_be_spoken() {
+        use flux_project::{Alignment, GeneratedVoice, VoiceOrder};
+        let mut p = project(false);
+        p.timelines[0].tracks.push(track(
+            "operator",
+            false,
+            TrackKind::Operator {
+                voice: None,
+                orders: vec![VoiceOrder {
+                    synthesis_text: None,
+                    trim_start: 0,
+                    trim_end: 0,
+                    id: "speech".into(),
+                    at: 10,
+                    dialogue: "New draft".into(),
+                    alignment: Alignment::Start,
+                    generated: Some(GeneratedVoice {
+                        origin: flux_project::operator::RecordingOrigin::Generated,
+                        synthesis_text: None,
+                        asset: "a1".into(),
+                        dialogue: "Recorded words".into(),
+                        voice: "voice".into(),
+                        model: flux_project::operator::VOICE_MODEL.into(),
+                        samples: SECOND * 2,
+                    }),
+                }],
+            },
+        ));
+        let cue = cue_named(&list(&p), "speech");
+        assert_eq!(cue.name, "Recorded words");
+        assert_eq!(cue.text.as_deref(), Some("Recorded words"));
     }
 
     fn cue_named(list: &CueList, id: &str) -> Cue {

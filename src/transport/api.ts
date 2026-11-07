@@ -17,6 +17,7 @@ export interface OutputInfo {
   mtc: MtcInfo[];
   /** Where the metronome plays; `null` when the project has no metronome output. */
   metronome: MetronomeInfo | null;
+  operator: MetronomeInfo | null;
   /** One entry per MIDI port and OSC destination the cue tracks of the timeline send to. */
   cues: CueInfo[];
   /** Things that did not stop the output, e.g. a missing MIDI port. */
@@ -63,6 +64,7 @@ export interface Position {
   mtcLost: number;
   /** The stream the metronome plays on failed or went away. */
   metronomeLost: boolean;
+  operatorLost: boolean;
   /** The device renders audio faster than real time (ALSA's null device does): the clock is wrong. */
   clockUnpaced: boolean;
 }
@@ -74,7 +76,14 @@ export interface TrackPeak {
 }
 
 /** Where a running output sends what it reports, about 30 times a second each, over lanes of their own. */
+export interface AudioRoutingState {
+  active: { id: string; device: string; channels: number[]; status: "ready" | "missing" | "conflict" | "lost" | "unused" }[];
+  activeTracks: { trackId: string; output: string | null }[];
+  desiredTracks: { trackId: string; output: string | null }[];
+  pending: boolean;
+}
 export interface OutputLanes {
+  onAudioRouting: (state: AudioRoutingState) => void;
   /** The position, when it moved. */
   onPosition: (position: Position) => void;
   /** The peak of each track; silence once after the sound stops, then nothing. */
@@ -101,7 +110,9 @@ function channels(lanes: OutputLanes) {
   levels.onmessage = lanes.onLevels;
   const live = new Channel<LiveState>();
   live.onmessage = lanes.onLive;
-  return { onPosition: position, onLevels: levels, onLive: live };
+  const routing = new Channel<AudioRoutingState>();
+  routing.onmessage = lanes.onAudioRouting;
+  return { onPosition: position, onLevels: levels, onLive: live, onAudioRouting: routing };
 }
 
 export interface OutputSetup {

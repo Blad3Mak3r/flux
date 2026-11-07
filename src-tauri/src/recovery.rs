@@ -203,7 +203,9 @@ pub async fn recovery_discard(store: State<'_, SharedRecoveries>, id: String) ->
 pub async fn project_close(
     session: State<'_, SharedSession>,
     store: State<'_, SharedRecoveries>,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<()> {
+    let _voice_transition = voice.begin_transition()?;
     transition(&session, &store, |session| {
         session.clear();
         Ok(())

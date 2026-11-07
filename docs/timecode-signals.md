@@ -380,3 +380,9 @@ nobody asks for any more are closed first (they may hold a device a new one need
 that failed to open is tried again on every reconfiguration. The `OutputInfo` rows and the lost-output bits are rebuilt
 from the plan in current signal-list order. Project slot numbers and local routing keys remain stable when another
 output is removed. Unassigned LTC/MTC entries retain off-status rows and never open a device or port.
+
+## Per-track audio destinations
+
+Audio and operator tracks now resolve to portable named destinations with installation-local hardware mappings. Programme remains the master clock interface. Named destinations share a callback with LTC and the metronome on the same physical device; secondary devices follow the clock with bounded resampling. Audio buses that collide with LTC are silenced, preserving timecode. Routing edits made during Play apply in the backend on pause/stop and preserve the exact parked sample position and paused state.
+
+The independent `onAudioRouting` channel reports active/desired membership and dynamic health by output ID; unlike older LTC/MTC masks, it has no 32-output limit. Live only renders those reports. See [audio-routing.md](audio-routing.md) for persistence, preview, failure handling and validation.

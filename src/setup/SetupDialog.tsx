@@ -1,3 +1,4 @@
+import { VoicePage } from "../voice/VoicePanel";
 import { usePreferences } from "../preferences/store";
 import { useEffect, useRef } from "react";
 import { CloseIcon } from "../components/icons";
@@ -9,16 +10,20 @@ import { useTransport } from "../transport/store";
 import { SETUP_SECTIONS, isAvailable, stepSection } from "./outputs";
 import type { SetupSection } from "./outputs";
 import { ControlPage } from "./ControlPage";
-import { AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
+import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
   switch (section) {
+    case "operator":
+      return <VoicePage devices={devices} />;
     case "timeline":
       return <TimelinePage />;
     case "project":
       return <ProjectPage />;
     case "audio":
       return <AudioPage devices={devices} />;
+    case "audioOutputs":
+      return <AudioOutputsPage devices={devices} />;
     case "metronome":
       return <MetronomePage devices={devices} />;
     case "ltc":

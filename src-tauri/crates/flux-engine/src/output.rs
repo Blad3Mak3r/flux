@@ -155,6 +155,14 @@ pub struct SharedClock {
     /// The faults the streams and the MTC thread report. Only counted here: a lane thread reads
     /// them and writes the log, because nothing on those threads may wait for a file.
     faults: [AtomicU64; 4],
+    operator_route: Option<flux_project::AudioOutput>,
+    audio_config: OutputConfig,
+    audio_health: RwLock<Vec<crate::audio_routing::RouteHealth>>,
+    operator_set: Mutex<Arc<ClipSet>>,
+    operator_subscribers: Mutex<Vec<Sender<Arc<ClipSet>>>>,
+    pending_plays: AtomicU64,
+    operator_health: RwLock<Option<Arc<AtomicBool>>>,
+    operator_invalid: AtomicBool,
 }
 
 /// What a [`SharedClock`] counts going wrong.
@@ -185,7 +193,43 @@ impl SharedClock {
             unpaced: AtomicBool::new(false),
             shows_ended: AtomicU64::new(0),
             faults: Default::default(),
+            operator_route: None,
+            audio_config: OutputConfig::default(),
+            audio_health: RwLock::new(Vec::new()),
+            operator_health: RwLock::new(None),
+            operator_invalid: AtomicBool::new(false),
+            operator_set: Mutex::new(Arc::new(ClipSet::default())),
+            operator_subscribers: Mutex::new(Vec::new()),
+            pending_plays: AtomicU64::new(0),
         }
+    }
+
+    fn subscribe_operator(&self) -> (Arc<ClipSet>, Receiver<Arc<ClipSet>>) {
+        let mut subscribers = self
+            .operator_subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let (tx, rx) = mpsc::channel();
+        let current = Arc::clone(
+            &self
+                .operator_set
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        subscribers.push(tx);
+        (current, rx)
+    }
+
+    fn update_operator(&self, set: Arc<ClipSet>) {
+        let mut subscribers = self
+            .operator_subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        *self
+            .operator_set
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Arc::clone(&set);
+        subscribers.retain(|tx| tx.send(Arc::clone(&set)).is_ok());
     }
 
     /// A stream reported an error. Safe to call from the error callback: it only touches atomics.
@@ -445,6 +489,8 @@ pub struct LtcChannel {
 /// or wait.
 #[derive(Debug)]
 pub struct Renderer {
+    audio_lanes: Option<Vec<crate::audio_routing::AudioLane>>,
+    operator_channels: Vec<usize>,
     transport: Transport,
     messages: Receiver<Message>,
     clips: Arc<ClipSet>,
@@ -472,6 +518,8 @@ impl Renderer {
     ) -> Self {
         transport.set_end(clips.end());
         Self {
+            audio_lanes: None,
+            operator_channels: Vec::new(),
             seen_epoch: transport.epoch(),
             transport,
             messages,
@@ -493,9 +541,15 @@ impl Renderer {
 
     /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
     pub fn render<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
+        let mut consumed_plays = 0;
         while let Ok(message) = self.messages.try_recv() {
             match message {
-                Message::Transport(command) => self.transport.apply(command),
+                Message::Transport(command) => {
+                    if matches!(command, Command::Play) {
+                        consumed_plays += 1;
+                    }
+                    self.transport.apply(command);
+                }
                 Message::Clips(clips) => {
                     self.transport.set_end(clips.end());
                     self.clips = clips;
@@ -527,6 +581,11 @@ impl Renderer {
             position: self.transport.position_samples(),
             stamp: now,
         });
+        let _ = self.shared.pending_plays.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |pending| Some(pending.saturating_sub(consumed_plays)),
+        );
     }
 
     /// Writes the programme, the metronome and LTC into `data`, which holds the buffer's frames.
@@ -545,8 +604,24 @@ impl Renderer {
             let at_chunk = position + (index * MIX_CHUNK) as u64;
             let mut left = [0.0f32; MIX_CHUNK];
             let mut right = [0.0f32; MIX_CHUNK];
-            self.clips
-                .mix(at_chunk, &mut left[..frames], &mut right[..frames]);
+            if self.audio_lanes.is_none() {
+                self.clips
+                    .mix(at_chunk, &mut left[..frames], &mut right[..frames]);
+            }
+            if let Some(lanes) = &mut self.audio_lanes {
+                for lane in lanes {
+                    lane.mix(&self.clips, at_chunk, frames);
+                }
+            }
+            let mut operator_left = [0.0f32; MIX_CHUNK];
+            let mut operator_right = [0.0f32; MIX_CHUNK];
+            if self.audio_lanes.is_none() && !self.operator_channels.is_empty() {
+                self.clips.mix_operator(
+                    at_chunk,
+                    &mut operator_left[..frames],
+                    &mut operator_right[..frames],
+                );
+            }
             let mut click = [0.0f32; MIX_CHUNK];
             if let Some(grid) = &grid {
                 grid.add(at_chunk, &mut click[..frames]);
@@ -581,6 +656,29 @@ impl Renderer {
                         }
                     }
                 }
+                for (channel_index, &channel) in self.operator_channels.iter().enumerate() {
+                    let voice = if self.operator_channels.len() == 1 {
+                        (operator_left[at] + operator_right[at]) * 0.5
+                    } else if channel_index == 0 {
+                        operator_left[at]
+                    } else {
+                        operator_right[at]
+                    };
+                    let current = match self.programme.as_slice() {
+                        [only] if *only == channel => (left[at] + right[at]) * 0.5,
+                        [first, ..] if *first == channel => left[at],
+                        [_, second, ..] if *second == channel => right[at],
+                        _ => 0.0,
+                    } + click_on(channel);
+                    frame[channel] = T::from_sample((current + voice).clamp(-1.0, 1.0));
+                }
+                if let Some(lanes) = &self.audio_lanes {
+                    for (channel, sample) in frame.iter_mut().enumerate() {
+                        let sum = lanes.iter().map(|l| l.sample(channel, at)).sum::<f32>()
+                            + click_on(channel);
+                        *sample = T::from_sample(sum.clamp(-1.0, 1.0));
+                    }
+                }
                 for lane in &mut self.ltc {
                     let sample = lane.stream.next_sample();
                     for tap in &lane.channels {
@@ -603,12 +701,81 @@ impl Fill for Renderer {
     }
 }
 
+/// A continuous voice cursor for an independent device clock. Small clock drift is corrected
+/// by bounded resampling, rather than skipping or repeating chunks of spoken words.
+#[derive(Debug, Default, Clone)]
+struct VoiceCursor {
+    next: Option<f64>,
+    step: f64,
+}
+
+impl VoiceCursor {
+    fn follow(&mut self, target: u64, reset: bool) {
+        let target = target as f64;
+        let position = self.next.unwrap_or(target);
+        if reset || (position - target).abs() > f64::from(ENGINE_RATE) * 0.25 {
+            self.next = Some(target);
+            self.step = 1.0;
+        } else {
+            self.next = Some(position);
+            self.step =
+                1.0 + ((target - position) / (f64::from(ENGINE_RATE) * 2.0)).clamp(-0.002, 0.002);
+        }
+    }
+
+    fn mix(&mut self, clips: &ClipSet, left: &mut [f32], right: &mut [f32]) {
+        self.mix_selected(clips, left, right, None);
+    }
+    fn mix_selected(
+        &mut self,
+        clips: &ClipSet,
+        left: &mut [f32],
+        right: &mut [f32],
+        tracks: Option<&[String]>,
+    ) {
+        let position = self.next.unwrap_or(0.0);
+        let from = position.floor() as u64;
+        let fraction = position.fract();
+        // At most MIX_CHUNK output frames, with a rate within 0.2% of unity.
+        let needed = (fraction + left.len() as f64 * self.step).ceil() as usize + 1;
+        let mut source_left = [0.0; MIX_CHUNK + 4];
+        let mut source_right = [0.0; MIX_CHUNK + 4];
+        if let Some(tracks) = tracks {
+            clips.mix_tracks(
+                from,
+                &mut source_left[..needed],
+                &mut source_right[..needed],
+                tracks,
+            );
+        } else {
+            clips.mix_operator(
+                from,
+                &mut source_left[..needed],
+                &mut source_right[..needed],
+            );
+        }
+        for (i, (left, right)) in left.iter_mut().zip(right).enumerate() {
+            let sample = fraction + i as f64 * self.step;
+            let at = sample.floor() as usize;
+            let blend = sample.fract() as f32;
+            *left = source_left[at] + (source_left[at + 1] - source_left[at]) * blend;
+            *right = source_right[at] + (source_right[at + 1] - source_right[at]) * blend;
+        }
+        self.next = Some(position + left.len() as f64 * self.step);
+    }
+}
+
 /// Plays LTC on an audio device that is not the master's. The two sample clocks are independent
 /// and drift apart, so this does not count samples against the transport: it reads where the
 /// master is, plays LTC from there, and starts over from the master's position whenever it is a
 /// frame or more away, or the master seeks.
 #[derive(Debug)]
 pub struct LtcFollower {
+    audio_lanes: Option<Vec<crate::audio_routing::AudioLane>>,
+    voice_cursor: VoiceCursor,
+    operator_clips: Arc<ClipSet>,
+    operator_updates: Receiver<Arc<ClipSet>>,
+    operator_channels: Vec<usize>,
     /// One lane per distinct latency offset; none when the stream plays only the click.
     lanes: Vec<LtcChannel>,
     channels: usize,
@@ -636,7 +803,13 @@ impl LtcFollower {
         shared: Arc<SharedClock>,
     ) -> Self {
         let snapshot = shared.load();
+        let (operator_clips, operator_updates) = shared.subscribe_operator();
         Self {
+            voice_cursor: VoiceCursor::default(),
+            operator_clips,
+            operator_updates,
+            audio_lanes: None,
+            operator_channels: Vec::new(),
             lanes,
             channels,
             clock,
@@ -658,11 +831,15 @@ impl LtcFollower {
     /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
     pub fn render<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
         data.fill(T::EQUILIBRIUM);
+        while let Ok(set) = self.operator_updates.try_recv() {
+            self.operator_clips = set;
+        }
         if let Some(snapshot) = self.shared.try_load() {
             self.snapshot = snapshot;
         }
         let snapshot = self.snapshot;
         if snapshot.state != TransportState::Playing {
+            self.voice_cursor.next = None;
             self.next = None;
             self.click_next = None;
             self.seen_epoch = snapshot.epoch;
@@ -671,7 +848,13 @@ impl LtcFollower {
 
         let target = snapshot.estimated_position(now, self.clock);
         let one_frame = self.clock.frames_to_samples(1);
-        let in_step = self.seen_epoch == snapshot.epoch
+        let changed_epoch = self.seen_epoch != snapshot.epoch;
+        self.voice_cursor
+            .follow(target, changed_epoch || self.shared.is_lost());
+        if changed_epoch {
+            self.click_next = None;
+        }
+        let in_step = !changed_epoch
             && self
                 .next
                 .is_some_and(|next| next.abs_diff(target) < one_frame);
@@ -698,12 +881,70 @@ impl LtcFollower {
             if let Some(grid) = &grid {
                 grid.add(click_at, &mut click[..frames]);
             }
+            let mut operator_left = [0.0f32; MIX_CHUNK];
+            let mut operator_right = [0.0f32; MIX_CHUNK];
+            if self.audio_lanes.is_none()
+                && !self.operator_channels.is_empty()
+                && !self.shared.is_lost()
+            {
+                self.voice_cursor.mix(
+                    &self.operator_clips,
+                    &mut operator_left[..frames],
+                    &mut operator_right[..frames],
+                );
+            }
+            if let Some(lanes) = &mut self.audio_lanes {
+                let mut advanced = self.voice_cursor.clone();
+                for lane in lanes {
+                    lane.left.fill(0.0);
+                    lane.right.fill(0.0);
+                    if !self.shared.is_lost() {
+                        let mut cursor = self.voice_cursor.clone();
+                        cursor.mix_selected(
+                            &self.operator_clips,
+                            &mut lane.left[..frames],
+                            &mut lane.right[..frames],
+                            Some(&lane.tracks),
+                        );
+                        advanced = cursor;
+                    }
+                }
+                self.voice_cursor = advanced;
+            }
             click_at += frames as u64;
             for (at, frame) in chunk.chunks_exact_mut(self.channels).enumerate() {
                 // LTC is written after the click, so it wins a channel both ask for.
                 if click[at] != 0.0 {
                     for &channel in click_channels {
                         frame[channel] = T::from_sample(click[at].clamp(-1.0, 1.0));
+                    }
+                }
+                for (index, &channel) in self.operator_channels.iter().enumerate() {
+                    let voice = if self.operator_channels.len() == 1 {
+                        (operator_left[at] + operator_right[at]) * 0.5
+                    } else if index == 0 {
+                        operator_left[at]
+                    } else {
+                        operator_right[at]
+                    };
+                    let beat = if click_channels.contains(&channel) {
+                        click[at]
+                    } else {
+                        0.0
+                    };
+                    frame[channel] = T::from_sample((voice + beat).clamp(-1.0, 1.0));
+                }
+                if let Some(lanes) = &self.audio_lanes {
+                    for (channel, sample) in frame.iter_mut().enumerate() {
+                        let beat = if click_channels.contains(&channel) {
+                            click[at]
+                        } else {
+                            0.0
+                        };
+                        *sample = T::from_sample(
+                            (lanes.iter().map(|l| l.sample(channel, at)).sum::<f32>() + beat)
+                                .clamp(-1.0, 1.0),
+                        );
                     }
                 }
                 for lane in &mut self.lanes {
@@ -714,7 +955,7 @@ impl LtcFollower {
                 }
             }
         }
-        self.click_next = grid.map(|_| click_at);
+        self.click_next = grid.is_some().then_some(click_at);
         let written = (data.len() / self.channels) as u64;
         self.next = self.next.map(|next| next + written);
     }
@@ -767,6 +1008,7 @@ pub struct OutputInfo {
     pub mtc: Vec<MtcInfo>,
     /// Where the metronome plays; `None` when the project has no metronome output.
     pub metronome: Option<MetronomeInfo>,
+    pub operator: Option<MetronomeInfo>,
     /// One entry per MIDI port and OSC destination the cue tracks of the timeline send to.
     pub cues: Vec<CueInfo>,
     /// Things that did not stop the output but the user should know, e.g. a missing MIDI port.
@@ -815,6 +1057,7 @@ pub struct Position {
     pub mtc_lost: u32,
     /// The stream the metronome plays on failed or went away.
     pub metronome_lost: bool,
+    pub operator_lost: bool,
     /// The device renders audio faster than real time (ALSA's null device does), so the position
     /// and the timecode are wrong. Pick another device.
     pub clock_unpaced: bool,
@@ -829,6 +1072,16 @@ pub struct PositionReader {
 }
 
 impl PositionReader {
+    pub fn audio_routes(&self) -> Vec<crate::audio_routing::AudioRouteState> {
+        self.shared
+            .audio_health
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|r| r.state())
+            .collect()
+    }
+
     /// How many times the show has run to its end by itself: a change says it just ended, which
     /// the position alone cannot (a stop from the user looks the same).
     pub fn shows_ended(&self) -> u64 {
@@ -853,6 +1106,13 @@ impl PositionReader {
             ltc_lost: health.ltc_lost(device_lost),
             mtc_lost: health.mtc_lost(),
             metronome_lost: health.click_lost(device_lost),
+            operator_lost: self
+                .shared
+                .operator_health
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .is_some_and(|lost| lost.load(Ordering::Relaxed)),
             clock_unpaced: self.shared.is_unpaced(),
         }
     }
@@ -953,11 +1213,43 @@ impl Plan {
         // stream of its own.
         let LtcPlan {
             shared: programme_ltc,
-            own,
+            mut own,
         } = plan_ltc(&output.ltc, &device_hint, &same);
         // The metronome has an output of its own. It plays on the programme's stream when it names
         // the programme's device, on the stream of an LTC device it shares, or else on a stream
         // of its own: no device is opened twice.
+        let operator_channels = output
+            .operator
+            .as_ref()
+            .filter(|_| output.audio_routes.is_empty())
+            .filter(|r| same(&r.device_name, &device_hint))
+            .map_or_else(Vec::new, |r| r.channels.clone());
+        if let Some(route) = &output.operator
+            && output.audio_routes.is_empty()
+            && !same(&route.device_name, &device_hint)
+            && !own.iter().any(|g| same(&g.device, &route.device_name))
+        {
+            own.push(LtcGroup {
+                device: route.device_name.clone(),
+                slots: Vec::new(),
+            });
+        }
+        for bus in output
+            .audio_routes
+            .iter()
+            .filter(|b| crate::audio_routing::used(output, b))
+        {
+            if let Some(route) = &bus.route
+                && route.device_name != flux_project::UNASSIGNED_DEVICE
+                && !same(&route.device_name, &device_hint)
+                && !own.iter().any(|g| same(&g.device, &route.device_name))
+            {
+                own.push(LtcGroup {
+                    device: route.device_name.clone(),
+                    slots: Vec::new(),
+                });
+            }
+        }
         let shared_metronome = output.metronome.as_ref().map(|metronome_output| {
             metronome.unwrap_or_else(|| {
                 Arc::new(SharedMetronome::new(
@@ -1023,6 +1315,16 @@ impl Plan {
             .iter()
             .map(|slot| slot.channel)
             .chain(programme.iter().copied())
+            .chain(operator_channels.iter().copied())
+            .chain(
+                output
+                    .audio_routes
+                    .iter()
+                    .filter(|b| crate::audio_routing::used(output, b))
+                    .filter_map(|b| b.route.as_ref())
+                    .filter(|r| same(&r.device_name, &device_hint))
+                    .flat_map(|r| r.channels.iter().copied()),
+            )
             .chain(
                 programme_click
                     .iter()
@@ -1164,6 +1466,7 @@ struct Opened {
     ltc: Vec<LtcInfo>,
     mtc: Vec<MtcInfo>,
     metronome: Option<MetronomeInfo>,
+    operator: Option<MetronomeInfo>,
 }
 
 /// The LTC and click streams on other devices and the MTC threads of a running output. Applying a
@@ -1343,12 +1646,44 @@ impl Branches {
             }
         }
 
+        let operator = shared.operator_route.as_ref().map(|route| {
+            let primary = same_device(
+                ctx.driver.as_deref(),
+                &route.device_name,
+                &plan.master.device_hint,
+            );
+            let follower = self
+                .followers
+                .iter()
+                .find(|f| same_device(ctx.driver.as_deref(), &route.device_name, &f.device));
+            let flag = if primary && shared.operator_invalid.load(Ordering::Relaxed) {
+                Arc::new(AtomicBool::new(true))
+            } else if primary {
+                Arc::clone(&shared.lost)
+            } else {
+                follower.map_or_else(|| Arc::new(AtomicBool::new(true)), |f| Arc::clone(&f.lost))
+            };
+            let ok = !flag.load(Ordering::Relaxed);
+            *shared
+                .operator_health
+                .write()
+                .unwrap_or_else(PoisonError::into_inner) = Some(flag);
+            MetronomeInfo {
+                device: if primary {
+                    programme.into()
+                } else {
+                    route.device_name.clone()
+                },
+                ok,
+            }
+        });
         let mtc = self.apply_mtc(plan, ctx, shared, warnings, &mut lamps);
         shared.health().replace(lamps);
         Opened {
             ltc: ltc_info.into_iter().flatten().collect(),
             mtc,
             metronome: metronome_info,
+            operator,
         }
     }
 
@@ -1624,11 +1959,48 @@ impl Output {
             start,
             ..
         } = ctx;
-        let shared = Arc::new(SharedClock::new());
+        let mut shared_clock = SharedClock::new();
+        shared_clock.operator_route = output.operator.clone();
+        shared_clock.audio_config = output.clone();
+        *shared_clock
+            .audio_health
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner) = output
+            .audio_routes
+            .iter()
+            .map(|b| {
+                use crate::audio_routing::{AudioRouteState, AudioRouteStatus, RouteHealth};
+                RouteHealth {
+                    state: AudioRouteState {
+                        id: b.id.clone(),
+                        device: b
+                            .route
+                            .as_ref()
+                            .map_or_else(String::new, |r| r.device_name.clone()),
+                        channels: b
+                            .route
+                            .as_ref()
+                            .map_or_else(Vec::new, |r| r.channels.clone()),
+                        status: if !crate::audio_routing::used(output, b) {
+                            AudioRouteStatus::Unused
+                        } else if crate::audio_routing::conflict(output, b, |a, b| {
+                            same_device(driver, a, b)
+                        }) {
+                            AudioRouteStatus::Conflict
+                        } else {
+                            AudioRouteStatus::Missing
+                        },
+                    },
+                    lost: None,
+                }
+            })
+            .collect();
+        let shared = Arc::new(shared_clock);
         let stop = Arc::new(AtomicBool::new(false));
         let (messages, message_rx) = mpsc::channel();
         let Programme { set, warnings } = programme;
         let clips = Arc::new(set);
+        shared.update_operator(Arc::clone(&clips));
         let levels = SharedLevels::new(clips.levels());
 
         let programme_device = ProgrammeDevice {
@@ -1685,6 +2057,7 @@ impl Output {
             ltc: opened.ltc,
             mtc: opened.mtc,
             metronome: opened.metronome,
+            operator: opened.operator,
             cues: cue_info,
             warnings: [&warnings, &secondary_warnings, &cue_warnings]
                 .into_iter()
@@ -1727,7 +2100,14 @@ impl Output {
             same_device(driver, a, b)
         });
         let ctx = BranchCtx::new(output.driver.clone(), timeline);
-        if plan.master != self.master || plan.click != self.click {
+        if plan.master != self.master
+            || plan.click != self.click
+            || output.operator != self.reader.shared.operator_route
+            || output.audio_routes != self.reader.shared.audio_config.audio_routes
+            || output.track_routes != self.reader.shared.audio_config.track_routes
+            || (!output.audio_routes.is_empty()
+                && output.ltc != self.reader.shared.audio_config.ltc)
+        {
             return Reconfigured::NeedsRestart;
         }
         let shared = Arc::clone(&self.reader.shared);
@@ -1739,6 +2119,7 @@ impl Output {
         self.info.ltc = opened.ltc;
         self.info.mtc = opened.mtc;
         self.info.metronome = opened.metronome;
+        self.info.operator = opened.operator;
         self.info.warnings = [
             &self.programme_warnings,
             &secondary_warnings,
@@ -1782,14 +2163,35 @@ impl Output {
     }
 
     pub fn send(&self, command: Command) -> Result<(), OutputError> {
+        let play = matches!(command, Command::Play);
+        if play {
+            self.reader
+                .shared
+                .pending_plays
+                .fetch_add(1, Ordering::AcqRel);
+        }
         self.messages
             .send(Message::Transport(command))
-            .map_err(|_| OutputError::NotRunning)
+            .map_err(|_| {
+                if play {
+                    self.reader
+                        .shared
+                        .pending_plays
+                        .fetch_sub(1, Ordering::AcqRel);
+                }
+                OutputError::NotRunning
+            })
+    }
+
+    pub fn playing_or_pending(&self) -> bool {
+        self.reader.shared.pending_plays.load(Ordering::Acquire) > 0
+            || self.reader.shared.load().state == TransportState::Playing
     }
 
     /// Replaces the audio being played, after the project's clips changed.
     pub fn set_clips(&self, set: ClipSet) -> Result<(), OutputError> {
         let set = Arc::new(set);
+        self.reader.shared.update_operator(Arc::clone(&set));
         self.levels.replace(set.levels());
         let mut sets = self
             .clip_sets
@@ -2252,6 +2654,60 @@ fn open_device(
     })
 }
 
+fn operator_channels(shared: &SharedClock, device: &str, driver: Option<&str>) -> Vec<usize> {
+    if !shared.audio_config.audio_routes.is_empty() {
+        return Vec::new();
+    }
+    shared
+        .operator_route
+        .as_ref()
+        .filter(|r| same_device(driver, &r.device_name, device))
+        .map_or_else(Vec::new, |r| {
+            r.channels.iter().map(|c| usize::from(*c) - 1).collect()
+        })
+}
+
+fn mark_audio_routes(
+    shared: &SharedClock,
+    device: &str,
+    driver: Option<&str>,
+    channels: u16,
+    lost: &Arc<AtomicBool>,
+) {
+    use crate::audio_routing::AudioRouteStatus;
+    for health in shared
+        .audio_health
+        .write()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter_mut()
+    {
+        if health.state.status != AudioRouteStatus::Unused
+            && !health.state.channels.is_empty()
+            && same_device(driver, device, &health.state.device)
+        {
+            let conflict = shared
+                .audio_config
+                .audio_routes
+                .iter()
+                .find(|b| b.id == health.state.id)
+                .is_some_and(|bus| {
+                    crate::audio_routing::conflict(&shared.audio_config, bus, |a, b| {
+                        same_device(driver, a, b)
+                    })
+                });
+            health.state.status = if conflict {
+                AudioRouteStatus::Conflict
+            } else if health.state.channels.iter().all(|c| *c <= channels) {
+                AudioRouteStatus::Ready
+            } else {
+                AudioRouteStatus::Missing
+            };
+            health.lost =
+                (health.state.status == AudioRouteStatus::Ready).then(|| Arc::clone(lost));
+        }
+    }
+}
+
 fn open_stream(
     spec: AudioSpec,
     messages: Receiver<Message>,
@@ -2259,7 +2715,22 @@ fn open_stream(
     beat: Arc<AtomicU64>,
 ) -> Result<(cpal::Stream, AudioInfo), OutputError> {
     let rate = spec.ltc_config.sample_rate;
-    let opened = open_device(&spec.device_hint, spec.driver.as_deref(), spec.needed, rate)?;
+    let opened = match open_device(&spec.device_hint, spec.driver.as_deref(), spec.needed, rate) {
+        Err(OutputError::Unsupported { .. })
+            if shared.operator_route.is_some() || !shared.audio_config.audio_routes.is_empty() =>
+        {
+            let required = spec
+                .programme
+                .iter()
+                .copied()
+                .chain(spec.ltc.iter().map(|s| s.channel))
+                .chain(spec.click.iter().flat_map(|c| c.channels.iter().copied()))
+                .max()
+                .unwrap_or(2);
+            open_device(&spec.device_hint, spec.driver.as_deref(), required, rate)?
+        }
+        result => result?,
+    };
     let channels = opened.channels;
 
     let ltc = ltc_lanes(
@@ -2276,7 +2747,7 @@ fn open_stream(
         .map(|&channel| usize::from(channel) - 1)
         .filter(|&channel| channel < usize::from(channels))
         .collect();
-    let renderer = Renderer::new(
+    let mut renderer = Renderer::new(
         Transport::new(spec.clock, spec.start),
         messages,
         spec.clips,
@@ -2286,6 +2757,23 @@ fn open_stream(
         Arc::clone(&shared),
     )
     .with_click(spec.click.as_ref().map(|click| click.out(channels)));
+    let requested = operator_channels(&shared, &spec.device_hint, spec.driver.as_deref());
+    let valid = requested
+        .iter()
+        .all(|channel| *channel < usize::from(channels));
+    shared.operator_invalid.store(!valid, Ordering::Relaxed);
+    renderer.operator_channels = if valid { requested } else { Vec::new() };
+    mark_audio_routes(
+        &shared,
+        &spec.device_hint,
+        spec.driver.as_deref(),
+        channels,
+        &shared.lost,
+    );
+    renderer.audio_lanes =
+        crate::audio_routing::lanes(&shared.audio_config, &spec.device_hint, channels, |a, b| {
+            same_device(spec.driver.as_deref(), a, b)
+        });
     let failed = Arc::clone(&shared);
     let stream = start_stream(&opened, rate, renderer, shared, beat, move |err| {
         failed.stream_failed(err.kind(), None);
@@ -2313,24 +2801,68 @@ fn open_ltc_stream(
         .iter()
         .map(|send| send.channel)
         .chain(
+            operator_channels(&shared, &spec.device_hint, spec.driver.as_deref())
+                .into_iter()
+                .map(|c| c as u16 + 1),
+        )
+        .chain(
             spec.click
                 .iter()
                 .flat_map(|click| click.channels.iter().copied()),
         )
+        .chain(
+            shared
+                .audio_config
+                .audio_routes
+                .iter()
+                .filter(|b| crate::audio_routing::used(&shared.audio_config, b))
+                .filter_map(|b| b.route.as_ref())
+                .filter(|r| same_device(spec.driver.as_deref(), &r.device_name, &spec.device_hint))
+                .flat_map(|r| r.channels.iter().copied()),
+        )
         .max()
         .unwrap_or(1);
-    let opened = open_device(&spec.device_hint, spec.driver.as_deref(), needed, rate)?;
-    let follower = LtcFollower::new(
+    let opened = match open_device(&spec.device_hint, spec.driver.as_deref(), needed, rate) {
+        Err(OutputError::Unsupported { .. }) if !shared.audio_config.audio_routes.is_empty() => {
+            let required = spec
+                .ltc
+                .iter()
+                .map(|s| s.channel)
+                .chain(spec.click.iter().flat_map(|c| c.channels.iter().copied()))
+                .max()
+                .unwrap_or(1);
+            open_device(&spec.device_hint, spec.driver.as_deref(), required, rate)?
+        }
+        result => result?,
+    };
+    let mut follower = LtcFollower::new(
         ltc_lanes(&spec.ltc, spec.config, spec.rate, spec.start, spec.clock),
         usize::from(opened.channels),
         spec.clock,
         Arc::clone(&shared),
     )
     .with_click(spec.click.as_ref().map(|click| click.out(opened.channels)));
+    follower.operator_channels =
+        operator_channels(&shared, &spec.device_hint, spec.driver.as_deref());
+    follower.audio_lanes = crate::audio_routing::lanes(
+        &shared.audio_config,
+        &spec.device_hint,
+        opened.channels,
+        |a, b| same_device(spec.driver.as_deref(), a, b),
+    );
     let failed = Arc::clone(&shared);
+    let route_clock = Arc::clone(&shared);
+    let route_lost = Arc::clone(&lost);
     let stream = start_stream(&opened, rate, follower, shared, beat, move |err| {
         failed.stream_failed(err.kind(), Some(&lost));
     })?;
+    mark_audio_routes(
+        &route_clock,
+        &spec.device_hint,
+        spec.driver.as_deref(),
+        opened.channels,
+        &route_lost,
+    );
     Ok((stream, opened.name))
 }
 
@@ -2622,6 +3154,457 @@ mod tests {
             .chunks_exact(channels)
             .map(|frame| frame[channel])
             .collect()
+    }
+
+    fn spoken_clips() -> Arc<ClipSet> {
+        spoken_clips_with(vec![16_384; 96_000])
+    }
+
+    fn routed_config() -> OutputConfig {
+        use flux_project::routing::{ResolvedAudioBus, TrackRoute};
+        let mut config = OutputConfig::default();
+        for (id, device, channels) in [
+            ("one", "Main", vec![1, 2]),
+            ("two", "Main", vec![1, 2]),
+            ("three", "Main", vec![1, 2]),
+        ] {
+            config.audio_routes.push(ResolvedAudioBus {
+                id: id.into(),
+                route: Some(flux_project::AudioOutput {
+                    device_name: device.into(),
+                    channels,
+                }),
+            });
+            config.track_routes.push(TrackRoute {
+                track_id: id.into(),
+                output: Some(id.into()),
+            });
+        }
+        config
+    }
+    fn routed_clips() -> Arc<ClipSet> {
+        use crate::mixer::ClipPlayer;
+        let clips = [24_576, 24_576, -24_576, 24_576]
+            .into_iter()
+            .enumerate()
+            .map(|(track, sample)| {
+                ClipPlayer::new(
+                    Arc::new(flux_audio::Decoded {
+                        samples: vec![sample; 4096],
+                        source_rate: ENGINE_RATE,
+                    }),
+                    0,
+                    1.0,
+                    track,
+                )
+            })
+            .collect();
+        Arc::new(ClipSet::new(
+            clips,
+            ["one", "two", "three", "unassigned"]
+                .map(|id| (id.into(), 1.0))
+                .into(),
+        ))
+    }
+    #[test]
+    fn named_routes_sum_once_before_clamping_and_do_not_play_new_unassigned_tracks() {
+        let config = routed_config();
+        let (mut renderer, tx, _) = renderer(3, 2);
+        renderer.clips = routed_clips();
+        renderer.audio_lanes = crate::audio_routing::lanes(&config, "Main", 3, |a, b| a == b);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 24];
+        renderer.render(&mut buffer, 0);
+        assert_eq!(channel_of(&buffer, 3, 0), vec![0.75; 8]);
+        assert_eq!(channel_of(&buffer, 3, 1), vec![0.75; 8]);
+        assert!(channel_of(&buffer, 3, 2).iter().all(|s| s.abs() > 0.0));
+    }
+    #[test]
+    fn named_routes_keep_mono_channels_separate_and_faders_work() {
+        let mut config = routed_config();
+        config.audio_routes[0].route.as_mut().unwrap().channels = vec![1];
+        config.audio_routes[1].route.as_mut().unwrap().channels = vec![2];
+        config.audio_routes[2].route = None;
+        let clips = routed_clips();
+        clips.levels().set_gain_db("one", -60.0);
+        let (mut renderer, tx, _) = renderer(3, 2);
+        renderer.clips = clips;
+        renderer.audio_lanes = crate::audio_routing::lanes(&config, "Main", 3, |a, b| a == b);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 24];
+        renderer.render(&mut buffer, 0);
+        assert_eq!(buffer[21], 0.0);
+        assert_eq!(channel_of(&buffer, 3, 1), vec![0.75; 8]);
+        assert!(
+            renderer
+                .clips
+                .levels()
+                .take_peaks()
+                .iter()
+                .any(|p| p.id == "two" && p.peak == 0.75)
+        );
+    }
+    #[test]
+    fn ltc_collision_silences_the_whole_bus_and_missing_routes_never_fall_back() {
+        let mut config = routed_config();
+        config.audio_routes[1].route.as_mut().unwrap().device_name = "Gone".into();
+        config.audio_routes[2].route = None;
+        config.ltc.push(LtcOutput {
+            device_name: "Main".into(),
+            channel: 2,
+            level: None,
+            offset_ms: None,
+        });
+        assert!(
+            crate::audio_routing::lanes(&config, "Main", 3, |a, b| a == b)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    #[test]
+    fn named_output_devices_share_ltc_click_and_aliases_in_one_stream() {
+        let mut config = routed_config();
+        config.audio_routes[0].route.as_mut().unwrap().device_name = "Secondary".into();
+        config.audio_routes[1].route.as_mut().unwrap().device_name = "Alias".into();
+        config.audio = Some(flux_project::AudioOutput {
+            device_name: "Main".into(),
+            channels: vec![1, 2],
+        });
+        config.ltc.push(LtcOutput {
+            device_name: "Secondary".into(),
+            channel: 8,
+            level: None,
+            offset_ms: None,
+        });
+        let timeline = flux_project::Project::new("Show", RATE).timelines.remove(0);
+        let plan = Plan::build(&config, &timeline, None, |a, b| {
+            a == b || (["Secondary", "Alias"].contains(&a) && ["Secondary", "Alias"].contains(&b))
+        });
+        assert_eq!(plan.followers.len(), 1);
+        assert_eq!(plan.followers[0].group.slots.len(), 1);
+        assert_eq!(plan.master.device_hint, "Main");
+    }
+    #[test]
+    fn audio_route_health_reports_loss_without_a_bitmask_limit() {
+        use crate::audio_routing::{AudioRouteState, AudioRouteStatus, RouteHealth};
+        let flag = Arc::new(AtomicBool::new(false));
+        let states: Vec<_> = (0..48)
+            .map(|id| RouteHealth {
+                state: AudioRouteState {
+                    id: id.to_string(),
+                    device: "D".into(),
+                    channels: vec![1],
+                    status: AudioRouteStatus::Ready,
+                },
+                lost: Some(Arc::clone(&flag)),
+            })
+            .collect();
+        flag.store(true, Ordering::Relaxed);
+        assert!(
+            states
+                .iter()
+                .all(|s| s.state().status == AudioRouteStatus::Lost)
+        );
+    }
+
+    #[test]
+    fn clip_edits_keep_active_routes_until_stationary_reconfiguration() {
+        let mut active = routed_config();
+        active.audio_routes.truncate(1);
+        active.track_routes.truncate(1);
+        active.audio_routes[0].route.as_mut().unwrap().channels = vec![1];
+        let mut desired = active.clone();
+        desired.audio_routes[0].route.as_mut().unwrap().channels = vec![2];
+        let (mut renderer, tx, _) = renderer(3, 2);
+        renderer.clips = routed_clips();
+        renderer.audio_lanes = crate::audio_routing::lanes(&active, "Main", 3, |a, b| a == b);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 24];
+        renderer.render(&mut buffer, 0);
+        tx.send(Message::Clips(routed_clips())).unwrap();
+        renderer.render(&mut buffer, 0);
+        assert_eq!(channel_of(&buffer, 3, 0), vec![0.75; 8]);
+        assert_eq!(channel_of(&buffer, 3, 1), vec![0.0; 8]);
+        tx.send(Message::Transport(Command::Pause)).unwrap();
+        renderer.render(&mut buffer, 0);
+        let parked = renderer.transport.position_samples();
+        assert!(buffer.iter().all(|s| *s == 0.0));
+        renderer.audio_lanes = crate::audio_routing::lanes(&desired, "Main", 3, |a, b| a == b);
+        renderer.transport.apply(Command::Restore {
+            samples: parked,
+            paused: true,
+        });
+        renderer.render(&mut buffer, 0);
+        assert_eq!(renderer.transport.state(), TransportState::Paused);
+        assert_eq!(renderer.transport.position_samples(), parked);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut buffer, 0);
+        assert_eq!(channel_of(&buffer, 3, 0), vec![0.0; 8]);
+        assert_eq!(channel_of(&buffer, 3, 1), vec![0.75; 8]);
+    }
+
+    #[test]
+    fn unassigned_bus_health_is_not_mistaken_for_the_default_device() {
+        use crate::audio_routing::{AudioRouteState, AudioRouteStatus, RouteHealth};
+        let shared = SharedClock::new();
+        shared.audio_health.write().unwrap().push(RouteHealth {
+            state: AudioRouteState {
+                id: "operator".into(),
+                device: String::new(),
+                channels: vec![],
+                status: AudioRouteStatus::Missing,
+            },
+            lost: None,
+        });
+        mark_audio_routes(&shared, "", None, 2, &shared.lost);
+        assert_eq!(
+            shared.audio_health.read().unwrap()[0].state().status,
+            AudioRouteStatus::Missing
+        );
+        // A reopened device must re-evaluate conflicts, not promote every available bus to Ready.
+        let mut shared = SharedClock::new();
+        shared.audio_config = routed_config();
+        shared.audio_config.ltc.push(LtcOutput {
+            device_name: "Main".into(),
+            channel: 2,
+            level: None,
+            offset_ms: None,
+        });
+        shared.audio_health.write().unwrap().push(RouteHealth {
+            state: AudioRouteState {
+                id: "one".into(),
+                device: "Main".into(),
+                channels: vec![1, 2],
+                status: AudioRouteStatus::Missing,
+            },
+            lost: None,
+        });
+        mark_audio_routes(&shared, "Main", None, 2, &shared.lost);
+        assert_eq!(
+            shared.audio_health.read().unwrap()[0].state().status,
+            AudioRouteStatus::Conflict
+        );
+    }
+
+    fn spoken_clips_with(samples: Vec<i16>) -> Arc<ClipSet> {
+        use flux_project::{Alignment, AudioAsset, GeneratedVoice, Track, TrackKind, VoiceOrder};
+        let mut project = flux_project::Project::new("Show", FrameRate::Fps25);
+        project.assets.push(AudioAsset {
+            id: "a".into(),
+            name: "Voice".into(),
+            file: "audio/voice.mp3".into(),
+            bpm: None,
+        });
+        project.timelines[0].tracks.push(Track {
+            audio_output: Default::default(),
+            id: "voice".into(),
+            name: "Operator".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Operator {
+                voice: None,
+                orders: vec![VoiceOrder {
+                    synthesis_text: None,
+                    trim_start: 0,
+                    trim_end: 0,
+                    id: "o".into(),
+                    at: 0,
+                    dialogue: "Go".into(),
+                    alignment: Alignment::Start,
+                    generated: Some(GeneratedVoice {
+                        origin: flux_project::operator::RecordingOrigin::Generated,
+                        synthesis_text: None,
+                        asset: "a".into(),
+                        dialogue: "Go".into(),
+                        voice: "v".into(),
+                        model: flux_project::operator::VOICE_MODEL.into(),
+                        samples: 48_000,
+                    }),
+                }],
+            },
+        });
+        Arc::new(
+            super::super::mixer::build(&project, &project.timelines[0], |_| {
+                Ok(Arc::new(flux_audio::Decoded {
+                    samples: samples.clone(),
+                    source_rate: ENGINE_RATE,
+                }))
+            })
+            .set,
+        )
+    }
+
+    #[test]
+    fn operator_renders_only_on_its_channels_and_obeys_transport() {
+        let shared = Arc::new(SharedClock::new());
+        let (tx, rx) = mpsc::channel();
+        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+        let mut renderer = Renderer::new(
+            Transport::new(clock, 0),
+            rx,
+            spoken_clips(),
+            vec![0, 1],
+            vec![],
+            3,
+            shared,
+        );
+        renderer.operator_channels = vec![2];
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        let mut buffer = [0.0f32; 6];
+        renderer.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.0, 0.0, 0.5, 0.0, 0.0, 0.5]);
+        tx.send(Message::Transport(Command::Pause)).unwrap();
+        renderer.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.0; 6]);
+        tx.send(Message::Transport(Command::Seek(1))).unwrap();
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.0, 0.0, 0.5, 0.0, 0.0, 0.5]);
+    }
+
+    #[test]
+    fn operator_follower_tracks_seek_and_silences_when_master_is_lost() {
+        let shared = Arc::new(SharedClock::new());
+        shared.update_operator(spoken_clips());
+        let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+        let mut follower = LtcFollower::new(vec![], 3, clock, Arc::clone(&shared));
+        follower.operator_channels = vec![2];
+        shared.publish(Snapshot {
+            state: TransportState::Playing,
+            epoch: 1,
+            position: 100,
+            stamp: 0,
+        });
+        let mut buffer = [0.0f32; 6];
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.0, 0.0, 0.5, 0.0, 0.0, 0.5]);
+        shared.publish(Snapshot {
+            state: TransportState::Playing,
+            epoch: 2,
+            position: 0,
+            stamp: 0,
+        });
+        follower.render(&mut buffer, 0);
+        assert_eq!(follower.voice_cursor.next, Some(2.0));
+        shared.lost.store(true, Ordering::Relaxed);
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.0; 6]);
+    }
+
+    #[test]
+    fn operator_callback_keeps_playing_while_control_plane_is_locked() {
+        let shared = Arc::new(SharedClock::new());
+        shared.update_operator(spoken_clips());
+        let mut follower = LtcFollower::new(vec![], 1, clock(), Arc::clone(&shared));
+        follower.operator_channels = vec![0];
+        shared.publish(Snapshot {
+            state: TransportState::Playing,
+            epoch: 1,
+            position: 0,
+            stamp: 0,
+        });
+        let locked = shared.operator_set.lock().unwrap();
+        let mut buffer = [0.0f32; 256];
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.5; 256]);
+        drop(locked);
+        shared.update_operator(Arc::new(ClipSet::default()));
+        follower.render(&mut buffer, 0);
+        assert_eq!(buffer, [0.0; 256]);
+    }
+
+    #[test]
+    fn follower_corrects_device_drift_without_jumping_spoken_samples() {
+        let mut cursor = VoiceCursor::default();
+        let clips = ClipSet::default();
+        let mut left = [0.0; MIX_CHUNK];
+        let mut right = [0.0; MIX_CHUNK];
+        let mut master = 0.0;
+        // One hour at 100 ppm clock disagreement, in fixed callback blocks.
+        for _ in 0..675_000 {
+            let before = cursor.next;
+            cursor.follow(master as u64, false);
+            if let Some(before) = before {
+                assert_eq!(cursor.next, Some(before));
+            }
+            assert!((cursor.next.unwrap() - master).abs() < 12.0);
+            cursor.mix(&clips, &mut left, &mut right);
+            master += MIX_CHUNK as f64 * 1.0001;
+        }
+        cursor.follow(0, true);
+        assert_eq!(cursor.next, Some(0.0), "a seek resets immediately");
+        assert_eq!(cursor.step, 1.0);
+    }
+
+    #[test]
+    fn follower_interpolates_stereo_continuously_across_callback_boundaries() {
+        let clips = spoken_clips_with(
+            (0..48_000)
+                .flat_map(|i| {
+                    let v = (i % 1000) as i16;
+                    [v, -v]
+                })
+                .collect(),
+        );
+        let mut cursor = VoiceCursor {
+            next: Some(3.25),
+            step: 1.001,
+        };
+        let mut left = [0.0; MIX_CHUNK];
+        let mut right = [0.0; MIX_CHUNK];
+        for block in 0..2 {
+            cursor.mix(&clips, &mut left, &mut right);
+            for i in 0..MIX_CHUNK {
+                let expected = (3.25 + (block * MIX_CHUNK + i) as f64 * 1.001) as f32 / 32768.0;
+                assert!((left[i] - expected).abs() < 1e-7);
+                assert!((right[i] + expected).abs() < 1e-7);
+            }
+        }
+    }
+
+    #[test]
+    fn consuming_play_does_not_clear_a_later_queued_play() {
+        let (mut renderer, tx, shared) = renderer(1, 0);
+        shared.pending_plays.store(2, Ordering::Release);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut [0.0f32; 1], 0);
+        assert_eq!(shared.pending_plays.load(Ordering::Acquire), 1);
+        tx.send(Message::Transport(Command::Play)).unwrap();
+        renderer.render(&mut [0.0f32; 1], 0);
+        assert_eq!(shared.pending_plays.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn operator_route_uses_one_stream_per_device_and_keeps_master_requirements() {
+        let project = flux_project::Project::new("Show", FrameRate::Fps25);
+        let mut output = OutputConfig {
+            audio_routes: Vec::new(),
+            track_routes: Vec::new(),
+            audio: Some(flux_project::AudioOutput {
+                device_name: "Main".into(),
+                channels: vec![1, 2],
+            }),
+            operator: Some(flux_project::AudioOutput {
+                device_name: "Main".into(),
+                channels: vec![5],
+            }),
+            ..Default::default()
+        };
+        let plan = Plan::build(&output, &project.timelines[0], None, |a, b| a == b);
+        assert_eq!(plan.master.needed, 5);
+        assert!(plan.followers.is_empty());
+        output.operator.as_mut().unwrap().device_name = "Booth".into();
+        output.metronome = Some(flux_project::MetronomeOutput {
+            device_name: "Booth".into(),
+            channels: vec![2],
+            gain_db: 0.0,
+        });
+        let plan = Plan::build(&output, &project.timelines[0], None, |a, b| a == b);
+        assert_eq!(plan.master.needed, 2);
+        assert_eq!(plan.followers.len(), 1);
+        assert!(plan.followers[0].click.is_some());
+        assert!(plan.own_click.is_none());
     }
 
     #[test]
@@ -4009,6 +4992,7 @@ mod tests {
     #[test]
     fn output_info_should_serialise_the_outputs_as_lists() {
         let info = OutputInfo {
+            operator: None,
             device: "Main".into(),
             sample_rate: 48_000,
             channels: 4,

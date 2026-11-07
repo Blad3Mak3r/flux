@@ -1606,6 +1606,7 @@ input:disabled {
 }
 
 .field input[type="text"],
+.field input[type="password"],
 .field select {
   width: 100%;
   height: 32px;
@@ -3171,3 +3172,62 @@ input:disabled {
 .legacy-routes th, .legacy-routes td { padding: 8px 4px; border-bottom: 1px solid var(--rule); text-align: left; overflow-wrap: anywhere; }
 
 .setup-row-fields > .setup-scope { grid-column: 1 / -1; }
+
+/* Operator orders keep their sample-derived extent and a distinct anchor. */
+.operator-order { position: absolute; top: 10px; min-width: 24px; max-width: none; height: 70px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--rule-strong); color: var(--ink); cursor: grab; touch-action: none; }
+.operator-order[data-status="ungenerated"] { border-style: dashed; }
+.operator-order[data-status="stale"] { border-color: var(--amber); }
+.operator-order[data-selected="true"] { outline: 2px solid var(--phosphor); outline-offset: 2px; z-index: 2; }
+.operator-order[data-muted="true"] { opacity: 0.55; }
+.operator-order:hover { background: var(--panel-hi); }
+.operator-order:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
+.operator-order-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.operator-order-state { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.operator-anchor { position: absolute; inset: 0 auto 0 0; width: 1px; background: var(--ink); }
+.operator-anchor[data-end="true"] { left: auto; right: 0; }
+.voice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.voice-dialogue { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.operator-add { margin: 20px 12px; }
+
+.voice-live-state { display: block; font-size: 11px; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; }
+
+.operator-order[data-range="false"] { min-width: 1px; width: 1px; padding: 0; border: 0; background: transparent; }
+.operator-order[data-range="false"] .operator-order-text { margin-left: 8px; padding: 4px 6px; width: max-content; max-width: 180px; background: var(--panel); border: 1px dashed var(--rule-strong); }
+.operator-order[data-range="false"] .operator-order-state { margin-left: 8px; width: max-content; max-width: 180px; padding: 2px 6px; background: var(--panel); }
+
+.show-check { width: 820px; max-width: calc(100vw - 32px); max-height: calc(100vh - 48px); padding: 0; }
+.show-check .setup-head h2 { margin: 0; }
+.show-check-body { padding: 20px; overflow-y: auto; max-height: calc(100vh - 120px); }
+.show-check-list, .recovered-list { list-style: none; margin: 16px 0; padding: 0; }
+.show-check-list > li { display: flex; align-items: start; justify-content: space-between; gap: 20px; padding: 16px 0; border-top: 1px solid var(--rule); }
+.show-check-list > li > div { min-width: 0; }
+.show-check-list p, .recovered-list p { margin: 6px 0; }
+.show-check-list .button { flex-shrink: 0; }
+.recovered-audio { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--rule); }
+.recovered-audio h4 { margin: 0 0 8px; }
+.recovered-list > li { padding: 12px 0; border-bottom: 1px solid var(--rule); }
+
+@media (max-width: 560px) {
+  .show-check-list > li { flex-direction: column; gap: 8px; }
+}
+
+.show-check-list > li[aria-current="true"] { background: var(--panel-lo); outline: 1px solid var(--ink-dim); outline-offset: -1px; }
+.show-check-list > li { padding-inline: 8px; }
+.recovered-list .field-note { overflow-wrap: anywhere; }
+
+/* Routing is a quiet measurement on the track faceplate, with a keyboard-accessible action. */
+.track-header[data-selected="true"] { box-shadow: inset 3px 0 var(--phosphor); }
+.track-header[data-audio="true"] { gap: 3px; }
+.track-output { background: transparent; border: 0; cursor: pointer; align-self: stretch; text-align: start; height: 22px; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-dim); font-size: 11px; }
+.track-output:hover { color: var(--phosphor); }
+.track-output:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+.audio-routing-status { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.audio-routing-status:empty { display: none; }
+.live > .audio-routing-status { padding: 8px 16px; border-bottom: 1px solid var(--rule); }
+.audio-routing-status .field-note { flex-basis: 100%; }
+.audio-output-fields > .field:first-child { grid-column: 1 / -1; }
+.audio-output-fields > .button { justify-self: start; }
+
+.audio-output-row { grid-template-columns: minmax(0, 1fr) auto; }
+.audio-output-row > .setup-row-name { overflow-wrap: anywhere; }

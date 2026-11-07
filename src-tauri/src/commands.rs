@@ -8,7 +8,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::live_commands::samples_of;
 use crate::recents;
@@ -61,7 +61,9 @@ pub async fn project_new(
     audio: State<'_, SharedAudio>,
     name: String,
     frame_rate: FrameRate,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<ProjectState> {
+    let _voice_transition = voice.begin_transition()?;
     audio.clear();
     log::info!("new project {name:?}");
     recovery::transition(&session, &store, move |s| {
@@ -81,11 +83,33 @@ pub async fn project_open(
     store: State<'_, SharedRecoveries>,
     audio: State<'_, SharedAudio>,
     path: PathBuf,
+    voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<ProjectState> {
+    let _voice_transition = voice.begin_transition()?;
     audio.clear();
     let opened = path.clone();
+    let voice_directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| ProjectError::Io(io::Error::other(e)))?
+        .join("generated-voice");
     let state = recovery::transition(&session, &store, move |s| {
         let project = s.open(&path)?;
+        for generation in project
+            .timelines
+            .iter()
+            .flat_map(|t| &t.tracks)
+            .filter_map(|t| match &t.kind {
+                flux_project::TrackKind::Operator { orders, .. } => Some(orders),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|o| o.generated.as_ref())
+        {
+            if let Some(asset) = project.assets.iter().find(|a| a.id == generation.asset) {
+                s.retain_voice_asset(asset, &voice_directory)?;
+            }
+        }
         Ok(ProjectState {
             project,
             active: s.active(),
@@ -284,6 +308,23 @@ pub async fn output_signal_edit(
         s.edit_signal(op)
     })
     .await
+}
+
+#[tauri::command]
+pub async fn audio_routing_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: flux_project::routing::AudioRoutingOp,
+) -> std::result::Result<ProjectState, flux_project::routing::RoutingError> {
+    run(&session, move |s| {
+        s.update(project);
+        s.edit_audio_routing(op)
+    })
+    .await
+    .map_err(|error| match error {
+        ProjectError::AudioRouting(code) => code,
+        _ => flux_project::routing::RoutingError::InvalidProject,
+    })
 }
 
 /// Registers an audio file; the returned asset is for the frontend to add to its project.

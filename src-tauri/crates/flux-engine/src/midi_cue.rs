@@ -269,6 +269,7 @@ mod tests {
 
     fn track(id: &str, muted: bool, port: Option<&str>, events: Vec<MidiEvent>) -> Track {
         Track {
+            audio_output: Default::default(),
             id: id.into(),
             name: id.into(),
             muted,

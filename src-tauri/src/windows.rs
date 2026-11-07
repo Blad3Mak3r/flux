@@ -170,7 +170,9 @@ pub async fn window_close_editor(
     app: AppHandle,
     session: State<'_, SharedSession>,
     store: State<'_, SharedRecoveries>,
+    voice: State<'_, std::sync::Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<(), String> {
+    let _voice_transition = voice.begin_transition().map_err(|e| e.to_string())?;
     build(&app, WELCOME, "index.html?view=welcome")?;
     recovery::transition(&session, &store, |s| {
         s.clear();

@@ -2,12 +2,17 @@ import { create } from "zustand";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Locale } from "../i18n/messages";
-import type { OutputConfig, ShowOutputs } from "../project/types";
+import type { OutputConfig, Project } from "../project/types";
 import { errorMessage } from "../project/api";
+
+export interface AudioChoice { id: string; name: string | null; users: number }
 
 export const UNASSIGNED = "__flux_unassigned__";
 export const EMPTY_OUTPUT: OutputConfig = { audio: null, ltc: [], mtc: [] };
 export interface Preferences {
+  audioRoutes: Record<string, OutputConfig["audio"]>;
+  voice: string | null;
+  operator: OutputConfig["audio"];
   locale: Locale | null;
   driver: string | null;
   audio: OutputConfig["audio"];
@@ -19,6 +24,9 @@ export interface Preferences {
   warning?: string | null;
 }
 const defaults: Preferences = {
+  audioRoutes: {},
+  voice: null,
+  operator: null,
   locale: null,
   driver: null,
   audio: null,
@@ -35,6 +43,7 @@ export const usePreferences = create<{
   output: OutputConfig;
   editOutput: OutputConfig;
   audition: boolean;
+  choices: AudioChoice[];
 }>(() => ({
   saved: defaults,
   ready: !isTauri(),
@@ -42,6 +51,7 @@ export const usePreferences = create<{
   output: EMPTY_OUTPUT,
   editOutput: EMPTY_OUTPUT,
   audition: false,
+  choices: [],
 }));
 
 function accept(saved: Preferences) {
@@ -95,20 +105,22 @@ export const routeEdit = (
   );
 
 let request = 0;
-export async function resolveOutput(show: ShowOutputs): Promise<OutputConfig> {
+export async function resolveOutput(project: Project): Promise<OutputConfig> {
   await initPreferences();
   if (!isTauri()) return EMPTY_OUTPUT;
   const id = ++request;
   const result = await invoke<{
+    choices: AudioChoice[];
     live: OutputConfig;
     edit: OutputConfig;
     audition: boolean;
-  }>("preferences_resolve", { show });
+  }>("preferences_resolve", { project });
   if (id === request)
-    usePreferences.setState({
+    usePreferences.setState((before) => ({
+      choices: JSON.stringify(before.choices) === JSON.stringify(result.choices) ? before.choices : result.choices,
       output: result.live,
       editOutput: result.edit,
       audition: result.audition,
-    });
+    }));
   return result.live;
 }

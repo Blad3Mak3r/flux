@@ -9,6 +9,8 @@ use crate::{OscDestination, OutputConfig, ProjectError, Result};
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ShowOutputs {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub audio: Vec<crate::routing::AudioBus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metronome: Option<ClickSettings>,
     pub ltc: Vec<LtcSignal>,
@@ -136,6 +138,7 @@ impl ShowOutputs {
 impl From<OutputConfig> for ShowOutputs {
     fn from(routes: OutputConfig) -> Self {
         Self {
+            audio: Vec::new(),
             metronome: routes
                 .metronome
                 .as_ref()

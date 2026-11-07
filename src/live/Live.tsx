@@ -1,3 +1,5 @@
+import { AudioRoutingStatus } from "../audio/routing";
+import { openShowCheck } from "../voice/ShowCheckDialog";
 import { useT } from "../i18n";
 import { setView } from "../state/ui";
 import { selectMode, useTransport } from "../transport/store";
@@ -27,8 +29,10 @@ export function Live() {
           {t("live.legend")}
         </h2>
         <TimelineStrip />
+        <button type="button" className="button" disabled={playing} onClick={openShowCheck}>{t("check.title")}</button>
         <ViewSwitch />
       </div>
+      <AudioRoutingStatus />
       {empty && !ready ? (
         <div className="empty-state">
           <p className="empty-title">{t("live.loading")}</p>

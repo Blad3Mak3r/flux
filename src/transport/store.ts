@@ -1,3 +1,4 @@
+import type { AudioRoutingState } from "./api";
 // What the running output reports, plus where the playhead rests when none runs. It changes about
 // 30 times a second, so components read one field through a selector and re-render only when that
 // field does; the meters read it straight from `getState()` in their own animation loop.
@@ -12,6 +13,7 @@ export interface TransportState {
   levels: Record<string, number>;
   /** Frame count to show when no output runs (absolute, including the start offset). */
   parked: number;
+  audioRouting: AudioRoutingState | null;
   info: OutputInfo | null;
   /** Files the output could not use (missing or unreadable audio), from starting or from edits. */
   clipWarnings: string[];
@@ -23,6 +25,7 @@ export const useTransport = create<TransportState>()(() => ({
   position: null,
   levels: {},
   parked: 0,
+  audioRouting: null,
   info: null,
   clipWarnings: [],
   pendingReconfigure: false,
