@@ -47,6 +47,12 @@ pub struct Transport {
 }
 
 impl Transport {
+    pub fn configure(&mut self, clock: Clock, start: u64) {
+        let epoch = self.epoch + 1;
+        *self = Self::new(clock, start);
+        self.epoch = epoch;
+    }
+
     pub fn new(clock: Clock, start: u64) -> Self {
         Self {
             clock,

@@ -581,6 +581,7 @@ mod tests {
 
     fn midi(id: &str, at: u64, message: MidiMessage) -> MidiEvent {
         MidiEvent {
+            first_turn_only: false,
             id: id.into(),
             at,
             message,
@@ -621,6 +622,7 @@ mod tests {
             TrackKind::Osc {
                 destination: None,
                 events: vec![OscEvent {
+                    first_turn_only: false,
                     id: "o1".into(),
                     at: 20,
                     address: "/cue/1/start".into(),

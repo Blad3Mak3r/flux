@@ -287,6 +287,7 @@ mod tests {
 
     fn event(id: &str, at: u64, message: MidiMessage) -> MidiEvent {
         MidiEvent {
+            first_turn_only: false,
             id: id.into(),
             at,
             message,

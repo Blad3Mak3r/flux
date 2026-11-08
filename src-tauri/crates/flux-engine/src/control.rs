@@ -18,6 +18,9 @@ use crate::cues::Cue;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum ControlAction {
+    Go,
+    Devamp,
+    CancelDevamp,
     Play,
     Pause,
     /// Play when stopped or paused, pause when playing.
@@ -241,6 +244,9 @@ pub fn osc_action(message: &OscMessage) -> Option<ControlAction> {
             .map(make)
     };
     match message.address.strip_prefix("/flux/")? {
+        "go" => Some(ControlAction::Go),
+        "devamp" => Some(ControlAction::Devamp),
+        "devamp/cancel" => Some(ControlAction::CancelDevamp),
         "play" => Some(ControlAction::Play),
         "pause" => Some(ControlAction::Pause),
         "toggle" => Some(ControlAction::Toggle),
