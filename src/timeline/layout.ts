@@ -2,7 +2,7 @@ import { create } from "zustand";
 import type { Viewport } from "./waveform";
 
 export const RULER_H = 34;
-export const AUDIO_LANE_H = 96;
+export const AUDIO_LANE_H = 120;
 export const NOTES_LANE_H = 64;
 
 /** Pointer feedback on the timeline, in frames from the timeline origin. */

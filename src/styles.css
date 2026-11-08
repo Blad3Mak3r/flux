@@ -33,7 +33,7 @@
   --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-measure: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
 
-  --header-w: 208px;
+  --header-w: 248px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -864,8 +864,8 @@ input:disabled {
   flex: none;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
-  padding: 0 8px 0 12px;
+  gap: 4px;
+  padding: 8px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--rule);
 }
@@ -874,7 +874,39 @@ input:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 28px;
+  flex-shrink: 0;
   cursor: grab;
+}
+
+.track-head-row > .icon-button,
+.track-kind {
+  flex-shrink: 0;
+}
+
+.track-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 24px;
+  flex-shrink: 0;
+}
+
+.track-kind-label {
+  flex: 1;
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+.track-header[data-audio="false"] {
+  gap: 2px;
+  padding-block: 4px;
+}
+
+.track-header > .fader,
+.track-header > .meter {
+  flex-shrink: 0;
 }
 
 /* Reordering: the header follows the pointer, its lane dims, and a line marks where it will land. */
@@ -924,6 +956,7 @@ input:disabled {
 }
 
 .track-muted-tag {
+  flex-shrink: 0;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -3216,12 +3249,28 @@ input:disabled {
 .show-check-list > li { padding-inline: 8px; }
 .recovered-list .field-note { overflow-wrap: anywhere; }
 
-/* Routing is a quiet measurement on the track faceplate, with a keyboard-accessible action. */
+/* Routing has its own row, separate from the track identity and level controls. */
 .track-header[data-selected="true"] { box-shadow: inset 3px 0 var(--phosphor); }
-.track-header[data-audio="true"] { gap: 3px; }
-.track-output { background: transparent; border: 0; cursor: pointer; align-self: stretch; text-align: start; height: 22px; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-dim); font-size: 11px; }
-.track-output:hover { color: var(--phosphor); }
-.track-output:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+.track-output {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  height: 24px;
+  padding: 0 4px;
+  background: var(--panel-lo);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  cursor: pointer;
+  text-align: start;
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+.track-output > svg { flex-shrink: 0; width: 12px; height: 12px; }
+.track-output-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-output:hover { color: var(--ink); border-color: var(--rule-strong); }
+.track-output:focus-visible { outline: 1px solid var(--ink-dim); outline-offset: -1px; }
 .audio-routing-status { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .audio-routing-status:empty { display: none; }
 .live > .audio-routing-status { padding: 8px 16px; border-bottom: 1px solid var(--rule); }

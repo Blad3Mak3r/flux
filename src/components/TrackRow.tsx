@@ -29,7 +29,7 @@ import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
-import { MidiIcon, MuteIcon, NoteIcon, OscIcon, WaveIcon, VoiceIcon } from "./icons";
+import { ChevronRightIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, WaveIcon, VoiceIcon } from "./icons";
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu } from "./menus";
 
 export function laneHeight(track: Track): number {
@@ -98,7 +98,6 @@ export const TrackHeader = memo(function TrackHeader({
             {track.name}
           </span>
         )}
-        {track.muted && <span className="track-muted-tag">{t("track.muted")}</span>}
         <button
           type="button"
           className="icon-button"
@@ -110,10 +109,26 @@ export const TrackHeader = memo(function TrackHeader({
           <MuteIcon on={track.muted} />
         </button>
       </div>
+      <div className="track-detail-row">
+        {audio ? (
+          <button
+            type="button"
+            className="track-output"
+            aria-label={`${t("routing.trackOutput")}: ${outputName(output)}`}
+            title={`${t("routing.trackOutput")}: ${outputName(output)}`}
+            onClick={() => { select({ kind: "track", id: track.id }); setCollapsed(false); }}
+          >
+            <OutputIcon />
+            <span className="track-output-name">{outputName(output)}</span>
+            <ChevronRightIcon />
+          </button>
+        ) : (
+          <span className="track-kind-label">{t(`track.kind.${track.kind.type}`)}</span>
+        )}
+        {track.muted && <span className="track-muted-tag">{t("track.muted")}</span>}
+      </div>
       {audio && (
         <>
-          <button type="button" className="track-output" title={`${t("routing.trackOutput")}: ${outputName(output)}`}
-            onClick={() => { select({ kind: "track", id: track.id }); setCollapsed(false); }}>{outputName(output)}</button>
           <Fader
             name={track.name}
             valueDb={track.gainDb ?? 0}
