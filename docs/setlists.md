@@ -28,9 +28,9 @@ routes. Prepared audio must fit in available memory.
 
 A prepared Live has two columns. The left column is the operation of the show: a fixed head with the current
 entry, state, loop turn, GO (and Cancel loop exit while an exit is pending) and a compact line with the next
-entry and duration, then a scrolling body with route warnings, the standby cue and countdown, playing cues,
-active notes, the entry's operator notes, the running order and Show options (which holds Leave setlist, enabled
-only while stopped). The right column is the cue sidebar, always visible at the full height under the Live bar:
+entry and duration, then a scrolling body that only shows what has something to say: route problems (ready routes
+are not listed), the standby cue and countdown, playing cues and active notes while there are any, the entry's
+operator notes, the running order and Show options (which holds Leave setlist, enabled only while stopped). The right column is the cue sidebar, always visible at the full height under the Live bar:
 a row per cue with its number, name, state, start timecode, kind, track and duration. One click focuses a cue;
 double-click or Enter goes to it, and Enter on a cue never also runs GO. Neither column makes the screen scroll,
 and long names, long notes or route warnings never shrink the cue list. A prepared show's numbered running

@@ -340,13 +340,20 @@ right. The Live bar (setlist name, voice-order check, Edit/Live switch) spans bo
 `auto minmax(0, 1fr)` rows and `minmax(0, 1fr) clamp(380px, 40%, 520px)` columns, so the cue column keeps
 its full height whatever the left column holds. Live without a setlist keeps its stacked layout.
 
-The left column has a fixed head and a scrolling body. The head holds the current entry (two lines, the
-full name in the tooltip), its state, loop turn and pending exit, a 64px GO button whose backend-provided
-label may wrap to two lines, Cancel loop exit, and the next entry and duration as one compact line. The
-body scrolls on its own: route warnings, standby cue and countdown, playing cues, active notes, the
-entry's operator notes (a box of its own that scrolls when long), the running order and, last, the Show
-options disclosure that leaves the setlist (Stop first). The running order is a compact vertical list
-with numbers, aliases, sources, omissions and explicit Current/Next words; its own list is capped at 192px.
+The left column has a fixed head and a scrolling body, and it stays quiet: a panel appears only while it
+has something to say. The head holds the current entry (two lines, the full name in the tooltip), then one
+line each for its state, loop turn and pending exit, and the next entry and duration in dim ink; GO is the
+single saturated block, 64px, its backend-provided label may wrap to two lines, and its Enter shortcut is
+in the tooltip and `aria-keyshortcuts` rather than printed on it. Cancel loop exit sits under it. The body
+scrolls on its own: route problems only (a route that is ready is not listed), the standby cue and
+countdown, playing cues and active notes only while there are any, the entry's operator notes (a box of its
+own that scrolls when long), the running order and, last, the Show options disclosure that leaves the
+setlist (Stop first). Panels are separated by one 1px rule and carry no legend rule of their own. The running
+order is a compact vertical list with numbers, aliases and sources; only Current, Next and Omitted rows print
+a status word (passed rows are dimmed, and every row keeps its status for assistive technology); its own
+list is capped at 192px. Its caption is a legend like the other panels' (uppercase, tracked), the hint beside it
+appears only while a stop is needed, and every Live scroller uses one thin scrollbar so nested lists do not
+stack heavy bars. Cues already done or muted dim their track and length along with their name.
 
 The cue sidebar is the cue list in a `sidebar` layout: a fixed Cues bar with the double-click/Enter hint,
 and a list that scrolls vertically only. Each cue is a three-line row of at least 72px: number and name
