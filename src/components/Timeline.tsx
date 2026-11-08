@@ -321,7 +321,7 @@ export function Timeline() {
                 grid={grid}
                 onSeek={(relative) => seek(start + relative)}
               />
-              <ControlLayer controls={timeline.controls} pxPerFrame={pxPerFrame} />
+              <ControlLayer controls={timeline.controls} pxPerFrame={pxPerFrame} rate={frameRate} />
             </div>
 
             {timeline.tracks.map((track) => (

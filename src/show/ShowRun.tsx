@@ -8,7 +8,6 @@ import { closeShow, prepareShow, showAction } from "./api";
 export function ShowRun() {
   const t = useT();
   const setlists = useDoc((d) => d.project.setlists);
-  const timelines = useDoc((d) => d.project.timelines);
   const state = useShow((s) => s.state);
   const preparing = useShow((s) => s.preparing);
   const selected = useUi((s) => s.setlistSelection);
@@ -30,8 +29,8 @@ export function ShowRun() {
         {state.tick.devampPending && <button type="button" className="button" onClick={() => void showAction({type:"cancelDevamp"})}>{t("show.cancelDevamp")}</button>}
       </div>
     </div>
-    <div className="show-run-context"><div><span>{t("show.next")}</span><strong>{state.next ?? t("show.endOfShow")}</strong></div><div><span>{t("show.duration")}</span><strong>{state.durationText ?? t("show.indeterminate")}</strong></div><div><span>{t("show.setlist")}</span><strong>{setlist?.name}</strong></div></div>
+    <div className="show-run-context"><div><span>{t("show.next")}</span><strong>{state.next ?? t("show.endOfShow")}</strong></div><div><span>{t("show.duration")}</span><strong>{state.durationText ?? t("show.indeterminate")}</strong></div><div><span>{t("show.setlist")}</span><strong>{state.setlistName}</strong></div></div>
     {state.notes && <p className="show-run-notes">{state.notes}</p>}
-    <details className="show-run-options"><summary>{t("show.moreActions")}</summary><div className="show-run-option-fields"><label>{t("show.prepareEntry")}<select value={state.entryId} disabled={!stopped} onChange={(e) => void showAction({type:"prepare",entryId:e.target.value})}>{setlist?.entries.map((e,index) => <option key={e.id} value={e.id} disabled={e.omitted}>{e.name || timelines.find((tl) => tl.id === e.timelineId)?.name || t("show.entryNumber",{number:index+1})}</option>)}</select></label><button type="button" className="button" disabled={!stopped} onClick={() => void closeShow()}>{t("show.leave")}</button>{!stopped && <p>{t("show.stopFirst")}</p>}</div></details>
+    <details className="show-run-options"><summary>{t("show.showOptions")}</summary><div className="show-run-option-fields"><button type="button" className="button" disabled={!stopped} onClick={() => void closeShow()}>{t("show.leave")}</button>{!stopped && <p>{t("show.stopFirst")}</p>}</div></details>
   </section>;
 }

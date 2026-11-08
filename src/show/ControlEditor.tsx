@@ -6,6 +6,7 @@ import { closeShowControls, openShowControls, useUi } from "../state/ui";
 import { useShow } from "./store";
 import { addShowControl, editShow } from "./api";
 import type { TimelineControl } from "./types";
+import { formatFrames } from "../timecode";
 
 /** One selected control, using the same inspector and time fields as clips and notes. */
 export function ControlEditor() {
@@ -24,8 +25,9 @@ export function ControlEditor() {
         <button type="button" className="button" onClick={() => void addShowControl("wait",t("show.wait"))}><PlusIcon /><PauseIcon />{t("show.addWait")}</button>
         <button type="button" className="button" onClick={() => void addShowControl("loop",t("show.loop"))}><PlusIcon /><LoopIcon />{t("show.addLoop")}</button>
       </fieldset>
+      <p className="field-note control-context">{t("show.controlContext")}</p>
       {(timeline.controls?.length ?? 0) === 0 ? <p className="field-note">{t("show.controlsEmpty")}</p> : <ul className="control-list" aria-label={t("show.loopsWaits")}>
-        {timeline.controls?.map((c) => <li key={c.id}><button type="button" aria-pressed={c.id === control?.id} onClick={() => openShowControls(c.id)}>{c.type === "loop" ? <LoopIcon /> : <PauseIcon />}<span>{c.name}</span></button></li>)}
+        {timeline.controls?.map((c) => <li key={c.id}><button type="button" aria-pressed={c.id === control?.id} onClick={() => openShowControls(c.id)}>{c.type === "loop" ? <LoopIcon /> : <PauseIcon />}<span className="control-list-copy"><strong>{c.name}</strong><span className="control-time-range">{formatFrames(c.at, timeline.timecode.frameRate)}{c.type === "loop" && <> – {formatFrames(c.end, timeline.timecode.frameRate)}</>}</span><span>{c.type === "wait" ? t("show.wait") : c.turns === null ? t("show.untilGo") : t("show.repeatCount", { count: c.turns })}</span></span></button></li>)}
       </ul>}
       {control ? <fieldset key={control.id} disabled={locked} className="control-properties">
         <legend>{t(control.type === "loop" ? "show.loop" : "show.wait")}</legend>

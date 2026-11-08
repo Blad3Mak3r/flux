@@ -8,17 +8,21 @@ import { openTimelineEditor, setView, useUi } from "../state/ui";
 import { selectTimeline } from "../state/timelines";
 import { useShow } from "./store";
 import { editShow } from "./api";
+import { EntrySummary } from "./EntrySummary";
+import { useShowOverview } from "./overview";
 import type { Setlist, SetlistEntry, Transition } from "./types";
 
 export function SetlistEditor() {
   const t = useT();
   const project = useDoc((d) => d.project);
+  const overview = useShowOverview();
   const running = useShow((s) => s.state);
   const selected = useUi((s) => s.setlistSelection);
   const entryId = useUi((s) => s.setlistEntrySelection);
   const setSelected = (setlistSelection: string) => useUi.setState({setlistSelection});
   const setEntryId = (setlistEntrySelection: string) => useUi.setState({setlistEntrySelection});
   const [adding, setAdding] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [settings, setSettings] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -26,7 +30,17 @@ export function SetlistEditor() {
   const lists = project.setlists ?? [];
   const setlist = lists.find((s) => s.id === selected) ?? lists[0];
   const entry = setlist?.entries.find((e) => e.id === entryId) ?? setlist?.entries[0];
+  const sheet = overview.lists.find((s) => s.id === setlist?.id);
+  const selectedView = sheet?.entries.find((e) => e.id === entry?.id);
   const locked = !!running && running.tick.status !== "ready" && running.tick.status !== "completed";
+  const ordering = locked || overview.pending || moving;
+  const move = (id: string, to: number | null | undefined) => {
+    if (!setlist || ordering || to == null) return;
+    setEntryId(id);
+    setSettings(false);
+    setMoving(true);
+    void editShow({ op: "moveEntry", setlistId: setlist.id, id, to }).finally(() => setMoving(false));
+  };
   const create = async () => {
     const result = await editShow({op:"addSetlist",name:newName || t("show.default")});
     const updated = result?.project.setlists;
@@ -65,14 +79,35 @@ export function SetlistEditor() {
       <button type="button" className="button primary" onClick={() => setCreating(true)}>{t("show.addSetlist")}</button>
     </div> : <div className="setlist-columns">
       <div className="setlist-order">
-        <div className="setlist-list-head"><h3>{t("show.runningOrder")}</h3><button type="button" className="button" disabled={locked} onClick={() => {setAdding(!adding); setSettings(false);}}><PlusIcon />{t("show.addEntry")}</button></div>
-        <ol className="setlist-entries" aria-label={t("show.runningOrder")}>
+        <div className="setlist-list-head">
+          <div className="setlist-list-heading"><h3>{t("show.runningOrder")}</h3><button type="button" className="button" disabled={locked} onClick={() => {setAdding(!adding); setSettings(false);}}><PlusIcon />{t("show.addEntry")}</button></div>
+          {entry && <div className="setlist-order-tools" role="group" aria-label={t("show.order")}>
+            <span className="setlist-moving-entry">{selectedView?.name ?? entry.name}</span>
+            <button type="button" className="button" disabled={ordering || selectedView?.moveUp == null} title={t("show.moveUpShortcut")} onClick={() => move(entry.id, selectedView?.moveUp)}><ArrowUpIcon />{t("show.up")}</button>
+            <button type="button" className="button" disabled={ordering || selectedView?.moveDown == null} title={t("show.moveDownShortcut")} onClick={() => move(entry.id, selectedView?.moveDown)}><ArrowDownIcon />{t("show.down")}</button>
+            <label className="setlist-move-to">{t("show.moveTo")}
+              <select aria-label={t("show.moveTo")} value={entry.id} disabled={ordering || !sheet}
+                onChange={(e) => move(entry.id, sheet?.entries.find((item) => item.id === e.target.value)?.position)}>
+                {sheet?.entries.map((item) => <option key={item.id} value={item.id}>{item.number} · {item.name}</option>)}
+              </select>
+            </label>
+          </div>}
+          <p className="setlist-order-hint" id="setlist-order-hint">{t("show.reorderHint")}</p>
+        </div>
+        <ol className="setlist-entries" aria-label={t("show.runningOrder")} aria-busy={overview.pending || moving}>
           {setlist.entries.map((item,index) => {
             const timeline = project.timelines.find((tl) => tl.id === item.timelineId);
+            const view = sheet?.entries.find((e) => e.id === item.id);
             return <li key={item.id} data-omitted={item.omitted}>
-              <button type="button" className="setlist-entry" aria-pressed={!settings && entry?.id === item.id} onClick={() => {setEntryId(item.id); setSettings(false);}}>
+              <button type="button" className="setlist-entry" aria-pressed={!settings && entry?.id === item.id} aria-describedby="setlist-order-hint" onClick={() => {setEntryId(item.id); setSettings(false);}}
+                onKeyDown={(event) => {
+                  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  move(item.id, event.key === "ArrowUp" ? view?.moveUp : view?.moveDown);
+                }}>
                 <span className="setlist-number">{index+1}</span>
-                <span className="setlist-entry-copy"><strong>{item.name || timeline?.name}</strong><span>{t(`show.summary.${item.transition.type}`)}{item.omitted && <> · {t("show.omitted")}</>}</span></span>
+                <span className="setlist-entry-copy"><strong>{item.name || timeline?.name}</strong>{view ? <EntrySummary entry={view} /> : <span>{t("show.loadingOverview")}</span>}</span>
                 {item.notes && <span className="setlist-notes-indicator" title={t("show.hasNotes")}>{t("show.notesShort")}</span>}
               </button>
             </li>;
@@ -105,7 +140,6 @@ function EntrySettings({setlist,entry,locked}:{setlist:Setlist;entry:SetlistEntr
   const t = useT();
   const timeline = useDoc((d) => d.project.timelines.find((tl) => tl.id === entry.timelineId));
   const change = (patch:Partial<SetlistEntry>) => void editShow({op:"setEntry",setlistId:setlist.id,entry:{...entry,...patch}});
-  const index = setlist.entries.indexOf(entry);
   return <fieldset disabled={locked} className="setlist-property-fields"><legend>{t("show.entrySettings")}</legend>
     <div className="setlist-source"><span>{t("show.timeline")}</span><strong>{timeline?.name}</strong><button type="button" className="button" onClick={() => {void (async () => {await selectTimeline(entry.timelineId); openTimelineEditor();})();}}>{t("show.editTimeline")}</button></div>
     <TextField label={t("show.entryName")} hint={t("show.entryNameHint")} value={entry.name} onCommit={(name) => change({name})} />
@@ -116,10 +150,6 @@ function EntrySettings({setlist,entry,locked}:{setlist:Setlist;entry:SetlistEntr
     {entry.transition.type === "after" && <label className="field">{t("show.delayMs")}<input type="number" min={0} defaultValue={entry.transition.milliseconds} key={entry.transition.milliseconds} onBlur={(e) => {if (entry.transition.type === "after" && e.target.valueAsNumber !== entry.transition.milliseconds) change({transition:{type:"after",milliseconds:e.target.valueAsNumber}});}} /></label>}
     <TextAreaField label={t("show.notes")} hint={t("show.notesHint")} value={entry.notes} rows={4} onCommit={(notes) => change({notes})} />
     <label className="check-row"><input type="checkbox" checked={!entry.omitted} onChange={(e) => change({omitted:!e.target.checked})} /><span>{t("show.includeEntry")}</span></label>
-    <div className="setlist-entry-tools"><span>{t("show.order")}</span><div className="button-row">
-      <button type="button" className="button" disabled={index === 0} onClick={() => void editShow({op:"moveEntry",setlistId:setlist.id,id:entry.id,to:index-1})}><ArrowUpIcon />{t("show.up")}</button>
-      <button type="button" className="button" disabled={index === setlist.entries.length-1} onClick={() => void editShow({op:"moveEntry",setlistId:setlist.id,id:entry.id,to:index+1})}><ArrowDownIcon />{t("show.down")}</button>
-    </div></div>
     <div className="setlist-danger"><button type="button" className="button danger" onClick={() => void editShow({op:"removeEntry",setlistId:setlist.id,id:entry.id})}><TrashIcon />{t("show.removeEntry")}</button></div>
   </fieldset>;
 }

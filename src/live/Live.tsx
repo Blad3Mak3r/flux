@@ -1,4 +1,6 @@
 import { ShowRun } from "../show/ShowRun";
+import { RunningOrder } from "../show/RunningOrder";
+import { useShow } from "../show/store";
 import { AudioRoutingStatus } from "../audio/routing";
 import { openShowCheck } from "../voice/ShowCheckDialog";
 import { useT } from "../i18n";
@@ -18,6 +20,7 @@ import { ViewSwitch } from "./ViewSwitch";
  */
 export function Live() {
   const t = useT();
+  const setlistName = useShow((s) => s.state?.setlistName);
   const ready = useLive((live) => live.ready);
   const empty = useLive((live) => live.cues.length === 0);
   const hasNotes = useLive((live) => live.cues.some((cue) => cue.kind === "note"));
@@ -29,10 +32,11 @@ export function Live() {
         <h2 id="live-legend" className="legend">
           {t("live.legend")}
         </h2>
-        <TimelineStrip />
+        {setlistName !== undefined ? <span className="live-setlist-name">{setlistName}</span> : <TimelineStrip />}
         <button type="button" className="button" disabled={playing} onClick={openShowCheck}>{t("check.title")}</button>
         <ViewSwitch />
       </div>
+      <RunningOrder />
       <ShowRun />
       <AudioRoutingStatus />
       {empty && !ready ? (

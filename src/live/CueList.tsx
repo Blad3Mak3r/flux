@@ -83,7 +83,14 @@ export function CueList() {
     const rows = scroller.current;
     const done = rows?.querySelectorAll('[data-status="done"]');
     const row = rows?.querySelector('[data-status="next"]') ?? done?.[done.length - 1];
-    row?.scrollIntoView({ block: "nearest" });
+    // Keep following inside the cue list; scrolling ancestors can hide the prepared show and GO.
+    if (rows && row) {
+      const bounds = rows.getBoundingClientRect();
+      const target = row.getBoundingClientRect();
+      const header = rows.querySelector(".cue-head")?.getBoundingClientRect().height ?? 0;
+      if (target.top < bounds.top + header) rows.scrollTop += target.top - bounds.top - header;
+      else if (target.bottom > bounds.bottom) rows.scrollTop += target.bottom - bounds.bottom;
+    }
   }, [follow]);
 
   return (
