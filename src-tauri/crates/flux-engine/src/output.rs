@@ -63,6 +63,8 @@ pub enum OutputError {
     },
     #[error("audio stream: {0}")]
     Stream(String),
+    #[error("stop microphone recording before playback")]
+    Recording,
     #[error("the output is not running")]
     NotRunning,
     #[error(transparent)]
@@ -72,7 +74,11 @@ pub enum OutputError {
 /// Tauri sends command errors to the frontend as serialized values: use the message.
 impl Serialize for OutputError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(self)
+        if matches!(self, Self::Recording) {
+            serializer.serialize_str("voiceRecordingActive")
+        } else {
+            serializer.collect_str(self)
+        }
     }
 }
 
@@ -3405,6 +3411,7 @@ mod tests {
             kind: TrackKind::Operator {
                 voice: None,
                 orders: vec![VoiceOrder {
+                    mode: Default::default(),
                     synthesis_text: None,
                     trim_start: 0,
                     trim_end: 0,

@@ -25,6 +25,27 @@ pub(super) fn upgrade(value: &mut Value, created: &str) {
             .or_insert_with(|| json!({ "enabled": true, "intervalSeconds": 30 }));
     }
     local_routes(value);
+    if let Some(timelines) = value.get_mut("timelines").and_then(Value::as_array_mut) {
+        for order in timelines
+            .iter_mut()
+            .filter_map(|t| t.get_mut("tracks").and_then(Value::as_array_mut))
+            .flatten()
+            .filter_map(|t| t.get_mut("kind"))
+            .filter_map(|k| k.get_mut("orders").and_then(Value::as_array_mut))
+            .flatten()
+        {
+            if let Some(order) = order.as_object_mut() {
+                let manual = order
+                    .get("generated")
+                    .and_then(|g| g.get("origin"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|o| o == "imported" || o == "recorded");
+                order
+                    .entry("mode")
+                    .or_insert_with(|| json!(if manual { "manual" } else { "generated" }));
+            }
+        }
+    }
     if let Some(version) = value.get_mut("formatVersion") {
         *version = json!(FORMAT_VERSION);
     }
@@ -330,5 +351,28 @@ mod tests {
             value["autosave"],
             json!({ "enabled": true, "intervalSeconds": 30 })
         );
+    }
+    #[test]
+    fn imported_orders_migrate_to_manual_and_explicit_modes_survive() {
+        let mut project = json!({ "formatVersion": 10, "timelines": [{ "tracks": [{ "kind": { "type": "operator", "orders": [
+            { "generated": { "origin": "imported" } },
+            { "generated": { "origin": "generated" } },
+            {},
+            { "mode": "generated", "generated": { "origin": "recorded" } }
+        ] } }] }] });
+        upgrade(&mut project, DATE);
+        let orders = project["timelines"][0]["tracks"][0]["kind"]["orders"]
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            orders
+                .iter()
+                .map(|o| o["mode"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["manual", "generated", "generated", "generated"]
+        );
+        let before = project.clone();
+        upgrade(&mut project, DATE);
+        assert_eq!(project, before);
     }
 }

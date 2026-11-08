@@ -1,5 +1,6 @@
 //! Credentials and speech workers. Provider responses and secrets never reach diagnostics.
 pub(crate) mod preview;
+pub(crate) mod recording;
 use crate::voice_jobs::{JobStore, Recording, Snapshot, StoredJob};
 use crate::{
     commands::SharedSession,
@@ -26,6 +27,7 @@ pub enum Error {
     Obsolete,
     Storage,
     Audio,
+    Capture,
     Limit,
     MissingRoute,
     Output,
@@ -36,6 +38,7 @@ type Result<T> = std::result::Result<T, Error>;
 #[derive(Default)]
 pub struct VoiceState {
     key: Mutex<Option<String>>,
+    recording: Mutex<Option<recording::ActiveRecording>>,
     session_only: Mutex<bool>,
     pending: Mutex<Option<Pending>>,
     serial: AtomicU64,
@@ -121,7 +124,7 @@ impl Drop for VoiceTransition<'_> {
     }
 }
 
-const MAX_VOICE_FRAMES: u64 = flux_core::ENGINE_RATE as u64 * 600;
+const MAX_VOICE_FRAMES: u64 = flux_core::ENGINE_RATE as u64 * 3600;
 fn decode_recording(bytes: Vec<u8>, extension: &str) -> Result<flux_audio::Decoded> {
     flux_audio::decode_limited(bytes, Some(extension), MAX_VOICE_FRAMES).map_err(|error| {
         if matches!(error, flux_audio::AudioError::Limit) {
@@ -184,10 +187,11 @@ fn snapshot(project: &Project, id: &str, local: Option<&str>) -> Result<Snapshot
                 let voice = flux_project::operator::effective_voice(project, track, local)
                     .0
                     .ok_or(Error::MissingVoice)?;
-                if order.dialogue.trim().is_empty() {
+                if order.dialogue.trim().is_empty() && local != Some("recorded") {
                     return Err(Error::InvalidInput);
                 }
                 return Ok(Snapshot {
+                    mode: order.mode,
                     synthesis_text: order.synthesis_text.clone(),
                     project: project.meta.id.clone(),
                     timeline: timeline.id.clone(),
@@ -777,7 +781,7 @@ pub async fn voice_commit(
 }
 
 fn job_matches(project: &Project, job: &StoredJob, local: Option<&str>) -> bool {
-    let imported = job.origin == flux_project::operator::RecordingOrigin::Imported;
+    let imported = job.origin != flux_project::operator::RecordingOrigin::Generated;
     snapshot(
         project,
         &job.snapshot.order,
@@ -832,11 +836,17 @@ fn attach_recording(
                 .flatten()
                 .find(|o| o.id == job.snapshot.order)
                 .ok_or_else(|| flux_project::ProjectError::Invalid("unknown voice order".into()))?;
+            order.mode = if job.origin == flux_project::operator::RecordingOrigin::Generated {
+                flux_project::operator::VoiceMode::Generated
+            } else {
+                flux_project::operator::VoiceMode::Manual
+            };
             order.trim_start = 0;
             order.trim_end = 0;
             order.generated = Some(GeneratedVoice {
                 origin: job.origin,
-                synthesis_text: if job.origin == flux_project::operator::RecordingOrigin::Imported {
+                synthesis_text: if job.origin != flux_project::operator::RecordingOrigin::Generated
+                {
                     None
                 } else {
                     job.snapshot.synthesis_text
@@ -844,7 +854,7 @@ fn attach_recording(
                 asset: asset.id.clone(),
                 dialogue: job.snapshot.dialogue,
                 voice: job.snapshot.voice,
-                model: if job.origin == flux_project::operator::RecordingOrigin::Imported {
+                model: if job.origin != flux_project::operator::RecordingOrigin::Generated {
                     String::new()
                 } else {
                     flux_project::operator::VOICE_MODEL.into()
@@ -887,6 +897,15 @@ pub fn send_transport(
     command: flux_engine::transport::Command,
 ) -> std::result::Result<(), flux_engine::output::OutputError> {
     let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+    if matches!(command, flux_engine::transport::Command::Play)
+        && state
+            .recording
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    {
+        return Err(flux_engine::output::OutputError::Recording);
+    }
     invalidate_preview(state);
     crate::transport_commands::send(output, command)
 }
@@ -928,7 +947,15 @@ mod tests {
 
     #[test]
     fn imported_recording_round_trips_offline_with_source_format_and_resets_trims() {
-        use flux_project::operator::RecordingOrigin;
+        recording_round_trip(flux_project::operator::RecordingOrigin::Imported);
+    }
+
+    #[test]
+    fn microphone_take_survives_trim_save_reopen_and_offline_playback() {
+        recording_round_trip(flux_project::operator::RecordingOrigin::Recorded);
+    }
+
+    fn recording_round_trip(origin: flux_project::operator::RecordingOrigin) {
         let dir = tempfile::tempdir().unwrap();
         let mut session = flux_project::Session::default();
         session.new_project("Show", flux_project::FrameRate::Fps25);
@@ -950,6 +977,7 @@ mod tests {
         let TrackKind::Operator { orders, .. } = &mut p.timelines[0].tracks[0].kind else {
             panic!()
         };
+        orders[0].mode = flux_project::operator::VoiceMode::Manual;
         orders[0].dialogue = "Operator output test".into();
         let id = orders[0].id.clone();
         session.sync(p.clone()).unwrap();
@@ -965,12 +993,24 @@ mod tests {
                     bytes,
                     samples: decoded.frames() as u64,
                     extension: "wav",
-                    origin: RecordingOrigin::Imported,
+                    origin,
                     voice_name: Some("Human recording.wav".into()),
                 },
             )
             .unwrap();
         let audio = store.audio(&job.id).unwrap();
+        let mut changed = p.clone();
+        let TrackKind::Operator { orders, .. } = &mut changed.timelines[0].tracks[0].kind else {
+            panic!()
+        };
+        orders[0].mode = flux_project::operator::VoiceMode::Generated;
+        session.sync(changed.clone()).unwrap();
+        assert!(matches!(
+            attach_recording(&mut session, changed, job.clone(), &audio, None, false),
+            Err(Error::Obsolete)
+        ));
+        assert!(store.read(&job.id).is_ok());
+        session.sync(p.clone()).unwrap();
         let first = attach_recording(&mut session, p, job.clone(), &audio, None, false).unwrap();
         assert!(first.project.assets[0].file.ends_with(".wav"));
         let trimmed = session
@@ -988,10 +1028,7 @@ mod tests {
         };
         assert_eq!((orders[0].trim_start, orders[0].trim_end), (0, 0));
         assert_eq!(orders[0].status(None), flux_project::VoiceStatus::Synced);
-        assert_eq!(
-            orders[0].generated.as_ref().unwrap().origin,
-            RecordingOrigin::Imported
-        );
+        assert_eq!(orders[0].generated.as_ref().unwrap().origin, origin);
         let archive = dir.path().join("show.flx");
         session.save(&restored.project, &archive).unwrap();
         std::fs::remove_file(audio).unwrap();
@@ -1037,6 +1074,7 @@ mod tests {
             extension: "mp3".into(),
             voice_name: None,
             snapshot: Snapshot {
+                mode: Default::default(),
                 synthesis_text: None,
                 project: "project".into(),
                 timeline: "timeline".into(),

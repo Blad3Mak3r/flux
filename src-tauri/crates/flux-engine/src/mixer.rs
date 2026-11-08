@@ -639,6 +639,7 @@ mod tests {
             kind: TrackKind::Operator {
                 voice: None,
                 orders: vec![flux_project::VoiceOrder {
+                    mode: Default::default(),
                     synthesis_text: None,
                     trim_start: 0,
                     trim_end: 0,

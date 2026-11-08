@@ -335,7 +335,7 @@ mod tests {
         zip.write_all(&serde_json::to_vec(&value).unwrap()).unwrap();
         zip.finish().unwrap();
         let (opened, _) = crate::open(&path).unwrap();
-        assert_eq!(opened.format_version, 10);
+        assert_eq!(opened.format_version, 11);
         assert_eq!(target(&opened.timelines[0].tracks[0]), Some(PROGRAMME));
         assert!(opened.output.audio.is_empty());
     }

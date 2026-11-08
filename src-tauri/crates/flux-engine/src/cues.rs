@@ -538,6 +538,7 @@ mod tests {
             TrackKind::Operator {
                 voice: None,
                 orders: vec![VoiceOrder {
+                    mode: Default::default(),
                     synthesis_text: None,
                     trim_start: 0,
                     trim_end: 0,
