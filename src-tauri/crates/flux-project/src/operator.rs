@@ -86,6 +86,8 @@ pub struct VoiceView {
     pub before_origin: bool,
     pub start: Option<f64>,
     pub length: Option<f64>,
+    /// Exact source offset for drawing a trimmed recording, without millisecond rounding.
+    pub audio_offset_seconds: f64,
     pub trim_start_ms: String,
     pub trim_end_ms: String,
 }
@@ -228,6 +230,7 @@ pub fn views(project: &Project, local: Option<&str>) -> Vec<VoiceView> {
                         before_origin: order.generated.is_some() && interval.is_none(),
                         start: interval.map(|(from, _)| to_frames(from)),
                         length: order.play_samples().map(to_frames),
+                        audio_offset_seconds: order.trim_start as f64 / f64::from(ENGINE_RATE),
                         trim_start_ms: (order.trim_start / (u64::from(ENGINE_RATE) / 1000))
                             .to_string(),
                         trim_end_ms: (order.trim_end / (u64::from(ENGINE_RATE) / 1000)).to_string(),
@@ -812,5 +815,44 @@ mod tests {
             panic!()
         };
         assert_eq!(orders[0], o);
+    }
+    #[test]
+    fn waveform_view_keeps_exact_source_offset_and_trimmed_duration_for_both_alignments() {
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        let mut order = order();
+        order.trim_start = 4_801;
+        order.trim_end = 2_400;
+        let expected_samples = order.play_samples().unwrap();
+        project.timelines[0].tracks.push(Track {
+            id: "operator".into(),
+            name: "Operator".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            audio_output: Default::default(),
+            kind: TrackKind::Operator {
+                voice: None,
+                orders: vec![order],
+            },
+        });
+        for alignment in [Alignment::Start, Alignment::End] {
+            let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind
+            else {
+                panic!()
+            };
+            orders[0].alignment = alignment;
+            let view = views(&project, Some("voice")).remove(0);
+            let frames = expected_samples as f64 / f64::from(ENGINE_RATE) * 25.0;
+            assert_eq!(view.audio_offset_seconds, 4_801.0 / f64::from(ENGINE_RATE));
+            assert_eq!(view.length, Some(frames));
+            assert_eq!(
+                view.start,
+                Some(if alignment == Alignment::Start {
+                    100.0
+                } else {
+                    100.0 - frames
+                })
+            );
+        }
     }
 }
