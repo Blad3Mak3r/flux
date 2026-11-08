@@ -7,7 +7,9 @@ timeline transport and end-of-timeline behavior.
 
 ## Preparing and running
 
-Edit > Setlists & show controls creates and orders entries. Each entry has its own optional name,
+Edit > Setlists opens a dedicated workspace with the running order on the left and the selected
+entry's properties on the right. New setlist creates a show; Add entry references an existing timeline.
+Open timeline returns to that entry's source for detailed editing. Each entry has its own optional name,
 operator notes and end action: prepare the next entry and wait for GO (default), continue, or
 continue after a wait in milliseconds. Live > Prepare show decodes the included timelines and
 opens their required routes. Unavailable audio, conflicting routes and unavailable MIDI/OSC
@@ -20,7 +22,8 @@ inside an audio callback. Leave and prepare again after editing the project or c
 routes. Prepared audio must fit in available memory.
 
 Live shows the current entry, the next entry, operator notes, state, loop turn and the next GO
-action. Enter in Live runs GO, except in editable fields, buttons or dialogs; held keys do not
+action. Entry selection and show settings expands the secondary preparation and leave actions.
+Enter in Live runs GO, except in editable fields, buttons or dialogs; held keys do not
 repeat it. GO, Devamp and Cancel devamp can also be learned from MIDI in Preferences.
 
 | State | GO |
@@ -37,12 +40,14 @@ run, including paused/manual waits; stop and leave the setlist to return to Edit
 
 ## Timeline controls
 
-Controls use frame positions relative to the timeline origin. They appear as labeled boundaries
-over the timeline and are edited in the setlist panel:
+Controls use positions relative to the timeline origin. They appear in their own rail below the
+ruler. Click a control, or Loops & waits at the left of that rail, to open its inspector. Add wait
+and Add loop create a control at the playhead; a new loop initially lasts one second. Position
+and end use the same timecode fields as other timeline properties:
 
 - **Wait for GO** pauses the entire timeline at its frame, including timecode.
-- **Loop** repeats `[start, end)`. Zero turns in the editor means indefinitely until GO/devamp;
-  a positive count includes the first turn. Cancel devamp withdraws the requested exit.
+- **Loop** repeats `[start, end)`. Choose Until GO for indefinite repetition or a fixed number
+  of total turns, including the first turn. Cancel devamp withdraws the requested exit.
 
 Controls cannot overlap, nest or share boundaries. Waits inside a loop are rejected. Finite loops
 have a calculated duration; manual waits and indefinite loops show an indeterminate duration.
@@ -84,6 +89,8 @@ Validation in this Windows worktree: `npm run typecheck`, `npm test` (169 passed
 `cargo clippy --workspace --all-targets -j 1 -- -D warnings`, and
 `cargo test --workspace -j 1 --quiet` (706 passed, one intentionally ignored existing
 subprocess helper exercised by its parent recovery test). Socket tests required execution
-outside the restricted sandbox. Native visual review was blocked by Computer Use's Windows
-browser URL policy. No real interface, LTC/MTC receiver or external-controller acceptance
+outside the restricted sandbox. The revised setlist workspace, control inspector and Live layout
+were visually reviewed in a browser using actual components with synthetic show data, in English
+and Spanish at desktop widths down to 960px. The control-creation addition passes all 238
+`flux-project` tests. No real interface, LTC/MTC receiver or external-controller acceptance
 run was performed. No dependency was added.

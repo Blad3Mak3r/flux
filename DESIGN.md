@@ -316,15 +316,21 @@ immediately to every window and persist in the computer preferences.
 
 ### Setlists and show operation
 
-Edit adds a collapsible, full-width Setlists & show controls row above the timeline and inspector.
-Its flat tables use existing screen inputs, rule borders and compact buttons. Entry inclusion is
-explicit through checkboxes and omitted timeline names are struck through. The controls table
-uses relative frame fields; labeled amber boundaries overlay the timeline without stealing its
-pointer interactions. The panel scrolls within a bounded height and tables scroll horizontally.
+Setlists has a dedicated Edit workspace, reached from the timeline toolbar. An ordered list on the
+left shows names, end actions, omissions and note indicators; the right inspector edits only the
+selected entry. Setlist settings and creation are revealed on request. Lists and properties scroll
+independently. The selected setlist and entry survive navigation back to the timeline. Entries open
+their source timeline for detailed editing. Existing screen inputs, square boundaries and rule borders
+retain the instrument styling; 76px list rows and grouped fields give the task room.
 
-Live adds a prepared-show strip before the existing cues. The current entry name is the primary
-reading, followed by the next entry, state, notes, loop turn and pending exit. GO is a 48px primary
-button whose text states its backend-provided action; unavailable GO is disabled. Preparing another
-entry and leaving the setlist require Stop. Existing transport controls retain their meaning.
+Loops and waits use a 28px amber rail below the timeline ruler, separate from audio lanes. Selecting
+a control opens its own inspector with timecode fields relative to the timeline origin, explicit
+Until GO or counted turns, and explanatory copy. New controls begin at the playhead; the backend
+owns their defaults and validation. At narrow desktop widths the timeline toolbar wraps.
+
+Live places the current entry and a 64px GO button before next entry, duration, notes and existing
+cues. GO states its backend-provided action; unavailable GO is disabled. Entry selection and leaving
+the setlist sit in a secondary disclosure and require Stop. Short windows scroll the show surface
+instead of compressing the next cue into an unreadable strip. Existing transport controls retain their meaning.
 All added labels ship in English and Spanish. Remote control preferences retain their existing
 form layout and add the OSC listen address, TCP switch and feedback explanation.
