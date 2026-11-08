@@ -54,7 +54,7 @@ spacing:
   md: "12px"
   lg: "16px"
   xl: "24px"
-  header-w: "208px"
+  header-w: "248px"
   inspector-w: "300px"
 components:
   key:
@@ -187,7 +187,7 @@ A restrained, near-monochrome faceplate with three signal hues used sparingly an
 
 ## Layout
 
-A full-height grid, `min-width: 960px` (minimum window 960x600), body never scrolls: rows are menubar (38px), faceplate, work area, statusbar (30px). The faceplate is three columns (readout, keys, lamps) with a 28px gap and 16px/20px padding. The work area is the screen (flexible) plus a 300px inspector that collapses to a 40px rail (see Inspector Toggle and Rail). The screen holds a sticky ruler row and sticky 208px track headers; the graticule is a background aligned to the end of the header column, major and minor lines set by timeline scale.
+A full-height grid, `min-width: 960px` (minimum window 960x600), body never scrolls: rows are menubar (38px), faceplate, work area, statusbar (30px). The faceplate is three columns (readout, keys, lamps) with a 28px gap and 16px/20px padding. The work area is the screen (flexible) plus a 300px inspector that collapses to a 40px rail (see Inspector Toggle and Rail). The screen holds a sticky ruler row and sticky 248px track headers; the graticule is a background aligned to the end of the header column, major and minor lines set by timeline scale.
 
 Spacing is a small hand-set rhythm: 4, 6, 8, 10, 12, 14, 16, 24px. Controls are 28px (icon and menubar buttons), 32px (fields and buttons), 34px (tabs, screen bar), 70px (keys).
 
@@ -245,8 +245,12 @@ The ruler is SVG ticks and labels over the graticule with a phosphor cursor and 
 ### Track Colour
 A track may carry its own colour so many tracks can be told apart. It is picked in the Selection inspector, for the track of the selected clip or note: eight square 24px swatches (teal, cyan, blue, violet, magenta, rose, lime, steel) and a Default button that returns the track to phosphor (audio) or amber (notes). The chosen swatch takes a 2px ink outline and a dark tick, and every swatch has a spoken name, so the choice never rides on colour alone. All eight sit at oklch lightness 0.8, which gives 9.6:1 or more against `screen`, and none is near vermilion. The colour is stored in `project.json` as `#rrggbb`, changes through the undo history, and is applied through `--trace` and `--trace-dim` on the track's header and lane: clip border, tint and waveform, the note line, box border and hatch, and the kind icon in the header. Kind still reads from the fill (solid waveform, hatched box), and a muted track is drawn hollow and dashed in the dim version of its colour.
 
+### Track Headers
+
+Headers use a 28px identity row with a fixed mute button and a second row for the audio destination or track kind. The muted tag sits on the second row so the name keeps its width. Audio and operator tracks are 120px tall with 4px gaps and 8px vertical padding; notes, MIDI and OSC remain 64px with 2px gaps and 4px vertical padding. The audio destination is a recessed 24px button with an output icon, truncating name and inspector chevron. Its tooltip and accessible name include the full destination. Keyboard focus uses the neutral inset rule.
+
 ### Fader and Level Meter
-Both sit in an audio track's header under the name row, which is why an audio lane is 96px tall. The fader is a recessed rail with a 1px notch at 0 dB and a square ink thumb (phosphor on hover), the value in measure type to its right; range -inf to +6 dB, 1 dB per arrow key, 0.1 with Shift, 6 per Page key, double-click returns to 0 dB. The meter is 24 square segments of 2.5 dB on the screen ground, off = `lamp-off`, lit = phosphor up to -12 dBFS, amber to -3, vermilion above. Flat fills only, no glow, no gradient. The peak-hold marker is one lone lit segment above the bar. A printed scale (-48, -24, -12, 0 with ticks between) sits below, and the accessible value says the level in words, so colour never carries the reading alone. The CLIP lamp is printed text that fills vermilion when the peak reached 0 dBFS and stays until pressed. The bar rises at once and falls at 24 dB/s, the marker holds 1.5 s then falls at 12 dB/s; with reduced motion the bar follows the signal and the marker jumps instead of sliding.
+Both sit in an audio track's header under the name row, which is why an audio lane is 120px tall. The fader is a recessed rail with a 1px notch at 0 dB and a square ink thumb (phosphor on hover), the value in measure type to its right; range -inf to +6 dB, 1 dB per arrow key, 0.1 with Shift, 6 per Page key, double-click returns to 0 dB. The meter is 24 square segments of 2.5 dB on the screen ground, off = `lamp-off`, lit = phosphor up to -12 dBFS, amber to -3, vermilion above. Flat fills only, no glow, no gradient. The peak-hold marker is one lone lit segment above the bar. A printed scale (-48, -24, -12, 0 with ticks between) sits below, and the accessible value says the level in words, so colour never carries the reading alone. The CLIP lamp is printed text that fills vermilion when the peak reached 0 dBFS and stays until pressed. The bar rises at once and falls at 24 dB/s, the marker holds 1.5 s then falls at 12 dB/s; with reduced motion the bar follows the signal and the marker jumps instead of sliding.
 
 ### Status Bar and Dialog
 30px recessed bar: message left (vermilion bold on error), tabular measurements right. The unsaved dialog is a square panel, max 420px, with a flat backdrop.
