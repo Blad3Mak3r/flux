@@ -322,15 +322,27 @@ selected entry. Setlist settings and creation are revealed on request. Lists and
 independently. The selected setlist and entry survive navigation back to the timeline. Entries open
 their source timeline for detailed editing. Existing screen inputs, square boundaries and rule borders
 retain the instrument styling; 76px list rows and grouped fields give the task room.
+Running-order rows expose the source timeline when aliased, exact transition delay, manual waits,
+loops until GO and counted loops from the backend overview. A sticky list toolbar holds Move up,
+Move down and Move to for the selection; Alt+Up/Down works from a focused entry row. Ordering
+actions wait for the previous edit and refreshed overview rather than acting on stale positions.
 
 Loops and waits use a 28px amber rail below the timeline ruler, separate from audio lanes. Selecting
 a control opens its own inspector with timecode fields relative to the timeline origin, explicit
 Until GO or counted turns, and explanatory copy. New controls begin at the playhead; the backend
 owns their defaults and validation. At narrow desktop widths the timeline toolbar wraps.
+The selected loop is bounded across its full range, including a visible end cap. The inspector's
+control list prints relative timecode ranges and repeat mode, with persistent guidance explaining
+creation at the playhead and execution only in prepared setlists.
 
 Live places the current entry and a 64px GO button before next entry, duration, notes and existing
-cues. GO states its backend-provided action; unavailable GO is disabled. Entry selection and leaving
-the setlist sit in a secondary disclosure and require Stop. Short windows scroll the show surface
+cues. GO states its backend-provided action; unavailable GO is disabled. Leaving
+the setlist sits in a secondary disclosure and requires Stop. Short windows scroll the show surface
 instead of compressing the next cue into an unreadable strip. Existing transport controls retain their meaning.
+During a prepared show, project timeline tabs are replaced by its numbered entry order, retaining
+repeated timelines, aliases and struck-through omissions. Current and next have explicit words and
+distinct boundaries; selecting an included entry prepares it only while stopped. Leaving the show
+remains in the secondary disclosure. Automatic following scrolls only the relevant entry/cue list,
+preserving the surrounding show position and GO visibility.
 All added labels ship in English and Spanish. Remote control preferences retain their existing
 form layout and add the OSC listen address, TCP switch and feedback explanation.
