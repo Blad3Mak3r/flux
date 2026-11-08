@@ -1,3 +1,4 @@
+import { useShow } from "../show/store.ts";
 // What the user is looking at and doing, apart from the document: selection, inspector, zoom, the
 // status line and the question waiting for an answer.
 
@@ -220,6 +221,7 @@ export function setCollapsed(collapsed: boolean): void {
 /** The view cannot change while playing: Edit and Live may use different devices. Stop first. */
 export function setView(view: View): void {
   if (view === get().view) return;
+  if (useShow.getState().state && view === "edit") return say("show.leaveToEdit");
   if (isPlaying()) return say("view.lockedPlaying");
   set({ view });
   try {

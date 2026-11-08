@@ -5,6 +5,9 @@ import { listen } from "@tauri-apps/api/event";
 // listens, decodes, maps and runs the actions; the window shows the choices and forwards them.
 
 export type ControlAction =
+  | { type: "go" }
+  | { type: "devamp" }
+  | { type: "cancelDevamp" }
   | { type: "play" }
   | { type: "pause" }
   | { type: "toggle" }
@@ -36,7 +39,7 @@ export interface Binding {
 
 export interface ControlPrefs {
   midi: { enabled: boolean; portName: string | null; portIndex: number; bindings: Binding[] };
-  osc: { enabled: boolean; port: number };
+  osc: { enabled: boolean; port: number; bindAddress?: string; tcpEnabled?: boolean };
 }
 
 /** Whether an input is listening, and if not, why. `detail` is the port, or the reason of an error. */

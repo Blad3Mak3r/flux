@@ -220,6 +220,11 @@ export function ControlPage() {
         validate={(text) => (/^\s*\d+\s*$/.test(text) && Number(text) >= 1 && Number(text) <= 65535 ? null : t("setup.control.osc.portInvalid"))}
         onCommit={(text) => save({ ...prefs, osc: { ...osc, port: Number(text) } })}
       />
+      <TextField label={t("show.oscAddress")} value={osc.bindAddress ?? "0.0.0.0"}
+        onCommit={(bindAddress) => save({...prefs,osc:{...osc,bindAddress}})} />
+      <label className="check-row"><input type="checkbox" checked={osc.tcpEnabled ?? true}
+        onChange={(e) => save({...prefs,osc:{...osc,tcpEnabled:e.target.checked}})} /><span>{t("show.oscTcp")}</span></label>
+      <p className="field-note">{t("show.oscNote")}</p>
       <RowStatus {...oscLamp} />
       {detail(view.osc) && <p className="field-note" role="alert">{detail(view.osc)}</p>}
       <p className="field-note">{t("setup.control.osc.note")}</p>

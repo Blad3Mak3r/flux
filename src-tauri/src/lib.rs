@@ -5,9 +5,11 @@ mod device_commands;
 mod diagnostics;
 mod graphics;
 mod live_commands;
+mod osc_api;
 mod preferences;
 mod recents;
 mod recovery;
+mod show_commands;
 mod startup;
 mod transport_commands;
 mod voice_commands;
@@ -78,6 +80,9 @@ pub fn run() {
             voice_commands::voice_retry_save,
             voice_commands::preview::voice_preview,
             voice_commands::preview::voice_preview_stop,
+            show_commands::show_state,
+            show_commands::show_action,
+            show_commands::show_edit,
             commands::project_document,
             commands::project_sync,
             commands::clip_edit,

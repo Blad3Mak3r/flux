@@ -1,3 +1,5 @@
+import { bindShow } from "./show/api";
+import { SetlistEditor } from "./show/SetlistEditor";
 import { ShowCheckDialog } from "./voice/ShowCheckDialog";
 import { ErrorDialog } from "./components/ErrorDialog";
 import { bindVoice, protectVoiceWork } from "./voice/store";
@@ -199,6 +201,7 @@ function Shell({ devices }: { devices: Devices }) {
           <Live />
         ) : (
           <>
+            <SetlistEditor />
             <Timeline key={docKey} />
             <Inspector />
           </>
@@ -243,6 +246,7 @@ function Editor() {
   const cuesReady = useLive((live) => live.ready);
   const waiting = !connected || devices.loading || (liveEnabled && !cuesReady);
 
+  useEffect(bindShow, []);
   useEffect(bindTransport, []);
   useEffect(bindVoice, []);
   useEffect(bindDocumentSync, []);

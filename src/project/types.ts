@@ -4,6 +4,7 @@
 export type FrameRate = "fps24" | "fps25" | "fps2997Drop" | "fps30";
 
 export interface Project {
+  setlists?: import("../show/types").Setlist[];
   formatVersion: number;
   name: string;
   meta: ProjectMeta;
@@ -22,6 +23,7 @@ export interface Autosave {
 
 /** One line of time of a project, e.g. a song, with its own timecode and tracks. */
 export interface Timeline {
+  controls?: import("../show/types").TimelineControl[];
   id: string;
   name: string;
   timecode: { frameRate: FrameRate; start: number };
@@ -119,6 +121,7 @@ export interface MidiPortRef {
 
 /** A message sent at a point of the timeline. Channels are 1 to 16, other numbers 0 to 127. */
 export interface MidiEvent {
+  firstTurnOnly?: boolean;
   id: string;
   at: number;
   message: MidiMessage;
@@ -141,6 +144,7 @@ export type OscArg =
   | { type: "bool"; value: boolean };
 
 export interface OscEvent {
+  firstTurnOnly?: boolean;
   id: string;
   at: number;
   /** Starts with `/`. */

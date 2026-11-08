@@ -1,3 +1,4 @@
+import { ControlLayer } from "../show/ControlLayer";
 import { useVoice } from "../voice/store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
@@ -305,6 +306,7 @@ export function Timeline() {
             onPointerMove={onPointerMove}
             onPointerLeave={() => patchReadout({ hover: null })}
           >
+            <ControlLayer controls={timeline.controls} pxPerFrame={pxPerFrame} />
             <Graticule width={laneWidth} pxPerFrame={pxPerFrame} rate={frameRate} grid={grid} />
 
             <div className="ruler-row" style={{ height: RULER_H }}>

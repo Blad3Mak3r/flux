@@ -1,3 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { ShowState } from "../show/types";
+import { useShow } from "../show/store";
 import { resolveOutput, usePreferences } from "../preferences/store";
 // Drives the backend output for the open project. The output connects by itself: when the window
 // starts, and whenever the output settings change, the devices are opened, so there is no Start
@@ -184,9 +187,12 @@ function connect(force: boolean): Promise<void> {
   return connecting;
 }
 async function connectNow(force: boolean): Promise<void> {
+  if (useShow.getState().state || useShow.getState().preparing) return;
   // Outside the desktop app there is no backend to open anything on.
   if (!hasNativeWindow()) return;
   try {
+    const show = await invoke<ShowState | null>("show_state");
+    if (show) {useShow.setState({state:show}); useUi.setState({view:"live"}); return;}
     await resolveOutput(useDoc.getState().project);
     await attach();
   } catch (error) {
@@ -236,6 +242,7 @@ async function reconfigureInPlace(): Promise<boolean> {
   }
 }
 async function open(force = false): Promise<void> {
+  if (useShow.getState().state || useShow.getState().preparing) return;
   const doc = useDoc.getState();
   const requested = setup(doc);
   const { timelineId, timecode, advance, audition } = requested;
@@ -327,4 +334,25 @@ export function previewTrackGain(trackId: string, gainDb: number): void {
     faders.set(trackId, send);
   }
   send(gainDb);
+}
+
+
+export async function prepareSetlist(setlistId: string): Promise<void> {
+  clearTimeout(reconnectTimer);
+  clearTimeout(clipsTimer);
+  try {
+    const info = await api.startOutput(project(), false, false, lanes(++run), setlistId);
+    useTransport.setState({info, pendingReconfigure: false});
+  } catch (error) {
+    useShow.setState({state:null,preparing:false});
+    await closeOutput();
+    await connect(true);
+    throw error;
+  }
+}
+
+export async function leaveSetlist(): Promise<void> {
+  try { await api.stop(); } finally { await closeOutput(); }
+  useShow.setState({state: null, preparing: false});
+  await connect(true);
 }

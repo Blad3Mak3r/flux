@@ -99,8 +99,8 @@ export interface OutputLanes {
  * active one when the show runs to its end (see `bindTimelineAdvance`). With `audition` the MIDI and
  * OSC cue tracks stay silent: Edit is auditioning on a preview device.
  */
-export function startOutput(project: Project, advance: boolean, audition: boolean, lanes: OutputLanes): Promise<OutputInfo> {
-  return invoke<OutputInfo>("output_start", { project, advance, audition, ...channels(lanes) });
+export function startOutput(project: Project, advance: boolean, audition: boolean, lanes: OutputLanes, setlistId?: string): Promise<OutputInfo> {
+  return invoke<OutputInfo>("output_start", { project, advance, audition, setlistId, ...channels(lanes) });
 }
 
 function channels(lanes: OutputLanes) {
