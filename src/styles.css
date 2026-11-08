@@ -1762,6 +1762,12 @@ input:disabled {
   color: var(--ink-dim);
 }
 
+.error-dialog {
+  width: min(420px, 92vw);
+  max-height: 88vh;
+  overflow-wrap: anywhere;
+}
+
 /* ---- Setup dialog ---- */
 
 .dialog.setup {

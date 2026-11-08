@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Field } from "../components/fields";
 import { listAudioHosts, type AudioHost } from "../devices/api";
 import { useT } from "../i18n";
+import { sayError } from "../state/ui";
 import { changePreferences, usePreferences } from "../preferences/store";
 import { selectMode, useTransport } from "../transport/store";
 import { acceptTake, discardTake, leaveRecording, listenJob, startRecording, stopListening, stopRecording, useRecording, useVoice, voiceError } from "./store";
@@ -31,7 +32,7 @@ export function RecordingPanel({ orderId }: { orderId: string }) {
     setLoading(true);
     void Promise.all([listAudioHosts(), invoke<Input[]>("voice_inputs", { driver })])
       .then(([hosts, inputs]) => { if (!disposed) { setHosts(hosts); setInputs(inputs); } })
-      .catch((error) => { if (!disposed) { setInputs([]); useVoice.setState({ error: voiceError(error) }); } })
+      .catch((error) => { if (!disposed) { setInputs([]); sayError(voiceError(error)); } })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; };
   }, [driver, refresh]);
@@ -46,7 +47,7 @@ export function RecordingPanel({ orderId }: { orderId: string }) {
         if (disposed) return;
         setStatus(next);
         if (next?.done) { await stopRecording(); return; }
-      } catch (error) { if (!disposed) useVoice.setState({ error: voiceError(error) }); }
+      } catch (error) { if (!disposed) sayError(voiceError(error)); }
       if (!disposed) timer = setTimeout(() => { void poll(); }, 100);
     };
     void poll();

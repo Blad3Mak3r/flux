@@ -11,6 +11,9 @@ pub enum Error {
     Credentials,
     Permission,
     Quota,
+    RateLimit,
+    Subscription,
+    UnusualActivity,
     Connection,
     Provider,
     InvalidAudio,
@@ -54,14 +57,59 @@ impl SpeechClient {
     }
 
     fn checked(response: Response) -> Result<Response, Error> {
-        match response.status().as_u16() {
-            200..=299 => Ok(response),
-            401 => Err(Error::Credentials),
-            403 => Err(Error::Permission),
-            402 | 429 => Err(Error::Quota),
-            400 | 422 => Err(Error::InvalidInput),
-            _ => Err(Error::Provider),
+        let status = response.status().as_u16();
+        if (200..=299).contains(&status) {
+            return Ok(response);
         }
+        // Only recognize provider codes; never expose its raw response or request secrets.
+        #[derive(Deserialize, Default)]
+        struct Detail {
+            status: Option<String>,
+            code: Option<String>,
+            #[serde(rename = "type")]
+            kind: Option<String>,
+        }
+        #[derive(Deserialize)]
+        struct Failure {
+            #[serde(default)]
+            detail: Detail,
+            #[serde(flatten)]
+            fields: Detail,
+        }
+        let failure = serde_json::from_reader::<_, Failure>(response.take(16 * 1024)).ok();
+        let code = failure.as_ref().and_then(|f| {
+            f.detail
+                .code
+                .as_deref()
+                .or(f.fields.code.as_deref())
+                .or(f.detail.status.as_deref())
+                .or(f.detail.kind.as_deref())
+                .or(f.fields.kind.as_deref())
+        });
+        Err(match code {
+            Some("quota_exceeded" | "insufficient_credits") => Error::Quota,
+            Some("payment_required" | "subscription_required" | "paid_plan_required") => {
+                Error::Subscription
+            }
+            Some("detected_unusual_activity" | "unusual_activity") => Error::UnusualActivity,
+            Some(
+                "too_many_concurrent_requests"
+                | "rate_limit_exceeded"
+                | "concurrent_limit_exceeded"
+                | "rate_limit_error",
+            ) => Error::RateLimit,
+            Some("system_busy") => Error::Provider,
+            Some("invalid_api_key" | "authentication_error") => Error::Credentials,
+            Some("missing_permissions" | "authorization_error") => Error::Permission,
+            _ => match status {
+                401 => Error::Credentials,
+                403 => Error::Permission,
+                402 => Error::Subscription,
+                429 => Error::RateLimit,
+                400 | 422 => Error::InvalidInput,
+                _ => Error::Provider,
+            },
+        })
     }
 
     pub fn voices(&self, key: &str) -> Result<Vec<Voice>, Error> {
@@ -171,10 +219,61 @@ mod tests {
         for (status, expected) in [
             ("401 Unauthorized", Error::Credentials),
             ("403 Forbidden", Error::Permission),
-            ("429 Too Many Requests", Error::Quota),
+            ("429 Too Many Requests", Error::RateLimit),
             ("500 Error", Error::Provider),
         ] {
             let (client, server) = server(status, "secret provider detail");
+            assert_eq!(client.generate("private-key", "voice", "Go"), Err(expected));
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn provider_details_distinguish_credits_plan_and_temporary_limits() {
+        for (status, body, expected) in [
+            (
+                "401 Unauthorized",
+                r#"{"detail":{"status":"quota_exceeded"}}"#,
+                Error::Quota,
+            ),
+            (
+                "402 Payment Required",
+                r#"{"detail":{"status":"payment_required"}}"#,
+                Error::Subscription,
+            ),
+            (
+                "403 Forbidden",
+                r#"{"detail":{"status":"detected_unusual_activity"}}"#,
+                Error::UnusualActivity,
+            ),
+            (
+                "429 Too Many Requests",
+                r#"{"detail":{"status":"too_many_concurrent_requests"}}"#,
+                Error::RateLimit,
+            ),
+            (
+                "429 Too Many Requests",
+                r#"{"detail":{"status":"system_busy"}}"#,
+                Error::Provider,
+            ),
+            (
+                "402 Payment Required",
+                r#"{"type":"payment_required","code":"insufficient_credits"}"#,
+                Error::Quota,
+            ),
+            (
+                "429 Too Many Requests",
+                r#"{"detail":{"code":"concurrent_limit_exceeded","type":"rate_limit_error"}}"#,
+                Error::RateLimit,
+            ),
+            ("402 Payment Required", "invalid json", Error::Subscription),
+            (
+                "401 Unauthorized",
+                r#"{"detail":"private provider message"}"#,
+                Error::Credentials,
+            ),
+        ] {
+            let (client, server) = server(status, body);
             assert_eq!(client.generate("private-key", "voice", "Go"), Err(expected));
             server.join().unwrap();
         }

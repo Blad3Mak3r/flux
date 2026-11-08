@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useT } from "../i18n";
 import { useDoc } from "../state/store";
-import { openSetup, select, setView, useUi } from "../state/ui";
+import { openSetup, sayError, select, setView, useUi } from "../state/ui";
 import { usePreferences } from "../preferences/store";
 import { selectMode, useTransport } from "../transport/store";
 import { selectTimeline } from "../state/timelines";
@@ -25,25 +25,23 @@ export function ShowCheckDialog() {
   const revision = usePreferences((s) => s.saved.revision);
   const mode = useTransport(selectMode);
   const voiceBusy = useVoice((s) => s.busy);
-  const voiceProblem = useVoice((s) => s.error);
   const dialog = useRef<HTMLDialogElement>(null);
   const sequence = useRef(0);
   const [result, setResult] = useState<{ report: ShowReport; project: Project; revision: number } | null>(null);
   const [issueIndex, setIssueIndex] = useState(0);
   const moveIssue = (index: number) => { setIssueIndex(index); document.getElementById(`voice-check-issue-${index}`)?.focus(); };
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const stale = result !== null && (result.project !== project || result.revision !== revision);
 
   const run = async () => {
     const request = ++sequence.current;
     const project = useDoc.getState().project;
     const revision = usePreferences.getState().saved.revision;
-    setBusy(true); setError(null); setIssueIndex(0);
+    setBusy(true); setIssueIndex(0);
     try {
       const report = await invoke<ShowReport>("operator_preflight", { project });
       if (request === sequence.current) setResult({ report, project, revision });
-    } catch (error) { if (request === sequence.current) setError(voiceError(error)); }
+    } catch (error) { if (request === sequence.current) sayError(voiceError(error)); }
     finally { if (request === sequence.current) setBusy(false); }
   };
 
@@ -66,8 +64,6 @@ export function ShowCheckDialog() {
       <p className="field-note">{t("check.note")}</p>
       <button type="button" className="button" disabled={busy || mode !== "stopped"} onClick={() => void run()}>{t(busy ? "check.running" : "check.run")}</button>
       {voiceBusy && <p role="status">{t("voice.preparingRecording")}</p>}
-      {voiceProblem && <p className="error" role="alert">{voiceProblem}</p>}
-      {error && <p className="error" role="alert">{error}</p>}
       {stale && <p className="warning" role="status">{t("check.changed")}</p>}
       {result && <>
         <p role="status">{t("check.summary", { ready: result.report.ready, orders: result.report.orders, errors: result.report.errors, warnings: result.report.warnings })}</p>

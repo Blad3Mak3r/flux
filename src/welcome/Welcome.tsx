@@ -1,3 +1,5 @@
+import { ErrorDialog } from "../components/ErrorDialog";
+import { sayError } from "../state/ui";
 import { useCallback, useEffect, useState } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { BrandMark } from "../components/BrandMark";
@@ -33,15 +35,14 @@ function Welcome() {
   const [discarding, setDiscarding] = useState<RecoverySummary | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(
     async () => {
       const [recent, recovery, requested] = await Promise.allSettled([recentsList(), recoveryList(), pendingPath()]);
       if (recent.status === "fulfilled") setShows(recent.value);
-      else { setShows([]); setError(errorMessage(recent.reason)); }
+      else { setShows([]); sayError(errorMessage(recent.reason)); }
       if (recovery.status === "fulfilled") setRecoveries(recovery.value);
-      else setError(errorMessage(recovery.reason));
+      else sayError(errorMessage(recovery.reason));
       if (requested.status === "fulfilled") setPending(requested.value);
     },
     [],
@@ -53,11 +54,10 @@ function Welcome() {
   // Opening a window twice would fail on its label, so one action runs at a time.
   const guarded = (action: () => Promise<void>) => async () => {
     setBusy(true);
-    setError(null);
     try {
       await action();
     } catch (err) {
-      setError(errorMessage(err));
+      sayError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -92,7 +92,6 @@ function Welcome() {
       </nav>
 
       <main className="welcome-body">
-        {error && <p className="message" data-tone="error" role="alert">{error}</p>}
         {recoveries.length > 0 && (
           <section aria-labelledby="recovery-legend">
             <h2 className="legend" id="recovery-legend">{t("recovery.title")}</h2>
@@ -218,6 +217,7 @@ export default function WelcomeView() {
   return (
     <I18nProvider>
       <Welcome />
+      <ErrorDialog />
     </I18nProvider>
   );
 }
