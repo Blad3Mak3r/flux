@@ -4,8 +4,8 @@
 import { create } from "zustand";
 import type { MessageKey } from "../i18n/messages";
 import type { SetupSection } from "../setup/outputs";
-import { DEFAULT_PX_PER_FRAME, clampZoom } from "../timeline/scale";
-import { isPlaying } from "../transport/store";
+import { DEFAULT_PX_PER_FRAME, clampZoom } from "../timeline/scale.ts";
+import { isPlaying } from "../transport/store.ts";
 
 /** The timeline is edited in `edit` and run on stage in `live`. */
 export type View = "edit" | "live";

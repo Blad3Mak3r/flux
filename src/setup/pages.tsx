@@ -821,7 +821,6 @@ export function GraphicsPage() {
         </button>
       )}
       <p className="field-note">{t("setup.graphics.safeHint")}</p>
-
     </div>
   );
 }
