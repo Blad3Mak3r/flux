@@ -1,0 +1,89 @@
+# Setlists and show operation
+
+A setlist is an ordered collection of references to timelines. It does not copy their audio,
+tracks or timecode settings. The same timeline can appear several times, and entries can be
+omitted without removing their timelines. Projects without a prepared setlist keep the existing
+timeline transport and end-of-timeline behavior.
+
+## Preparing and running
+
+Edit > Setlists & show controls creates and orders entries. Each entry has its own optional name,
+operator notes and end action: prepare the next entry and wait for GO (default), continue, or
+continue after a wait in milliseconds. Live > Prepare show decodes the included timelines and
+opens their required routes. Unavailable audio, conflicting routes and unavailable MIDI/OSC
+destinations fail preparation with an error. A timeline needs a nonzero duration, including
+its control regions.
+
+The prepared run retains all included audio, sharing clip sets for repeated timeline references.
+Preparation trades memory for predictable playback: it does not stream/decode the next song
+inside an audio callback. Leave and prepare again after editing the project or changing hardware
+routes. Prepared audio must fit in available memory.
+
+Live shows the current entry, the next entry, operator notes, state, loop turn and the next GO
+action. Enter in Live runs GO, except in editable fields, buttons or dialogs; held keys do not
+repeat it. GO, Devamp and Cancel devamp can also be learned from MIDI in Preferences.
+
+| State | GO |
+| --- | --- |
+| Ready | Start the prepared entry |
+| Paused or waiting at a timeline control | Resume |
+| Looping | Finish this turn, then continue beyond the loop |
+| Loop exit pending, normal playback, transition wait, completed or blocked | No extra advance |
+
+Pause keeps the position, loop turn and pending exit. Stop returns to the current entry's start
+and cancels its pending controls. Preparing a different entry requires Stop. Leave setlist also
+requires Stop and returns to ordinary timeline operation. Structural edits are locked during a
+run, including paused/manual waits; stop and leave the setlist to return to Edit.
+
+## Timeline controls
+
+Controls use frame positions relative to the timeline origin. They appear as labeled boundaries
+over the timeline and are edited in the setlist panel:
+
+- **Wait for GO** pauses the entire timeline at its frame, including timecode.
+- **Loop** repeats `[start, end)`. Zero turns in the editor means indefinitely until GO/devamp;
+  a positive count includes the first turn. Cancel devamp withdraws the requested exit.
+
+Controls cannot overlap, nest or share boundaries. Waits inside a loop are rejected. Finite loops
+have a calculated duration; manual waits and indefinite loops show an indeterminate duration.
+Controls belong to their timeline and execute in prepared setlist mode. Ordinary Edit audition
+keeps its existing free transport.
+
+Every loop repeats audio, operator audio, metronome, MIDI/OSC and LTC/MTC together. Receivers
+must support the backward timecode jump. MIDI/OSC events fire once per crossed interval; the
+event at a loop's end belongs to the following section. Each event's inspector can limit it to
+the first loop turn. A manual seek does not fire skipped events. Pending events are invalidated
+on manual stop, pause, seek and entry preparation, and held MIDI notes are released.
+
+## Timing and faults
+
+The master audio callback splits buffers at controls and transitions, carrying remaining samples
+into the next timeline. Each entry retains its frame rate and timecode start. Outputs are kept
+open; no window, UI timer or network packet schedules an automatic transition. There is no audio
+crossfade or overlap between timelines.
+
+Secondary audio interfaces follow the master's published position with the existing bounded
+resampling cursor. Independent hardware clocks are not phase locked. MTC and MIDI/OSC remain
+worker-thread outputs and cannot promise hard real-time delivery from a desktop OS. A bounded
+render journal preserves every loop interval for cue workers, including several turns within
+one audio callback. Overflow or output failure blocks the run rather than silently dropping
+required events. Device recovery never resumes the show automatically; stop, leave and prepare
+again after fixing the route.
+
+## Validation
+
+Automated tests cover archive/recovery persistence, rejected edits, finite/indefinite controls,
+exact waits, devamp, consecutive samples across timeline/frame-rate changes, multiple loop
+intervals per buffer, legacy OSC commands and TCP framing. Standard frontend and Cargo checks
+also apply. Actual interface timing, MIDI/LTC receiver behavior and visual review are separate
+acceptance checks; automated tests do not certify those devices or the native UI.
+
+
+Validation in this Windows worktree: `npm run typecheck`, `npm test` (169 passed),
+`npm run build`, `cargo fmt --all --check`,
+`cargo clippy --workspace --all-targets -j 1 -- -D warnings`, and
+`cargo test --workspace -j 1 --quiet` (706 passed, one intentionally ignored existing
+subprocess helper exercised by its parent recovery test). Socket tests required execution
+outside the restricted sandbox. Native visual review was blocked by Computer Use's Windows
+browser URL policy. No real interface, LTC/MTC receiver or external-controller acceptance
+run was performed. No dependency was added.

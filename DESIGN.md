@@ -312,3 +312,19 @@ the GB flag and Spanish uses ES, bundled from `flag-icons`; flags are decorative
 technology. The selected control and both options show the flag. The flat menu supports arrows, Home/End,
 Enter/Space, Escape and focus return, and closes when focus or a pointer moves outside it. Language changes apply
 immediately to every window and persist in the computer preferences.
+
+
+### Setlists and show operation
+
+Edit adds a collapsible, full-width Setlists & show controls row above the timeline and inspector.
+Its flat tables use existing screen inputs, rule borders and compact buttons. Entry inclusion is
+explicit through checkboxes and omitted timeline names are struck through. The controls table
+uses relative frame fields; labeled amber boundaries overlay the timeline without stealing its
+pointer interactions. The panel scrolls within a bounded height and tables scroll horizontally.
+
+Live adds a prepared-show strip before the existing cues. The current entry name is the primary
+reading, followed by the next entry, state, notes, loop turn and pending exit. GO is a 48px primary
+button whose text states its backend-provided action; unavailable GO is disabled. Preparing another
+entry and leaving the setlist require Stop. Existing transport controls retain their meaning.
+All added labels ship in English and Spanish. Remote control preferences retain their existing
+form layout and add the OSC listen address, TCP switch and feedback explanation.
