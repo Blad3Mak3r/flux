@@ -17,6 +17,8 @@ pub mod recovery;
 pub mod routing;
 pub use outputs::{ClickSettings, LtcSignal, MtcSignal, ShowOutputs, SignalOp, UNASSIGNED_DEVICE};
 mod session;
+pub mod show;
+pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
 pub use clips::{ClipOp, apply as apply_clip_op};

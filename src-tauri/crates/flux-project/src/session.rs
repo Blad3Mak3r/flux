@@ -83,6 +83,7 @@ pub struct ProjectState {
 /// next save writes into the file.
 #[derive(Debug, Default)]
 pub struct Session {
+    pub execution_lock: std::sync::Arc<std::sync::atomic::AtomicBool>,
     recovery_id: String,
     recovery_revision: u64,
     document: Option<Document>,
@@ -109,6 +110,7 @@ impl Session {
     }
 
     pub fn restore_recovery(&mut self, recovery: super::recovery::Recovery) -> Result<Document> {
+        self.ensure_editable()?;
         recovery.validate()?;
         self.recovery_id.clone_from(&recovery.id);
         self.recovery_revision += 1;
@@ -150,6 +152,7 @@ impl Session {
 
     /// Opens and migrates a project in memory. Only an explicit save upgrades the archive on disk.
     pub fn open(&mut self, path: &Path) -> Result<Project> {
+        self.ensure_editable()?;
         let path = std::path::absolute(path)?;
         let (project, _archive) = archive::open(&path)?;
         self.recovery_id = Uuid::new_v4().to_string();
@@ -163,6 +166,9 @@ impl Session {
 
     /// Remembers the latest state of the project being edited.
     pub fn update(&mut self, project: Project) {
+        if self.ensure_editable().is_err() {
+            return;
+        }
         if self
             .document
             .as_ref()
@@ -193,6 +199,9 @@ impl Session {
             return Err(ProjectError::Invalid(
                 "the document is no longer open".into(),
             ));
+        }
+        if self.document.as_ref().is_some_and(|d| d.project != project) {
+            self.ensure_editable()?;
         }
         self.update(project);
         Ok(self.active())
@@ -248,6 +257,14 @@ impl Session {
     /// active when it was the active one.
     pub fn remove_timeline(&mut self, id: &str) -> Result<ProjectState> {
         self.change(|project, active| {
+            if project
+                .setlists
+                .iter()
+                .flat_map(|s| &s.entries)
+                .any(|e| e.timeline_id == id)
+            {
+                return Err(ProjectError::Invalid("show.error.referenced".into()));
+            }
             let index = project
                 .timelines
                 .iter()
@@ -424,10 +441,29 @@ impl Session {
 
     /// Applies `edit` to a copy of the project and the active id, and keeps the result only when it
     /// is still a valid project, so a refused change leaves the document as it was.
+    pub fn execution_select(&mut self, id: &str) {
+        if let Some(document) = &mut self.document
+            && document.project.timelines.iter().any(|t| t.id == id)
+        {
+            document.active = id.into();
+        }
+    }
+
+    pub fn ensure_editable(&self) -> Result<()> {
+        if self
+            .execution_lock
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(ProjectError::Invalid("show.error.locked".into()));
+        }
+        Ok(())
+    }
+
     pub fn change(
         &mut self,
         edit: impl FnOnce(&mut Project, &mut String) -> Result<()>,
     ) -> Result<ProjectState> {
+        self.ensure_editable()?;
         let document = self.document.as_mut().ok_or_else(no_project)?;
         let mut project = document.project.clone();
         let mut active = document.active.clone();
