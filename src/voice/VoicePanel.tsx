@@ -1,3 +1,4 @@
+import { RecordingPanel } from "./RecordingPanel";
 import { TrackRouteField } from "../audio/routing";
 import { RecoveredAudio } from "./RecoveredAudio";
 import { openShowCheck } from "./ShowCheckDialog";
@@ -77,20 +78,25 @@ export function OrderPanel({ track, order, timeline }: { track: Track; order: Vo
     {busy === order.id && <p role="status">{t("voice.preparingRecording")}</p>}
     {view?.beforeOrigin && <p className="error" role="alert">{t("voice.beforeOrigin")}</p>}
     <TextAreaField key={order.id} label={t("voice.dialogue")} value={order.dialogue} onCommit={(dialogue) => void update({ dialogue })} />
-    <details><summary>{t("voice.pronunciation")}</summary><p className="field-note">{t("voice.pronunciationNote")}</p><TextAreaField key={`${order.id}-pronunciation`} label={t("voice.synthesisText")} value={order.synthesisText ?? ""} onCommit={(text) => void operatorEdit({ op: "setPronunciation", id: order.id, text })} /></details>
+    <SelectField label={t("voice.orderType")} value={order.mode ?? "generated"} onChange={(mode) => void operatorEdit({ op: "setMode", id: order.id, mode })}>
+      <option value="generated">{t("voice.typeGenerated")}</option><option value="manual">{t("voice.typeManual")}</option>
+    </SelectField>
+    {order.mode !== "manual" && <details><summary>{t("voice.pronunciation")}</summary><p className="field-note">{t("voice.pronunciationNote")}</p><TextAreaField key={`${order.id}-pronunciation`} label={t("voice.synthesisText")} value={order.synthesisText ?? ""} onCommit={(text) => void operatorEdit({ op: "setPronunciation", id: order.id, text })} /></details>}
     <TimecodeField label={t("voice.position")} frame={timeline.timecode.start + order.at} rate={timeline.timecode.frameRate} onCommit={(frame) => void update({ at: frame - timeline.timecode.start })} />
     <SelectField label={t("voice.alignment")} value={order.alignment} onChange={(alignment) => void update({ alignment: alignment as VoiceOrder["alignment"] })}>
       <option value="start">{t("voice.start")}</option><option value="end">{t("voice.end")}</option>
     </SelectField>
     <TrackRouteField track={track} />
-    <VoiceSelector scope="track" trackId={track.id} value={track.kind.type === "operator" ? track.kind.voice : undefined} />
-    <p className="field-note">{t("voice.effective", { voice: voices.find((v) => v.voice_id === view?.voice)?.name ?? view?.voice ?? t("voice.none"), source: t(`voice.source.${view?.source ?? "flux"}`) })}</p>
-    {order.generated && <details><summary>{t("voice.generatedDialogue")}</summary><p className="voice-dialogue">{order.generated.dialogue}</p><p className="field-note">{order.generated.origin === "imported" ? t("voice.imported") : order.generated.voice}</p>{order.generated.synthesisText && <><p className="field-note">{t("voice.synthesisText")}</p><p className="voice-dialogue">{order.generated.synthesisText}</p></>}</details>}
+    {order.mode !== "manual" && <><VoiceSelector scope="track" trackId={track.id} value={track.kind.type === "operator" ? track.kind.voice : undefined} />
+    <p className="field-note">{t("voice.effective", { voice: voices.find((v) => v.voice_id === view?.voice)?.name ?? view?.voice ?? t("voice.none"), source: t(`voice.source.${view?.source ?? "flux"}`) })}</p></>}
+    {order.generated && <details><summary>{t("voice.generatedDialogue")}</summary><p className="voice-dialogue">{order.generated.dialogue}</p><p className="field-note">{order.generated.origin === "recorded" ? t("voice.recorded") : order.generated.origin === "imported" ? t("voice.imported") : order.generated.voice}</p>{order.generated.synthesisText && <><p className="field-note">{t("voice.synthesisText")}</p><p className="voice-dialogue">{order.generated.synthesisText}</p></>}</details>}
     {order.generated && <details><summary>{t("voice.trim")}</summary><p className="field-note">{t("voice.trimNote")}</p><TextField key={`${order.id}-trim-start`} label={t("voice.trimStart")} value={view?.trimStartMs ?? "0"} inputMode="numeric" monospace onCommit={(startMs) => void operatorEdit({ op: "setTrim", id: order.id, startMs })} /><TextField key={`${order.id}-trim-end`} label={t("voice.trimEnd")} value={view?.trimEndMs ?? "0"} inputMode="numeric" monospace onCommit={(endMs) => void operatorEdit({ op: "setTrim", id: order.id, endMs })} /></details>}
     {order.generated?.origin === "imported" && <p className="field-note">{t("voice.imported")}</p>}
     <p className="field-note">{t("voice.replaceNote")}</p>
+    {order.mode === "manual" && <>
     <button className="button" type="button" disabled={busy !== null || mode !== "stopped"} onClick={() => void importRecording(order.id)}>{t("voice.importRecording")}</button>
-    <button className="button" type="button" disabled={busy !== null || mode !== "stopped" || !view?.voice} onClick={() => void generateOrder(order.id)}>{t(order.generated ? "voice.regenerate" : "voice.generate")}</button>
+    <RecordingPanel key={order.id} orderId={order.id} /></>}
+    {order.mode !== "manual" && <button className="button" type="button" disabled={busy !== null || mode !== "stopped" || !view?.voice} onClick={() => void generateOrder(order.id)}>{t(order.generated ? "voice.regenerate" : "voice.generate")}</button>}
     {mode !== "stopped" && <p className="field-note">{t("voice.stopToGenerate")}</p>}
     <button className="button" type="button" disabled={!order.generated || mode !== "stopped"} onClick={() => { void invoke("voice_preview", { project: useDoc.getState().project, id: order.id }).catch((e) => sayError(voiceError(e))); }}>{t("voice.listen")}</button>
     <button className="button" type="button" disabled={!order.generated || mode !== "stopped"} onClick={() => { void invoke("voice_preview_stop").catch((e) => sayError(voiceError(e))); }}>{t("voice.stopListen")}</button>

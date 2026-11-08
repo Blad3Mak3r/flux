@@ -91,13 +91,15 @@ export interface Track {
 }
 
 export interface GeneratedVoice {
-  origin?: "generated" | "imported";
+  origin?: "generated" | "imported" | "recorded";
   synthesisText?: string; asset: string; dialogue: string; voice: string; model: string; samples: number }
 export interface VoiceOrder {
+  mode?: "generated" | "manual";
   synthesisText?: string;
   trimStart?: number;
   trimEnd?: number; id: string; at: number; dialogue: string; alignment: "start" | "end"; generated?: GeneratedVoice }
 export interface VoiceView {
+  audioOffsetSeconds: number;
   trimStartMs: string;
   trimEndMs: string; id: string; voice: string | null; source: "track" | "project" | "flux"; status: "ungenerated" | "synced" | "stale"; beforeOrigin: boolean; start: number | null; length: number | null }
 

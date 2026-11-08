@@ -18,7 +18,7 @@ pub use super::meta::Meta;
 /// shape, not at the number.
 /// Version 6 separates portable signals from local hardware routing.
 /// Version 9 adds recording origin, pronunciation text and non-destructive speech trims.
-pub const FORMAT_VERSION: u32 = 10;
+pub const FORMAT_VERSION: u32 = 11;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -957,7 +957,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 10,
+        "formatVersion": 11,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {

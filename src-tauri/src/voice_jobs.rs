@@ -11,6 +11,8 @@ use std::{
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Snapshot {
     #[serde(default)]
+    pub mode: flux_project::operator::VoiceMode,
+    #[serde(default)]
     pub synthesis_text: Option<String>,
     pub project: String,
     pub timeline: String,
@@ -190,6 +192,10 @@ impl JobStore {
         Ok(record)
     }
 
+    pub fn discard(&self, id: &str) -> io::Result<()> {
+        fs::remove_dir_all(self.directory(id)?)
+    }
+
     pub fn audio(&self, id: &str) -> io::Result<PathBuf> {
         let record = self.read(id)?;
         Ok(self
@@ -225,6 +231,7 @@ mod tests {
     use super::*;
     fn snapshot() -> Snapshot {
         Snapshot {
+            mode: Default::default(),
             synthesis_text: None,
             project: "show".into(),
             timeline: "timeline".into(),

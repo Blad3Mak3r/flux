@@ -18,7 +18,7 @@ import { activeTimeline } from "../state/doc";
 import type { Doc } from "../state/doc";
 import { useDoc } from "../state/store";
 import { hasNativeWindow } from "../components/WindowControls";
-import { sayError, useUi } from "../state/ui";
+import { say, sayError, useUi } from "../state/ui";
 import { realFps } from "../timecode";
 import * as api from "./api";
 import type { OutputLanes } from "./api";
@@ -51,7 +51,7 @@ const signature = (doc: Doc) => JSON.stringify(setup(doc));
 
 const project = () => useDoc.getState().project;
 const timeline = () => activeTimeline(useDoc.getState());
-const report = (error: unknown) => sayError(errorMessage(error));
+const report = (error: unknown) => error === "voiceRecordingActive" ? say("voice.stopRecordingToPlay") : sayError(errorMessage(error));
 
 let openedFor: string | null = null;
 /** The start offset the open output counts from; a parked playhead is absolute, so it is only carried over while this holds. */

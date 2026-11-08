@@ -10,7 +10,14 @@ use tauri::{AppHandle, Manager, State};
 
 fn preview_epoch(state: &VoiceState, output: &SharedOutput) -> Result<u64> {
     let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
-    if !transport_stopped(output) || state.transitioning.load(Ordering::Acquire) {
+    if !transport_stopped(output)
+        || state.transitioning.load(Ordering::Acquire)
+        || state
+            .recording
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
+    {
         return Err(Error::Stopped);
     }
     invalidate_preview(state);

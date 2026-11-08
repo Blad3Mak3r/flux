@@ -14,6 +14,15 @@ pub enum RecordingOrigin {
     #[default]
     Generated,
     Imported,
+    Recorded,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VoiceMode {
+    #[default]
+    Generated,
+    Manual,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +51,8 @@ pub struct GeneratedVoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceOrder {
+    #[serde(default)]
+    pub mode: VoiceMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub synthesis_text: Option<String>,
     #[serde(default)]
@@ -75,6 +86,8 @@ pub struct VoiceView {
     pub before_origin: bool,
     pub start: Option<f64>,
     pub length: Option<f64>,
+    /// Exact source offset for drawing a trimmed recording, without millisecond rounding.
+    pub audio_offset_seconds: f64,
     pub trim_start_ms: String,
     pub trim_end_ms: String,
 }
@@ -113,7 +126,7 @@ impl VoiceOrder {
                 || g.samples == 0
                 || g.samples > u64::from(ENGINE_RATE) * 3600
                 || (g.origin == RecordingOrigin::Generated && g.model != VOICE_MODEL)
-                || (g.origin == RecordingOrigin::Imported && !g.model.is_empty())
+                || (g.origin != RecordingOrigin::Generated && !g.model.is_empty())
                 || g.dialogue.chars().count() > MAX_DIALOGUE
                 || g.synthesis_text
                     .as_ref()
@@ -135,7 +148,7 @@ impl VoiceOrder {
             None => VoiceStatus::Ungenerated,
             Some(g)
                 if g.dialogue == self.dialogue
-                    && (g.origin == RecordingOrigin::Imported
+                    && (g.origin != RecordingOrigin::Generated
                         || (Some(g.voice.as_str()) == voice
                             && g.model == VOICE_MODEL
                             && g.synthesis_text == self.synthesis_text)) =>
@@ -217,6 +230,7 @@ pub fn views(project: &Project, local: Option<&str>) -> Vec<VoiceView> {
                         before_origin: order.generated.is_some() && interval.is_none(),
                         start: interval.map(|(from, _)| to_frames(from)),
                         length: order.play_samples().map(to_frames),
+                        audio_offset_seconds: order.trim_start as f64 / f64::from(ENGINE_RATE),
                         trim_start_ms: (order.trim_start / (u64::from(ENGINE_RATE) / 1000))
                             .to_string(),
                         trim_end_ms: (order.trim_end / (u64::from(ENGINE_RATE) / 1000)).to_string(),
@@ -257,6 +271,10 @@ pub enum OperatorOp {
         at: Option<u64>,
         #[serde(default)]
         alignment: Option<Alignment>,
+    },
+    SetMode {
+        id: String,
+        mode: VoiceMode,
     },
     MoveOrder {
         id: String,
@@ -317,6 +335,11 @@ pub fn apply(project: &mut Project, active: &str, op: OperatorOp) -> Result<()> 
             continue;
         };
         match &op {
+            OperatorOp::SetMode { id, mode } if orders.iter().any(|o| o.id == *id) => {
+                if let Some(order) = orders.iter_mut().find(|o| o.id == *id) {
+                    order.mode = *mode;
+                }
+            }
             OperatorOp::SetPronunciation { id, text } if orders.iter().any(|o| o.id == *id) => {
                 if let Some(order) = orders.iter_mut().find(|o| o.id == *id) {
                     order.synthesis_text = (!text.trim().is_empty()).then(|| text.clone());
@@ -345,6 +368,7 @@ pub fn apply(project: &mut Project, active: &str, op: OperatorOp) -> Result<()> 
             }
             OperatorOp::AddOrder { track_id, at } if track.id == *track_id => {
                 orders.push(VoiceOrder {
+                    mode: Default::default(),
                     synthesis_text: None,
                     trim_start: 0,
                     trim_end: 0,
@@ -420,6 +444,7 @@ mod tests {
 
     fn order() -> VoiceOrder {
         VoiceOrder {
+            mode: Default::default(),
             synthesis_text: None,
             trim_start: 0,
             trim_end: 0,
@@ -652,6 +677,7 @@ mod tests {
         let mut ready = order();
         ready.generated.as_mut().unwrap().asset = asset.id.clone();
         let pending = VoiceOrder {
+            mode: Default::default(),
             synthesis_text: None,
             trim_start: 0,
             trim_end: 0,
@@ -746,5 +772,87 @@ mod tests {
             crate::FORMAT_VERSION
         );
         assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+    #[test]
+    fn recorded_audio_ignores_provider_settings_and_mode_changes_preserve_it() {
+        let mut p = Project::new("Show", FrameRate::Fps25);
+        let active = p.timelines[0].id.clone();
+        let mut o = order();
+        let id = o.id.clone();
+        o.generated.as_mut().unwrap().origin = RecordingOrigin::Recorded;
+        assert_eq!(o.status(None), VoiceStatus::Synced);
+        p.timelines[0].tracks.push(Track {
+            id: "operator".into(),
+            name: "Operator".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            audio_output: Default::default(),
+            kind: TrackKind::Operator {
+                voice: None,
+                orders: vec![o.clone()],
+            },
+        });
+        apply(
+            &mut p,
+            &active,
+            OperatorOp::SetMode {
+                id: id.clone(),
+                mode: VoiceMode::Manual,
+            },
+        )
+        .unwrap();
+        apply(
+            &mut p,
+            &active,
+            OperatorOp::SetMode {
+                id,
+                mode: VoiceMode::Generated,
+            },
+        )
+        .unwrap();
+        let TrackKind::Operator { orders, .. } = &p.timelines[0].tracks[0].kind else {
+            panic!()
+        };
+        assert_eq!(orders[0], o);
+    }
+    #[test]
+    fn waveform_view_keeps_exact_source_offset_and_trimmed_duration_for_both_alignments() {
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        let mut order = order();
+        order.trim_start = 4_801;
+        order.trim_end = 2_400;
+        let expected_samples = order.play_samples().unwrap();
+        project.timelines[0].tracks.push(Track {
+            id: "operator".into(),
+            name: "Operator".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            audio_output: Default::default(),
+            kind: TrackKind::Operator {
+                voice: None,
+                orders: vec![order],
+            },
+        });
+        for alignment in [Alignment::Start, Alignment::End] {
+            let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind
+            else {
+                panic!()
+            };
+            orders[0].alignment = alignment;
+            let view = views(&project, Some("voice")).remove(0);
+            let frames = expected_samples as f64 / f64::from(ENGINE_RATE) * 25.0;
+            assert_eq!(view.audio_offset_seconds, 4_801.0 / f64::from(ENGINE_RATE));
+            assert_eq!(view.length, Some(frames));
+            assert_eq!(
+                view.start,
+                Some(if alignment == Alignment::Start {
+                    100.0
+                } else {
+                    100.0 - frames
+                })
+            );
+        }
     }
 }

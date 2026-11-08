@@ -21,6 +21,7 @@ pub struct Preferences {
     pub preview: Option<AudioOutput>,
     pub operator: Option<AudioOutput>,
     pub voice: Option<String>,
+    pub microphone: Option<Microphone>,
     pub metronome: Option<AudioOutput>,
     pub ltc: BTreeMap<u32, LtcOutput>,
     pub mtc: BTreeMap<u32, MtcOutput>,
@@ -28,6 +29,14 @@ pub struct Preferences {
     pub revision: u64,
     #[serde(skip_deserializing)]
     pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Microphone {
+    pub driver: Option<String>,
+    pub device: String,
+    pub channel: u16,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -43,6 +52,9 @@ pub struct Store(pub Mutex<Option<Preferences>>);
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Change {
+    Microphone {
+        microphone: Microphone,
+    },
     AudioRoute {
         id: String,
         field: String,
@@ -119,6 +131,14 @@ fn save(path: &Path, prefs: &Preferences) -> Result<(), String> {
 }
 
 fn validate(p: &Preferences) -> Result<(), String> {
+    if p.microphone.as_ref().is_some_and(|m| {
+        m.device.len() > 1024
+            || m.channel == 0
+            || m.channel > 256
+            || m.driver.as_ref().is_some_and(|d| d.len() > 128)
+    }) {
+        return Err("invalid microphone input".into());
+    }
     flux_project::operator::validate_voice(p.voice.as_deref()).map_err(|e| e.to_string())?;
     if p.ltc.keys().chain(p.mtc.keys()).any(|s| *s == 0) {
         return Err("invalid output slot".into());
@@ -166,6 +186,7 @@ fn validate(p: &Preferences) -> Result<(), String> {
 impl Preferences {
     fn apply(&mut self, change: Change) -> Result<(), String> {
         match change {
+            Change::Microphone { microphone } => self.microphone = Some(microphone),
             Change::AudioRoute { id, field, text } => {
                 if !flux_project::routing::valid_id(&id) {
                     return Err("invalid audio output id".into());
