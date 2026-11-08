@@ -1,3 +1,4 @@
+import { sayError } from "../state/ui";
 import { create } from "zustand";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -77,7 +78,7 @@ export function initPreferences(): Promise<void> {
         localStorage.removeItem("flux.locale");
       }
     } catch (err) {
-      usePreferences.setState({ error: errorMessage(err) });
+      sayError(errorMessage(err));
     } finally {
       usePreferences.setState({ ready: true });
     }
@@ -88,7 +89,7 @@ export async function changePreferences(change: object): Promise<void> {
   try {
     accept(await invoke<Preferences>("preferences_change", { change }));
   } catch (err) {
-    usePreferences.setState({ error: errorMessage(err) });
+    sayError(errorMessage(err));
     throw err;
   }
 }

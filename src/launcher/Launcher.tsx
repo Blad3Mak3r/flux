@@ -1,3 +1,5 @@
+import { ErrorDialog } from "../components/ErrorDialog";
+import { sayError } from "../state/ui";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { DotMatrix } from "../components/DotMatrix";
@@ -32,7 +34,6 @@ function Launcher() {
   const t = useT();
   const [steps, setSteps] = useState<Partial<Record<StepId, Step>>>({});
   const [finished, setFinished] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hasNativeWindow()) return;
@@ -52,7 +53,7 @@ function Launcher() {
         if (Array.isArray(report)) report.forEach(apply);
         setFinished(true);
         await sleep(Math.max(0, MIN_VISIBLE_MS - (Date.now() - begun)));
-        await showWelcome().catch((err) => setFailure(errorMessage(err)));
+        await showWelcome().catch((err) => sayError(errorMessage(err)));
       })();
     }
 
@@ -87,11 +88,6 @@ function Launcher() {
           );
         })}
       </ul>
-      {failure && (
-        <p className="message" data-tone="error" role="alert">
-          {t("launcher.failed")} {failure}
-        </p>
-      )}
     </main>
   );
 }
@@ -100,6 +96,7 @@ export default function LauncherView() {
   return (
     <I18nProvider>
       <Launcher />
+      <ErrorDialog />
     </I18nProvider>
   );
 }

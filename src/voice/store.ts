@@ -11,7 +11,7 @@ import { flushDocumentSync } from "../state/persist";
 
 export interface Voice { voice_id: string; name: string }
 export interface RecoverableJob { createdMillis: number; duration: string; voiceName: string | null; origin: "generated" | "imported"; id: string; orderId: string; dialogue: string; voice: string; canAttach: boolean; matching: boolean }
-export const useVoice = create<{ views: Record<string, VoiceView>; voices: Voice[]; busy: string | null; error: string | null; listError: string | null; loading: boolean; jobs: RecoverableJob[]; unsaved: boolean }>(() => ({ views: {}, voices: [], busy: null, error: null, listError: null, loading: false, jobs: [], unsaved: false }));
+export const useVoice = create<{ views: Record<string, VoiceView>; voices: Voice[]; busy: string | null; loading: boolean; jobs: RecoverableJob[]; unsaved: boolean }>(() => ({ views: {}, voices: [], busy: null, loading: false, jobs: [], unsaved: false }));
 
 export function voiceError(error: unknown): string {
   const value = error as { code?: string; error?: { code?: string } };
@@ -26,7 +26,7 @@ export async function refreshVoiceViews(): Promise<void> {
   try {
     const views = await invoke<VoiceView[]>("operator_views", { project: useDoc.getState().project });
     if (current === revision) useVoice.setState({ views: Object.fromEntries(views.map((v) => [v.id, v])) });
-  } catch (error) { if (current === revision) useVoice.setState({ error: voiceError(error) }); }
+  } catch (error) { if (current === revision) sayError(voiceError(error)); }
 }
 
 let jobsRevision = 0;
@@ -40,7 +40,7 @@ export async function refreshJobs(): Promise<void> {
       invoke<boolean>("voice_pending"),
     ]);
     if (request === jobsRevision) useVoice.setState({ jobs, unsaved });
-  } catch (error) { if (request === jobsRevision) useVoice.setState({ error: voiceError(error) }); }
+  } catch (error) { if (request === jobsRevision) sayError(voiceError(error)); }
 }
 
 export function bindVoice(): () => void {
@@ -76,9 +76,9 @@ export async function addOrder(trackId: string, at: number): Promise<void> {
 }
 
 export async function loadVoices(): Promise<void> {
-  useVoice.setState({ loading: true, listError: null });
+  useVoice.setState({ loading: true });
   try { useVoice.setState({ voices: await invoke<Voice[]>("voice_list") }); }
-  catch (error) { useVoice.setState({ listError: voiceError(error) }); }
+  catch (error) { sayError(voiceError(error)); }
   finally { useVoice.setState({ loading: false }); }
 }
 
@@ -102,30 +102,30 @@ async function attachJob(jobId: string, recover: boolean, docKey: number): Promi
 
 export async function generateOrder(id: string): Promise<void> {
   if (useVoice.getState().busy) return;
-  useVoice.setState({ busy: id, error: null });
+  useVoice.setState({ busy: id });
   const docKey = useUi.getState().docKey;
   try {
     await edits;
     await flushDocumentSync();
     const jobId = await invoke<string>("voice_generate", { project: useDoc.getState().project, id });
     await attachJob(jobId, false, docKey);
-  } catch (error) { useVoice.setState({ error: voiceError(error) }); }
+  } catch (error) { sayError(voiceError(error)); }
   finally { useVoice.setState({ busy: null }); await refreshJobs(); }
 }
 
 export async function recoverJob(jobId: string): Promise<void> {
   if (useVoice.getState().busy) return;
-  useVoice.setState({ busy: "recovery", error: null });
+  useVoice.setState({ busy: "recovery" });
   try { await attachJob(jobId, true, useUi.getState().docKey); }
-  catch (error) { useVoice.setState({ error: voiceError(error) }); }
+  catch (error) { sayError(voiceError(error)); }
   finally { useVoice.setState({ busy: null }); await refreshJobs(); }
 }
 
 export async function retrySave(): Promise<void> {
   if (useVoice.getState().busy) return;
-  useVoice.setState({ busy: "saving", error: null });
+  useVoice.setState({ busy: "saving" });
   try { await invoke("voice_retry_save"); }
-  catch (error) { useVoice.setState({ error: voiceError(error) }); }
+  catch (error) { sayError(voiceError(error)); }
   finally { useVoice.setState({ busy: null }); await refreshJobs(); }
 }
 
@@ -154,12 +154,12 @@ export async function importRecording(id: string): Promise<void> {
   const t = translator(usePreferences.getState().saved.locale ?? initialLocale());
   const path = await open({ multiple: false, filters: [{ name: t("voice.recordingFile"), extensions: ["wav", "aif", "aiff", "flac", "mp3", "ogg"] }] });
   if (!path || useUi.getState().docKey !== docKey || useVoice.getState().busy) return;
-  useVoice.setState({ busy: id, error: null });
+  useVoice.setState({ busy: id });
   try {
     await edits; await flushDocumentSync();
     const jobId = await invoke<string>("voice_import", { project: useDoc.getState().project, id, path });
     await attachJob(jobId, false, docKey);
-  } catch (error) { useVoice.setState({ error: voiceError(error) }); }
+  } catch (error) { sayError(voiceError(error)); }
   finally { useVoice.setState({ busy: null }); await refreshJobs(); }
 }
 
@@ -170,6 +170,6 @@ export async function freezeVoices(): Promise<void> {
 }
 
 export function listenJob(jobId: string): void {
-  void invoke("voice_job_preview", { jobId }).catch((error) => useVoice.setState({ error: voiceError(error) }));
+  void invoke("voice_job_preview", { jobId }).catch((error) => sayError(voiceError(error)));
 }
-export function stopListening(): void { void invoke("voice_preview_stop").catch((error) => useVoice.setState({ error: voiceError(error) })); }
+export function stopListening(): void { void invoke("voice_preview_stop").catch((error) => sayError(voiceError(error))); }

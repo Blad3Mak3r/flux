@@ -26,7 +26,7 @@ import type {
 import { errorMessage, projectSetAutosave } from "../project/api";
 import { edit } from "../state/actions";
 import { isDirty } from "../state/doc";
-import { ask } from "../state/ui";
+import { ask, sayError } from "../state/ui";
 import { setName } from "../state/edit";
 import {
   addDestination,
@@ -112,15 +112,13 @@ export function ProjectPage() {
   const t = useT();
   const project = useDoc((doc) => doc.project);
   const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
   const changeAutosave = async (enabled: boolean, intervalSeconds: string) => {
     setBusy(true);
-    setProblem(null);
     try {
       await flushDocumentSync();
       const state = await projectSetAutosave(useDoc.getState().project, enabled, intervalSeconds);
       dispatch({ type: "apply", ...state });
-    } catch (err) { setProblem(errorMessage(err)); }
+    } catch (err) { sayError(errorMessage(err)); }
     finally { setBusy(false); }
   };
   return (
@@ -136,7 +134,6 @@ export function ProjectPage() {
         onChange={(value) => void changeAutosave(project.autosave.enabled, value)}>
         {[15, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{t("autosave.seconds", { seconds })}</option>)}
       </SelectField>
-      {problem && <p className="message" data-tone="error" role="alert">{problem}</p>}
       <VoiceSelector scope="project" value={project.voice} />
       <button type="button" className="button" onClick={() => void freezeVoices()}>{t("voice.freeze")}</button>
       <p className="field-note">{t("voice.freezeNote")}</p>
@@ -353,7 +350,7 @@ export function AudioOutputsPage({ devices }: { devices: Devices }) {
         <div className="setup-row-fields audio-output-fields">
           <TextField label={t("routing.name")} value={bus.name} onCommit={(name) => void audioRoutingEdit({ op: "rename", id: bus.id, name })} />
           <AudioRoute kind="audio" outputId={bus.id} deviceLabel="out.audioDevice" channelsLabel="routing.channels" devices={devices} />
-          <button type="button" className="button" disabled={playing} onClick={() => void import("@tauri-apps/api/core").then(({ invoke }) => invoke("voice_test_output", { outputId: bus.id })).catch((e) => usePreferences.setState({ error: errorMessage(e) }))}>{t("routing.test")}</button>
+          <button type="button" className="button" disabled={playing} onClick={() => void import("@tauri-apps/api/core").then(({ invoke }) => invoke("voice_test_output", { outputId: bus.id })).catch((e) => sayError(errorMessage(e)))}>{t("routing.test")}</button>
         </div>
       </li>)}
     </ul>
@@ -721,25 +718,27 @@ export function GeneralPage({ devices }: { devices: Devices }) {
 export function GraphicsPage() {
   const t = useT();
   const [state, setState] = useState<GraphicsState | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const running = useTransport((transport) => transport.info !== null);
 
   useEffect(() => {
-    graphicsGet().then(setState, (err) => setProblem(errorMessage(err)));
+    graphicsGet().then(setState, (err) => { setLoadFailed(true); sayError(errorMessage(err)); });
   }, []);
 
   if (!state)
     return (
-      <p className="empty-note">{problem ?? t("setup.graphics.loading")}</p>
+      loadFailed ? <button type="button" className="button" onClick={() => {
+        setLoadFailed(false);
+        void graphicsGet().then(setState, (err) => { setLoadFailed(true); sayError(errorMessage(err)); });
+      }}>{t("dialog.retry")}</button> : <p className="empty-note">{t("setup.graphics.loading")}</p>
     );
 
   const change = (prefs: GraphicsPrefs) => {
-    setProblem(null);
-    graphicsSet(prefs).then(setState, (err) => setProblem(errorMessage(err)));
+    graphicsSet(prefs).then(setState, (err) => sayError(errorMessage(err)));
   };
   // The restart drops the document and the output, so it asks first about work that was not saved.
   const restart = () => {
-    const go = () => void protectVoiceWork().then((safe) => { if (safe) return flushDocumentSync().then(graphicsRestart); }).catch((err) => setProblem(errorMessage(err)));
+    const go = () => void protectVoiceWork().then((safe) => { if (safe) return flushDocumentSync().then(graphicsRestart); }).catch((err) => sayError(errorMessage(err)));
     if (isDirty(useDoc.getState())) ask(go);
     else go();
   };
@@ -822,11 +821,7 @@ export function GraphicsPage() {
         </button>
       )}
       <p className="field-note">{t("setup.graphics.safeHint")}</p>
-      {problem && (
-        <p className="field-note" role="alert">
-          {problem}
-        </p>
-      )}
+
     </div>
   );
 }

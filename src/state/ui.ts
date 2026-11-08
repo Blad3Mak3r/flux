@@ -89,6 +89,7 @@ interface UiState {
   /** A new document starts the timeline over: scrolled to the origin, at the default zoom. */
   docKey: number;
   message: Message;
+  errors: string[];
   pending: Pending | null;
   /** The page of the Setup dialog that is open, or `null` while it is closed. */
   setup: SetupSection | null;
@@ -187,6 +188,7 @@ export const useUi = create<UiState>()(() => ({
   zoom: DEFAULT_PX_PER_FRAME,
   docKey: 0,
   message: { key: "status.ready", tone: "info" },
+  errors: [],
   pending: null,
   setup: null,
   showCheck: false,
@@ -303,7 +305,10 @@ export const resetView = () =>
 
 export const say = (key: MessageKey, values?: Record<string, string | number>) =>
   set({ message: { key, values, tone: "info" } });
-export const sayError = (text: string) => set({ message: { text, tone: "error" } });
+export const sayError = (text: string) => set((ui) => ({
+  errors: ui.errors.includes(text) ? ui.errors : [...ui.errors, text],
+}));
+export const dismissError = () => set((ui) => ({ errors: ui.errors.slice(1) }));
 
 // The element that had the focus when a menu opened gets it back when the menu closes.
 let returnFocus: Element | null = null;
