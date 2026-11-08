@@ -312,3 +312,57 @@ the GB flag and Spanish uses ES, bundled from `flag-icons`; flags are decorative
 technology. The selected control and both options show the flag. The flat menu supports arrows, Home/End,
 Enter/Space, Escape and focus return, and closes when focus or a pointer moves outside it. Language changes apply
 immediately to every window and persist in the computer preferences.
+
+
+### Setlists and show operation
+
+Setlists has a dedicated Edit workspace, reached from the timeline toolbar. An ordered list on the
+left shows names, end actions, omissions and note indicators; the right inspector edits only the
+selected entry. Setlist settings and creation are revealed on request. Lists and properties scroll
+independently. The selected setlist and entry survive navigation back to the timeline. Entries open
+their source timeline for detailed editing. Existing screen inputs, square boundaries and rule borders
+retain the instrument styling; 76px list rows and grouped fields give the task room.
+Running-order rows expose the source timeline when aliased, exact transition delay, manual waits,
+loops until GO and counted loops from the backend overview. A sticky list toolbar holds Move up,
+Move down and Move to for the selection; Alt+Up/Down works from a focused entry row. Ordering
+actions wait for the previous edit and refreshed overview rather than acting on stale positions.
+
+Loops and waits use a 28px amber rail below the timeline ruler, separate from audio lanes. Selecting
+a control opens its own inspector with timecode fields relative to the timeline origin, explicit
+Until GO or counted turns, and explanatory copy. New controls begin at the playhead; the backend
+owns their defaults and validation. At narrow desktop widths the timeline toolbar wraps.
+The selected loop is bounded across its full range, including a visible end cap. The inspector's
+control list prints relative timecode ranges and repeat mode, with persistent guidance explaining
+creation at the playhead and execution only in prepared setlists.
+
+A prepared Live has two columns and no page scroll: the show's operation on the left, the cues on the
+right. The Live bar (setlist name, voice-order check, Edit/Live switch) spans both. The grid is
+`auto minmax(0, 1fr)` rows and `minmax(0, 1fr) clamp(380px, 40%, 520px)` columns, so the cue column keeps
+its full height whatever the left column holds. Live without a setlist keeps its stacked layout.
+
+The left column has a fixed head and a scrolling body, and it stays quiet: a panel appears only while it
+has something to say. The head holds the current entry (two lines, the full name in the tooltip), then one
+line each for its state, loop turn and pending exit, and the next entry and duration in dim ink; GO is the
+single saturated block, 64px, its backend-provided label may wrap to two lines, and its Enter shortcut is
+in the tooltip and `aria-keyshortcuts` rather than printed on it. Cancel loop exit sits under it. The body
+scrolls on its own: route problems only (a route that is ready is not listed), the standby cue and
+countdown, playing cues and active notes only while there are any, the entry's operator notes (a box of its
+own that scrolls when long), the running order and, last, the Show options disclosure that leaves the
+setlist (Stop first). Panels are separated by one 1px rule and carry no legend rule of their own. The running
+order is a compact vertical list with numbers, aliases and sources; only Current, Next and Omitted rows print
+a status word (passed rows are dimmed, and every row keeps its status for assistive technology); its own
+list is capped at 192px. Its caption is a legend like the other panels' (uppercase, tracked), the hint beside it
+appears only while a stop is needed, and every Live scroller uses one thin scrollbar so nested lists do not
+stack heavy bars. Cues already done or muted dim their track and length along with their name.
+
+The cue sidebar is the cue list in a `sidebar` layout: a fixed Cues bar with the double-click/Enter hint,
+and a list that scrolls vertically only. Each cue is a three-line row of at least 72px: number and name
+(two lines, then clipped; the full text stays in the DOM and the tooltip), state word with its lamp and the
+start timecode, then kind swatch, track and duration. States keep their printed word, lamp shape and
+colours. One click focuses a row; double-click or Enter goes to the cue; the context menu, progress fill and
+voice-order warnings are unchanged. Loading and an entry with no cues are told inside the sidebar, so GO,
+state, notes and running order stay in place. Following the show moves only the cue list (and the running
+order moves only its own list), never the surrounding columns, so the entry and GO stay in view.
+Existing transport controls retain their meaning.
+All added labels ship in English and Spanish. Remote control preferences retain their existing
+form layout and add the OSC listen address, TCP switch and feedback explanation.

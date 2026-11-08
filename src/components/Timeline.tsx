@@ -1,3 +1,6 @@
+import { CONTROL_RAIL_H, ControlLayer } from "../show/ControlLayer";
+import { openSetlists, openShowControls } from "../state/ui";
+import { ListIcon, LoopIcon } from "./icons";
 import { useVoice } from "../voice/store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
@@ -224,10 +227,11 @@ export function Timeline() {
 
   return (
     <section className="screen" aria-labelledby="tracks-legend">
-      <div className="screen-bar">
+      <div className="screen-bar timeline-bar">
         <h2 id="tracks-legend" className="legend">
           {t("tracks.legend")}
         </h2>
+        <button type="button" className="button" onClick={openSetlists}><ListIcon />{t("show.workspace")}</button>
         <TimelineStrip />
         <TempoBar />
         <SnapControl />
@@ -238,7 +242,7 @@ export function Timeline() {
       <div className="screen-body" style={{ "--scrollbar-h": `${scrollbarHeight}px` } as CSSProperties}>
         {/* Outside the horizontal scroller, so its scrollbar spans the lanes only. */}
         <div className="screen-side">
-          <div className="zoom-corner" style={{ height: RULER_H }}>
+          <div className="zoom-corner" style={{ height: RULER_H + CONTROL_RAIL_H }}>
             <div className="zoom">
               <button
                 type="button"
@@ -262,6 +266,7 @@ export function Timeline() {
                 <ZoomInIcon />
               </button>
             </div>
+            <button type="button" className="controls-lane-label" onClick={() => openShowControls()}><LoopIcon />{t("show.loopsWaits")}</button>
           </div>
 
           {/* Both columns share their vertical scroll position. */}
@@ -307,7 +312,7 @@ export function Timeline() {
           >
             <Graticule width={laneWidth} pxPerFrame={pxPerFrame} rate={frameRate} grid={grid} />
 
-            <div className="ruler-row" style={{ height: RULER_H }}>
+            <div className="ruler-row" style={{ height: RULER_H + CONTROL_RAIL_H }}>
               <Ruler
                 width={laneWidth}
                 pxPerFrame={pxPerFrame}
@@ -316,6 +321,7 @@ export function Timeline() {
                 grid={grid}
                 onSeek={(relative) => seek(start + relative)}
               />
+              <ControlLayer controls={timeline.controls} pxPerFrame={pxPerFrame} rate={frameRate} />
             </div>
 
             {timeline.tracks.map((track) => (
@@ -329,7 +335,7 @@ export function Timeline() {
                 dragging={drag?.id === track.id}
               />
             ))}
-            {dropY !== null && <div className="drop-line" style={{ top: RULER_H + dropY }} />}
+            {dropY !== null && <div className="drop-line" style={{ top: RULER_H + CONTROL_RAIL_H + dropY }} />}
 
             {timeline.tracks.length === 0 && (
               <div className="empty-state">

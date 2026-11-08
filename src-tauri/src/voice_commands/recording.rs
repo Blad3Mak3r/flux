@@ -51,6 +51,7 @@ pub async fn voice_record_start(
         }
         let session_id = {
             let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+            session.ensure_editable().map_err(|_| Error::Stopped)?;
             if session.document().is_none_or(|d| d.project != project) {
                 return Err(Error::Obsolete);
             }

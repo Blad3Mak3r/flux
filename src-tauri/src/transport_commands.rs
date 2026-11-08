@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, IpcResponse};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::audio_commands::load;
 use crate::commands::SharedSession;
@@ -315,10 +315,20 @@ impl Running {
         )?;
 
         let (reader, cues) = (running.output.reader(), running.cues.clone());
+        let live_session = Arc::clone(&app.state::<SharedSession>());
         running.spawn_lane(
             "flux-live",
             report(live_rx, on_live, move |lane: &mut LiveLane| {
-                lane.next(cues.current().state_at(reader.position().frame))
+                let position = reader.position();
+                lane.next(if let Some((plan, tick)) = reader.show() {
+                    live_session
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .execution_select(&plan.entries[tick.entry].timeline.id);
+                    plan.entries[tick.entry].cues.state_at(position.frame)
+                } else {
+                    cues.current().state_at(position.frame)
+                })
             }),
         )?;
 
@@ -365,10 +375,15 @@ impl Running {
         })?;
 
         let levels = running.output.levels();
+        let levels_reader = running.output.reader();
         running.spawn_lane(
             "flux-levels",
             report(levels_rx, on_levels, move |lane: &mut LevelsLane| {
-                lane.next(levels.current().take_peaks())
+                lane.next(if let Some((plan, tick)) = levels_reader.show() {
+                    plan.entries[tick.entry].clips.levels().take_peaks()
+                } else {
+                    levels.current().take_peaks()
+                })
             }),
         )?;
         Ok(running)
@@ -445,6 +460,7 @@ pub async fn output_start(
     project: Project,
     advance: bool,
     audition: bool,
+    setlist_id: Option<String>,
     on_position: Channel<Position>,
     on_levels: Channel<Vec<TrackPeak>>,
     on_live: Channel<LiveState>,
@@ -457,6 +473,10 @@ pub async fn output_start(
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     let started = tauri::async_runtime::spawn_blocking(move || {
         let _transition = transition();
+        session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .ensure_editable()?;
         let previous = lock(&state).take();
         let parked = previous.as_ref().map(|r| {
             (
@@ -467,12 +487,42 @@ pub async fn output_start(
         });
         drop(previous);
 
-        let timeline = active_timeline(&session, &project)?;
-        let resolved = prefs.resolve_project(&project, timeline, audition);
+        let show = if let Some(id) = &setlist_id {
+            Some(crate::show_commands::prepare_plan(
+                &project, id, &session, &audio,
+            )?)
+        } else {
+            None
+        };
+        let timeline = if let Some(plan) = &show {
+            &plan.entries[0].timeline
+        } else {
+            active_timeline(&session, &project)?
+        };
+        let mut resolved = prefs.resolve_project(&project, timeline, audition);
+        if let Some(plan) = &show {
+            for entry in &plan.entries {
+                let other = prefs.resolve_project(&project, &entry.timeline, false);
+                for route in other.track_routes {
+                    if !resolved
+                        .track_routes
+                        .iter()
+                        .any(|r| r.track_id == route.track_id)
+                    {
+                        resolved.track_routes.push(route);
+                    }
+                }
+            }
+        }
         let list = cue_list(&project, timeline, &session, &audio);
         let programme = programme(&project, timeline, &session, &audio, &list);
-        let output = Output::start(&resolved, timeline, programme, !audition)?;
+        let mut output =
+            Output::start(&resolved, timeline, programme, !audition && show.is_none())?;
+        if let Some(plan) = &show {
+            output.install_show(Arc::clone(plan), &resolved.osc)?;
+        }
         if let Some((id, timecode, position)) = parked
+            && setlist_id.is_none()
             && id == timeline.id
             && timecode == timeline.timecode
         {
@@ -492,7 +542,7 @@ pub async fn output_start(
         diagnostics::output_started(&info);
         let cues = SharedCues::new(list);
         // With `advance`, the show running to its end makes the next timeline the active one.
-        let advance = advance.then(|| Advance {
+        let advance = (advance && setlist_id.is_none()).then(|| Advance {
             app: app.clone(),
             session: Arc::clone(&session),
         });
@@ -533,6 +583,13 @@ pub async fn output_reconfigure(
     audition: bool,
 ) -> Result<Reconfigured, OutputError> {
     project.validate()?;
+    if let Some(running) = lock(&state).as_ref()
+        && running.output.reader().show().is_some()
+    {
+        return Ok(Reconfigured::Applied {
+            info: running.output.info().clone(),
+        });
+    }
     let prefs = crate::preferences::preferences_get(app, prefs).map_err(OutputError::Stream)?;
     let audition = audition && prefs.preview.is_some();
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
@@ -653,7 +710,7 @@ pub fn output_attach(
 
 /// The audio of the timeline's clips, decoding what has not been decoded yet, and where the show
 /// ends according to `cues`. A file that cannot be read is left out and reported, never an error.
-fn programme(
+pub(crate) fn programme(
     project: &Project,
     timeline: &Timeline,
     session: &SharedSession,
@@ -674,6 +731,12 @@ pub async fn output_set_clips(
     audio: State<'_, SharedAudio>,
     project: Project,
 ) -> Result<Vec<String>, OutputError> {
+    if lock(&state)
+        .as_ref()
+        .is_some_and(|r| r.output.reader().show().is_some())
+    {
+        return Ok(Vec::new());
+    }
     let (state, session, audio) = (Arc::clone(&state), Arc::clone(&session), Arc::clone(&audio));
     let updated = tauri::async_runtime::spawn_blocking(move || {
         let timeline = active_timeline(&session, &project)?;
@@ -747,9 +810,14 @@ pub fn is_playing(state: &SharedOutput) -> bool {
 
 /// Where the transport of the running output is and the cues it plays, for the remote control.
 pub(crate) fn snapshot(state: &SharedOutput) -> Option<(Position, Arc<CueList>)> {
-    lock(state)
-        .as_ref()
-        .map(|running| (running.output.reader().position(), running.cues.current()))
+    lock(state).as_ref().map(|running| {
+        let reader = running.output.reader();
+        if let Some((plan, tick, position)) = reader.show_snapshot() {
+            (position, Arc::new(plan.entries[tick.entry].cues.clone()))
+        } else {
+            (reader.position(), running.cues.current())
+        }
+    })
 }
 
 /// How the running output ended up, for the diagnostics.
@@ -890,6 +958,11 @@ pub(crate) fn send(state: &SharedOutput, command: Command) -> Result<(), OutputE
     {
         let mut guard = lock(state);
         let running = guard.as_mut().ok_or(OutputError::NotRunning)?;
+        if matches!(command, Command::Play)
+            && let Some((plan, _)) = running.output.reader().show()
+        {
+            plan.execution_lock.store(true, Ordering::Release);
+        }
         running.output.send(command)?;
         if matches!(command, Command::Pause | Command::Stop) {
             running.stationary_requested = true;
@@ -961,6 +1034,39 @@ pub fn transport_position(state: State<'_, SharedOutput>) -> Option<Position> {
     lock(&state)
         .as_ref()
         .map(|running| running.output.reader().position())
+}
+
+pub(crate) fn show_reader(state: &SharedOutput) -> Option<flux_engine::output::PositionReader> {
+    Some(lock(state).as_ref()?.output.reader())
+}
+
+pub(crate) fn show_send(
+    state: &SharedOutput,
+    command: flux_engine::show::ShowCommand,
+) -> Result<(), OutputError> {
+    let _transition = transition();
+    let guard = lock(state);
+    let running = guard.as_ref().ok_or(OutputError::NotRunning)?;
+    let Some((plan, tick)) = running.output.reader().show() else {
+        return Err(OutputError::NotRunning);
+    };
+    if matches!(command, flux_engine::show::ShowCommand::Go)
+        && matches!(
+            tick.go,
+            flux_engine::show::GoAction::Start | flux_engine::show::GoAction::Resume
+        )
+    {
+        plan.execution_lock.store(true, Ordering::Release);
+    }
+    if running.output.reader().position().device_lost {
+        return Err(OutputError::Stream("show.error.deviceLost".into()));
+    }
+    if matches!(command, flux_engine::show::ShowCommand::Prepare(_))
+        && running.output.reader().position().state != TransportState::Stopped
+    {
+        return Err(OutputError::Stream("show.error.stop".into()));
+    }
+    running.output.show_command(command)
 }
 
 #[cfg(test)]

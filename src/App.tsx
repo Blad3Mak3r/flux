@@ -1,3 +1,6 @@
+import { bindShow } from "./show/api";
+import { SetlistEditor } from "./show/SetlistEditor";
+import { ControlEditor } from "./show/ControlEditor";
 import { ShowCheckDialog } from "./voice/ShowCheckDialog";
 import { ErrorDialog } from "./components/ErrorDialog";
 import { bindVoice, protectVoiceWork } from "./voice/store";
@@ -65,6 +68,8 @@ function Shell({ devices }: { devices: Devices }) {
   const dirty = useDoc(isDirty);
   const docKey = useUi((ui) => ui.docKey);
   const collapsed = useUi((ui) => ui.collapsed);
+  const editSurface = useUi((ui) => ui.editSurface);
+  const controlEditor = useUi((ui) => ui.controlEditor);
   const view = useUi((ui) => ui.view);
   const asking = useUi((ui) => ui.pending !== null);
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced ?? false);
@@ -194,13 +199,15 @@ function Shell({ devices }: { devices: Devices }) {
     <div className="app">
       <MenuBar />
       <Faceplate devices={devices} />
-      <main className="work" data-view={view} data-inspector-collapsed={collapsed}>
+      <main className="work" data-view={view} data-edit-surface={editSurface} data-inspector-collapsed={collapsed}>
         {view === "live" ? (
           <Live />
+        ) : editSurface === "setlists" ? (
+          <SetlistEditor key={docKey} />
         ) : (
           <>
             <Timeline key={docKey} />
-            <Inspector />
+            {controlEditor !== null ? <ControlEditor /> : <Inspector />}
           </>
         )}
       </main>
@@ -243,6 +250,7 @@ function Editor() {
   const cuesReady = useLive((live) => live.ready);
   const waiting = !connected || devices.loading || (liveEnabled && !cuesReady);
 
+  useEffect(bindShow, []);
   useEffect(bindTransport, []);
   useEffect(bindVoice, []);
   useEffect(bindDocumentSync, []);

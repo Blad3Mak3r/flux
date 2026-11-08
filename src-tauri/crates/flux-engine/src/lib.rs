@@ -22,3 +22,7 @@ pub mod preflight;
 pub mod audio_routing;
 
 pub mod recording;
+
+pub mod show;
+
+mod show_events;

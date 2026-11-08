@@ -192,7 +192,9 @@ impl LtcStream {
     pub fn new(config: LtcConfig, rate: FrameRate, start: u64, user_bits: u32) -> Self {
         let encoder = LtcEncoder::new(config, rate);
         Self {
-            frame: Vec::with_capacity(encoder.max_frame_samples()),
+            frame: Vec::with_capacity(
+                Clock::new(config.sample_rate, FrameRate::Fps24).max_samples_per_frame(),
+            ),
             clock: encoder.clock,
             encoder,
             rate,
@@ -203,6 +205,13 @@ impl LtcStream {
             lead_in: 0,
             offset: 0,
         }
+    }
+
+    pub fn set_timecode(&mut self, rate: FrameRate, start: u64) {
+        self.rate = rate;
+        self.start = start;
+        self.clock = Clock::new(self.clock.sample_rate(), rate);
+        self.encoder.clock = self.clock;
     }
 
     /// Plays the timecode `offset` samples ahead of the transport (behind when negative), to make

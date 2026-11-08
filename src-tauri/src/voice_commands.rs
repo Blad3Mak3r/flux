@@ -910,6 +910,24 @@ pub fn send_transport(
     crate::transport_commands::send(output, command)
 }
 
+pub(crate) fn send_show(
+    state: &VoiceState,
+    output: &SharedOutput,
+    command: flux_engine::show::ShowCommand,
+) -> std::result::Result<(), flux_engine::output::OutputError> {
+    let _gate = state.control.lock().unwrap_or_else(PoisonError::into_inner);
+    if state
+        .recording
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_some()
+    {
+        return Err(flux_engine::output::OutputError::Recording);
+    }
+    invalidate_preview(state);
+    crate::transport_commands::show_send(output, command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

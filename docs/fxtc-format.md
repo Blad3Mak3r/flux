@@ -341,7 +341,7 @@ Other track kinds must retain the inherited default. Removing a custom destinati
 
 Hardware mappings belong to installation preferences: `audioRoutes` maps custom output IDs to an interface name hint and mono/stereo channels. Programme and Operator reuse their existing local preference fields. These mappings are never written into the project. Unmapped or missing outputs remain silent in Live; they never fall back to Programme. Edit with a preview route auditions every assigned track through that route, while Silent remains silent.
 
-Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving now writes version 11; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.
+Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving now writes version 12; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.
 
 ### Version 11: voice order sources
 
@@ -351,3 +351,23 @@ to `generated`. The existing `generated` audio record additionally accepts `orig
 microphone takes. Imported and recorded audio play offline without a provider voice or API key.
 Accepted microphone takes are bundled WAV assets, using the existing trims and sample-accurate alignment.
 Microphone driver, device and mono input channel are local preferences, never project routing.
+
+
+### Version 12: setlists and timeline show controls
+
+`setlists` is an optional array of `{id, name, entries}`. Each entry contains its own `id`,
+`timelineId`, optional display `name`, operator `notes`, `omitted` flag and `transition`.
+Transitions are `{type:"wait"}`, `{type:"continue"}` or
+`{type:"after", milliseconds:<nonnegative integer>}`. Entries reference existing timelines;
+several entries may reference the same timeline. Removing a referenced timeline is refused
+until its entries are removed explicitly.
+
+Each timeline may contain ordered `controls`: `{id, name, at, type:"wait"}` or
+`{id, name, at, type:"loop", end, turns}`. Positions are relative frames and loops use
+`[at,end)`. `turns:null` is indefinite; positive counts include the first turn. Controls must
+not overlap, nest or share boundaries. MIDI and OSC events may contain `firstTurnOnly:true`;
+absence/false repeats the event on every loop turn.
+
+Older projects open with empty setlists/controls and per-event repetition enabled. Prepared
+run state, loop turns, devamp requests, operational level overrides and OSC listener/subscriber
+state are never archived. See [setlists.md](setlists.md) and [osc-api.md](osc-api.md).

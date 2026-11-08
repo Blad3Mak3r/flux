@@ -207,6 +207,7 @@ pub async fn project_close(
 ) -> Result<()> {
     let _voice_transition = voice.begin_transition()?;
     transition(&session, &store, |session| {
+        session.ensure_editable()?;
         session.clear();
         Ok(())
     })

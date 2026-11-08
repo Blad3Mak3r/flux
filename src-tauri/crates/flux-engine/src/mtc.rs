@@ -91,6 +91,12 @@ impl MtcScheduler {
         }
     }
 
+    pub fn set_timecode(&mut self, clock: Clock, rate: FrameRate, start: u64) {
+        self.clock = clock;
+        self.rate = rate;
+        self.start = start;
+    }
+
     /// Sends the timecode `offset` samples ahead of the transport (behind when negative), to make
     /// up for the delay of the port and the receiver.
     pub fn with_offset(mut self, offset: i64) -> Self {

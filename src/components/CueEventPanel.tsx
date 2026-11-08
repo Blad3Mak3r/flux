@@ -1,3 +1,4 @@
+import { setFirstTurnOnly } from "../state/cues";
 import { useEffect, useState } from "react";
 import { listMidiPorts } from "../devices/api";
 import { useT } from "../i18n";
@@ -232,6 +233,7 @@ export function MidiEventPanel({ track, event, start, rate }: { track: Track; ev
   return (
     <div className="panel-body" key={event.id}>
       <h3>{t("event.title.midi")}</h3>
+      <RepeatField event={event} />
       <PortField track={track} port={track.kind.type === "midi" ? track.kind.port : undefined} />
       <TimecodeField
         label={t("event.at")}
@@ -348,6 +350,7 @@ export function OscEventPanel({
   return (
     <div className="panel-body" key={event.id}>
       <h3>{t("event.title.osc")}</h3>
+      <RepeatField event={event} />
       <SelectField
         label={t("osc.destination")}
         hint={t("osc.destination.hint")}
@@ -397,4 +400,10 @@ export function OscEventPanel({
       <DeleteButton />
     </div>
   );
+}
+
+function RepeatField({event}: {event: MidiEvent | OscEvent}) {
+  const t = useT();
+  return <label className="check-row"><input type="checkbox" checked={event.firstTurnOnly ?? false}
+    onChange={(e) => void setFirstTurnOnly(event.id,e.target.checked)} /><span>{t("show.firstTurnOnly")}</span></label>;
 }

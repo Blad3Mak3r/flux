@@ -22,6 +22,8 @@ fn is_zero(value: &usize) -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MidiEvent {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub first_turn_only: bool,
     pub id: String,
     pub at: u64,
     pub message: MidiMessage,
@@ -87,6 +89,8 @@ pub enum MscCommand {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OscEvent {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub first_turn_only: bool,
     pub id: String,
     pub at: u64,
     /// Starts with `/`, e.g. `/cue/1/start`.
@@ -260,12 +264,17 @@ impl OscDestination {
     }
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn midi(message: MidiMessage) -> MidiEvent {
         MidiEvent {
+            first_turn_only: false,
             id: "e1".into(),
             at: 0,
             message,
@@ -274,6 +283,7 @@ mod tests {
 
     fn osc(address: &str, args: Vec<OscArg>) -> OscEvent {
         OscEvent {
+            first_turn_only: false,
             id: "e1".into(),
             at: 0,
             address: address.into(),

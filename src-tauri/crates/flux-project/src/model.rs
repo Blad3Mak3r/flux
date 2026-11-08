@@ -18,7 +18,7 @@ pub use super::meta::Meta;
 /// shape, not at the number.
 /// Version 6 separates portable signals from local hardware routing.
 /// Version 9 adds recording origin, pronunciation text and non-destructive speech trims.
-pub const FORMAT_VERSION: u32 = 11;
+pub const FORMAT_VERSION: u32 = 12;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -28,6 +28,8 @@ pub const AUDIO_DIR: &str = "audio/";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub setlists: Vec<crate::show::Setlist>,
     pub format_version: u32,
     pub name: String,
     pub meta: Meta,
@@ -74,6 +76,8 @@ impl Autosave {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Timeline {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub controls: Vec<crate::show::TimelineControl>,
     pub id: String,
     pub name: String,
     pub timecode: TimecodeSettings,
@@ -133,6 +137,7 @@ impl Timeline {
     pub fn new(name: impl Into<String>, frame_rate: FrameRate) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
+            controls: Vec::new(),
             name: name.into(),
             timecode: TimecodeSettings {
                 frame_rate,
@@ -450,6 +455,7 @@ impl Project {
         let name = name.into();
         Self {
             format_version: FORMAT_VERSION,
+            setlists: Vec::new(),
             meta: Meta::new(),
             autosave: Autosave::default(),
             voice: None,
@@ -485,6 +491,7 @@ impl Project {
     /// track, clip or note id is unique in the whole project), clips pointing at known assets, and
     /// asset files living directly under `audio/`.
     pub fn validate(&self) -> Result<()> {
+        crate::show::validate(self)?;
         crate::operator::validate_voice(self.voice.as_deref())?;
         crate::routing::validate(self)?;
         self.meta.validate()?;
@@ -792,6 +799,7 @@ pub(super) mod tests {
 
     pub fn sample_project() -> Project {
         Project {
+            setlists: Vec::new(),
             voice: None,
             autosave: Autosave::default(),
             format_version: FORMAT_VERSION,
@@ -812,6 +820,7 @@ pub(super) mod tests {
                 bpm: Some(128.5),
             }],
             timelines: vec![Timeline {
+                controls: Vec::new(),
                 id: "l1".into(),
                 name: "Opening night".into(),
                 timecode: TimecodeSettings {
@@ -876,6 +885,7 @@ pub(super) mod tests {
                             }),
                             events: vec![
                                 MidiEvent {
+                                    first_turn_only: false,
                                     id: "m1".into(),
                                     at: 600,
                                     message: MidiMessage::NoteOn {
@@ -886,6 +896,7 @@ pub(super) mod tests {
                                     },
                                 },
                                 MidiEvent {
+                                    first_turn_only: false,
                                     id: "m2".into(),
                                     at: 700,
                                     message: MidiMessage::Msc {
@@ -909,6 +920,7 @@ pub(super) mod tests {
                         kind: TrackKind::Osc {
                             destination: Some("d1".into()),
                             events: vec![OscEvent {
+                                first_turn_only: false,
                                 id: "o1".into(),
                                 at: 800,
                                 address: "/cue/1/start".into(),
@@ -957,7 +969,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 11,
+        "formatVersion": 12,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {

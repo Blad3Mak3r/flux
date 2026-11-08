@@ -22,6 +22,10 @@ pub enum CueTrackKind {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum CueOp {
+    SetFirstTurnOnly {
+        id: String,
+        first_turn_only: bool,
+    },
     /// An empty track on the active timeline. `name` is the translated default name.
     AddTrack {
         kind: CueTrackKind,
@@ -140,6 +144,7 @@ fn empty_track(project: &Project, kind: CueTrackKind, name: &str) -> Track {
 /// A note on middle C, or a call to `/go`: something valid to start editing from.
 fn default_midi(id: String, at: u64) -> MidiEvent {
     MidiEvent {
+        first_turn_only: false,
         id,
         at,
         message: MidiMessage::NoteOn {
@@ -153,6 +158,7 @@ fn default_midi(id: String, at: u64) -> MidiEvent {
 
 fn default_osc(id: String, at: u64) -> OscEvent {
     OscEvent {
+        first_turn_only: false,
         id,
         at,
         address: "/go".into(),
@@ -291,6 +297,16 @@ pub(super) fn apply(project: &mut Project, active: &str, op: CueOp) -> Result<Op
                 at,
                 &track_name,
             )?);
+        }
+        CueOp::SetFirstTurnOnly {
+            id,
+            first_turn_only,
+        } => {
+            if let Ok(event) = midi_event(project, &id) {
+                event.first_turn_only = first_turn_only;
+            } else {
+                osc_event(project, &id)?.first_turn_only = first_turn_only;
+            }
         }
         CueOp::SetMidi { id, message } => midi_event(project, &id)?.message = message,
         CueOp::SetOsc { id, address, args } => {

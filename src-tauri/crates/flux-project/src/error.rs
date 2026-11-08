@@ -28,6 +28,11 @@ pub enum ProjectError {
 /// Tauri sends command errors to the frontend as serialized values: use the message.
 impl Serialize for ProjectError {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        if let Self::Invalid(code) = self
+            && code.starts_with("show.error.")
+        {
+            return serializer.serialize_str(code);
+        }
         serializer.collect_str(self)
     }
 }

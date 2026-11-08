@@ -63,3 +63,17 @@ pointed at this computer's address and the port, with one of the addresses above
 ## Not yet
 
 Feedback to the controller (lighting the APC's pads) and OSC replies with the state of the show.
+
+
+## Setlists and OSC v1
+
+GO, Devamp and Cancel devamp are available as MIDI-learn actions and the simple addresses
+`/flux/go`, `/flux/devamp`, `/flux/devamp/cancel`. They operate the prepared setlist rather
+than jumping the ordinary timeline playhead.
+
+The same preferences now enable an OSC request/reply and feedback server over UDP and optional
+TCP, with an installation-local listen address. The versioned dictionary, identities, framing,
+request IDs and subscriptions are documented in [osc-api.md](osc-api.md). That API supports
+show operation and state feedback; legacy addresses above retain their original meaning.
+The earlier limitation on OSC state replies no longer applies to the versioned API. MIDI
+controller light feedback remains unimplemented.

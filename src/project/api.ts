@@ -1,3 +1,4 @@
+import { translator, initialLocale, type MessageKey } from "../i18n/messages";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { en } from "../i18n/en";
@@ -33,7 +34,8 @@ const AUDIO_FILTER = {
 
 /** Backend errors arrive as plain message strings. */
 export function errorMessage(err: unknown): string {
-  return typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
+  const message = typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
+  return Object.prototype.hasOwnProperty.call(en, message) ? translator(initialLocale())(message as MessageKey) : message;
 }
 
 /** The document being edited, or `null` before one was started: what a reloaded window picks up. */
@@ -115,6 +117,7 @@ export type CueTrackKind = "midi" | "osc";
 
 /** What can be done to the MIDI and OSC tracks and the OSC destinations; the backend decides how (see `project/cue_ops.rs`). */
 export type CueOp =
+  | { op: "setFirstTurnOnly"; id: string; firstTurnOnly: boolean }
   | { op: "addTrack"; kind: CueTrackKind; name: string }
   | { op: "addEvent"; trackId?: string; kind: CueTrackKind; at: number; trackName: string }
   | { op: "setMidi"; id: string; message: MidiMessage }

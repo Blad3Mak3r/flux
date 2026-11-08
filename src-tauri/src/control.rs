@@ -28,7 +28,7 @@ use crate::commands::SharedSession;
 use crate::graphics::IDENTIFIER;
 use crate::transport_commands::{SharedOutput, TIMELINE_ADVANCED, is_playing, release, snapshot};
 use flux_engine::control::{Binding, ControlAction, MidiTrigger, action_for, dedup, seek_target};
-use flux_engine::control_in::{Input, ListenError, MidiListener, OscListener};
+use flux_engine::control_in::{Input, ListenError, MidiListener};
 use flux_engine::devices::{self, MidiPort};
 use flux_engine::output::OutputError;
 use flux_engine::transport::{Command, TransportState};
@@ -58,6 +58,8 @@ pub struct MidiPrefs {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct OscPrefs {
+    pub bind_address: String,
+    pub tcp_enabled: bool,
     pub enabled: bool,
     pub port: u16,
 }
@@ -67,6 +69,8 @@ impl Default for OscPrefs {
         Self {
             enabled: false,
             port: DEFAULT_OSC_PORT,
+            bind_address: "0.0.0.0".into(),
+            tcp_enabled: true,
         }
     }
 }
@@ -162,7 +166,7 @@ pub struct ControlView {
 #[derive(Default)]
 struct Running {
     midi: Option<MidiListener>,
-    osc: Option<OscListener>,
+    osc: Option<crate::osc_api::OscServer>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -269,7 +273,13 @@ fn open(
     };
 
     let osc = if prefs.osc.enabled {
-        match OscListener::bind(prefs.osc.port, tx.clone()) {
+        match crate::osc_api::OscServer::bind(
+            app.clone(),
+            &prefs.osc.bind_address,
+            prefs.osc.port,
+            prefs.osc.tcp_enabled,
+            tx.clone(),
+        ) {
             Ok(listener) => {
                 log::info!(
                     "remote control: listening to OSC on UDP port {}",
@@ -358,6 +368,16 @@ impl Dispatcher {
         log::debug!("remote control: {action:?}");
         let output = self.app.state::<SharedOutput>();
         match action {
+            ControlAction::Go | ControlAction::Devamp | ControlAction::CancelDevamp => {
+                let action = match action {
+                    ControlAction::Go => crate::show_commands::Action::Go,
+                    ControlAction::Devamp => crate::show_commands::Action::Devamp,
+                    _ => crate::show_commands::Action::CancelDevamp,
+                };
+                if let Err(e) = crate::show_commands::execute(&self.app, &output, action) {
+                    log::warn!("show control failed: {e}");
+                }
+            }
             ControlAction::Play => self.transport(&output, Command::Play, true),
             ControlAction::Pause => self.transport(&output, Command::Pause, false),
             ControlAction::Stop => self.transport(&output, Command::Stop, false),
@@ -580,6 +600,7 @@ mod tests {
         prefs.osc = OscPrefs {
             enabled: true,
             port: 9100,
+            ..OscPrefs::default()
         };
 
         save(&file, &prefs).unwrap();

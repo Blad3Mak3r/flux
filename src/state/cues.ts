@@ -44,3 +44,5 @@ export const addDestination = (name: string, host: string, port: number) =>
 export const updateDestination = (id: string, name: string, host: string, port: number) =>
   run({ op: "updateDestination", id, name, host, port });
 export const removeDestination = (id: string) => run({ op: "removeDestination", id });
+
+export const setFirstTurnOnly = (id: string, firstTurnOnly: boolean) => run({op:"setFirstTurnOnly",id,firstTurnOnly});

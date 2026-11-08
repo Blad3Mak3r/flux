@@ -6,6 +6,7 @@ import type { ActionType, Binding, ControlAction, ControlPrefs, MidiTrigger } fr
 
 /** Every action, in the order the picker lists them. */
 export const ACTION_TYPES: ActionType[] = [
+  "go", "devamp", "cancelDevamp",
   "play",
   "pause",
   "toggle",
@@ -80,6 +81,9 @@ export const removeBinding = (prefs: ControlPrefs, index: number): ControlPrefs 
 
 /** The OSC addresses Flux answers to, for the user to copy into a Stream Deck button. */
 export const OSC_ADDRESSES: { address: string; numbered?: boolean }[] = [
+  { address: "/flux/go" },
+  { address: "/flux/devamp" },
+  { address: "/flux/devamp/cancel" },
   { address: "/flux/play" },
   { address: "/flux/pause" },
   { address: "/flux/toggle" },

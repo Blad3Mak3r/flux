@@ -213,6 +213,7 @@ mod tests {
             kind: TrackKind::Osc {
                 destination: destination.map(Into::into),
                 events: vec![OscEvent {
+                    first_turn_only: false,
                     id: format!("e-{id}"),
                     at,
                     address: "/go".into(),

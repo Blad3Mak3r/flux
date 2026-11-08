@@ -106,6 +106,21 @@ the task matches:
   - `npm test` — frontend unit tests (`node --test`, no dependencies).
   - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets`, `cargo test --workspace` — from `src-tauri/`.
 
+## Testing the application
+
+The correct way to test FLUX is to run the real desktop app with `npm run tauri dev` and drive that window. The UI
+depends on the Rust backend (cues, show state, transport, devices, project files), so it only behaves truthfully
+inside Tauri.
+
+- Do not use the Vite dev server (`npm run dev`) in a browser as a test environment. Without Tauri's IPC the backend
+  state is missing, so any state injected into the stores or any stubbed IPC is synthetic and can hide or invent bugs.
+- If a synthetic fixture is ever used for a quick visual look, say so explicitly in the report and never present it as
+  verification of the app; it does not replace a run in `npm run tauri dev`.
+- Stop the dev process you started (the `tauri dev` process and its Vite server) when you finish, and do not leave
+  stray dev servers running.
+- `npm run typecheck`, `npm test`, `npm run build` and the Rust checks above remain required, but they do not replace
+  running the app.
+
 ## Git workflow
 
 This section is authoritative; `git-operator` follows it.

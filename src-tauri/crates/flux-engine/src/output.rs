@@ -10,7 +10,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -74,6 +74,11 @@ pub enum OutputError {
 /// Tauri sends command errors to the frontend as serialized values: use the message.
 impl Serialize for OutputError {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if let Self::Stream(code) = self
+            && code.starts_with("show.error.")
+        {
+            return serializer.serialize_str(code);
+        }
         if matches!(self, Self::Recording) {
             serializer.serialize_str("voiceRecordingActive")
         } else {
@@ -86,6 +91,7 @@ impl Serialize for OutputError {
 #[derive(Debug)]
 pub enum Message {
     Transport(Command),
+    Show(crate::show::ShowCommand),
     /// The audio to play from now on. The callback only swaps it in; see [`Output`] for who frees
     /// the old one.
     Clips(Arc<ClipSet>),
@@ -124,6 +130,7 @@ impl PaceWatch {
 /// What the audio callback last published about the transport.
 #[derive(Debug, Clone, Copy)]
 pub struct Snapshot {
+    pub show: Option<crate::show::ShowTick>,
     pub state: TransportState,
     pub epoch: u64,
     /// Samples since the timeline origin, at the end of the last buffer.
@@ -150,6 +157,10 @@ impl Snapshot {
 /// and the next buffer publishes a fresher one. It never waits.
 #[derive(Debug)]
 pub struct SharedClock {
+    show_fault: AtomicBool,
+    pub(crate) show_generation: AtomicU64,
+    pub(crate) show_plan: OnceLock<Arc<crate::show::ShowPlan>>,
+    pub(crate) show_spans: OnceLock<mpsc::SyncSender<crate::show::ShowSpan>>,
     snapshot: Mutex<Snapshot>,
     base: Instant,
     lost: Arc<AtomicBool>,
@@ -185,9 +196,22 @@ pub struct Faults {
 }
 
 impl SharedClock {
+    pub(crate) fn show_timecode(&self, snapshot: &Snapshot) -> Option<(Clock, u64)> {
+        let entry = self.show_plan.get()?.entries.get(snapshot.show?.entry)?;
+        Some((
+            Clock::new(ENGINE_RATE, entry.timeline.timecode.frame_rate),
+            entry.timeline.timecode.start,
+        ))
+    }
+
     pub fn new() -> Self {
         Self {
+            show_fault: AtomicBool::new(false),
+            show_generation: AtomicU64::new(0),
+            show_plan: OnceLock::new(),
+            show_spans: OnceLock::new(),
             snapshot: Mutex::new(Snapshot {
+                show: None,
                 state: TransportState::Stopped,
                 epoch: 0,
                 position: 0,
@@ -247,6 +271,7 @@ impl SharedClock {
             return;
         }
         self.faults[1].fetch_add(1, Ordering::Relaxed);
+        self.show_fault.store(true, Ordering::Release);
         flag.unwrap_or(&*self.lost).store(true, Ordering::Relaxed);
     }
 
@@ -263,11 +288,13 @@ impl SharedClock {
     /// A MIDI message could not be sent.
     fn mtc_failed(&self) {
         self.faults[2].fetch_add(1, Ordering::Relaxed);
+        self.show_fault.store(true, Ordering::Release);
     }
 
     /// A message of a cue track could not be sent.
     pub(crate) fn cue_failed(&self) {
         self.faults[3].fetch_add(1, Ordering::Relaxed);
+        self.show_fault.store(true, Ordering::Release);
     }
 
     pub fn faults(&self) -> Faults {
@@ -495,6 +522,7 @@ pub struct LtcChannel {
 /// or wait.
 #[derive(Debug)]
 pub struct Renderer {
+    show: Option<crate::show::ShowRunner>,
     audio_lanes: Option<Vec<crate::audio_routing::AudioLane>>,
     operator_channels: Vec<usize>,
     transport: Transport,
@@ -524,6 +552,7 @@ impl Renderer {
     ) -> Self {
         transport.set_end(clips.end());
         Self {
+            show: None,
             audio_lanes: None,
             operator_channels: Vec::new(),
             seen_epoch: transport.epoch(),
@@ -547,14 +576,40 @@ impl Renderer {
 
     /// Fills one interleaved buffer. `now` is [`SharedClock::now`] at the time of the call.
     pub fn render<T: Sample + FromSample<f32>>(&mut self, data: &mut [T], now: u64) {
+        if self.show.is_none()
+            && let Some(plan) = self.shared.show_plan.get()
+        {
+            self.show = Some(crate::show::ShowRunner::new(
+                Arc::clone(plan),
+                &mut self.transport,
+            ));
+        }
         let mut consumed_plays = 0;
         while let Ok(message) = self.messages.try_recv() {
             match message {
                 Message::Transport(command) => {
+                    if matches!(
+                        command,
+                        Command::Pause | Command::Stop | Command::Seek(_) | Command::Restore { .. }
+                    ) {
+                        self.shared.show_generation.fetch_add(1, Ordering::AcqRel);
+                    }
                     if matches!(command, Command::Play) {
                         consumed_plays += 1;
                     }
-                    self.transport.apply(command);
+                    if let Some(show) = &mut self.show {
+                        show.transport(command, &mut self.transport);
+                    } else {
+                        self.transport.apply(command);
+                    }
+                }
+                Message::Show(command) => {
+                    if matches!(command, crate::show::ShowCommand::Prepare(_)) {
+                        self.shared.show_generation.fetch_add(1, Ordering::AcqRel);
+                    }
+                    if let Some(show) = &mut self.show {
+                        show.command(command, &mut self.transport);
+                    }
                 }
                 Message::Clips(clips) => {
                     self.transport.set_end(clips.end());
@@ -562,26 +617,91 @@ impl Renderer {
                 }
             }
         }
-        if self.transport.epoch() != self.seen_epoch {
-            self.seen_epoch = self.transport.epoch();
-            for lane in &mut self.ltc {
-                lane.stream.resync(self.transport.position_samples());
-            }
-        }
-
         data.fill(T::EQUILIBRIUM);
-        if self.transport.state() == TransportState::Playing {
-            self.mix(data);
-        }
-
         let frames = (data.len() / self.channels) as u64;
-        if self.transport.advance(frames) {
-            self.shared.shows_ended.fetch_add(1, Ordering::Relaxed);
+        if self.show.is_some() {
+            if self.shared.show_fault.load(Ordering::Acquire) {
+                self.transport.apply(Command::Pause);
+                if let Some(show) = &mut self.show {
+                    show.tick.status = crate::show::ShowStatus::Blocked;
+                    show.tick.go = crate::show::GoAction::None;
+                }
+            }
+            let mut offset = 0;
+            while offset < data.len() / self.channels * self.channels {
+                let available = ((data.len() - offset) / self.channels) as u64;
+                let count = {
+                    let Some(show) = self.show.as_mut() else {
+                        break;
+                    };
+                    let count = show.slice(&mut self.transport, available);
+                    self.clips = Arc::clone(&show.current().clips);
+                    if let Some(click) = &self.click {
+                        click.shared.set(show.current().timeline.tempo);
+                    }
+                    count
+                };
+                let playing = self.transport.state() == TransportState::Playing;
+                self.sync_ltc();
+                let from = self.transport.position_samples();
+                let Some(tick) = self.show.as_ref().map(|show| show.tick) else {
+                    break;
+                };
+                let end = offset + count as usize * self.channels;
+                if playing {
+                    self.mix(&mut data[offset..end]);
+                }
+                if let Some(sender) = self.shared.show_spans.get() {
+                    let include_end = playing
+                        && self.show.as_ref().is_some_and(|show| {
+                            if from + count != show.current().end {
+                                return false;
+                            }
+                            tick.control
+                                .and_then(|i| show.current().timeline.controls.get(i))
+                                .is_none_or(|control| match control.kind {
+                                    flux_project::ControlKind::Loop { turns, .. } => {
+                                        tick.devamp_pending || turns.is_some_and(|n| tick.turn >= n)
+                                    }
+                                    _ => true,
+                                })
+                        });
+                    let span = crate::show::ShowSpan {
+                        include_end,
+                        generation: self.shared.show_generation.load(Ordering::Acquire),
+                        entry: tick.entry,
+                        from,
+                        to: from + if playing { count } else { 0 },
+                        epoch: self.transport.epoch(),
+                        turn: tick.turn,
+                        release: !playing,
+                    };
+                    if sender.try_send(span).is_err() {
+                        self.transport.apply(Command::Pause);
+                        if let Some(show) = &mut self.show {
+                            show.tick.status = crate::show::ShowStatus::Blocked;
+                            show.tick.go = crate::show::GoAction::None;
+                        }
+                        self.shared.cue_failed();
+                    }
+                }
+                self.transport.advance(count);
+                offset = end;
+            }
+        } else {
+            self.sync_ltc();
+            if self.transport.state() == TransportState::Playing {
+                self.mix(data);
+            }
+            if self.transport.advance(frames) {
+                self.shared.shows_ended.fetch_add(1, Ordering::Relaxed);
+            }
         }
         if let Some(unpaced) = self.pace.observe(now, frames) {
             self.shared.unpaced.store(unpaced, Ordering::Relaxed);
         }
         self.shared.publish(Snapshot {
+            show: self.show.as_ref().map(|show| show.tick),
             state: self.transport.state(),
             epoch: self.transport.epoch(),
             position: self.transport.position_samples(),
@@ -592,6 +712,19 @@ impl Renderer {
             Ordering::Acquire,
             |pending| Some(pending.saturating_sub(consumed_plays)),
         );
+    }
+
+    fn sync_ltc(&mut self) {
+        if self.transport.epoch() != self.seen_epoch {
+            self.seen_epoch = self.transport.epoch();
+            for lane in &mut self.ltc {
+                if let Some(show) = &self.show {
+                    let tc = &show.current().timeline.timecode;
+                    lane.stream.set_timecode(tc.frame_rate, tc.start);
+                }
+                lane.stream.resync(self.transport.position_samples());
+            }
+        }
     }
 
     /// Writes the programme, the metronome and LTC into `data`, which holds the buffer's frames.
@@ -844,6 +977,25 @@ impl LtcFollower {
             self.snapshot = snapshot;
         }
         let snapshot = self.snapshot;
+        if let Some((clock, start)) = self.shared.show_timecode(&snapshot) {
+            self.clock = clock;
+            if let Some(plan) = self.shared.show_plan.get() {
+                let Some(tick) = snapshot.show else {
+                    return;
+                };
+                let entry = &plan.entries[tick.entry];
+                self.operator_clips = Arc::clone(&entry.clips);
+                if let Some(click) = &self.click {
+                    click.shared.set(entry.timeline.tempo);
+                }
+                if self.seen_epoch != snapshot.epoch {
+                    for lane in &mut self.lanes {
+                        lane.stream
+                            .set_timecode(entry.timeline.timecode.frame_rate, start);
+                    }
+                }
+            }
+        }
         if snapshot.state != TransportState::Playing {
             self.voice_cursor.next = None;
             self.next = None;
@@ -1078,6 +1230,24 @@ pub struct PositionReader {
 }
 
 impl PositionReader {
+    pub fn show(&self) -> Option<(Arc<crate::show::ShowPlan>, crate::show::ShowTick)> {
+        Some((
+            Arc::clone(self.shared.show_plan.get()?),
+            self.shared.load().show.unwrap_or_default(),
+        ))
+    }
+
+    pub fn show_snapshot(
+        &self,
+    ) -> Option<(Arc<crate::show::ShowPlan>, crate::show::ShowTick, Position)> {
+        let snapshot = self.shared.load();
+        Some((
+            Arc::clone(self.shared.show_plan.get()?),
+            snapshot.show.unwrap_or_default(),
+            self.position_at(snapshot),
+        ))
+    }
+
     pub fn audio_routes(&self) -> Vec<crate::audio_routing::AudioRouteState> {
         self.shared
             .audio_health
@@ -1100,13 +1270,20 @@ impl PositionReader {
     }
 
     pub fn position(&self) -> Position {
-        let snapshot = self.shared.load();
-        let position = snapshot.estimated_position(self.shared.now(), self.clock);
+        self.position_at(self.shared.load())
+    }
+
+    fn position_at(&self, snapshot: Snapshot) -> Position {
+        let (clock, start) = self
+            .shared
+            .show_timecode(&snapshot)
+            .unwrap_or((self.clock, self.start));
+        let position = snapshot.estimated_position(self.shared.now(), clock);
         let device_lost = self.shared.is_lost();
         let health = self.shared.health();
         Position {
             state: snapshot.state,
-            frame: self.start + self.clock.samples_to_frames(position),
+            frame: start + clock.samples_to_frames(position),
             position_samples: position,
             device_lost,
             ltc_lost: health.ltc_lost(device_lost),
@@ -2095,6 +2272,72 @@ impl Output {
         })
     }
 
+    pub fn install_show(
+        &mut self,
+        plan: Arc<crate::show::ShowPlan>,
+        destinations: &[OscDestination],
+    ) -> Result<(), OutputError> {
+        if !self.info.warnings.is_empty()
+            || self.reader.audio_routes().iter().any(|r| {
+                matches!(
+                    r.status,
+                    crate::audio_routing::AudioRouteStatus::Missing
+                        | crate::audio_routing::AudioRouteStatus::Conflict
+                        | crate::audio_routing::AudioRouteStatus::Lost
+                )
+            })
+        {
+            return Err(OutputError::Stream("show.error.outputs".into()));
+        }
+        self.info.cues.clear();
+        for entry in &plan.entries {
+            let clock = Clock::new(ENGINE_RATE, entry.timeline.timecode.frame_rate);
+            for midi in crate::midi_cue::plan(&entry.timeline, &clock) {
+                let info = CueInfo {
+                    kind: crate::cue_routes::CueDestination::Midi,
+                    target: midi.port.port_name,
+                    ok: true,
+                };
+                if !self.info.cues.contains(&info) {
+                    self.info.cues.push(info);
+                }
+            }
+            for osc in crate::osc::plan(&entry.timeline, destinations, &clock) {
+                let info = CueInfo {
+                    kind: crate::cue_routes::CueDestination::Osc,
+                    target: osc.destination.name,
+                    ok: true,
+                };
+                if !self.info.cues.contains(&info) {
+                    self.info.cues.push(info);
+                }
+            }
+        }
+        let sender = crate::show_events::start(
+            Arc::clone(&plan),
+            destinations,
+            Arc::clone(&self.stop),
+            Arc::clone(&self.reader.shared),
+        )?;
+        self.reader
+            .shared
+            .show_spans
+            .set(sender)
+            .map_err(|_| OutputError::Stream("show.error.alreadyPrepared".into()))?;
+        self.reader
+            .shared
+            .show_plan
+            .set(plan)
+            .map_err(|_| OutputError::Stream("show.error.alreadyPrepared".into()))?;
+        Ok(())
+    }
+
+    pub fn show_command(&self, command: crate::show::ShowCommand) -> Result<(), OutputError> {
+        self.messages
+            .send(Message::Show(command))
+            .map_err(|_| OutputError::NotRunning)
+    }
+
     /// Follows a change of the project's output settings while the output runs, without touching
     /// the programme's stream: the LTC and click streams on other devices and the MTC threads
     /// that are no longer wanted are closed, the new ones opened, and the rest keep running.
@@ -2228,6 +2471,9 @@ impl Drop for Output {
         for handle in self.threads.drain(..).chain(self.cues.threads.drain(..)) {
             handle.thread().unpark();
             let _ = handle.join();
+        }
+        if let Some(plan) = self.reader.shared.show_plan.get() {
+            plan.execution_lock.store(false, Ordering::Release);
         }
     }
 }
@@ -3081,8 +3327,19 @@ fn run_mtc(
         }
         let snapshot = shared.load();
         let now = shared.now();
-        let position = snapshot.estimated_position(now, clock);
+        let dynamic = shared.show_timecode(&snapshot);
+        let active_clock = dynamic.map_or(clock, |(clock, _)| clock);
+        let position = snapshot.estimated_position(now, active_clock);
         if seen_epoch != Some(snapshot.epoch) {
+            if let Some((clock, start)) = dynamic
+                && let (Some(plan), Some(tick)) = (shared.show_plan.get(), snapshot.show)
+            {
+                scheduler.set_timecode(
+                    clock,
+                    plan.entries[tick.entry].timeline.timecode.frame_rate,
+                    start,
+                );
+            }
             seen_epoch = Some(snapshot.epoch);
             port.send(&scheduler.resync(position), now);
         }
@@ -3478,6 +3735,7 @@ mod tests {
         let mut follower = LtcFollower::new(vec![], 3, clock, Arc::clone(&shared));
         follower.operator_channels = vec![2];
         shared.publish(Snapshot {
+            show: None,
             state: TransportState::Playing,
             epoch: 1,
             position: 100,
@@ -3487,6 +3745,7 @@ mod tests {
         follower.render(&mut buffer, 0);
         assert_eq!(buffer, [0.0, 0.0, 0.5, 0.0, 0.0, 0.5]);
         shared.publish(Snapshot {
+            show: None,
             state: TransportState::Playing,
             epoch: 2,
             position: 0,
@@ -3506,6 +3765,7 @@ mod tests {
         let mut follower = LtcFollower::new(vec![], 1, clock(), Arc::clone(&shared));
         follower.operator_channels = vec![0];
         shared.publish(Snapshot {
+            show: None,
             state: TransportState::Playing,
             epoch: 1,
             position: 0,
@@ -3729,6 +3989,7 @@ mod tests {
     #[test]
     fn estimated_position_should_follow_the_wall_clock_while_playing() {
         let snapshot = Snapshot {
+            show: None,
             state: TransportState::Playing,
             epoch: 1,
             position: 48_000,
@@ -3744,6 +4005,7 @@ mod tests {
     #[test]
     fn estimated_position_should_not_extrapolate_past_a_stalled_stream() {
         let snapshot = Snapshot {
+            show: None,
             state: TransportState::Playing,
             epoch: 1,
             position: 0,
@@ -3757,6 +4019,7 @@ mod tests {
     fn estimated_position_should_stand_still_when_not_playing() {
         for state in [TransportState::Stopped, TransportState::Paused] {
             let snapshot = Snapshot {
+                show: None,
                 state,
                 epoch: 1,
                 position: 777,
@@ -3870,6 +4133,164 @@ mod tests {
             Arc::clone(&shared),
         );
         (renderer, tx, shared)
+    }
+
+    fn show_entry(
+        id: &str,
+        level: i16,
+        end: u64,
+        transition: flux_project::Transition,
+    ) -> crate::show::PreparedEntry {
+        let mut timeline = Timeline::new(id, FrameRate::Fps25);
+        timeline.id = id.into();
+        let project = flux_project::Project::new("Test", FrameRate::Fps25);
+        crate::show::PreparedEntry {
+            cues: crate::cues::CueList::build(&project, &timeline, |_| None),
+            timeline,
+            entry: flux_project::SetlistEntry {
+                id: id.into(),
+                timeline_id: id.into(),
+                name: String::new(),
+                notes: String::new(),
+                omitted: false,
+                transition,
+            },
+            clips: Arc::new(clip(level, level, 10_000)),
+            end,
+        }
+    }
+
+    fn show_plan(entries: Vec<crate::show::PreparedEntry>) -> Arc<crate::show::ShowPlan> {
+        Arc::new(crate::show::ShowPlan {
+            overview: flux_project::show::SetlistOverview {
+                id: "s".into(),
+                name: "Show".into(),
+                entries: vec![],
+            },
+            mix: Default::default(),
+            execution_lock: Arc::new(AtomicBool::new(false)),
+            setlist_id: "test".into(),
+            entries,
+        })
+    }
+
+    #[test]
+    fn show_switches_timelines_and_frame_rates_inside_a_buffer_without_a_gap() {
+        let (mut renderer, tx, shared) =
+            programme_renderer(2, vec![0, 1], None, ClipSet::default());
+        let first = show_entry("one", 8192, 101, flux_project::Transition::Continue);
+        let mut next = show_entry("two", 16384, 5000, flux_project::Transition::Wait);
+        next.timeline.timecode.frame_rate = FrameRate::Fps30;
+        next.timeline.timecode.start = 108_000;
+        shared.show_plan.set(show_plan(vec![first, next])).unwrap();
+        tx.send(Message::Show(crate::show::ShowCommand::Go))
+            .unwrap();
+        let mut buffer = [0.0f32; 600];
+        renderer.render(&mut buffer, 0);
+        let left = channel_of(&buffer, 2, 0);
+        assert_eq!(&left[..101], &[0.25; 101]);
+        assert_eq!(&left[101..], &[0.5; 199]);
+        assert_eq!(shared.load().show.unwrap().entry, 1);
+        assert_eq!(renderer.transport.position_samples(), 199);
+        assert_eq!(renderer.transport.start(), 108_000);
+        assert_eq!(
+            renderer.transport.clock(),
+            Clock::new(48_000, FrameRate::Fps30)
+        );
+    }
+
+    #[test]
+    fn show_journal_keeps_each_loop_interval_and_devamp_finishes_the_turn() {
+        let (mut renderer, tx, shared) =
+            programme_renderer(2, vec![0, 1], None, ClipSet::default());
+        let mut entry = show_entry("vamp", 8192, 9000, flux_project::Transition::Wait);
+        entry.timeline.controls.push(flux_project::TimelineControl {
+            id: "loop".into(),
+            name: "Vamp".into(),
+            at: 0,
+            kind: flux_project::ControlKind::Loop {
+                end: 1,
+                turns: None,
+            },
+        });
+        shared.show_plan.set(show_plan(vec![entry])).unwrap();
+        let (journal, intervals) = mpsc::sync_channel(32);
+        shared.show_spans.set(journal).unwrap();
+        tx.send(Message::Show(crate::show::ShowCommand::Go))
+            .unwrap();
+        renderer.render(&mut vec![0.0f32; 4000 * 2], 0);
+        let spans: Vec<_> = intervals.try_iter().collect();
+        assert_eq!(
+            spans
+                .iter()
+                .map(|s| (s.from, s.to, s.turn))
+                .collect::<Vec<_>>(),
+            vec![(0, 1920, 1), (0, 1920, 2), (0, 160, 3)]
+        );
+        tx.send(Message::Show(crate::show::ShowCommand::Devamp))
+            .unwrap();
+        renderer.render(&mut vec![0.0f32; 2000 * 2], 0);
+        assert_eq!(renderer.transport.position_samples(), 2160);
+        assert!(!shared.load().show.unwrap().devamp_pending);
+    }
+
+    #[test]
+    fn show_waits_at_an_exact_sample_and_duplicate_go_does_not_skip_entries() {
+        let (mut renderer, tx, shared) =
+            programme_renderer(2, vec![0, 1], None, ClipSet::default());
+        let mut entry = show_entry("wait", 8192, 9000, flux_project::Transition::Wait);
+        entry.timeline.controls.push(flux_project::TimelineControl {
+            id: "wait".into(),
+            name: "Hold".into(),
+            at: 1,
+            kind: flux_project::ControlKind::Wait,
+        });
+        shared.show_plan.set(show_plan(vec![entry])).unwrap();
+        tx.send(Message::Show(crate::show::ShowCommand::Go))
+            .unwrap();
+        let mut buffer = vec![0.0f32; 2000 * 2];
+        renderer.render(&mut buffer, 0);
+        assert!(buffer[..1920 * 2].iter().all(|s| *s == 0.25));
+        assert!(buffer[1920 * 2..].iter().all(|s| *s == 0.0));
+        assert_eq!(renderer.transport.position_samples(), 1920);
+        tx.send(Message::Show(crate::show::ShowCommand::Go))
+            .unwrap();
+        tx.send(Message::Show(crate::show::ShowCommand::Go))
+            .unwrap();
+        renderer.render(&mut buffer[..200], 0);
+        assert_eq!(renderer.transport.position_samples(), 2020);
+    }
+
+    #[test]
+    fn show_journal_includes_terminal_events_once_without_adding_silence() {
+        let (mut renderer, tx, shared) =
+            programme_renderer(2, vec![0, 1], None, ClipSet::default());
+        let first = show_entry("one", 8192, 100, flux_project::Transition::Continue);
+        let second = show_entry("two", 16384, 100, flux_project::Transition::Wait);
+        shared
+            .show_plan
+            .set(show_plan(vec![first, second]))
+            .unwrap();
+        let (journal, intervals) = mpsc::sync_channel(32);
+        shared.show_spans.set(journal).unwrap();
+        tx.send(Message::Show(crate::show::ShowCommand::Go))
+            .unwrap();
+        let mut buffer = [0.0f32; 600];
+        renderer.render(&mut buffer, 0);
+        let spans: Vec<_> = intervals.try_iter().collect();
+        assert_eq!(
+            spans
+                .iter()
+                .filter(|s| s.include_end)
+                .map(|s| (s.entry, s.to))
+                .collect::<Vec<_>>(),
+            vec![(0, 100), (1, 100)]
+        );
+        assert!(spans.iter().filter(|s| s.release).all(|s| !s.include_end));
+        assert_eq!(
+            &channel_of(&buffer, 2, 0)[..200],
+            &[vec![0.25; 100], vec![0.5; 100]].concat()
+        );
     }
 
     #[test]
@@ -4361,6 +4782,7 @@ mod tests {
 
     fn master_at(shared: &SharedClock, state: TransportState, epoch: u64, position: u64) {
         shared.publish(Snapshot {
+            show: None,
             state,
             epoch,
             position,
