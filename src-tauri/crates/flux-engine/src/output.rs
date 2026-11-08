@@ -4162,6 +4162,11 @@ mod tests {
 
     fn show_plan(entries: Vec<crate::show::PreparedEntry>) -> Arc<crate::show::ShowPlan> {
         Arc::new(crate::show::ShowPlan {
+            overview: flux_project::show::SetlistOverview {
+                id: "s".into(),
+                name: "Show".into(),
+                entries: vec![],
+            },
             mix: Default::default(),
             execution_lock: Arc::new(AtomicBool::new(false)),
             setlist_id: "test".into(),

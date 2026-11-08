@@ -54,6 +54,132 @@ pub struct TimelineControl {
     pub kind: ControlKind,
 }
 
+/// Read-only show sheet. Derived here so Edit and the prepared run share the same entry identity.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryOverview {
+    pub id: String,
+    pub number: usize,
+    pub position: usize,
+    pub name: String,
+    pub source: Option<String>,
+    pub omitted: bool,
+    pub transition: Transition,
+    pub manual_waits: usize,
+    pub indefinite_loops: usize,
+    pub finite_loops: usize,
+    pub move_up: Option<usize>,
+    pub move_down: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetlistOverview {
+    pub id: String,
+    pub name: String,
+    pub entries: Vec<EntryOverview>,
+}
+
+pub fn overview(project: &Project) -> Vec<SetlistOverview> {
+    project
+        .setlists
+        .iter()
+        .map(|setlist| SetlistOverview {
+            id: setlist.id.clone(),
+            name: setlist.name.clone(),
+            entries: setlist
+                .entries
+                .iter()
+                .enumerate()
+                .filter_map(|(index, entry)| {
+                    let timeline = project.timeline(&entry.timeline_id)?;
+                    let mut manual_waits = 0;
+                    let mut indefinite_loops = 0;
+                    let mut finite_loops = 0;
+                    for control in &timeline.controls {
+                        match control.kind {
+                            ControlKind::Wait => manual_waits += 1,
+                            ControlKind::Loop { turns: None, .. } => indefinite_loops += 1,
+                            ControlKind::Loop { turns: Some(_), .. } => finite_loops += 1,
+                        }
+                    }
+                    Some(EntryOverview {
+                        id: entry.id.clone(),
+                        number: index + 1,
+                        position: index,
+                        name: if entry.name.is_empty() {
+                            timeline.name.clone()
+                        } else {
+                            entry.name.clone()
+                        },
+                        source: (!entry.name.is_empty() && entry.name != timeline.name)
+                            .then(|| timeline.name.clone()),
+                        omitted: entry.omitted,
+                        transition: entry.transition,
+                        manual_waits,
+                        indefinite_loops,
+                        finite_loops,
+                        move_up: index.checked_sub(1),
+                        move_down: (index + 1 < setlist.entries.len()).then_some(index + 1),
+                    })
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EntryProgress {
+    Current,
+    Next,
+    Done,
+    Pending,
+    Omitted,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RunningEntry {
+    #[serde(flatten)]
+    pub entry: EntryOverview,
+    pub status: EntryProgress,
+}
+
+impl SetlistOverview {
+    pub fn progress(&self, current_id: &str, completed: bool) -> Vec<RunningEntry> {
+        let current = self.entries.iter().position(|entry| entry.id == current_id);
+        let next = current.and_then(|index| {
+            self.entries
+                .iter()
+                .enumerate()
+                .skip(index + 1)
+                .find(|(_, entry)| !entry.omitted)
+                .map(|(index, _)| index)
+        });
+        self.entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let status = if entry.omitted {
+                    EntryProgress::Omitted
+                } else if completed || current.is_some_and(|current| index < current) {
+                    EntryProgress::Done
+                } else if Some(index) == current {
+                    EntryProgress::Current
+                } else if Some(index) == next {
+                    EntryProgress::Next
+                } else {
+                    EntryProgress::Pending
+                };
+                RunningEntry {
+                    entry: entry.clone(),
+                    status,
+                }
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -321,6 +447,114 @@ fn setlist<'a>(project: &'a mut Project, id: &str) -> Result<&'a mut Setlist> {
 mod tests {
     use super::*;
     use crate::FrameRate;
+
+    #[test]
+    fn overview_preserves_repeated_entries_omissions_and_exact_show_behavior() {
+        let mut session = Session::default();
+        let mut project = session.new_project("Source song", FrameRate::Fps25);
+        let timeline = &mut project.timelines[0];
+        timeline.controls = vec![
+            TimelineControl {
+                id: "wait".into(),
+                name: "Stand by".into(),
+                at: 0,
+                kind: ControlKind::Wait,
+            },
+            TimelineControl {
+                id: "vamp".into(),
+                name: "Vamp".into(),
+                at: 25,
+                kind: ControlKind::Loop {
+                    end: 50,
+                    turns: None,
+                },
+            },
+            TimelineControl {
+                id: "repeat".into(),
+                name: "Repeat".into(),
+                at: 75,
+                kind: ControlKind::Loop {
+                    end: 100,
+                    turns: Some(3),
+                },
+            },
+        ];
+        let timeline_id = timeline.id.clone();
+        project.setlists = vec![Setlist {
+            id: "show".into(),
+            name: "Tour".into(),
+            entries: (0..4)
+                .map(|index| SetlistEntry {
+                    id: format!("entry-{index}"),
+                    timeline_id: timeline_id.clone(),
+                    name: if index == 0 {
+                        "Opening".into()
+                    } else {
+                        String::new()
+                    },
+                    notes: String::new(),
+                    omitted: index == 1,
+                    transition: Transition::After { milliseconds: 2500 },
+                })
+                .collect(),
+        }];
+        project.validate().unwrap();
+        let before = project.clone();
+        let sheet = overview(&project).remove(0);
+        assert_eq!(sheet.entries.len(), 4);
+        assert_eq!(sheet.entries[0].name, "Opening");
+        assert_eq!(sheet.entries[0].source.as_deref(), Some("Source song"));
+        assert_eq!(sheet.entries[2].name, "Source song");
+        assert_eq!(sheet.entries[2].source, None);
+        assert_eq!(
+            sheet.entries[0].transition,
+            Transition::After { milliseconds: 2500 }
+        );
+        assert_eq!(
+            (
+                sheet.entries[0].manual_waits,
+                sheet.entries[0].indefinite_loops,
+                sheet.entries[0].finite_loops
+            ),
+            (1, 1, 1)
+        );
+        assert_eq!(sheet.entries[0].move_up, None);
+        assert_eq!(sheet.entries[0].move_down, Some(1));
+        assert_eq!(sheet.entries[3].move_down, None);
+        assert_eq!(sheet.entries[2].number, 3);
+        assert_eq!(sheet.entries[2].position, 2);
+        let statuses = |id, completed| {
+            sheet
+                .progress(id, completed)
+                .into_iter()
+                .map(|e| e.status)
+                .collect::<Vec<_>>()
+        };
+        use EntryProgress::{Current, Done, Next, Omitted, Pending};
+        assert_eq!(
+            statuses("entry-0", false),
+            vec![Current, Omitted, Next, Pending]
+        );
+        assert_eq!(
+            statuses("entry-2", false),
+            vec![Done, Omitted, Current, Next]
+        );
+        assert_eq!(statuses("entry-3", true), vec![Done, Omitted, Done, Done]);
+        assert_eq!(project, before);
+        session.update(project);
+        let moved = session
+            .show_edit(ShowEdit::MoveEntry {
+                setlist_id: "show".into(),
+                id: "entry-0".into(),
+                to: 3,
+            })
+            .unwrap();
+        let sheet = overview(&moved.project).remove(0);
+        assert_eq!(sheet.entries[3].id, "entry-0");
+        assert_eq!(sheet.entries[3].name, "Opening");
+        assert_eq!(sheet.entries[3].number, 4);
+        assert_eq!(sheet.entries[3].move_down, None);
+    }
 
     #[test]
     fn adding_a_loop_uses_the_playhead_and_the_timeline_frame_rate() {

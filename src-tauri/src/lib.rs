@@ -81,6 +81,7 @@ pub fn run() {
             voice_commands::preview::voice_preview,
             voice_commands::preview::voice_preview_stop,
             show_commands::show_state,
+            show_commands::show_overview,
             show_commands::show_action,
             show_commands::show_edit,
             show_commands::show_control_add,

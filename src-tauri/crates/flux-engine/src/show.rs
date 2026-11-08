@@ -43,6 +43,7 @@ impl PreparedEntry {
 
 #[derive(Debug)]
 pub struct ShowPlan {
+    pub overview: flux_project::show::SetlistOverview,
     pub mix: std::sync::Mutex<std::collections::HashMap<String, (f32, bool)>>,
     pub execution_lock: Arc<AtomicBool>,
     pub setlist_id: String,
@@ -405,6 +406,11 @@ mod tests {
         (
             ShowRunner::new(
                 Arc::new(ShowPlan {
+                    overview: flux_project::show::SetlistOverview {
+                        id: "s".into(),
+                        name: "Show".into(),
+                        entries: vec![],
+                    },
                     mix: Default::default(),
                     execution_lock: Arc::new(AtomicBool::new(false)),
                     setlist_id: "s".into(),

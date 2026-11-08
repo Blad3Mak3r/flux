@@ -109,6 +109,10 @@ pub(crate) fn prepare_plan(
             .execution_lock,
     );
     Ok(Arc::new(ShowPlan {
+        overview: flux_project::show::overview(project)
+            .into_iter()
+            .find(|s| s.id == id)
+            .ok_or_else(|| OutputError::Stream("show.error.setlist".into()))?,
         mix: Default::default(),
         execution_lock,
         setlist_id: id.into(),
@@ -119,6 +123,8 @@ pub(crate) fn prepare_plan(
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowState {
+    pub setlist_name: String,
+    pub running_order: Vec<flux_project::show::RunningEntry>,
     pub live: flux_engine::cues::LiveState,
     pub start: u64,
     pub setlist_id: String,
@@ -155,6 +161,11 @@ pub(crate) fn state(output: &SharedOutput) -> Option<ShowState> {
     };
     let clock = Clock::new(48_000, entry.timeline.timecode.frame_rate);
     Some(ShowState {
+        setlist_name: plan.overview.name.clone(),
+        running_order: plan.overview.progress(
+            &entry.entry.id,
+            tick.status == flux_engine::show::ShowStatus::Completed,
+        ),
         live: entry.cues.state_at(position.frame),
         start: entry.timeline.timecode.start,
         setlist_id: plan.setlist_id.clone(),
@@ -183,6 +194,12 @@ pub(crate) fn state(output: &SharedOutput) -> Option<ShowState> {
 #[tauri::command]
 pub fn show_state(output: State<'_, SharedOutput>) -> Option<ShowState> {
     state(&output)
+}
+
+#[tauri::command]
+pub fn show_overview(project: Project) -> Result<Vec<flux_project::show::SetlistOverview>, String> {
+    project.validate().map_err(show_edit_error)?;
+    Ok(flux_project::show::overview(&project))
 }
 
 #[derive(Debug, Clone, Deserialize)]
