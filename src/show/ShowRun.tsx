@@ -43,18 +43,18 @@ export function ShowHeader() {
           {state.tick.turn > 0 && <span>{t("show.turn", { number: state.tick.turn })}</span>}
           {state.tick.devampPending && <strong>{t("show.devampPending")}</strong>}
         </div>
+        <dl className="show-header-context">
+          <div className="show-header-next"><dt>{t("show.next")}</dt><dd title={next}>{next}</dd></div>
+          <div><dt>{t("show.duration")}</dt><dd>{duration}</dd></div>
+        </dl>
       </div>
       <div className="show-go-area">
-        <button type="button" className="button primary show-go" disabled={state.tick.go === "none" || state.position.deviceLost} onClick={() => void showAction({ type: "go" })}>
-          <PlayIcon /><span className="show-go-label">{t(`show.go.${state.tick.go}`)}</span><kbd>{t("show.goShortcut")}</kbd>
+        <button type="button" className="button primary show-go" disabled={state.tick.go === "none" || state.position.deviceLost} title={t("show.goShortcut")} aria-keyshortcuts="Enter" onClick={() => void showAction({ type: "go" })}>
+          <PlayIcon /><span className="show-go-label">{t(`show.go.${state.tick.go}`)}</span>
         </button>
         {state.tick.devampPending && <button type="button" className="button" onClick={() => void showAction({ type: "cancelDevamp" })}>{t("show.cancelDevamp")}</button>}
       </div>
     </div>
-    <dl className="show-header-context">
-      <div className="show-header-next"><dt>{t("show.next")}</dt><dd title={next}>{next}</dd></div>
-      <div><dt>{t("show.duration")}</dt><dd>{duration}</dd></div>
-    </dl>
   </section>;
 }
 

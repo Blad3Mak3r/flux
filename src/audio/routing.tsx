@@ -56,14 +56,15 @@ export function TrackRouteField({ track }: { track: Track }) {
   </>;
 }
 
-export function AudioRoutingStatus() {
+/** `problemsOnly` hides routes that are ready, for screens where only what needs attention should speak. */
+export function AudioRoutingStatus({ problemsOnly = false }: { problemsOnly?: boolean }) {
   const t = useT();
   const name = useAudioOutputName();
   const routing = useTransport((s) => s.audioRouting);
   if (!routing) return null;
   return <div className="audio-routing-status" role="status">
     {routing.pending && <p className="field-note">{t("routing.pending")}</p>}
-    {routing.active.map((r) => r.status !== "unused" && <span key={r.id} className="row-status">
+    {routing.active.map((r) => r.status !== "unused" && !(problemsOnly && r.status === "ready") && <span key={r.id} className="row-status">
       <span className="lamp" data-state={r.status === "ready" ? "on" : "fault"} aria-hidden="true" />
       {name(r.id)} · {t(`routing.state.${r.status}`)}
     </span>)}

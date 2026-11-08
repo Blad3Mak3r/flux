@@ -23,18 +23,27 @@ export function RunningOrder() {
   if (!state) return null;
   const stopped = state.position.state === "stopped";
   return <nav className="show-running-order" aria-label={t("show.runningOrder")}>
-    <div className="show-order-caption"><span>{t("show.runningOrder")}</span><span>{t(stopped ? "show.chooseStoppedEntry" : "show.stopToPrepare")}</span></div>
+    <div className="show-order-caption"><span>{t("show.runningOrder")}</span>{!stopped && <span>{t("show.stopToPrepare")}</span>}</div>
     <ol ref={list}>
-      {state.runningOrder.map((entry) => <li key={entry.id} data-status={entry.status}>
-        <button type="button" ref={entry.status === "current" ? current : undefined}
-          aria-current={entry.status === "current" ? "step" : undefined}
-          aria-disabled={!stopped || entry.omitted}
-          title={t(entry.omitted ? "show.omitted" : stopped ? "show.prepareEntry" : "show.stopToPrepare")}
-          onClick={() => { if (stopped && !entry.omitted) void showAction({ type: "prepare", entryId: entry.id }); }}>
-          <span className="setlist-number">{entry.number}</span>
-          <span className="show-order-entry"><strong>{entry.name}</strong><span>{t(`show.entryStatus.${entry.status}`)}{entry.source && <> · {entry.source}</>}</span></span>
-        </button>
-      </li>)}
+      {state.runningOrder.map((entry) => {
+        // Only the entries that matter now say a word; passed and upcoming rows read by position and tone.
+        const flagged = entry.status === "current" || entry.status === "next" || entry.status === "omitted";
+        const status = t(`show.entryStatus.${entry.status}`);
+        return <li key={entry.id} data-status={entry.status}>
+          <button type="button" ref={entry.status === "current" ? current : undefined}
+            aria-current={entry.status === "current" ? "step" : undefined}
+            aria-disabled={!stopped || entry.omitted}
+            title={t(entry.omitted ? "show.omitted" : stopped ? "show.prepareEntry" : "show.stopToPrepare")}
+            onClick={() => { if (stopped && !entry.omitted) void showAction({ type: "prepare", entryId: entry.id }); }}>
+            <span className="setlist-number">{entry.number}</span>
+            <span className="show-order-entry">
+              <strong>{entry.name}</strong>
+              {(flagged || entry.source) && <span>{flagged ? <>{status}{entry.source && <> · {entry.source}</>}</> : entry.source}</span>}
+              {!flagged && <span className="visually-hidden">{status}</span>}
+            </span>
+          </button>
+        </li>;
+      })}
     </ol>
   </nav>;
 }

@@ -87,21 +87,19 @@ function PlainBody() {
 function PreparedBody() {
   const t = useT();
   const hasCues = useLive((live) => live.cues.length > 0);
-  const hasNotes = useLive((live) => live.cues.some((cue) => cue.kind === "note"));
+  // Quiet by default: a panel appears only while it has something to say.
+  const hasNotes = useLive((live) => (live.state?.notes.length ?? 0) > 0);
+  const hasRunning = useLive((live) => (live.state?.running.length ?? 0) > 0);
 
   return (
     <div className="live-show">
       <section className="live-ops" aria-label={t("live.operation")}>
         <ShowHeader />
         <div className="live-ops-scroll">
-          <AudioRoutingStatus />
-          {hasCues && (
-            <>
-              <NextCue />
-              <Running />
-              {hasNotes && <Notes />}
-            </>
-          )}
+          <AudioRoutingStatus problemsOnly />
+          {hasCues && <NextCue />}
+          {hasRunning && <Running />}
+          {hasNotes && <Notes />}
           <EntryNotes />
           <RunningOrder />
           <ShowOptions />
