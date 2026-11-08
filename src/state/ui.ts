@@ -70,6 +70,10 @@ export interface OpenMenu {
 }
 
 interface UiState {
+  editSurface: "timeline" | "setlists";
+  setlistSelection: string;
+  setlistEntrySelection: string;
+  controlEditor: string | null;
   selection: Selected | null;
   /** The name being edited in place, if any. */
   renaming: Renaming | null;
@@ -175,6 +179,10 @@ function readView(): View {
 }
 
 export const useUi = create<UiState>()(() => ({
+  editSurface: "timeline",
+  setlistSelection: "",
+  setlistEntrySelection: "",
+  controlEditor: null,
   selection: null,
   renaming: null,
   collapsed: readCollapsed(),
@@ -201,7 +209,7 @@ const set = useUi.setState;
 const get = useUi.getState;
 
 export function select(selection: Selected | null): void {
-  set({ selection });
+  set({ selection, controlEditor: null });
 }
 
 /** Opens the name of a track or a clip for typing; `null` closes it. */
@@ -303,7 +311,7 @@ export const zoomBy = (factor: number) => setZoom(get().zoom * factor);
 
 /** Back to the origin at the default zoom, nothing selected. */
 export const resetView = () =>
-  set((ui) => ({ selection: null, zoom: DEFAULT_PX_PER_FRAME, docKey: ui.docKey + 1 }));
+  set((ui) => ({ selection: null, controlEditor: null, zoom: DEFAULT_PX_PER_FRAME, docKey: ui.docKey + 1 }));
 
 export const say = (key: MessageKey, values?: Record<string, string | number>) =>
   set({ message: { key, values, tone: "info" } });
@@ -341,3 +349,14 @@ export const askRemoveTimeline = (id: string) => set({ removing: id });
 export const clearRemoving = () => set({ removing: null });
 
 export const ask = (pending: Pending | null) => set({ pending });
+
+
+export function openSetlists(): void {
+  if (useShow.getState().state) return say("show.leaveToEdit");
+  if (isPlaying()) return say("view.lockedPlaying");
+  setView("edit");
+  set({editSurface:"setlists", menu:null});
+}
+export const openTimelineEditor = () => set({editSurface:"timeline"});
+export const openShowControls = (id = "") => set({controlEditor:id,collapsed:false,editSurface:"timeline"});
+export const closeShowControls = () => set({controlEditor:null});

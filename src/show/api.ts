@@ -3,7 +3,7 @@ import { errorMessage } from "../project/api";
 import { hasNativeWindow } from "../components/WindowControls";
 import type { ProjectState } from "../project/types";
 import { dispatch, useDoc } from "../state/store";
-import { sayError, useUi } from "../state/ui";
+import { openShowControls, sayError, useUi } from "../state/ui";
 import { useLive } from "../live/store";
 import { displayClock } from "../transport/smooth";
 import { realFps } from "../timecode";
@@ -12,11 +12,12 @@ import { prepareSetlist, leaveSetlist } from "../transport/playback";
 import type { ShowAction, ShowEdit, ShowState } from "./types";
 import { useShow } from "./store";
 
-export async function editShow(op: ShowEdit): Promise<void> {
+export async function editShow(op: ShowEdit): Promise<ProjectState | undefined> {
   try {
     const state = await invoke<ProjectState>("show_edit", { project: useDoc.getState().project, op });
     dispatch({ type: "apply", ...state });
     if (useShow.getState().state) await leaveSetlist();
+    return state;
   } catch (error) { sayError(errorMessage(error)); }
 }
 export async function showAction(action: ShowAction): Promise<void> {
@@ -62,4 +63,15 @@ export function bindShow(): () => void {
   };
   window.addEventListener("keydown", onKey);
   return () => { stopped = true; clearTimeout(timer); window.removeEventListener("keydown", onKey); };
+}
+
+export async function addShowControl(kind: "wait" | "loop", name: string): Promise<void> {
+  try {
+    const doc = useDoc.getState();
+    const result = await invoke<ProjectState & {id:string | null}>("show_control_add", {
+      project:doc.project, timelineId:doc.active, frame:useTransport.getState().position?.frame ?? useTransport.getState().parked, kind, name,
+    });
+    dispatch({type:"apply",project:result.project,active:result.active});
+    if (result.id) openShowControls(result.id);
+  } catch (error) {sayError(errorMessage(error));}
 }
