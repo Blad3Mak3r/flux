@@ -499,20 +499,28 @@ function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEve
   );
 }
 
-function OrderBlock({ track, order, pxPerFrame }: { track: Track; order: VoiceOrder; pxPerFrame: number }) {
+function OrderBlock({ track, order, fps, pxPerFrame }: { track: Track; order: VoiceOrder; fps: number; pxPerFrame: number }) {
   const t = useT();
   const view = useVoice((v) => v.views[order.id]);
   const busy = useVoice((v) => v.busy === order.id);
+  const audio = useDoc((s) => order.generated ? s.audio[order.generated.asset] : undefined);
+  const width = view?.start != null && view.length ? Math.max(24, view.length * pxPerFrame) : undefined;
   const selected = useUi((ui) => ui.selection?.id === order.id);
   const { shown, handlers } = useDrag(order.id, "operator", order.at, 0, pxPerFrame);
   return <div className="operator-order" role="button" tabIndex={0} aria-pressed={selected}
     data-selected={selected} data-muted={track.muted} data-status={view?.status ?? "ungenerated"} data-range={view?.start != null}
-    style={{ left: frameX(view?.start ?? order.at, pxPerFrame), transform: `translateX(${(shown - order.at) * pxPerFrame}px)`, width: view?.start !== null && view?.length ? Math.max(24, view.length * pxPerFrame) : undefined }}
+    style={{ left: frameX(view?.start ?? order.at, pxPerFrame), transform: `translateX(${(shown - order.at) * pxPerFrame}px)`, width }}
     onContextMenu={(event) => { select({ kind: "operator", id: order.id }); menuAtPointer(event, operatorOrderMenu(t, track, order.id)); }}
     title={order.dialogue} onFocus={() => select({ kind: "operator", id: order.id })} {...handlers}>
+    {order.generated && audio?.peaks && width !== undefined && view && <span className="operator-order-wave">
+      <ClipWave seed={order.generated.asset} width={width} height={44}
+        origin={frameX((view.start ?? order.at) + shown - order.at, pxPerFrame)}
+        color="currentColor" peaks={audio.peaks} pxPerSecond={pxPerFrame * fps}
+        startSeconds={view.audioOffsetSeconds} tint={`${track.color ?? ""}${track.muted}`} />
+    </span>}
     <span className="operator-anchor" data-end={order.alignment === "end" && !view?.beforeOrigin} />
     <span className="operator-order-text">{order.dialogue || t("voice.empty")}</span>
-    <span className="operator-order-state">{t(busy ? "voice.generating" : `voice.status.${view?.status ?? "ungenerated"}`)}{view?.beforeOrigin && ` · ${t("voice.positionInvalid")}`}</span>
+    <span className="operator-order-state">{t(busy ? "voice.preparingRecording" : `voice.status.${view?.status ?? "ungenerated"}`)}{view?.beforeOrigin && ` · ${t("voice.positionInvalid")}`}</span>
   </div>;
 }
 
@@ -581,7 +589,7 @@ export const TrackLane = memo(function TrackLane({
               <NoteBlock key={note.id} track={track} note={note} pxPerFrame={pxPerFrame} />
             ))
           : track.kind.type === "operator"
-            ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} pxPerFrame={pxPerFrame} />)
+            ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} fps={fps} pxPerFrame={pxPerFrame} />)
           : track.kind.events.map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
             ))}

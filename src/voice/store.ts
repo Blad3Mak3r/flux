@@ -10,7 +10,7 @@ import { analyse } from "../state/audio";
 import { flushDocumentSync } from "../state/persist";
 
 export interface Voice { voice_id: string; name: string }
-export interface RecoverableJob { createdMillis: number; duration: string; voiceName: string | null; origin: "generated" | "imported"; id: string; orderId: string; dialogue: string; voice: string; canAttach: boolean; matching: boolean }
+export interface RecoverableJob { createdMillis: number; duration: string; voiceName: string | null; origin: "generated" | "imported" | "recorded"; id: string; orderId: string; dialogue: string; voice: string; canAttach: boolean; matching: boolean }
 export const useVoice = create<{ views: Record<string, VoiceView>; voices: Voice[]; busy: string | null; error: string | null; listError: string | null; loading: boolean; jobs: RecoverableJob[]; unsaved: boolean }>(() => ({ views: {}, voices: [], busy: null, error: null, listError: null, loading: false, jobs: [], unsaved: false }));
 
 export function voiceError(error: unknown): string {
@@ -141,6 +141,7 @@ export function selectedOperatorTrack() {
 export async function protectVoiceWork(): Promise<boolean> {
   if (!isTauri()) return true;
   try {
+    await leaveRecording();
     const activity = await invoke<{ generating: boolean; unsaved: boolean }>("voice_activity");
     if (activity.generating) { useUi.setState({ showCheck: true, setup: null, menu: null }); sayError(translator(usePreferences.getState().saved.locale ?? initialLocale())("voice.closeGenerating")); return false; }
     if (activity.unsaved) { await invoke("voice_retry_save"); await refreshJobs(); }
@@ -173,3 +174,77 @@ export function listenJob(jobId: string): void {
   void invoke("voice_job_preview", { jobId }).catch((error) => useVoice.setState({ error: voiceError(error) }));
 }
 export function stopListening(): void { void invoke("voice_preview_stop").catch((error) => useVoice.setState({ error: voiceError(error) })); }
+
+
+// Serialize capture actions so leaving the inspector also cancels an in-flight start.
+let captureActions: Promise<void> = Promise.resolve();
+function captureAction(work: () => Promise<void>): Promise<void> {
+  captureActions = captureActions.then(work).catch((error) => useVoice.setState({ error: voiceError(error) }));
+  return captureActions;
+}
+export interface Take { orderId: string; jobId: string; docKey: number }
+export const useRecording = create<{ active: string | null; take: Take | null; working: boolean }>(() => ({ active: null, take: null, working: false }));
+export function startRecording(id: string): Promise<void> {
+  return captureAction(async () => {
+    if (useVoice.getState().busy || useRecording.getState().active) return;
+    useRecording.setState({ working: true });
+    useVoice.setState({ busy: id, error: null });
+    try {
+      await edits; await flushDocumentSync();
+      await invoke("voice_record_start", { project: useDoc.getState().project, id });
+      useRecording.setState({ active: id, take: null });
+    } finally {
+      useRecording.setState({ working: false });
+      if (!useRecording.getState().active) useVoice.setState({ busy: null });
+    }
+  });
+}
+export function stopRecording(): Promise<void> {
+  return captureAction(async () => {
+    const orderId = useRecording.getState().active;
+    if (!orderId) return;
+    useRecording.setState({ working: true });
+    const docKey = useUi.getState().docKey;
+    try {
+      const jobId = await invoke<string>("voice_record_stop");
+      useRecording.setState({ take: { orderId, jobId, docKey } });
+    } finally {
+      useRecording.setState({ active: null, working: false });
+      useVoice.setState({ busy: null });
+      await refreshJobs();
+    }
+  });
+}
+export function leaveRecording(): Promise<void> {
+  return captureAction(async () => {
+    if (useRecording.getState().active) {
+      await invoke("voice_record_cancel");
+      useRecording.setState({ active: null });
+      useVoice.setState({ busy: null });
+    }
+    // Stopped takes remain recoverable when navigating away.
+    useRecording.setState({ take: null });
+    stopListening();
+  });
+}
+export function discardTake(): Promise<void> {
+  return captureAction(async () => {
+    stopListening();
+    const take = useRecording.getState().take;
+    if (take) {
+      await invoke("voice_job_discard", { jobId: take.jobId });
+      useRecording.setState({ take: null });
+      await refreshJobs();
+    }
+  });
+}
+export function acceptTake(): Promise<void> {
+  return captureAction(async () => {
+    const take = useRecording.getState().take;
+    if (!take) return;
+    useRecording.setState({ working: true });
+    useVoice.setState({ busy: take.orderId, error: null });
+    try { await attachJob(take.jobId, false, take.docKey); useRecording.setState({ take: null }); }
+    finally { useRecording.setState({ working: false }); useVoice.setState({ busy: null }); await refreshJobs(); }
+  });
+}

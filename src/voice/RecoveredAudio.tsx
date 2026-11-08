@@ -1,5 +1,5 @@
 import { useI18n, useT } from "../i18n";
-import { recoverJob, retrySave, useVoice, listenJob, stopListening } from "./store";
+import { recoverJob, retrySave, useVoice, useRecording, listenJob, stopListening } from "./store";
 import { selectMode, useTransport } from "../transport/store";
 
 export function RecoveredAudio({ orderId }: { orderId?: string }) {
@@ -10,7 +10,8 @@ export function RecoveredAudio({ orderId }: { orderId?: string }) {
   const unsaved = useVoice((v) => v.unsaved);
   const busy = useVoice((v) => v.busy);
   const mode = useTransport(selectMode);
-  const visible = orderId ? jobs.filter((j) => j.orderId === orderId) : jobs;
+  const takeId = useRecording((s) => s.take?.jobId);
+  const visible = jobs.filter((j) => j.id !== takeId && (!orderId || j.orderId === orderId));
   if (!unsaved && visible.length === 0) return null;
   return <section className="recovered-audio" aria-label={t("voice.recovered")}>
     <h4>{t("voice.recovered")}</h4>
@@ -23,9 +24,9 @@ export function RecoveredAudio({ orderId }: { orderId?: string }) {
       {visible.map((job) => <li key={job.id}>
         <p className="voice-dialogue">{job.dialogue}</p>
         <p className="field-note">{dateFormat.format(new Date(job.createdMillis))} · {t("voice.duration", { duration: job.duration })}</p>
-        <p className="field-note">{job.origin === "imported" ? t("voice.imported") : job.voiceName ?? job.voice}{job.origin === "imported" && job.voiceName ? ` · ${job.voiceName}` : ""}</p>
+        <p className="field-note">{job.origin === "recorded" ? t("voice.recorded") : job.origin === "imported" ? t("voice.imported") : job.voiceName ?? job.voice}{job.origin === "imported" && job.voiceName ? ` · ${job.voiceName}` : ""}</p>
         <div className="voice-actions"><button type="button" className="button" disabled={mode !== "stopped"} onClick={() => listenJob(job.id)}>{t("voice.listen")}</button><button type="button" className="button" onClick={stopListening}>{t("voice.stopListen")}</button></div>
-        <p className="field-note">{job.matching ? t(job.origin === "imported" ? "voice.recoveredImportedMatches" : "voice.recoveredMatches") : t("voice.recoveredDifferent")}</p>
+        <p className="field-note">{job.matching ? t(job.origin !== "generated" ? "voice.recoveredImportedMatches" : "voice.recoveredMatches") : t("voice.recoveredDifferent")}</p>
         <button type="button" className="button" disabled={busy !== null || mode !== "stopped" || !job.canAttach} onClick={() => void recoverJob(job.id)}>{t("voice.useRecovered")}</button>
         {!job.canAttach && <p className="field-note">{t("voice.orderRemoved")}</p>}
       </li>)}

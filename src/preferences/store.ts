@@ -12,6 +12,7 @@ export const EMPTY_OUTPUT: OutputConfig = { audio: null, ltc: [], mtc: [] };
 export interface Preferences {
   audioRoutes: Record<string, OutputConfig["audio"]>;
   voice: string | null;
+  microphone: { driver: string | null; device: string; channel: number } | null;
   operator: OutputConfig["audio"];
   locale: Locale | null;
   driver: string | null;
@@ -26,6 +27,7 @@ export interface Preferences {
 const defaults: Preferences = {
   audioRoutes: {},
   voice: null,
+  microphone: null,
   operator: null,
   locale: null,
   driver: null,

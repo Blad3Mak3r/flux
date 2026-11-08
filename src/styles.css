@@ -3176,7 +3176,7 @@ input:disabled {
 .setup-row-fields > .setup-scope { grid-column: 1 / -1; }
 
 /* Operator orders keep their sample-derived extent and a distinct anchor. */
-.operator-order { position: absolute; top: 10px; min-width: 24px; max-width: none; height: 70px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--rule-strong); color: var(--ink); cursor: grab; touch-action: none; }
+.operator-order { position: absolute; top: 10px; min-width: 24px; max-width: none; height: 100px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--rule-strong); color: var(--ink); cursor: grab; touch-action: none; }
 .operator-order[data-status="ungenerated"] { border-style: dashed; }
 .operator-order[data-status="stale"] { border-color: var(--amber); }
 .operator-order[data-selected="true"] { outline: 2px solid var(--phosphor); outline-offset: 2px; z-index: 2; }
@@ -3249,3 +3249,10 @@ input:disabled {
 
 .audio-output-row { grid-template-columns: minmax(0, 1fr) auto; }
 .audio-output-row > .setup-row-name { overflow-wrap: anywhere; }
+
+.voice-recording { display: grid; gap: 8px; border-block: 1px solid var(--rule); padding-block: 12px; margin-block: 8px; }
+.voice-recording h4 { margin: 0; }
+.voice-record-state { color: var(--signal); font-weight: 600; }
+.voice-input-meter { width: 100%; height: 12px; accent-color: var(--phosphor); }
+
+.operator-order-wave { position: absolute; inset-inline: 0; top: 48px; height: 44px; overflow: hidden; color: var(--trace, var(--phosphor)); pointer-events: none; }
