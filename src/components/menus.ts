@@ -145,17 +145,25 @@ function editMenu(t: Translate): MenuItem[] {
   ];
 }
 
-function trackMenu(t: Translate): MenuItem[] {
-  const track = selectedTrack();
+/** Track creation shared by the menu bar and the empty header area. */
+export function addTracksMenu(t: Translate): MenuItem[] {
   const editing = state().ui.view === "edit";
-  const index = track ? activeTimeline(state().doc).tracks.indexOf(track) : -1;
-  const last = activeTimeline(state().doc).tracks.length - 1;
   return [
     { label: t("menu.addSong"), shortcut: "I", run: () => void importAudioFiles() },
     { label: t("menu.addNote"), shortcut: "N", disabled: !editing, run: () => addNoteAt(t) },
     { label: t("voice.addTrack"), disabled: !editing, run: () => void addOperator(t("track.kind.operator")) },
     { label: t("menu.addMidiTrack"), disabled: !editing, run: () => void addCueTrack("midi", t("track.kind.midi")) },
     { label: t("menu.addOscTrack"), disabled: !editing, run: () => void addCueTrack("osc", t("track.kind.osc")) },
+  ];
+}
+
+function trackMenu(t: Translate): MenuItem[] {
+  const track = selectedTrack();
+  const editing = state().ui.view === "edit";
+  const index = track ? activeTimeline(state().doc).tracks.indexOf(track) : -1;
+  const last = activeTimeline(state().doc).tracks.length - 1;
+  return [
+    ...addTracksMenu(t),
     "-",
     {
       label: t("menu.renameTrack"),

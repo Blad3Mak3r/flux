@@ -316,12 +316,12 @@ export const es: Record<MessageKey, string> = {
   "track.color.rose": "rosa",
   "track.color.lime": "lima",
   "track.color.steel": "acero",
-  "tracks.hint": "I importa audio. N añade una nota.",
+  "tracks.hint": "Clic derecho aquí para añadir pistas.",
   "tracks.addSong": "Canción",
   "tracks.addNote": "Nota",
   "track.empty.title": "Todavía no hay pistas",
   "track.empty.body":
-    "Añade una canción o una nota con los botones bajo la lista de pistas, o pulsa I para importar audio y N para escribir una nota en el cursor de reproducción.",
+    "Añade pistas desde el menú Pista o con clic derecho en el espacio vacío de la lista. Pulsa I para importar audio o N para escribir una nota en el cursor.",
   "timeline.zoomIn": "Acercar",
   "timeline.zoomOut": "Alejar",
   "timeline.ruler":
