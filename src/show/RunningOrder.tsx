@@ -9,10 +9,16 @@ export function RunningOrder() {
   const state = useShow((s) => s.state);
   const current = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLOListElement>(null);
+  // Follow the current entry inside this list only: scrolling ancestors would hide the header and GO.
   useEffect(() => {
-    const row = list.current;
+    const rows = list.current;
     const button = current.current;
-    if (row && button) row.scrollLeft += button.getBoundingClientRect().left - row.getBoundingClientRect().left - 12;
+    if (!rows || !button) return;
+    const bounds = rows.getBoundingClientRect();
+    const target = button.getBoundingClientRect();
+    const margin = 8;
+    if (target.top < bounds.top + margin) rows.scrollTop += target.top - bounds.top - margin;
+    else if (target.bottom > bounds.bottom - margin) rows.scrollTop += target.bottom - bounds.bottom + margin;
   }, [state?.entryId]);
   if (!state) return null;
   const stopped = state.position.state === "stopped";

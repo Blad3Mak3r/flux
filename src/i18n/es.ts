@@ -267,6 +267,7 @@ export const es: Record<MessageKey, string> = {
   "live.running": "Sonando",
   "live.nothing": "No suena nada",
   "live.last": "Último cue",
+  "live.operation": "Operación del show",
   "live.cues": "Cues",
   "live.hint": "Doble clic o Intro para ir a un cue",
   "live.col.number": "N.º",

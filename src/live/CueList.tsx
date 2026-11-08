@@ -57,26 +57,33 @@ const CueRow = memo(function CueRow({ cue, status, progress }: RowProps) {
           <span className="visually-hidden">{t(`live.kind.${cue.kind}`)}</span>
         </span>
         <span className="cue-name" title={name}>
-          {name}
+          <span className="cue-title">{name}</span>
           {cue.kind === "operator" && <span className="voice-live-state">{t(`voice.status.${voice?.status ?? "ungenerated"}`)}{voice?.beforeOrigin && ` · ${t("voice.positionInvalid")}`}{(!route || routeLost) && ` · ${t("voice.routeMissing")}`}</span>}
         </span>
         <span className="cue-track" title={cue.trackName}>
           {cue.trackName}
         </span>
-        <span className="cue-time measure">{cue.timecode}</span>
-        <span className="cue-length measure">{cue.duration ?? "—"}</span>
+        <span className="cue-time measure"><span className="visually-hidden">{t("live.col.time")} </span>{cue.timecode}</span>
+        <span className="cue-length measure"><span className="visually-hidden">{t("live.col.length")} </span>{cue.duration ?? "—"}</span>
       </button>
     </li>
   );
 });
 
-export function CueList() {
+interface CueListProps {
+  /** `table` keeps the wide columns; `sidebar` stacks each cue in three lines for a narrow, full-height column. */
+  layout?: "table" | "sidebar";
+}
+
+export function CueList({ layout = "table" }: CueListProps) {
   const t = useT();
   const cues = useLive((live) => live.cues);
+  const ready = useLive((live) => live.ready);
   const statuses = useLive((live) => live.state?.statuses);
   const running = useLive((live) => live.state?.running);
   const follow = useLive((live) => live.state?.next?.cueId ?? live.state?.current ?? null);
   const scroller = useRef<HTMLDivElement>(null);
+  const sidebar = layout === "sidebar";
 
   // The show moves down the list: keep the cue on standby (or the last one at the end) in view.
   useEffect(() => {
@@ -94,7 +101,7 @@ export function CueList() {
   }, [follow]);
 
   return (
-    <section className="live-cues" aria-labelledby="live-cues-legend">
+    <section className="live-cues" data-layout={layout} aria-labelledby="live-cues-legend">
       <div className="live-cues-bar">
         <h2 id="live-cues-legend" className="legend">
           {t("live.cues")}
@@ -102,23 +109,40 @@ export function CueList() {
         <p className="live-hint">{t("live.hint")}</p>
       </div>
       <div className="cue-scroll" ref={scroller}>
-        <div className="cue-head" aria-hidden="true">
-          {COLUMNS.map((column) => (
-            <span key={column} className={`cue-${column}`}>
-              {t(`live.col.${column}`)}
-            </span>
-          ))}
-        </div>
-        <ol className="cue-list">
-          {cues.map((cue, index) => (
-            <CueRow
-              key={cue.id}
-              cue={cue}
-              status={statuses?.[index] ?? "pending"}
-              progress={running?.find((item) => item.cueId === cue.id)?.progress}
-            />
-          ))}
-        </ol>
+        {sidebar && cues.length === 0 ? (
+          <div className="cue-empty">
+            {ready ? (
+              <>
+                <p className="empty-title">{t("live.empty.title")}</p>
+                <p>{t("live.empty.body")}</p>
+              </>
+            ) : (
+              <p className="empty-title">{t("live.loading")}</p>
+            )}
+          </div>
+        ) : (
+          <>
+            {!sidebar && (
+              <div className="cue-head" aria-hidden="true">
+                {COLUMNS.map((column) => (
+                  <span key={column} className={`cue-${column}`}>
+                    {t(`live.col.${column}`)}
+                  </span>
+                ))}
+              </div>
+            )}
+            <ol className="cue-list">
+              {cues.map((cue, index) => (
+                <CueRow
+                  key={cue.id}
+                  cue={cue}
+                  status={statuses?.[index] ?? "pending"}
+                  progress={running?.find((item) => item.cueId === cue.id)?.progress}
+                />
+              ))}
+            </ol>
+          </>
+        )}
       </div>
     </section>
   );

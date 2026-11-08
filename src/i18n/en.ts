@@ -267,6 +267,7 @@ export const en = {
   "live.running": "Playing",
   "live.nothing": "Nothing is playing",
   "live.last": "Last cue",
+  "live.operation": "Show operation",
   "live.cues": "Cues",
   "live.hint": "Double-click or press Enter to go to a cue",
   "live.col.number": "#",
