@@ -1,4 +1,4 @@
-import { addOperator, useVoice } from "../voice/store";
+import { useVoice } from "../voice/store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
@@ -20,15 +20,13 @@ import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
 import { reorderTrack } from "../state/actions";
 import { snapFrame } from "../state/snap";
-import { addCueTrack } from "../state/cues";
-import { addNoteAt, importAudioFiles } from "../state/workflows";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { TrackHeader, TrackLane, laneHeight } from "./TrackRow";
-import { PlusIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
-import { emptyMenu } from "./menus";
+import { ZoomInIcon, ZoomOutIcon } from "./icons";
+import { addTracksMenu, emptyMenu } from "./menus";
 
 const ZOOM_STEP = 1.25;
 /** Room past the last item, so there is always somewhere to drop the next one. */
@@ -266,13 +264,16 @@ export function Timeline() {
             </div>
           </div>
 
-          {/* Follows the lanes' vertical scroll; the wheel over it scrolls the lanes. */}
+          {/* Both columns share their vertical scroll position. */}
           <div
             className="screen-headers"
             ref={headers}
-            onWheel={(event) => {
-              if (!event.ctrlKey && !event.metaKey && scroller.current) scroller.current.scrollTop += event.deltaY;
+            onScroll={(event) => {
+              if (scroller.current && scroller.current.scrollTop !== event.currentTarget.scrollTop) {
+                scroller.current.scrollTop = event.currentTarget.scrollTop;
+              }
             }}
+            onContextMenu={(event) => menuAtPointer(event, addTracksMenu(t))}
           >
             <div className="headers-inner">
               {timeline.tracks.map((track) => (
@@ -284,26 +285,6 @@ export function Timeline() {
               </div>
             </div>
           </div>
-
-          <div className="side-add">
-            <button type="button" className="add-song" onClick={() => void importAudioFiles()} title={`${t("tracks.addSong")} (I)`}>
-              <PlusIcon />
-              {t("tracks.addSong")}
-            </button>
-            <button type="button" className="add-note" onClick={() => addNoteAt(t)} title={`${t("tracks.addNote")} (N)`}>
-              <PlusIcon />
-              {t("tracks.addNote")}
-            </button>
-            <button type="button" className="add-note" onClick={() => void addOperator(t("track.kind.operator"))}><PlusIcon />{t("tracks.addOperator")}</button>
-            <button type="button" className="add-note" onClick={() => void addCueTrack("midi", t("track.kind.midi"))}>
-              <PlusIcon />
-              {t("tracks.addMidi")}
-            </button>
-            <button type="button" className="add-note" onClick={() => void addCueTrack("osc", t("track.kind.osc"))}>
-              <PlusIcon />
-              {t("tracks.addOsc")}
-            </button>
-          </div>
         </div>
 
         <div
@@ -311,7 +292,9 @@ export function Timeline() {
           ref={scroller}
           onScroll={(event) => {
             setViewport({ left: event.currentTarget.scrollLeft });
-            if (headers.current) headers.current.scrollTop = event.currentTarget.scrollTop;
+            if (headers.current && headers.current.scrollTop !== event.currentTarget.scrollTop) {
+              headers.current.scrollTop = event.currentTarget.scrollTop;
+            }
           }}
           onPointerDown={(event) => event.target === event.currentTarget && select(null)}
           onContextMenu={(event) => menuAtPointer(event, emptyMenu(t))}

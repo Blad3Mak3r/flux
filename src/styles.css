@@ -722,7 +722,8 @@ input:disabled {
 .screen-headers {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 /* The bottom padding is the lanes' scrollbar, so both columns reach the same last scroll position. */
@@ -771,46 +772,14 @@ input:disabled {
   stroke: var(--grat-major);
 }
 
-/* Adding a song or a note without the keyboard; always in view, under the track headers. */
-.side-add {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 8px;
-  border-top: 1px solid var(--rule-strong);
+/* Keep empty space for track creation and equal scroll ranges in both columns. */
+.filler,
+.screen-inner::after {
+  flex: 1 0 64px;
 }
 
-.side-add button {
-  display: flex;
-  flex: 1 1 40%;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  min-width: 0;
-  height: 30px;
-  padding: 0 6px;
-  white-space: nowrap;
-  background: transparent;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  color: var(--ink);
-}
-
-.side-add button:hover {
-  background: var(--panel-hi);
-}
-
-.side-add .add-song svg {
-  color: var(--phosphor);
-}
-
-.side-add .add-note svg {
-  color: var(--amber);
-}
-
-.filler {
-  flex: 1;
+.screen-inner::after {
+  content: "";
 }
 
 .hint {
