@@ -335,14 +335,27 @@ The selected loop is bounded across its full range, including a visible end cap.
 control list prints relative timecode ranges and repeat mode, with persistent guidance explaining
 creation at the playhead and execution only in prepared setlists.
 
-Live places the current entry and a 64px GO button before next entry, duration, notes and existing
-cues. GO states its backend-provided action; unavailable GO is disabled. Leaving
-the setlist sits in a secondary disclosure and requires Stop. Short windows scroll the show surface
-instead of compressing the next cue into an unreadable strip. Existing transport controls retain their meaning.
-During a prepared show, project timeline tabs are replaced by its numbered entry order, retaining
-repeated timelines, aliases and struck-through omissions. Current and next have explicit words and
-distinct boundaries; selecting an included entry prepares it only while stopped. Leaving the show
-remains in the secondary disclosure. Automatic following scrolls only the relevant entry/cue list,
-preserving the surrounding show position and GO visibility.
+A prepared Live has two columns and no page scroll: the show's operation on the left, the cues on the
+right. The Live bar (setlist name, voice-order check, Edit/Live switch) spans both. The grid is
+`auto minmax(0, 1fr)` rows and `minmax(0, 1fr) clamp(380px, 40%, 520px)` columns, so the cue column keeps
+its full height whatever the left column holds. Live without a setlist keeps its stacked layout.
+
+The left column has a fixed head and a scrolling body. The head holds the current entry (two lines, the
+full name in the tooltip), its state, loop turn and pending exit, a 64px GO button whose backend-provided
+label may wrap to two lines, Cancel loop exit, and the next entry and duration as one compact line. The
+body scrolls on its own: route warnings, standby cue and countdown, playing cues, active notes, the
+entry's operator notes (a box of its own that scrolls when long), the running order and, last, the Show
+options disclosure that leaves the setlist (Stop first). The running order is a compact vertical list
+with numbers, aliases, sources, omissions and explicit Current/Next words; its own list is capped at 192px.
+
+The cue sidebar is the cue list in a `sidebar` layout: a fixed Cues bar with the double-click/Enter hint,
+and a list that scrolls vertically only. Each cue is a three-line row of at least 72px: number and name
+(two lines, then clipped; the full text stays in the DOM and the tooltip), state word with its lamp and the
+start timecode, then kind swatch, track and duration. States keep their printed word, lamp shape and
+colours. One click focuses a row; double-click or Enter goes to the cue; the context menu, progress fill and
+voice-order warnings are unchanged. Loading and an entry with no cues are told inside the sidebar, so GO,
+state, notes and running order stay in place. Following the show moves only the cue list (and the running
+order moves only its own list), never the surrounding columns, so the entry and GO stay in view.
+Existing transport controls retain their meaning.
 All added labels ship in English and Spanish. Remote control preferences retain their existing
 form layout and add the OSC listen address, TCP switch and feedback explanation.

@@ -26,11 +26,18 @@ Preparation trades memory for predictable playback: it does not stream/decode th
 inside an audio callback. Leave and prepare again after editing the project or changing hardware
 routes. Prepared audio must fit in available memory.
 
-Live shows the current entry, the next entry, operator notes, state, loop turn and the next GO
-action. A prepared show's numbered running order replaces the project timeline tabs. It distinguishes
-current, next, passed, upcoming and omitted entries, preserving repeated references and display names.
-While stopped, selecting an included entry prepares it; omitted entries remain unavailable. Show options
-expands the leave action. Unprepared Live keeps ordinary project timeline navigation.
+A prepared Live has two columns. The left column is the operation of the show: a fixed head with the current
+entry, state, loop turn, GO (and Cancel loop exit while an exit is pending) and a compact line with the next
+entry and duration, then a scrolling body with route warnings, the standby cue and countdown, playing cues,
+active notes, the entry's operator notes, the running order and Show options (which holds Leave setlist, enabled
+only while stopped). The right column is the cue sidebar, always visible at the full height under the Live bar:
+a row per cue with its number, name, state, start timecode, kind, track and duration. One click focuses a cue;
+double-click or Enter goes to it, and Enter on a cue never also runs GO. Neither column makes the screen scroll,
+and long names, long notes or route warnings never shrink the cue list. A prepared show's numbered running
+order replaces the project timeline tabs: it distinguishes current, next, passed, upcoming and omitted entries,
+preserving repeated references and display names. While stopped, selecting an included entry prepares it;
+omitted entries remain unavailable. Unprepared Live keeps ordinary project timeline navigation and its stacked
+layout.
 Enter in Live runs GO, except in editable fields, buttons or dialogs; held keys do not
 repeat it. GO, Devamp and Cancel devamp can also be learned from MIDI in Preferences.
 
@@ -116,3 +123,5 @@ synthetic data and simulated IPC at 960x760, 1280x900 and 1440x1080, including M
 and Alt+Up interactions. English and Spanish Live were checked. Following entries/cues is confined
 to their list so it does not automatically scroll the surrounding show out of view. A full keyboard,
 contrast, screen-reader and hardware acceptance run remains separate from this four-issue pass.
+
+Validation of the two-column Live (this pass): `npm run typecheck`, `npm test` and `npm run build` pass. The real components were rendered in a browser (Vite dev server) with synthetic show data injected into the stores and, for the Enter/GO check, a stubbed IPC; no real device, backend or hardware was involved. Checked at 960x600, 960x760, 1366x768 and 1440x1080 in English and Spanish across empty, 300-cue, long-name/long-note, route-warning, paused, waiting, delay, loop-exit-pending, completed, device-lost and playing states: the cue sidebar kept the same height in every state, with at least three whole rows at 960x600 and five at 960x760, no horizontal or global overflow, and GO (64px) always visible. Screenshots are in `docs/screenshots/`.
