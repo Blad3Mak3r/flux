@@ -179,7 +179,51 @@ fn check_name(name: &str) -> Result<()> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShowControlKind {
+    Wait,
+    Loop,
+}
+
 impl Session {
+    pub fn add_show_control(
+        &mut self,
+        timeline_id: &str,
+        frame: u64,
+        kind: ShowControlKind,
+        name: String,
+    ) -> Result<crate::CueEdited> {
+        let id = Uuid::new_v4().to_string();
+        let state = self.change(|project, _| {
+            let timeline = project
+                .timelines
+                .iter_mut()
+                .find(|t| t.id == timeline_id)
+                .ok_or_else(|| invalid("show.error.timeline"))?;
+            let at = frame.saturating_sub(timeline.timecode.start);
+            let kind = match kind {
+                ShowControlKind::Wait => ControlKind::Wait,
+                ShowControlKind::Loop => ControlKind::Loop {
+                    end: at.saturating_add(u64::from(timeline.timecode.frame_rate.nominal_fps())),
+                    turns: None,
+                },
+            };
+            timeline.controls.push(TimelineControl {
+                id: id.clone(),
+                name,
+                at,
+                kind,
+            });
+            timeline.controls.sort_by_key(|c| c.at);
+            Ok(())
+        })?;
+        Ok(crate::CueEdited {
+            state,
+            id: Some(id),
+        })
+    }
+
     pub fn show_edit(&mut self, op: ShowEdit) -> Result<ProjectState> {
         self.change(|project, _| {
             match op {
@@ -277,6 +321,44 @@ fn setlist<'a>(project: &'a mut Project, id: &str) -> Result<&'a mut Setlist> {
 mod tests {
     use super::*;
     use crate::FrameRate;
+
+    #[test]
+    fn adding_a_loop_uses_the_playhead_and_the_timeline_frame_rate() {
+        let mut session = Session::default();
+        let mut project = session.new_project("Song", FrameRate::Fps30);
+        project.timelines[0].timecode.start = 108000;
+        session.update(project.clone());
+        let result = session
+            .add_show_control(
+                &project.timelines[0].id,
+                108120,
+                ShowControlKind::Loop,
+                "Vamp".into(),
+            )
+            .unwrap();
+        let control = &result.state.project.timelines[0].controls[0];
+        assert_eq!(Some(control.id.clone()), result.id);
+        assert_eq!(control.at, 120);
+        assert_eq!(
+            control.kind,
+            ControlKind::Loop {
+                end: 150,
+                turns: None
+            }
+        );
+        let before = session.document().unwrap().project;
+        assert!(
+            session
+                .add_show_control(
+                    &project.timelines[0].id,
+                    108125,
+                    ShowControlKind::Wait,
+                    "Wait".into()
+                )
+                .is_err()
+        );
+        assert_eq!(session.document().unwrap().project, before);
+    }
 
     #[test]
     fn repeated_entries_share_content_and_invalid_edits_are_atomic() {

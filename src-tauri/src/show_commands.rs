@@ -252,6 +252,28 @@ pub async fn show_edit(
     .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+pub async fn show_control_add(
+    session: State<'_, SharedSession>,
+    project: Project,
+    timeline_id: String,
+    frame: u64,
+    kind: flux_project::show::ShowControlKind,
+    name: String,
+) -> Result<flux_project::CueEdited, String> {
+    let session = Arc::clone(&session);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut session = session.lock().unwrap_or_else(PoisonError::into_inner);
+        session.ensure_editable().map_err(show_edit_error)?;
+        session.sync(project).map_err(show_edit_error)?;
+        session
+            .add_show_control(&timeline_id, frame, kind, name)
+            .map_err(show_edit_error)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Used by OSC without needing a browser window or subscriptions.
 pub(crate) async fn prepare(app: AppHandle, setlist_id: String) -> Result<(), String> {
     let project = app

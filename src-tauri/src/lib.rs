@@ -83,6 +83,7 @@ pub fn run() {
             show_commands::show_state,
             show_commands::show_action,
             show_commands::show_edit,
+            show_commands::show_control_add,
             commands::project_document,
             commands::project_sync,
             commands::clip_edit,
