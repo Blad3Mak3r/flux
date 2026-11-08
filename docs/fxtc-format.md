@@ -26,7 +26,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `10`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `11`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
@@ -341,4 +341,13 @@ Other track kinds must retain the inherited default. Removing a custom destinati
 
 Hardware mappings belong to installation preferences: `audioRoutes` maps custom output IDs to an interface name hint and mono/stereo channels. Programme and Operator reuse their existing local preference fields. These mappings are never written into the project. Unmapped or missing outputs remain silent in Live; they never fall back to Programme. Edit with a preview route auditions every assigned track through that route, while Silent remains silent.
 
-Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving writes version 10; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.
+Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving now writes version 11; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.
+
+### Version 11: voice order sources
+
+Each operator order stores `mode`: `generated` or `manual`. It selects the authoring controls;
+changing it preserves the current audio. Older imported orders migrate to `manual`; other orders default
+to `generated`. The existing `generated` audio record additionally accepts `origin: "recorded"` for
+microphone takes. Imported and recorded audio play offline without a provider voice or API key.
+Accepted microphone takes are bundled WAV assets, using the existing trims and sample-accurate alignment.
+Microphone driver, device and mono input channel are local preferences, never project routing.
