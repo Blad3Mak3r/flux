@@ -417,6 +417,18 @@ input:disabled {
   font-size: 12px;
 }
 
+.dialog.about .about-update {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.dialog.about .about-update p {
+  min-height: 1.4em;
+  overflow-wrap: anywhere;
+}
+
 .dialog.about .icon-button {
   position: absolute;
   top: 6px;
