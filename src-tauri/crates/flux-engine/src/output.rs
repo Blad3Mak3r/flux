@@ -2780,6 +2780,7 @@ fn spawn_stream<I: Send + 'static>(
     let thread = thread::Builder::new()
         .name(name.into())
         .spawn(move || {
+            devices::join_mta();
             let (stream, info) = match open() {
                 Ok(opened) => opened,
                 Err(err) => {
