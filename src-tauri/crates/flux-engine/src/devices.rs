@@ -59,6 +59,26 @@ pub struct MidiPort {
     pub name: String,
 }
 
+/// Makes the calling thread a multithreaded COM apartment before cpal touches it.
+///
+/// cpal puts every thread it meets in a single-threaded apartment. Some WASAPI drivers initialise
+/// COM as multithreaded inside `IMMDevice::Activate`, which then fails with `RPC_E_CHANGED_MODE`
+/// ("cannot change the thread mode after it is set") and the device cannot be opened. cpal accepts
+/// a thread that is already multithreaded, so a thread that owns a stream calls this first.
+pub(crate) fn join_mta() {
+    #[cfg(windows)]
+    {
+        const COINIT_MULTITHREADED: u32 = 0;
+        #[link(name = "ole32")]
+        unsafe extern "system" {
+            fn CoInitializeEx(reserved: *mut core::ffi::c_void, flags: u32) -> i32;
+        }
+        // A thread that is already in an apartment answers with an error; it keeps that one.
+        // SAFETY: a null reserved pointer and a documented flag; the apartment ends with the thread.
+        let _ = unsafe { CoInitializeEx(core::ptr::null_mut(), COINIT_MULTITHREADED) };
+    }
+}
+
 /// The audio APIs available here, the default one first.
 pub fn list_hosts() -> Vec<AudioHost> {
     let default = cpal::default_host().id();
