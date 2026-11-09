@@ -41,6 +41,34 @@ pub enum CueAction {
     Osc,
 }
 
+impl CueKind {
+    /// The name it has in the serialized cue, for looking up a translation.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Operator => "operator",
+            Self::Audio => "audio",
+            Self::Note => "note",
+            Self::Midi => "midi",
+            Self::Osc => "osc",
+        }
+    }
+}
+
+impl CueAction {
+    /// The name it has in the serialized cue, for looking up a translation.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::NoteOn => "noteOn",
+            Self::NoteOff => "noteOff",
+            Self::ControlChange => "controlChange",
+            Self::ProgramChange => "programChange",
+            Self::Msc => "msc",
+            Self::SysEx => "sysEx",
+            Self::Osc => "osc",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cue {
@@ -269,6 +297,10 @@ impl CueList {
 
     pub fn cues(&self) -> &[Cue] {
         &self.cues
+    }
+
+    pub fn rate(&self) -> FrameRate {
+        self.rate
     }
 
     /// The state of the show when the transport is at `frame` (absolute, as the position reports it).
