@@ -105,6 +105,10 @@ the task matches:
   - `npm run typecheck` — TypeScript check (`tsc --noEmit`).
   - `npm test` — frontend unit tests (`node --test`, no dependencies).
   - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets`, `cargo test --workspace` — from `src-tauri/`.
+- **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`: the frontend checks and build on Linux,
+  `cargo fmt` on Linux, `cargo clippy -- -D warnings` and `cargo test` on Linux, Windows and macOS, and a debug
+  `tauri build` on the same three. Run the same commands locally first, with `-D warnings` on clippy, since CI fails on any warning. Tests must
+  not need audio or MIDI hardware: a runner has none.
 
 ## Testing the application
 

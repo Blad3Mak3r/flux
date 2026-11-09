@@ -452,10 +452,7 @@ mod tests {
                     let (samples, words) =
                         encode(rate, config(sample_rate, edge_samples), start, 12);
                     let bits = decode(&samples, sample_rate, rate);
-                    let decoded: Vec<_> = bits
-                        .chunks_exact(BITS_PER_FRAME)
-                        .map(|chunk| <LtcBits>::try_from(chunk).unwrap())
-                        .collect();
+                    let decoded = bits.as_chunks::<BITS_PER_FRAME>().0.to_vec();
                     assert_eq!(
                         decoded, words,
                         "{rate:?} {sample_rate} Hz edge {edge_samples}"
@@ -471,8 +468,10 @@ mod tests {
         let (samples, _) = encode(rate, config(48_000, 0), 1_798, 4);
         let bits = decode(&samples, 48_000, rate);
         let seen: Vec<_> = bits
-            .chunks_exact(BITS_PER_FRAME)
-            .map(|chunk| parse(&<LtcBits>::try_from(chunk).unwrap()).0.to_string())
+            .as_chunks::<BITS_PER_FRAME>()
+            .0
+            .iter()
+            .map(|chunk| parse(chunk).0.to_string())
             .collect();
         assert_eq!(
             seen,
@@ -603,8 +602,10 @@ mod tests {
 
             let bits = decode(&samples, 48_000, rate);
             let decoded: Vec<_> = bits
-                .chunks_exact(BITS_PER_FRAME)
-                .map(|chunk| parse(&<LtcBits>::try_from(chunk).unwrap()).0)
+                .as_chunks::<BITS_PER_FRAME>()
+                .0
+                .iter()
+                .map(|chunk| parse(chunk).0)
                 .collect();
             let expected: Vec<_> = (0..decoded.len() as u64)
                 .map(|i| Timecode::from_frames(start + 500 + i, rate))

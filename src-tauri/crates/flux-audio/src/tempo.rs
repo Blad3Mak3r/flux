@@ -49,7 +49,9 @@ pub fn detect_bpm(audio: &Decoded) -> Option<f64> {
     let length = frames.min(MAX_SECONDS * rate);
     let from = (frames - length) / 2;
     let mono: Vec<f32> = audio.samples[from * 2..(from + length) * 2]
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| (f32::from(pair[0]) + f32::from(pair[1])) * (0.5 / 32_768.0))
         .collect();
     bpm_of(&onset_strength(&mono))
