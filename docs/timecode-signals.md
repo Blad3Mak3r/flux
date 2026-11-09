@@ -120,6 +120,19 @@ Starting video or Art-Net will be new track kinds.
 With an output running, the `flux-live` lane sends the same `LiveState` over its channel; the output keeps a cue list
 that `output_start` and `output_set_clips` rebuild, which the lane swaps in whole like the meters' state.
 
+### Cue sheet (`cue_sheet.rs`, `export_commands.rs`)
+
+`cue_sheet_export(project, scope, labels, path)` writes the same cues as a file for people who do not look at FLUX.
+`scope` is `active` (the timeline the backend has active) or `all`. The extension of `path` picks the format: `.html` / `.htm`
+is a self-contained page (no scripts or outside files, light on white, one section per timeline with a page break
+between them when printed) and anything else is a CSV (UTF-8 with a byte order mark so Excel reads the accents, CRLF
+lines, one table with a timeline column). The sheet keeps the numbers of the Live list, so the number on paper is the
+one on screen, and leaves out cues on muted tracks (the numbers of those are skipped). A note shows its whole text, not
+only its first line. In the CSV, a text that starts with `=`, `+`, `-` or `@` gets a leading `'` so a spreadsheet
+shows it instead of running it; in the HTML everything typed is escaped. `labels` carries the words in the user's
+language (headers, cue kinds and actions, frame rates), because the backend writes the file; it runs on the blocking
+pool and never touches a running output.
+
 ## Firing MIDI and OSC cues (`fire.rs`, `midi_cue.rs`, `osc.rs`, `cue_routes.rs`)
 
 The events of the `midi` and `osc` tracks are fired from threads that are not the audio callback. Each MIDI port and each
