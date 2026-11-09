@@ -3,6 +3,7 @@ mod commands;
 mod control;
 mod device_commands;
 mod diagnostics;
+mod export_commands;
 mod graphics;
 mod live_commands;
 mod osc_api;
@@ -134,6 +135,7 @@ pub fn run() {
             graphics::graphics_restart,
             diagnostics::diagnostics_open_log_dir,
             diagnostics::diagnostics_export,
+            export_commands::cue_sheet_export,
             live_commands::live_cues,
             live_commands::live_state,
             transport_commands::output_start,
