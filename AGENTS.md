@@ -109,6 +109,10 @@ the task matches:
   `cargo fmt` on Linux, `cargo clippy -- -D warnings` and `cargo test` on Linux, Windows and macOS, and a debug
   `tauri build` on the same three. Run the same commands locally first, with `-D warnings` on clippy, since CI fails on any warning. Tests must
   not need audio or MIDI hardware: a runner has none.
+- **Releases** (`.github/workflows/release.yml`) are run by hand with a version `X.Y.Z`. `scripts/set-version.mjs` writes it into
+  every file that carries it (`package*.json`, `tauri.conf.json`, the Cargo manifests and `Cargo.lock`, the README), so never
+  edit a version by hand: run `node scripts/set-version.mjs --check` to see whether they agree. The app updates itself from the
+  `latest.json` the workflow uploads to the GitHub Release (`update_commands.rs`). See [docs/releasing.md](docs/releasing.md).
 
 ## Testing the application
 

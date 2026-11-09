@@ -191,6 +191,7 @@ docs/            Specs and guides
 | [Audio routing](docs/audio-routing.md) | Per-track destinations and per-computer interfaces. |
 | [Voice operator](docs/voice-operator.md) | Spoken operator tracks. |
 | [Diagnostics](docs/diagnostics.md) | Logs and the diagnostics export. |
+| [Releasing](docs/releasing.md) | Publishing a version and how the app updates itself. |
 
 Product intent and visual language live in [PRODUCT.md](PRODUCT.md) and [DESIGN.md](DESIGN.md).
 
@@ -204,7 +205,7 @@ FLUX is in early development (`0.1.0`).
 | Audio and notes tracks, tempo detection, metronome | Art-Net cues |
 | LTC and MTC generation, with a full transport | Chasing an external timecode |
 | MIDI and OSC cue tracks | Feedback to a controller's lights |
-| Live view and setlists with GO | Release builds and packaging |
+| Live view and setlists with GO | macOS release builds |
 | Spoken operator tracks | |
 | MIDI and OSC remote control | |
 
