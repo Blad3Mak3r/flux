@@ -233,7 +233,7 @@ pub(crate) mod tests {
         let decoded = decode(wav(48_000, 1, &mono), Some("wav")).unwrap();
 
         assert_eq!(decoded.frames(), mono.len());
-        for frame in decoded.samples.chunks_exact(2) {
+        for frame in decoded.samples.as_chunks::<2>().0 {
             assert_eq!(frame[0], frame[1]);
         }
     }

@@ -707,6 +707,8 @@ impl Renderer {
             position: self.transport.position_samples(),
             stamp: now,
         });
+        // `try_update` is the new name, but it needs a newer Rust than the one this builds with.
+        #[allow(deprecated)]
         let _ = self.shared.pending_plays.fetch_update(
             Ordering::AcqRel,
             Ordering::Acquire,
