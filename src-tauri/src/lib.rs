@@ -13,6 +13,7 @@ mod recovery;
 mod show_commands;
 mod startup;
 mod transport_commands;
+mod update_commands;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -39,6 +40,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update_commands::PendingUpdate::default())
         .manage(commands::SharedSession::default())
         .manage(preferences::Store::default())
         .manage(std::sync::Arc::new(voice_commands::VoiceState::default()))
@@ -55,6 +58,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            update_commands::update_check,
+            update_commands::update_install,
             voice_commands::voice_key_status,
             voice_commands::voice_key_set,
             voice_commands::voice_key_delete,
