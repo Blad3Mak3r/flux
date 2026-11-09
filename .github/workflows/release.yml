@@ -1,0 +1,162 @@
+name: Release
+
+# Run by hand: Actions > Release > Run workflow, and type the version (X.Y.Z).
+#
+#   prepare  writes the version into every file that carries it (scripts/set-version.mjs) and
+#            commits it to a temporary branch, release/vX.Y.Z. main is not touched yet.
+#   build    builds the installers on Windows (NSIS) and Linux (DEB, RPM, AppImage), signs the
+#            updater artifacts and uploads everything, plus latest.json, to a draft Release.
+#   publish  once every platform built: moves main to the version commit, publishes the Release
+#            (which creates the tag vX.Y.Z) and deletes the temporary branch.
+#
+# If a build fails, main stays as it was. Run the workflow again with the same version: the branch
+# is replaced and the draft Release is reused. See docs/releasing.md for the one-time setup.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, X.Y.Z (must be newer than the current one)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark the Release as a pre-release (the app does not offer it as an update)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ inputs.version }}
+  TAG: v${{ inputs.version }}
+  BRANCH: release/v${{ inputs.version }}
+
+jobs:
+  prepare:
+    name: Prepare v${{ inputs.version }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Refuse a version that already has a tag
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "::error::The tag $TAG already exists."
+            exit 1
+          fi
+
+      # Fails unless the version is X.Y.Z, newer than the current one, and every file agrees.
+      - name: Set the version
+        run: node scripts/set-version.mjs "$VERSION"
+
+      - name: Commit the version to a release branch
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add -A
+          git commit -m "chore(release): $TAG"
+          # A repeated run replaces the branch of the failed one.
+          git push --force origin "$BRANCH"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            bundles: nsis
+          - name: Linux
+            os: ubuntu-latest
+            bundles: deb,rpm,appimage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - uses: ./.github/actions/linux-deps
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # The Release stays a draft until every platform has built (see `publish`). The updater
+      # artifacts are signed with TAURI_SIGNING_PRIVATE_KEY, and tauri-action merges the entry of
+      # each platform into latest.json on the Release.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # linuxdeploy's bundled strip cannot read the newer binaries of the Ubuntu runner.
+          NO_STRIP: "true"
+        with:
+          tagName: ${{ env.TAG }}
+          releaseName: FLUX ${{ env.TAG }}
+          releaseBody: Installers for FLUX ${{ env.TAG }}. The app checks this Release for updates.
+          releaseDraft: true
+          prerelease: ${{ inputs.prerelease }}
+          generateReleaseNotes: true
+          releaseCommitish: ${{ needs.prepare.outputs.sha }}
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --bundles ${{ matrix.bundles }}
+
+  publish:
+    name: Publish v${{ inputs.version }}
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # main moves to the version commit only if nothing else landed on it since `prepare`.
+      - name: Move main to the version commit
+        run: |
+          git fetch origin main "$BRANCH"
+          if ! git merge-base --is-ancestor origin/main "$SHA"; then
+            echo "::error::main has new commits since this release was prepared. The Release is still a draft; run the workflow again."
+            exit 1
+          fi
+          git push origin "$SHA:refs/heads/main"
+
+      # Publishing creates the tag at the version commit.
+      - name: Publish the Release
+        run: gh release edit "$TAG" --draft=false
+
+      - name: Delete the release branch
+        run: git push origin --delete "$BRANCH"
