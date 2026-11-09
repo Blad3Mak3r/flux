@@ -47,6 +47,7 @@ import {
 } from "../state/workflows";
 import { nominalFps } from "../timecode";
 import { exportDiagnosticsFile, openLogFolder } from "../state/diagnostics";
+import { exportCueSheetFile } from "../state/export";
 import { seek, stop, toggle } from "../transport/playback";
 import { currentFrame } from "../transport/store";
 import { hasNativeWindow } from "./WindowControls";
@@ -123,6 +124,13 @@ function fileMenu(t: Translate): MenuItem[] {
       submenu: [
         { label: t("menu.audio"), shortcut: "I", run: () => void importAudioFiles() },
         { label: t("menu.video"), disabled: true, run: () => {} },
+      ],
+    },
+    {
+      label: t("menu.export"),
+      submenu: [
+        { label: t("menu.cueSheetActive"), run: () => void exportCueSheetFile("active", t) },
+        { label: t("menu.cueSheetAll"), run: () => void exportCueSheetFile("all", t) },
       ],
     },
     "-",
