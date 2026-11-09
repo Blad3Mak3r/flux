@@ -66,6 +66,8 @@ It is built for three people who share one project file:
 - **LTC** through an audio interface and **MTC** through a MIDI port, at 24, 25, 29.97 drop-frame and 30 fps.
 - **Cues from the same clock.** MIDI tracks (notes, control and program change, MIDI Show Control, SysEx) and OSC
   tracks (UDP) fire in step with the timecode. Seeking never replays the events it jumped over.
+- **Cue sheet.** File → Export writes the cue list for the active timeline or all of them as a CSV for a
+  spreadsheet or a print-ready HTML page, for the people who work from paper instead of the FLUX screen.
 - **Hardware is a normal state.** A missing device is explained and fixable, and never blocks opening a project.
 
 ### Run
