@@ -104,6 +104,9 @@ the task matches:
   - `npm run tauri build` — production bundle.
   - `npm run typecheck` — TypeScript check (`tsc --noEmit`).
   - `npm test` — frontend unit tests (`node --test`, no dependencies).
+  - `npm --prefix docs ci`, then `npm run docs:dev` / `npm run docs:build` — the docs site (VitePress, its own package in
+    `docs/`). A new user-facing guide in `docs/` needs a sidebar entry in `docs/.vitepress/config.mts`; the CI `Docs`
+    job fails on a dead link. See [docs/landing-page.md](docs/landing-page.md).
   - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets`, `cargo test --workspace` — from `src-tauri/`.
 - **CI** (`.github/workflows/ci.yml`) runs on every pull request and on `main`: the frontend checks and build on Linux,
   `cargo fmt` on Linux, `cargo clippy -- -D warnings` and `cargo test` on Linux, Windows and macOS, and a debug

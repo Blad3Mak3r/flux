@@ -75,6 +75,8 @@ export const TARGETS = {
     place(/(img\.shields\.io\/badge\/version-)([^-]+)(-)/),
     place(/(FLUX is in early development \(`)([^`]+)(`\))/),
   ],
+  // The landing page's header, hero and ordering block.
+  "site/index.html": [place(/(<span data-version>)([^<]+)(<\/span>)/, 3)],
 };
 
 /** The version every file in `texts` (path -> contents) carries; throws when they differ. */
