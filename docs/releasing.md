@@ -31,7 +31,7 @@ The workflow then:
 
 1. **Prepare**: runs `node scripts/set-version.mjs <version>`, which writes the version into `package.json`,
    `package-lock.json`, `src-tauri/tauri.conf.json`, the Cargo manifests of the app and its crates, `src-tauri/Cargo.lock`
-   and the README, and commits it to `release/vX.Y.Z`. `main` is not touched yet.
+   the README and the landing page (`site/index.html`), and commits it to `release/vX.Y.Z`. `main` is not touched yet.
 2. **Build** on Windows and Linux, from that commit, into a *draft* Release.
 3. **Publish**: when both builds worked, moves `main` to the version commit, publishes the Release (this creates the tag
    `vX.Y.Z`) and deletes `release/vX.Y.Z`.
