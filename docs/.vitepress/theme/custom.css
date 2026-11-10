@@ -65,6 +65,22 @@
   --vp-border-radius: 2px;
 }
 .VPNav, .VPSidebar, .VPLocalNav { box-shadow: none; }
+
+/* Header: one continuous bar. While the page is at the top, the default theme only fills the middle of the bar
+   (.content-body). Its colour matches the page there, but here the bar is a recessed panel, so a lighter strip
+   showed to the right of the GitHub link on wide screens. Fill the whole bar and rule it off from the page. */
+.VPNavBar,
+.VPNavBar.has-sidebar,
+.VPNavBar.has-sidebar.top {
+  background-color: var(--flux-panel-lo);
+}
+.VPNavBar .divider-line,
+.VPNavBar:not(.home.top) .divider-line {
+  background-color: var(--flux-rule);
+}
+.VPNavBar .content-body {
+  background-color: transparent; /* the bar behind it is already the right colour */
+}
 .vp-doc div[class*="language-"], .vp-doc :not(pre) > code, .VPButton, .VPFeature, .custom-block {
   border-radius: 2px;
 }
