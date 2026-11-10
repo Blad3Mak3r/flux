@@ -181,6 +181,9 @@ docs/            Specs and guides
 
 ## Documentation
 
+The guides are published at [blad3mak3r.github.io/flux/docs](https://blad3mak3r.github.io/flux/docs/), built from
+the files below.
+
 | Guide | Covers |
 | --- | --- |
 | [Project format](docs/fxtc-format.md) | The `.flx` / `.fxtc` archive: layout, fields and versioning. |
