@@ -54,6 +54,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "linux": {
       "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libpipewire-0.3-0"] },
       "rpm": { "depends": ["webkit2gtk4.1", "gtk3", "pipewire-libs"] }
@@ -82,5 +83,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxNzQwQkY0ODk5OTdCOEYKUldTUGU1bUo5QXQwOGRmaUltMkYxVEVzVWJ6VGVZWDZGNmJZU1cvUSsxbGpUWFlFUmdxelQydWoK",
+      "endpoints": ["https://github.com/Blad3Mak3r/flux/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

@@ -38,6 +38,7 @@ thiserror = "2.0.21"
 log = { version = "0.4", features = ["std"] }
 # Where the app data folder is, before Tauri can say (see `graphics.rs`).
 dirs = "7"
+tauri-plugin-updater = "2"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
