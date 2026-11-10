@@ -1,6 +1,6 @@
 [package]
 name = "flux-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Frame rates, timecode maths and the sample clock shared by every Flux crate"
 edition = "2024"
 

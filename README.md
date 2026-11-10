@@ -11,7 +11,7 @@ QLab's cue model on a REAPER-style timeline.
 
 <p>
   <img alt="Status: early development" src="https://img.shields.io/badge/status-early%20development-83F300?style=flat-square&labelColor=101820">
-  <img alt="Version 0.1.0" src="https://img.shields.io/badge/version-0.1.0-BAFF42?style=flat-square&labelColor=101820">
+  <img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0-BAFF42?style=flat-square&labelColor=101820">
   <img alt="Tauri v2" src="https://img.shields.io/badge/Tauri-v2-24C8DB?style=flat-square&labelColor=101820&logo=tauri&logoColor=white">
   <img alt="Rust 2024" src="https://img.shields.io/badge/Rust-2024-DEA584?style=flat-square&labelColor=101820&logo=rust&logoColor=white">
   <img alt="React 19" src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&labelColor=101820&logo=react&logoColor=white">
@@ -197,7 +197,7 @@ Product intent and visual language live in [PRODUCT.md](PRODUCT.md) and [DESIGN.
 
 ## Status
 
-FLUX is in early development (`0.1.0`).
+FLUX is in early development (`0.2.0`).
 
 | Available today | Not built yet |
 | --- | --- |

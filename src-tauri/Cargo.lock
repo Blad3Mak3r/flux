@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "flux-audio"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "flux-core",
  "flux-project",
@@ -1380,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "flux-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -1388,7 +1388,7 @@ dependencies = [
 
 [[package]]
 name = "flux-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cpal",
  "flux-audio",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "flux-project"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crc32fast",
  "flux-core",
@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "flux-timecode"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs",
  "flux-audio",
@@ -1440,7 +1440,7 @@ dependencies = [
 
 [[package]]
 name = "flux-voice"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
