@@ -220,4 +220,4 @@ request, and every user-facing string goes through `src/i18n`.
 
 ## License
 
-No license has been chosen yet, so all rights are reserved for now.
+FLUX is licensed under the [GNU General Public License v3.0](https://www.gnu.org/licenses/gpl-3.0.html).
