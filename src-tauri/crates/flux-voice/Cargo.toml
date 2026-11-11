@@ -1,6 +1,7 @@
 [package]
 name = "flux-voice"
 version = "0.2.0"
+license = "GPL-3.0-or-later"
 edition = "2024"
 description = "ElevenLabs speech generation without application or playback dependencies"
 

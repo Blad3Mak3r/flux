@@ -80,7 +80,7 @@ const ES = {
   order_p: "FLUX está en desarrollo temprano. Elige el instalador para tu sistema en la página de la última versión: el instalador de Windows, o el AppImage, DEB o RPM de Linux.",
   source: "Ejecútalo desde el código", docs_all: "Lee la documentación", issues: "Informa de un problema",
   foot: "Construye el show. Ejecuta el show. Confía en el reloj.",
-  license: "Todavía no se ha elegido licencia; todos los derechos reservados por ahora.",
+  license: "Con licencia GNU General Public License v3.0 o posterior.",
   // Used by the demo clock
   w_stopped: "PARADO", w_playing: "REPRODUCIENDO", w_paused: "EN PAUSA",
   rn_24: "Sin drop: se cuentan todos los números de fotograma, 24 por segundo.",

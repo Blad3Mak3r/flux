@@ -1,6 +1,7 @@
 [package]
 name = "flux-engine"
 version = "0.2.0"
+license = "GPL-3.0-or-later"
 description = "Real-time engine: transport, LTC and MTC, mixer, cues and the audio and MIDI outputs"
 edition = "2024"
 
