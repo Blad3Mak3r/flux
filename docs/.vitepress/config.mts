@@ -52,6 +52,6 @@ export default defineConfig({
     },
     outline: { level: [2, 3], label: "On this page" },
     docFooter: { prev: "Previous", next: "Next" },
-    footer: { message: "FLUX is in early development and licensed under the GNU General Public License v3.0." },
+    footer: { message: "FLUX is in early development and licensed under the GNU General Public License v3.0 or later." },
   },
 });

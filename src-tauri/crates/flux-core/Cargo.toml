@@ -1,7 +1,7 @@
 [package]
 name = "flux-core"
 version = "0.2.0"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 description = "Frame rates, timecode maths and the sample clock shared by every Flux crate"
 edition = "2024"
 
