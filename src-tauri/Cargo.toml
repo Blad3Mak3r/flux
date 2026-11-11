@@ -4,6 +4,7 @@ members = ["crates/*"]
 [package]
 name = "flux-timecode"
 version = "0.2.0"
+license = "GPL-3.0-only"
 description = "Timecode track editor and show-control desktop app (MTC / LTC)"
 authors = ["Juan Luis Caro"]
 edition = "2024"
