@@ -4,6 +4,7 @@
 
 pub mod control;
 pub mod control_in;
+pub mod control_light;
 pub mod cue_routes;
 pub mod cue_sheet;
 pub mod cues;

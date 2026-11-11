@@ -338,6 +338,17 @@ impl Session {
         target.map(|id| self.select_timeline(&id)).transpose()
     }
 
+    /// Where the active timeline is among the project's, from 0, and how many there are, `None`
+    /// before a document was started. The remote control lights its timeline pads from it.
+    pub fn timeline_place(&self) -> Option<(usize, usize)> {
+        let document = self.document.as_ref()?;
+        let timelines = &document.project.timelines;
+        let at = timelines
+            .iter()
+            .position(|timeline| timeline.id == document.active)?;
+        Some((at, timelines.len()))
+    }
+
     /// The frame rate and start of the active timeline, `None` before a document was started.
     pub fn active_timecode(&self) -> Option<TimecodeSettings> {
         let document = self.document.as_ref()?;

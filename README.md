@@ -207,10 +207,10 @@ FLUX is in early development (`0.2.0`).
 | `.flx` projects with several timelines | Video cues |
 | Audio and notes tracks, tempo detection, metronome | Art-Net cues |
 | LTC and MTC generation, with a full transport | Chasing an external timecode |
-| MIDI and OSC cue tracks | Feedback to a controller's lights |
-| Live view and setlists with GO | macOS release builds |
+| MIDI and OSC cue tracks | macOS release builds |
+| Live view and setlists with GO | |
 | Spoken operator tracks | |
-| MIDI and OSC remote control | |
+| MIDI and OSC remote control, with lit pads | |
 
 ## Contributing
 

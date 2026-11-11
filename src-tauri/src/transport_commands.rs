@@ -820,6 +820,30 @@ pub(crate) fn snapshot(state: &SharedOutput) -> Option<(Position, Arc<CueList>)>
     })
 }
 
+/// What the pads of a MIDI controller light from: the transport, the cues and the tick of the
+/// prepared setlist, read the way the Live view reads them (`show_commands::state`): a lost audio
+/// device stops the transport and takes GO away.
+pub(crate) fn light_snapshot(
+    state: &SharedOutput,
+) -> Option<(Position, Arc<CueList>, Option<flux_engine::show::ShowTick>)> {
+    lock(state).as_ref().map(|running| {
+        let reader = running.output.reader();
+        if let Some((plan, mut tick, mut position)) = reader.show_snapshot() {
+            if position.device_lost {
+                tick.go = flux_engine::show::GoAction::None;
+                position.state = TransportState::Stopped;
+            }
+            (
+                position,
+                Arc::new(plan.entries[tick.entry].cues.clone()),
+                Some(tick),
+            )
+        } else {
+            (reader.position(), running.cues.current(), None)
+        }
+    })
+}
+
 /// How the running output ended up, for the diagnostics.
 pub fn running_info(state: &SharedOutput) -> Option<OutputInfo> {
     lock(state)

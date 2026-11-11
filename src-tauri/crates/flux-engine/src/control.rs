@@ -61,12 +61,46 @@ pub struct MidiTrigger {
     pub number: u8,
 }
 
+/// The values a pad is sent to light it and to put it out: a velocity for a note, a value for a
+/// control change. What they mean (a colour, a brightness) is the controller's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Feedback {
+    pub on: u8,
+    pub off: u8,
+}
+
+impl Feedback {
+    pub const GENERIC: Self = Self { on: 127, off: 0 };
+
+    /// Whether both values fit a MIDI data byte.
+    pub fn is_valid(self) -> bool {
+        self.on < 0x80 && self.off < 0x80
+    }
+
+    /// The values to start from for the controller on `port`, by the name its port has. Only the
+    /// controllers whose manual says what a velocity means are known; any other gets the generic
+    /// full-on and off, and the user sets the values per binding.
+    pub fn preset(port: &str) -> Self {
+        // The AKAI APC family lights its pads with a velocity that picks a colour: 1 is green.
+        if port.to_ascii_lowercase().contains("apc") {
+            Self { on: 1, off: 0 }
+        } else {
+            Self::GENERIC
+        }
+    }
+}
+
 /// A trigger and the action it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Binding {
     pub trigger: MidiTrigger,
     pub action: ControlAction,
+    /// What to send the pad to light it. `None` uses the controller's preset
+    /// ([`Feedback::preset`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feedback: Option<Feedback>,
 }
 
 /// The action of `trigger`, if the user bound one.
@@ -399,14 +433,17 @@ mod tests {
             Binding {
                 trigger: pad,
                 action: ControlAction::Play,
+                feedback: None,
             },
             Binding {
                 trigger: pad,
                 action: ControlAction::Stop,
+                feedback: None,
             },
             Binding {
                 trigger: other,
                 action: ControlAction::Stop,
+                feedback: None,
             },
         ]);
         assert_eq!(bindings.len(), 2);
@@ -420,6 +457,7 @@ mod tests {
         let binding = Binding {
             trigger: trigger(TriggerKind::Note, 2, 40),
             action: ControlAction::GotoCue(3),
+            feedback: None,
         };
         let json = serde_json::to_string(&binding).unwrap();
         assert_eq!(
@@ -429,6 +467,22 @@ mod tests {
         assert_eq!(serde_json::from_str::<Binding>(&json).unwrap(), binding);
         let unit = serde_json::to_string(&ControlAction::NextCue).unwrap();
         assert_eq!(unit, r#"{"type":"nextCue"}"#);
+    }
+
+    #[test]
+    fn a_binding_without_feedback_should_load_and_one_with_it_should_keep_it() {
+        let old = r#"{"trigger":{"kind":"note","channel":1,"number":36},"action":{"type":"play"}}"#;
+        let binding = serde_json::from_str::<Binding>(old).unwrap();
+        assert_eq!(binding.feedback, None);
+        assert_eq!(serde_json::to_string(&binding).unwrap(), old);
+
+        let with = Binding {
+            feedback: Some(Feedback { on: 3, off: 0 }),
+            ..binding
+        };
+        let json = serde_json::to_string(&with).unwrap();
+        assert!(json.ends_with(r#""feedback":{"on":3,"off":0}}"#), "{json}");
+        assert_eq!(serde_json::from_str::<Binding>(&json).unwrap(), with);
     }
 
     fn message(address: &str, args: &[OscArg]) -> Vec<u8> {
