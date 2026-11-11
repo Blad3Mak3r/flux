@@ -52,13 +52,25 @@ or undo; attaching one is an undoable edit and never changes the current dialogu
 
 ## Check before the show
 
-Open Check voice orders from Transport, Live or Preferences > Voice operator, with the transport stopped.
-The backend checks every timeline, excluding muted operator tracks, for ungenerated orders, outdated
-recordings, unreadable audio or incorrect sample duration, audio before the timeline origin, overlapping
-orders, unavailable operator channels and channels shared with LTC. Issues link to the order or output
-settings. Editing the project or preferences marks the report as out of date until checked again.
-This check enumerates devices but opens no streams, sends no network requests and plays no sound;
-a real sound check is still necessary.
+Open Check show from Transport, Live or Preferences > Voice operator, with the transport stopped.
+The backend checks every timeline, excluding muted tracks, and groups the issues by area:
+
+- **Voice operator**: ungenerated orders, outdated recordings, unreadable audio or incorrect sample
+  duration, audio before the timeline origin, overlapping orders, unavailable operator channels and
+  channels shared with LTC.
+- **MIDI tracks**: a track whose port is not present on this computer, or that has none.
+- **OSC tracks**: a track whose destination is not chosen or not defined, or whose host or port is
+  invalid (judged by its spelling; the name is never resolved).
+- **Timecode outputs**: an LTC output that is unassigned or whose device, channel or engine sample rate
+  is unavailable, an MTC output whose port is missing, and two outputs on the same LTC device and
+  channel or the same MTC port.
+- A MIDI or OSC track with no events is a warning on its own; it hides the other problems of that track.
+
+Blocking issues (errors) are the ones that stop a cue from firing; warnings do not. Issues link to the
+order, the track or the output settings. Editing the project or preferences marks the report as out of
+date until checked again. With no devices attached the check still runs and reports what is missing;
+it never blocks opening a project. This check enumerates devices but opens no streams, sends no
+network requests, sends no MIDI and plays no sound; a real sound check is still necessary.
 
 ## Verification
 
