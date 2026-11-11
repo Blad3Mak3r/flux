@@ -384,7 +384,7 @@ pub async fn operator_preflight(
             }
         }
         let mut checked = std::collections::HashMap::new();
-        Ok(flux_engine::preflight::check_routes(
+        let mut report = flux_engine::preflight::check_routes(
             &project,
             prefs.voice.as_deref(),
             |_, track| {
@@ -409,7 +409,15 @@ pub async fn operator_preflight(
                     Some(decode_recording(bytes, extension).ok()?.frames() as u64)
                 })
             },
-        ))
+        );
+        // Cue tracks and timecode outputs are the same for every timeline; the output config only
+        // varies per timeline in its audio routes.
+        let output = prefs.resolve(&project.output, false);
+        let hardware = flux_engine::preflight::Hardware::scan(output.driver.as_deref());
+        report.extend(flux_engine::preflight::check_hardware(
+            &project, &output, &hardware,
+        ));
+        Ok(report)
     })
     .await
 }

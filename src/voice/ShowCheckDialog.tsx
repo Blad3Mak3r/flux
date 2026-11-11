@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useT } from "../i18n";
 import { useDoc } from "../state/store";
@@ -8,12 +8,19 @@ import { selectMode, useTransport } from "../transport/store";
 import { selectTimeline } from "../state/timelines";
 import { seek } from "../transport/playback";
 import type { Project } from "../project/types";
+import type { SetupSection } from "../setup/outputs";
 import { CloseIcon } from "../components/icons";
 import { voiceError, stopListening, useVoice } from "./store";
 import { RecoveredAudio } from "./RecoveredAudio";
 
-type IssueCode = "ungenerated" | "stale" | "beforeOrigin" | "missingAudio" | "overlap" | "missingRoute" | "ltcConflict" | "silentOutput";
-export interface ShowIssue { code: IssueCode; blocking: boolean; timelineId: string | null; timelineName: string | null; orderId: string | null; name: string; frame: number | null }
+type IssueCode = "ungenerated" | "stale" | "beforeOrigin" | "missingAudio" | "overlap" | "missingRoute" | "ltcConflict" | "silentOutput"
+  | "midiPortMissing" | "oscDestinationMissing" | "oscDestinationInvalid" | "emptyTrack" | "ltcUnavailable" | "mtcUnavailable" | "ltcCollision" | "mtcCollision";
+type Area = "operator" | "midi" | "osc" | "outputs";
+/** The Setup page that fixes an issue that is not about a track or an order. */
+const SETUP_PAGE: Partial<Record<IssueCode, SetupSection>> = { ltcUnavailable: "ltc", ltcCollision: "ltc", mtcUnavailable: "mtc", mtcCollision: "mtc", oscDestinationMissing: "osc", oscDestinationInvalid: "osc" };
+/** A MIDI port or an empty track is fixed on the track itself, in the Edit view. */
+const onTrack = (issue: ShowIssue) => issue.area === "midi" || issue.code === "emptyTrack";
+export interface ShowIssue { code: IssueCode; area: Area; blocking: boolean; timelineId: string | null; timelineName: string | null; orderId: string | null; name: string; frame: number | null }
 export interface ShowReport { ready: number; orders: number; errors: number; warnings: number; issues: ShowIssue[] }
 export const openShowCheck = () => useUi.setState({ showCheck: true, setup: null, menu: null });
 const close = () => useUi.setState({ showCheck: false });
@@ -55,8 +62,10 @@ export function ShowCheckDialog() {
     if (useTransport.getState().position?.state === "playing") return;
     close();
     if (issue.orderId) { setView("edit"); select({ kind: "operator", id: issue.orderId }); if (issue.frame !== null) await seek(issue.frame); }
-    else openSetup("operator");
+    else if (onTrack(issue)) setView("edit");
+    else openSetup(SETUP_PAGE[issue.code] ?? "operator");
   };
+  const goTo = (issue: ShowIssue) => t(issue.orderId ? "check.goToOrder" : onTrack(issue) ? "check.goToTrack" : "menu.setup");
 
   return <dialog ref={dialog} className="dialog show-check" aria-labelledby="show-check-title" onCancel={close}>
     <header className="setup-head"><h2 id="show-check-title">{t("check.title")}</h2><button type="button" className="icon-button" aria-label={t("check.close")} onClick={close}><CloseIcon /></button></header>
@@ -70,10 +79,13 @@ export function ShowCheckDialog() {
         {result.report.issues.length === 0 && <p>{t("check.clear")}</p>}
         {result.report.issues.length > 0 && <div className="voice-actions" aria-label={t("check.navigation")}><button type="button" className="button" disabled={issueIndex <= 0} onClick={() => moveIssue(issueIndex - 1)}>{t("check.previous")}</button><button type="button" className="button" disabled={issueIndex >= result.report.issues.length - 1} onClick={() => moveIssue(issueIndex + 1)}>{t("check.next")}</button></div>}
         <ul className="show-check-list">
-          {result.report.issues.map((issue, i) => <li id={`voice-check-issue-${i}`} tabIndex={-1} aria-current={issueIndex === i ? "true" : undefined} onFocus={() => setIssueIndex(i)} key={`${issue.code}-${issue.orderId ?? "route"}-${i}`}>
-            <div><strong>{t(issue.blocking ? "check.error" : "check.warning")}</strong><p>{t(`check.issue.${issue.code}`)}</p>{issue.name && <p className="voice-dialogue">{issue.name}</p>}{issue.timelineName && <p className="field-note">{issue.timelineName}</p>}</div>
-            <button type="button" className="button" disabled={stale || mode !== "stopped"} onClick={() => void visit(issue)}>{t(issue.orderId ? "check.goToOrder" : "menu.setup")}</button>
-          </li>)}
+          {result.report.issues.map((issue, i) => <Fragment key={`${issue.code}-${issue.orderId ?? "route"}-${i}`}>
+            {issue.area !== result.report.issues[i - 1]?.area && <li className="show-check-area" role="presentation"><h3>{t(`check.area.${issue.area}`)}</h3></li>}
+            <li id={`voice-check-issue-${i}`} tabIndex={-1} aria-current={issueIndex === i ? "true" : undefined} onFocus={() => setIssueIndex(i)}>
+              <div><strong>{t(issue.blocking ? "check.error" : "check.warning")}</strong><p>{t(`check.issue.${issue.code}`)}</p>{issue.name && <p className="voice-dialogue">{issue.name}</p>}{issue.timelineName && <p className="field-note">{issue.timelineName}</p>}</div>
+              <button type="button" className="button" disabled={stale || mode !== "stopped"} onClick={() => void visit(issue)}>{goTo(issue)}</button>
+            </li>
+          </Fragment>)}
         </ul>
       </>}
       <RecoveredAudio />
