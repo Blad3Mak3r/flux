@@ -20,15 +20,21 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::SharedSession;
 use crate::graphics::IDENTIFIER;
-use crate::transport_commands::{SharedOutput, TIMELINE_ADVANCED, is_playing, release, snapshot};
-use flux_engine::control::{Binding, ControlAction, MidiTrigger, action_for, dedup, seek_target};
+use crate::transport_commands::{
+    SharedOutput, TIMELINE_ADVANCED, is_playing, light_snapshot, release, snapshot,
+};
+use flux_engine::control::{
+    Binding, ControlAction, Feedback, MidiTrigger, action_for, dedup, seek_target,
+};
 use flux_engine::control_in::{Input, ListenError, MidiListener};
+use flux_engine::control_light::{Facts, Lamps, LightPort};
 use flux_engine::devices::{self, MidiPort};
 use flux_engine::output::OutputError;
 use flux_engine::transport::{Command, TransportState};
@@ -53,6 +59,9 @@ pub struct MidiPrefs {
     /// Which of the ports with that name, in list order.
     pub port_index: usize,
     pub bindings: Vec<Binding>,
+    /// Light the pads of the controller with the state of the show. Off until the user asks: the
+    /// output port of the controller may be in use by something else.
+    pub feedback: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,6 +110,9 @@ pub fn normalize(mut prefs: ControlPrefs) -> ControlPrefs {
         .midi
         .bindings
         .retain(|binding| valid(binding.action) && valid_trigger(binding.trigger));
+    for binding in &mut prefs.midi.bindings {
+        binding.feedback = binding.feedback.filter(|feedback| feedback.is_valid());
+    }
     prefs.midi.bindings = dedup(prefs.midi.bindings);
     prefs.midi.port_name = prefs.midi.port_name.filter(|name| !name.trim().is_empty());
     if prefs.osc.port == 0 {
@@ -159,6 +171,8 @@ pub struct ControlView {
     pub inputs: Vec<MidiPort>,
     /// Why MIDI cannot be listed, on a system without it.
     pub midi_error: Option<String>,
+    /// The values a binding without its own lights its pad with, for the chosen controller.
+    pub feedback_default: Feedback,
 }
 
 /// The inputs that are open and the thread that executes what they receive. Dropping it closes
@@ -168,10 +182,13 @@ struct Running {
     midi: Option<MidiListener>,
     osc: Option<crate::osc_api::OscServer>,
     worker: Option<JoinHandle<()>>,
+    lights: Option<Lights>,
 }
 
 impl Drop for Running {
     fn drop(&mut self) {
+        // Out first: the pads are put out while the port is still ours.
+        self.lights = None;
         self.midi = None;
         self.osc = None;
         if let Some(worker) = self.worker.take() {
@@ -209,6 +226,7 @@ impl Control {
         };
         let engine = self.lock();
         ControlView {
+            feedback_default: feedback_default(&engine.prefs),
             prefs: engine.prefs.clone(),
             midi: engine.midi.clone(),
             osc: engine.osc.clone(),
@@ -301,6 +319,17 @@ fn open(
         LinkState::Off
     };
 
+    if prefs.midi.enabled && prefs.midi.feedback {
+        running.lights = prefs.midi.port_name.as_ref().and_then(|name| {
+            Lights::start(
+                app.clone(),
+                name.clone(),
+                prefs.midi.port_index,
+                prefs.midi.bindings.clone(),
+            )
+        });
+    }
+
     // The inputs hold the only senders, so the thread ends when they are dropped.
     drop(tx);
     if running.midi.is_some() || running.osc.is_some() {
@@ -316,6 +345,132 @@ fn open(
             .ok();
     }
     (running, midi, osc)
+}
+
+/// The values a binding without its own lights its pad with: those of the controller's preset.
+fn feedback_default(prefs: &ControlPrefs) -> Feedback {
+    prefs
+        .midi
+        .port_name
+        .as_deref()
+        .map_or(Feedback::GENERIC, Feedback::preset)
+}
+
+/// How often the state of the show is looked at. Only a change is sent to the controller; the
+/// look itself is a few atomic reads.
+const LIGHTS_INTERVAL: Duration = Duration::from_millis(50);
+
+/// How long a lit pad that blinks stays in each half of the blink.
+const BLINK_HALF: Duration = Duration::from_millis(500);
+
+/// How long to wait before trying to open the controller's output port again.
+const LIGHTS_RETRY: Duration = Duration::from_secs(2);
+
+/// The thread that lights the pads of the controller. Dropping it stops the thread, which puts
+/// the pads out first.
+struct Lights {
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Lights {
+    fn start(app: AppHandle, port: String, index: usize, bindings: Vec<Binding>) -> Option<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = thread::Builder::new()
+            .name("flux-control-lights".into())
+            .spawn({
+                let stop = Arc::clone(&stop);
+                move || run_lights(&app, &port, index, &bindings, &stop)
+            })
+            .inspect_err(|err| log::warn!("remote control: the lights thread did not start: {err}"))
+            .ok()?;
+        Some(Self {
+            stop,
+            thread: Some(thread),
+        })
+    }
+}
+
+impl Drop for Lights {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Looks at the state of the show, from the same sources as the Live view, and writes to the
+/// controller the pads that changed. It never touches the clock: it only reads the output's
+/// published state, and a port that fails is counted, logged here (off the output path, and not
+/// more than once per failure) and reopened.
+fn run_lights(app: &AppHandle, name: &str, index: usize, bindings: &[Binding], stop: &AtomicBool) {
+    let preset = Feedback::preset(name);
+    let mut lamps = Lamps::default();
+    let mut port: Option<LightPort> = None;
+    let mut retry_at = Instant::now();
+    let mut failed_sends = 0_u64;
+    let started = Instant::now();
+    // The session is only tried: if the window holds it, the last known values do.
+    let mut timeline = None;
+    let mut timecode = None;
+
+    while !stop.load(Ordering::Relaxed) {
+        if port.is_none() && Instant::now() >= retry_at {
+            match LightPort::open(name, index) {
+                Ok(opened) => {
+                    log::info!(
+                        "remote control: lighting the pads through {}",
+                        opened.name()
+                    );
+                    lamps.forget();
+                    port = Some(opened);
+                }
+                Err(err) => {
+                    log::warn!("remote control: the lights cannot be sent: {err}");
+                    retry_at = Instant::now() + LIGHTS_RETRY;
+                }
+            }
+        }
+        if let Some(open) = port.as_mut() {
+            if let Ok(session) = app.state::<SharedSession>().try_lock() {
+                timeline = session.timeline_place();
+                timecode = session.active_timecode();
+            }
+            let snapshot = light_snapshot(&app.state::<SharedOutput>());
+            let (position, cues, show) = match &snapshot {
+                Some((position, cues, show)) => (Some(position), cues.cues(), *show),
+                None => (None, &[][..], None),
+            };
+            let facts = Facts {
+                transport: position.map(|position| position.state),
+                position: position.map_or(0, |position| position.frame),
+                cues,
+                start: timecode.as_ref().map_or(0, |timecode| timecode.start),
+                fps: timecode
+                    .as_ref()
+                    .map_or(0, |timecode| timecode.frame_rate.nominal_fps()),
+                show,
+                timeline,
+            };
+            let blink_on =
+                (started.elapsed().as_millis() / BLINK_HALF.as_millis()).is_multiple_of(2);
+            let failed = lamps.update(bindings, preset, &facts, blink_on, open);
+            if failed > 0 {
+                failed_sends += failed as u64;
+                log::warn!(
+                    "remote control: {failed} lights could not be sent ({failed_sends} so far), reopening the port"
+                );
+                port = None;
+                retry_at = Instant::now() + LIGHTS_RETRY;
+            }
+        }
+        thread::sleep(LIGHTS_INTERVAL);
+    }
+
+    if let Some(open) = port.as_mut() {
+        lamps.clear(open);
+    }
 }
 
 /// What only the window can do, told to it with [`CONTROL_ACTION`].
@@ -540,6 +695,7 @@ mod tests {
                 number,
             },
             action,
+            feedback: None,
         }
     }
 
@@ -548,6 +704,7 @@ mod tests {
         let prefs = ControlPrefs::default();
         assert!(!prefs.midi.enabled);
         assert!(!prefs.osc.enabled);
+        assert!(!prefs.midi.feedback, "the lights are off until asked for");
         assert_eq!(prefs.osc.port, DEFAULT_OSC_PORT);
         assert!(prefs.midi.bindings.is_empty());
     }
@@ -573,7 +730,10 @@ mod tests {
                 number: 1,
             },
             action: ControlAction::Stop,
+            feedback: None,
         });
+        prefs.midi.bindings[4].feedback = Some(Feedback { on: 200, off: 0 });
+        prefs.midi.bindings[0].feedback = Some(Feedback { on: 5, off: 1 });
 
         let prefs = normalize(prefs);
 
@@ -582,9 +742,13 @@ mod tests {
         assert_eq!(
             prefs.midi.bindings,
             vec![
-                binding(36, ControlAction::Play),
+                Binding {
+                    feedback: Some(Feedback { on: 5, off: 1 }),
+                    ..binding(36, ControlAction::Play)
+                },
                 binding(39, ControlAction::GotoCue(2)),
-            ]
+            ],
+            "a value that is not a data byte is dropped, the others are kept"
         );
     }
 
