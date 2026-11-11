@@ -1137,12 +1137,14 @@ pub struct ConfigRange {
 }
 
 /// Picks the stream format: the fewest channels that still cover `needed`, at `rate`, in a sample
-/// format the renderer can write (32-bit float preferred, then 32 and 16-bit integer).
+/// format the renderer can write (32-bit float preferred, then 32, 24 and 16-bit integer). Many
+/// interfaces only offer 24-bit, which is what their ASIO and WASAPI drivers report.
 pub fn pick_config(ranges: &[ConfigRange], needed: u16, rate: u32) -> Option<(u16, SampleFormat)> {
     let preference = |format: SampleFormat| match format {
         SampleFormat::F32 => Some(0),
         SampleFormat::I32 => Some(1),
-        SampleFormat::I16 => Some(2),
+        SampleFormat::I24 => Some(2),
+        SampleFormat::I16 => Some(3),
         _ => None,
     };
     ranges
@@ -3139,6 +3141,7 @@ fn start_stream<F: Fill>(
     let stream = match opened.format {
         SampleFormat::F32 => build::<f32, _>(device, config, filler, shared, beat, on_error),
         SampleFormat::I32 => build::<i32, _>(device, config, filler, shared, beat, on_error),
+        SampleFormat::I24 => build::<cpal::I24, _>(device, config, filler, shared, beat, on_error),
         SampleFormat::I16 => build::<i16, _>(device, config, filler, shared, beat, on_error),
         other => Err(OutputError::Stream(format!(
             "unsupported sample format {other}"
@@ -4071,6 +4074,20 @@ mod tests {
         );
         assert_eq!(
             pick_config(&ranges[..2], 2, 48_000),
+            Some((2, SampleFormat::I32))
+        );
+    }
+
+    #[test]
+    fn pick_config_should_play_24_bit_between_32_and_16_bit_integers() {
+        let ranges = [range(2, SampleFormat::I16), range(2, SampleFormat::I24)];
+        assert_eq!(
+            pick_config(&ranges, 2, 48_000),
+            Some((2, SampleFormat::I24))
+        );
+        let ranges = [range(2, SampleFormat::I24), range(2, SampleFormat::I32)];
+        assert_eq!(
+            pick_config(&ranges, 2, 48_000),
             Some((2, SampleFormat::I32))
         );
     }

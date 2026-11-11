@@ -222,3 +222,5 @@ request, and every user-facing string goes through `src/i18n`.
 
 FLUX is licensed under the GNU General Public License, version 3 or (at your option) any later version.
 See [LICENSE](LICENSE).
+
+The Windows build includes the Steinberg ASIO SDK (`third_party/asiosdk`), used under its GPLv3 option. ASIO is a trademark of Steinberg Media Technologies GmbH.

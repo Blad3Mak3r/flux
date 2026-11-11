@@ -1,0 +1,4 @@
+# cpal's ASIO backend (Windows) builds against the Steinberg ASIO SDK kept in third_party/asiosdk,
+# so the build downloads nothing. The variable only fills in when it is not already set.
+[env]
+CPAL_ASIO_DIR = { value = "third_party/asiosdk", relative = true }
