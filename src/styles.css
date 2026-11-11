@@ -3510,6 +3510,9 @@ input:disabled {
 
 .show-check-list > li[aria-current="true"] { background: var(--panel-lo); outline: 1px solid var(--ink-dim); outline-offset: -1px; }
 .show-check-list > li { padding-inline: 8px; }
+.show-check-list > li.show-check-area { display: block; padding-block: 16px 0; border-top: 0; }
+.show-check-list > li.show-check-area h3 { margin: 0; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-dim); }
+.show-check-list > li.show-check-area + li { border-top: 0; }
 .recovered-list .field-note { overflow-wrap: anywhere; }
 
 /* Routing has its own row, separate from the track identity and level controls. */
