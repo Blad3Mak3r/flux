@@ -57,12 +57,62 @@ pointed at this computer's address and the port, with one of the addresses above
 - What only the window can do (open the output to play, switch the view) is sent to it as the `control-action` event; a
   timeline change reuses `timeline-advanced`. While learning, the next trigger is sent as `control-learned` and not run.
 - Commands: `control_get`, `control_set`, `control_learn`.
+- The preferences hold `midi.feedback` (off by default) and, per binding, an optional `feedback: { on, off }`.
 - **Logging.** The MIDI callback and the socket thread only decode and send; they never log. `flux-control` logs the inputs
   coming and going (`info`, `warn`) and each action (`debug`).
 
+## Light feedback
+
+A controller that does not show state is easy to misread on stage, so Flux can send the state back and light the pads
+that were learned. It is **off by default**: turn on **Light the pads with the state of the show** in Preferences >
+Remote control. Flux then opens the **output port with the same name** as the input port you chose (a controller has
+both) and writes to it, so the port has to be free: another program holding it keeps the lights from working, and Flux
+retries every two seconds and says so in `flux.log`.
+
+Only learned pads are written, and only a pad whose state changed. When the lights start, every learned pad is written
+once, so the controller begins in step with the screen, and when they stop (feedback turned off, the controller changed,
+the app closed) the lit pads are put out.
+
+| Action | Lit when | Blinks |
+| --- | --- | --- |
+| Play, Play or pause | the transport plays | |
+| Pause | the transport is paused | |
+| Stop | the transport is stopped | |
+| GO | a prepared setlist waits for it (to start, resume or ask for a devamp) | while a devamp is requested |
+| Devamp | the show is inside a loop | while a devamp is requested |
+| Cancel devamp | a devamp is requested | |
+| Next / previous cue, Go to cue `n`, Move by | there is somewhere to go (the output is open) | |
+| Next / previous timeline, Go to timeline `n` | that timeline exists and the show is not playing | |
+| Edit view, Live view | never written: the view belongs to the window | |
+
+An action with no output open is out. A **program change** has no "off", so a pad learned as one is never lit; use a
+note or a control change.
+
+**What is sent.** A pad learned as a note gets a *Note On* on its channel with the lit value as its velocity, and the
+unlit value (usually 0) when it goes out; a control change gets the value as its data. Blinking is done by Flux, which
+alternates the two values every half second, so it works on any controller whatever its own blink codes are.
+
+**Values.** Each binding has a *Lit value* and an *Unlit value* (0 to 127) in the page, which fall back to the preset of
+the controller when the binding has none:
+
+| Controller (by port name) | Lit | Unlit | Meaning |
+| --- | --- | --- | --- |
+| AKAI APC (`APC40 mkII`, `APC mini`, …) | 1 | 0 | green, off — the colour table of the APC manuals (3 red, 5 yellow) |
+| Any other | 127 | 0 | full on, off — set the colour or brightness your controller expects |
+
+The APC values come from the manufacturers' published tables and **have not been checked here with a real controller
+yet**: verify them on yours and correct them per binding. Add the values you confirm for other controllers to this
+table.
+
+**How it is derived.** The pads are decided in `flux-engine/src/control_light.rs` from the same facts the Live view draws
+(the transport position, the cues and the setlist's tick, read by `transport_commands::light_snapshot`), so a controller
+cannot disagree with the screen. The `flux-control-lights` thread looks at that state every 50 ms and writes only what
+changed, nothing is sent periodically. It only reads the output's published state: it never blocks or delays the clock,
+and it is not in the audio path. A write that fails is counted, logged from that thread (at most once every two seconds) and the port is reopened.
+
 ## Not yet
 
-Feedback to the controller (lighting the APC's pads) and OSC replies with the state of the show.
+OSC replies for the legacy `/flux/...` addresses (the versioned API in [osc-api.md](osc-api.md) has state feedback).
 
 
 ## Setlists and OSC v1
@@ -76,4 +126,4 @@ TCP, with an installation-local listen address. The versioned dictionary, identi
 request IDs and subscriptions are documented in [osc-api.md](osc-api.md). That API supports
 show operation and state feedback; legacy addresses above retain their original meaning.
 The earlier limitation on OSC state replies no longer applies to the versioned API. MIDI
-controller light feedback remains unimplemented.
+controller light feedback is described in [Light feedback](#light-feedback).

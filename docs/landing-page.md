@@ -34,7 +34,7 @@ The version shown on the page (three `<span data-version>`) is written by `scrip
 release updates it. Do not edit it by hand.
 
 - The page makes no claim the README or the docs do not make. Not built yet: video and Art-Net cues, chasing an
-  external timecode, controller feedback, macOS builds.
+  external timecode, macOS builds.
 - Fig. 1 (the demo clock), Fig. 2 (the signal path) and Fig. 3 (the Edit view) are drawn for the page and say so. Fig. 4 is
   a real screenshot of the app rendered with sample show data. Replace Fig. 3 with a real Edit screenshot when one exists.
 - Every visible string has an English default in the HTML and a Spanish entry in `site/site.js`, keyed by `data-i18n`.
