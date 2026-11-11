@@ -4,13 +4,16 @@ import { test } from "node:test";
 import {
   ACTION_TYPES,
   OSC_ADDRESSES,
+  acceptsFeedback,
   acceptsValue,
   addBinding,
+  canLight,
   defaultAction,
   isNumbered,
   noteName,
   removeBinding,
   setBindingAction,
+  setBindingFeedback,
   triggerLabel,
   withValue,
 } from "./model.ts";
@@ -84,4 +87,24 @@ test("the OSC addresses are the fixed ones the backend answers to", () => {
     OSC_ADDRESSES.filter(({ numbered }) => numbered).map(({ address }) => address),
     ["/flux/cue/goto", "/flux/seek/frames", "/flux/seek/seconds", "/flux/timeline/select"],
   );
+});
+
+test("acceptsFeedback takes a MIDI data byte and nothing else", () => {
+  for (const ok of [0, 1, 127]) assert.equal(acceptsFeedback(ok), true, String(ok));
+  for (const bad of [-1, 128, 1.5, Number.NaN]) assert.equal(acceptsFeedback(bad), false, String(bad));
+});
+
+test("a program change cannot be lit, a note and a control change can", () => {
+  assert.equal(canLight({ kind: "note", channel: 1, number: 1 }), true);
+  assert.equal(canLight({ kind: "cc", channel: 1, number: 1 }), true);
+  assert.equal(canLight({ kind: "program", channel: 1, number: 1 }), false);
+});
+
+test("setBindingFeedback keeps the other value the binding showed", () => {
+  const preset = { on: 1, off: 0 };
+  const first = setBindingFeedback(prefs(), 0, preset, { on: 5 });
+  assert.deepEqual(first.midi.bindings[0].feedback, { on: 5, off: 0 });
+  const second = setBindingFeedback(first, 0, preset, { off: 3 });
+  assert.deepEqual(second.midi.bindings[0].feedback, { on: 5, off: 3 });
+  assert.equal(prefs().midi.bindings[0].feedback, undefined, "the original is not touched");
 });

@@ -2,7 +2,7 @@
 // maps, validates and runs the actions (it drops a binding that cannot work); nothing here decides
 // what a message means.
 
-import type { ActionType, Binding, ControlAction, ControlPrefs, MidiTrigger } from "./api";
+import type { ActionType, Binding, ControlAction, ControlPrefs, Feedback, MidiTrigger } from "./api";
 
 /** Every action, in the order the picker lists them. */
 export const ACTION_TYPES: ActionType[] = [
@@ -72,6 +72,31 @@ export const addBinding = (prefs: ControlPrefs, binding: Binding): ControlPrefs 
 export const setBindingAction = (prefs: ControlPrefs, index: number, action: ControlAction): ControlPrefs => ({
   ...prefs,
   midi: { ...prefs.midi, bindings: prefs.midi.bindings.map((binding, i) => (i === index ? { ...binding, action } : binding)) },
+});
+
+/** Whether `value` fits a MIDI data byte, for the field of a lit or unlit value to refuse it early. */
+export const acceptsFeedback = (value: number): boolean => Number.isInteger(value) && value >= 0 && value <= 127;
+
+/** Whether a pad of this kind can be lit: a program change has no "off". */
+export const canLight = (trigger: MidiTrigger): boolean => trigger.kind !== "program";
+
+/**
+ * The preferences with one of a binding's feedback values changed. The other value stays what the
+ * binding showed (its own, or the controller's `fallback`), so the binding then holds both.
+ */
+export const setBindingFeedback = (
+  prefs: ControlPrefs,
+  index: number,
+  fallback: Feedback,
+  change: Partial<Feedback>,
+): ControlPrefs => ({
+  ...prefs,
+  midi: {
+    ...prefs.midi,
+    bindings: prefs.midi.bindings.map((binding, i) =>
+      i === index ? { ...binding, feedback: { ...fallback, ...binding.feedback, ...change } } : binding,
+    ),
+  },
 });
 
 export const removeBinding = (prefs: ControlPrefs, index: number): ControlPrefs => ({

@@ -32,13 +32,21 @@ export interface MidiTrigger {
   number: number;
 }
 
+/** What a pad is sent to light it and to put it out: a velocity for a note, a value for a control change. */
+export interface Feedback {
+  on: number;
+  off: number;
+}
+
 export interface Binding {
   trigger: MidiTrigger;
   action: ControlAction;
+  /** Absent: the backend uses the preset of the controller (`ControlView.feedbackDefault`). */
+  feedback?: Feedback;
 }
 
 export interface ControlPrefs {
-  midi: { enabled: boolean; portName: string | null; portIndex: number; bindings: Binding[] };
+  midi: { enabled: boolean; portName: string | null; portIndex: number; bindings: Binding[]; feedback?: boolean };
   osc: { enabled: boolean; port: number; bindAddress?: string; tcpEnabled?: boolean };
 }
 
@@ -57,6 +65,8 @@ export interface ControlView {
   inputs: { name: string }[];
   /** Why MIDI cannot be listed, on a system without it. */
   midiError: string | null;
+  /** The values a binding without its own lights its pad with, for the chosen controller. */
+  feedbackDefault: Feedback;
 }
 
 /** What only the window can do for the remote control. */

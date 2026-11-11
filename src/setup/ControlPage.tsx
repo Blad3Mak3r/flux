@@ -8,12 +8,15 @@ import type { ActionType, ControlAction, ControlPrefs, ControlView, LinkState } 
 import {
   ACTION_TYPES,
   OSC_ADDRESSES,
+  acceptsFeedback,
   acceptsValue,
   addBinding,
+  canLight,
   defaultAction,
   isNumbered,
   removeBinding,
   setBindingAction,
+  setBindingFeedback,
   triggerLabel,
   withValue,
 } from "../control/model";
@@ -151,6 +154,11 @@ export function ControlPage() {
           </option>
         ))}
       </SelectField>
+      <label className="check-row">
+        <input type="checkbox" checked={midi.feedback ?? false} onChange={(event) => save({ ...prefs, midi: { ...midi, feedback: event.target.checked } })} />
+        <span>{t("setup.control.feedback")}</span>
+      </label>
+      <p className="field-note">{t("setup.control.feedback.note")}</p>
       <RowStatus {...midiLamp} />
       {detail(view.midi) && <p className="field-note" role="alert">{detail(view.midi)}</p>}
       {view.midi.state === "missing" && (
@@ -182,6 +190,18 @@ export function ControlPage() {
               </button>
               <div className="setup-row-fields">
                 <ActionFields label={name} action={binding.action} onChange={(action) => save(setBindingAction(prefs, index, action))} />
+                {midi.feedback && canLight(binding.trigger) &&
+                  (["on", "off"] as const).map((which) => (
+                    <TextField
+                      key={which}
+                      label={`${name}: ${t(`setup.control.feedback.${which}` as MessageKey)}`}
+                      value={String((binding.feedback ?? view.feedbackDefault)[which])}
+                      inputMode="numeric"
+                      monospace
+                      validate={(text) => (acceptsFeedback(Number(text)) ? null : t("setup.control.feedback.invalid"))}
+                      onCommit={(text) => save(setBindingFeedback(prefs, index, view.feedbackDefault, { [which]: Number(text) }))}
+                    />
+                  ))}
               </div>
             </li>
           );
