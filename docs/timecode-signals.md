@@ -266,7 +266,7 @@ output to open) and sends dragged seeks and faders one at a time, newest value l
   carries the programme and the clock, and LTC too when `output.ltc` names the same device (compared by the device
   each hint opens, so an empty name and the default device's name are the same). Neither LTC nor MTC is needed to
   play the music. The stream opens at 48 kHz with the fewest channels that cover the highest channel used, in 32-bit
-  float, else 32 or 16-bit integer. The programme (below) uses the same stream.
+  float, else 32, 24 or 16-bit integer. The programme (below) uses the same stream.
 - **LTC on its own device**: when `output.ltc` names another device, a second stream (`flux-ltc`) plays only LTC.
   Two devices have two sample clocks that drift apart, so `LtcFollower` does not count samples against the
   transport: each callback reads the master's published position (`try_load`, never waiting; extrapolated with the
