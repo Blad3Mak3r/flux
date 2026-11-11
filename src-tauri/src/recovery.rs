@@ -374,9 +374,24 @@ mod tests {
             assert!(recovery::list(&store.dir).unwrap().is_empty());
             abandon(&session, &store).await.unwrap();
             assert!(session.lock().unwrap().document().is_none());
-            assert_eq!(recovery::list(&store.dir).unwrap().len(), 1);
+            assert_eq!(listed_once_released(&store.dir), 1);
             assert!(recovery::read(&store.dir, &record.id).is_ok());
         });
+    }
+
+    /// How many records `list` offers once the lease of `restore` is released. A lock is held
+    /// until every process that inherited its file closes it, and `killed_process_should_leave_a_restorable_edit`
+    /// spawns a child at the same time as the other tests: on Linux the child briefly shares the
+    /// descriptors of the whole process, so the release can be a few milliseconds late.
+    fn listed_once_released(dir: &std::path::Path) -> usize {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let listed = recovery::list(dir).unwrap().len();
+            if listed > 0 || Instant::now() >= deadline {
+                return listed;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn setup() -> (tempfile::TempDir, SharedRecoveries, SharedSession) {
