@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLUX: build the show, run the show, trust the clock</title>
+<meta name="description" content="FLUX is a desktop app that turns songs, events and cues into one project with a master timecode clock: LTC and MTC out, MIDI and OSC cues, and a Live view for the booth.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#1f2328">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FLUX: build the show, run the show, trust the clock">
+<meta property="og:description" content="Songs, events and cues in one project with a master timecode clock. LTC and MTC out, MIDI and OSC cues, a Live view for the booth.">
+<meta property="og:url" content="https://blad3mak3r.github.io/flux/">
+<meta property="og:image" content="https://blad3mak3r.github.io/flux/img/live-1440x1080.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="img/flux-symbol.svg" type="image/svg+xml">
+<link rel="preload" href="fonts/archivo-latin-wdth-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#general" data-i18n="skip">Skip to content</a>
+
+<header class="bar">
+  <a class="brand" href="#general" aria-label="FLUX">
+    <img src="img/flux-symbol.svg" alt="" width="28" height="28">
+    <span>FLUX</span>
+  </a>
+  <span class="rev"><span data-i18n="rev">Data sheet, rev.</span> <span data-version>0.2.0</span></span>
+  <nav class="links" aria-label="Project">
+    <a href="docs/" data-i18n="docs">Docs</a>
+    <a href="https://github.com/Blad3Mak3r/flux">GitHub</a>
+  </nav>
+  <div class="lang" role="group" aria-label="Language" data-i18n-aria="lang_label">
+    <button type="button" data-lang="en" aria-pressed="true" lang="en" title="English">EN</button>
+    <button type="button" data-lang="es" aria-pressed="false" lang="es" title="Español">ES</button>
+  </div>
+  <a class="btn btn-sm" href="https://github.com/Blad3Mak3r/flux/releases/latest" data-i18n="download">Download</a>
+</header>
+
+<div class="sheet">
+<nav class="toc" aria-label="Sections" data-i18n-aria="toc_label">
+  <ol>
+    <li><a href="#general"><i>01</i><span data-i18n="toc_general">General</span></a></li>
+    <li><a href="#outputs"><i>02</i><span data-i18n="toc_outputs">Outputs</span></a></li>
+    <li><a href="#edit"><i>03</i><span data-i18n="toc_edit">Edit</span></a></li>
+    <li><a href="#live"><i>04</i><span data-i18n="toc_live">Live</span></a></li>
+    <li><a href="#setlists"><i>05</i><span data-i18n="toc_setlists">Setlists</span></a></li>
+    <li><a href="#remote"><i>06</i><span data-i18n="toc_remote">Remote control</span></a></li>
+    <li><a href="#project"><i>07</i><span data-i18n="toc_project">Project file</span></a></li>
+    <li><a href="#specs"><i>08</i><span data-i18n="toc_specs">Specifications</span></a></li>
+    <li><a href="#order"><i>09</i><span data-i18n="toc_order">Ordering</span></a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- 01 General: first viewport -->
+<section id="general" class="hero" aria-labelledby="h1">
+  <h1 id="h1"><span class="ln" data-i18n="h1a">Build the show.</span> <span class="ln" data-i18n="h1b">Run the show.</span> <span class="ln ph" data-i18n="h1c">Trust the clock.</span></h1>
+
+  <div class="hero-copy">
+    <p class="lead" data-i18n="lead">A desktop app that turns songs, events and cues into one project with a master timecode clock: QLab's cue model on a REAPER-style timeline.</p>
+    <div class="order" id="order-strip">
+      <dl>
+        <div><dt data-i18n="o_version">Version</dt><dd class="m"><span data-version>0.2.0</span></dd></div>
+        <div><dt data-i18n="o_platforms">Platforms</dt><dd data-i18n="o_platforms_v">Windows, Linux</dd></div>
+        <div><dt data-i18n="o_format">Project file</dt><dd class="m">.flx</dd></div>
+      </dl>
+      <a class="btn" href="https://github.com/Blad3Mak3r/flux/releases/latest" data-i18n="download_flux">Download FLUX</a>
+    </div>
+    <p class="note" data-i18n="o_note">Opens the latest GitHub Release. Early development; there is no macOS build yet.</p>
+  </div>
+
+  <figure class="fig fig1">
+    <div class="win" id="readout-win">
+      <canvas id="tc" role="img" aria-label="Demo timecode readout" data-i18n-aria="tc_label"></canvas>
+      <div class="rline">
+        <span class="state" id="state" data-state="stopped"><i></i><b id="state-word">STOPPED</b></span>
+        <span class="m" id="rate-line">29.97 DF</span>
+        <span class="m" data-i18n="start_line">START 01:00:00:00</span>
+      </div>
+    </div>
+    <figcaption><b>Fig. 1</b> <span data-i18n="fig1">A synthetic demo clock running in this page. It is not the app, and nothing leaves your browser.</span></figcaption>
+  </figure>
+
+  <div class="controls">
+    <div class="keys" role="group" aria-label="Transport" data-i18n-aria="transport_label">
+      <button type="button" class="key" id="k-stop" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/></svg><span data-i18n="k_stop">Stop</span></button>
+      <button type="button" class="key" id="k-play" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg><span data-i18n="k_play">Play</span></button>
+      <button type="button" class="key" id="k-pause" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 2.5h3.5v11H3.5zM9 2.5h3.5v11H9z" fill="currentColor"/></svg><span data-i18n="k_pause">Pause</span></button>
+    </div>
+    <fieldset class="rates">
+      <legend data-i18n="rate_legend">Frame rate</legend>
+      <label><input type="radio" name="rate" value="24"><span class="m">24</span></label>
+      <label><input type="radio" name="rate" value="25"><span class="m">25</span></label>
+      <label><input type="radio" name="rate" value="29.97" checked><span class="m">29.97 DF</span></label>
+      <label><input type="radio" name="rate" value="30"><span class="m">30</span></label>
+    </fieldset>
+    <div class="jump">
+      <button type="button" class="btn btn-2" id="jump" data-i18n="jump">Jump to 01:00:58:00</button>
+      <p id="rate-note" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+
+<section class="who" aria-label="Who FLUX is for" data-i18n-aria="who_label">
+  <p class="why" data-i18n="why">Cue-based tools run cues without a real timeline. Timeline tools give you the timeline without show control. FLUX puts both in one place, and the timecode comes from the same project that holds the audio and the cues, so what you see on screen and what goes out to the rig cannot disagree.</p>
+  <dl class="three">
+    <div><dt data-i18n="w1">Show technicians</dt><dd data-i18n="w1d">Lighting, video and sound operators who sync equipment to timecode, in a dark booth, under pressure, reading the screen from across the room.</dd></div>
+    <div><dt data-i18n="w2">Musicians</dt><dd data-i18n="w2d">Players running backing tracks who need audio and the show's cues locked together.</dd></div>
+    <div><dt data-i18n="w3">Show designers</dt><dd data-i18n="w3d">People building the show ahead of time in the studio, with room to think.</dd></div>
+  </dl>
+</section>
+
+<!-- 02 Outputs -->
+<section id="outputs" aria-labelledby="h-outputs">
+  <h2 id="h-outputs"><i class="sn" aria-hidden="true">02</i><span data-i18n="h_outputs">One clock, every output</span></h2>
+  <div class="split">
+    <div>
+      <p class="prose" data-i18n="outputs_p">The audio device's sample clock drives everything. Playback, LTC, MTC and cues are all read from the same position, so the time you see is the time you send.</p>
+      <dl class="specs">
+        <div><dt>LTC</dt><dd data-i18n="s_ltc">Linear timecode through an audio interface.</dd></div>
+        <div><dt>MTC</dt><dd data-i18n="s_mtc">MIDI timecode through a MIDI port.</dd></div>
+        <div><dt data-i18n="s_rates_t">Frame rates</dt><dd data-i18n="s_rates">24, 25, 29.97 drop-frame and 30 fps.</dd></div>
+        <div><dt data-i18n="s_cues_t">Cues</dt><dd data-i18n="s_cues">MIDI tracks (notes, control and program change, MIDI Show Control, SysEx) and OSC tracks (UDP) fire in step with the timecode. Seeking never replays the events it jumped over.</dd></div>
+        <div><dt data-i18n="s_hw_t">Hardware</dt><dd data-i18n="s_hw">A missing device is explained and fixable, and never blocks opening a project.</dd></div>
+      </dl>
+    </div>
+    <figure class="fig">
+      <div class="scroll" tabindex="0" role="region" aria-label="Signal path: the project feeds the master clock, transport and cues, which feed LTC, MTC, programme audio and MIDI and OSC cues. A remote control moves the transport, shown dashed." data-i18n-aria="flow_label">
+<svg class="flowsvg" viewBox="0 0 600 330" width="600" height="330" aria-hidden="true" focusable="false">
+<defs><pattern id="g-min" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0V20M0 20H20" class="t-minor"/></pattern><pattern id="g-maj" width="100" height="100" patternUnits="userSpaceOnUse"><path d="M100 0V100M0 100H100" class="t-major"/></pattern></defs>
+<rect width="600" height="330" class="t-screen"/><rect width="600" height="330" fill="url(#g-min)"/><rect width="600" height="330" fill="url(#g-maj)"/>
+<rect x="10.5" y="58.5" width="150" height="64" class="fs-box"/>
+<text x="22" y="77" class="fs-mono">.flx</text><text x="22" y="94" class="fs-name" data-i18n="f_project">Project</text><text x="22" y="110" class="fs-sub" data-i18n="f_project_s">tracks and audio</text>
+<path d="M160 90H210" class="fs-trace"/><rect x="204" y="87" width="6" height="6" class="fs-node"/>
+<rect x="210.5" y="60.5" width="170" height="180" class="fs-core"/><path d="M210 120.5H381M210 180.5H381" class="fs-div"/>
+<text x="226" y="88" class="fs-name" data-i18n="f_clock">Clock</text><text x="226" y="106" class="fs-sub" data-i18n="f_clock_s">audio device samples</text>
+<text x="226" y="148" class="fs-name" data-i18n="f_transport">Transport</text><text x="226" y="166" class="fs-sub" data-i18n="f_transport_s">play, pause, stop, seek</text>
+<text x="226" y="208" class="fs-name" data-i18n="f_cues">Cues</text><text x="226" y="226" class="fs-sub" data-i18n="f_cues_s">derived from the project</text>
+<rect x="10.5" y="216.5" width="150" height="64" class="fs-dashbox"/>
+<text x="22" y="240" class="fs-name" data-i18n="f_remote">Remote</text><text x="22" y="258" class="fs-sub" data-i18n="f_remote_s">MIDI, OSC</text>
+<path d="M160 248H185V150H210" class="fs-dash"/><rect x="204" y="147" width="6" height="6" class="fs-node"/>
+<path d="M380 150H420M420 66V276" class="fs-trace"/>
+<path d="M420 66H450" class="fs-trace"/><rect x="450.5" y="40.5" width="140" height="52" class="fs-box"/><rect x="462" y="52" width="10" height="10" class="fs-lamp"/><text x="482" y="62" class="fs-name">LTC</text><text x="482" y="80" class="fs-sub" data-i18n="f_ltc">audio interface</text>
+<path d="M420 136H450" class="fs-trace"/><rect x="450.5" y="110.5" width="140" height="52" class="fs-box"/><rect x="462" y="122" width="10" height="10" class="fs-lamp"/><text x="482" y="132" class="fs-name">MTC</text><text x="482" y="150" class="fs-sub" data-i18n="f_mtc">MIDI port</text>
+<path d="M420 206H450" class="fs-trace"/><rect x="450.5" y="180.5" width="140" height="52" class="fs-box"/><rect x="462" y="192" width="10" height="10" class="fs-lamp"/><text x="482" y="202" class="fs-name" data-i18n="f_audio">Audio</text><text x="482" y="220" class="fs-sub" data-i18n="f_audio_s">programme audio</text>
+<path d="M420 276H450" class="fs-trace"/><rect x="450.5" y="250.5" width="140" height="52" class="fs-box"/><rect x="462" y="262" width="10" height="10" class="fs-lamp"/><text x="482" y="272" class="fs-name" data-i18n="f_cueout">Cues</text><text x="482" y="290" class="fs-sub" data-i18n="f_cueout_s">MIDI and OSC</text>
+</svg>
+</div>
+      <figcaption><b>Fig. 2</b> <span data-i18n="fig2">Signal path. The dashed line moves the clock; it never feeds it.</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 03 Edit -->
+<section id="edit" aria-labelledby="h-edit">
+  <h2 id="h-edit"><i class="sn" aria-hidden="true">03</i><span data-i18n="h_edit">Build it on a timeline</span></h2>
+  <div class="split split-r">
+    <figure class="fig">
+      <div class="scroll" tabindex="0" role="region" aria-label="Drawn illustration of the Edit view: a ruler over four tracks, an audio clip with a waveform, a note, MIDI cues and OSC cues, and a playhead." data-i18n-aria="tl_label">
+<svg class="timeline" viewBox="0 0 760 340" width="760" height="340" aria-hidden="true" focusable="false">
+<defs><pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V7" class="t-hatch"/></pattern></defs>
+<rect width="760" height="340" class="t-screen"/>
+<path d="M170 28V340M190 28V340M210 28V340M230 28V340M270 28V340M290 28V340M310 28V340M330 28V340M370 28V340M390 28V340M410 28V340M430 28V340M470 28V340M490 28V340M510 28V340M530 28V340M570 28V340M590 28V340M610 28V340M630 28V340M670 28V340M690 28V340M710 28V340M730 28V340" class="t-minor"/><path d="M250 28V340M350 28V340M450 28V340M550 28V340M650 28V340M750 28V340" class="t-major"/>
+<path d="M150 148H760M150 212H760M150 276H760M150 340H760" class="t-lane"/>
+<rect x="150" y="0" width="610" height="28" class="t-ruler"/>
+<path d="M150 14V28M170 22V28M190 22V28M210 22V28M230 22V28M250 14V28M270 22V28M290 22V28M310 22V28M330 22V28M350 14V28M370 22V28M390 22V28M410 22V28M430 22V28M450 14V28M470 22V28M490 22V28M510 22V28M530 22V28M550 14V28M570 22V28M590 22V28M610 22V28M630 22V28M650 14V28M670 22V28M690 22V28M710 22V28M730 22V28M750 14V28" class="t-tick"/><text x="156" y="19" class="t-m">01:00:00</text><text x="256" y="19" class="t-m">01:00:05</text><text x="356" y="19" class="t-m">01:00:10</text><text x="456" y="19" class="t-m">01:00:15</text><text x="556" y="19" class="t-m">01:00:20</text><text x="656" y="19" class="t-m">01:00:25</text>
+<rect x="0" y="28" width="150" height="312" class="t-head"/>
+<path d="M150 0V340" class="t-lane"/>
+<path d="M0 148H150M0 212H150M0 276H150M0 28H150" class="t-lane"/>
+<text x="12" y="52" class="t-name">Song</text><text x="12" y="70" class="t-sub">Audio</text>
+<text x="12" y="172" class="t-name">Stage notes</text><text x="12" y="190" class="t-sub">Notes</text>
+<text x="12" y="236" class="t-name">Lights</text><text x="12" y="254" class="t-sub">MIDI</text>
+<text x="12" y="300" class="t-name">Video</text><text x="12" y="318" class="t-sub">OSC</text>
+<rect x="170.5" y="40.5" width="360" height="96" class="t-clip"/>
+<rect x="171" y="41" width="86" height="18" class="t-plate"/><text x="177" y="54" class="t-clipname">Backing track</text>
+<path d="M172,87.9L174,83.6L176,82.3L178,79.5L180,82.8L182,79.8L184,80.9L186,83.5L188,85.0L190,79.3L192,75.7L194,76.6L196,77.6L198,77.3L200,76.6L202,74.7L204,73.3L206,75.4L208,76.0L210,73.1L212,75.5L214,75.8L216,79.4L218,75.5L220,72.3L222,74.6L224,77.7L226,71.8L228,76.5L230,76.0L232,75.6L234,78.8L236,80.7L238,76.5L240,72.4L242,77.0L244,74.2L246,69.1L248,73.0L250,71.8L252,73.6L254,75.0L256,73.7L258,70.6L260,73.2L262,76.4L264,70.2L266,69.2L268,71.4L270,65.6L272,67.9L274,72.8L276,74.9L278,68.3L280,68.2L282,69.2L284,73.6L286,73.1L288,75.8L290,79.5L292,73.5L294,69.1L296,73.7L298,71.7L300,68.1L302,64.2L304,68.0L306,69.9L308,68.2L310,64.8L312,66.8L314,68.2L316,65.3L318,61.5L320,66.9L322,63.3L324,69.4L326,72.3L328,65.7L330,64.7L332,70.3L334,75.5L336,75.7L338,69.4L340,66.4L342,71.3L344,70.6L346,67.2L348,69.3L350,71.7L352,72.8L354,75.3L356,68.8L358,72.9L360,69.7L362,67.6L364,69.5L366,72.6L368,71.6L370,73.1L372,76.9L374,75.8L376,74.3L378,70.1L380,66.4L382,65.2L384,70.8L386,69.0L388,69.1L390,75.0L392,71.0L394,67.9L396,68.9L398,66.4L400,73.7L402,70.6L404,72.2L406,67.2L408,65.3L410,71.7L412,74.7L414,70.7L416,68.8L418,66.0L420,64.8L422,73.4L424,70.1L426,74.6L428,70.2L430,74.7L432,71.0L434,69.8L436,71.0L438,72.6L440,75.3L442,78.7L444,82.2L446,84.4L448,84.7L450,79.7L452,82.5L454,81.9L456,80.7L458,76.3L460,80.0L462,79.5L464,79.8L466,80.8L468,80.7L470,83.9L472,82.0L474,83.9L476,83.9L478,85.6L480,84.0L482,83.8L484,85.2L486,87.0L488,84.6L490,86.7L492,85.9L494,87.2L496,85.0L498,85.8L500,85.1L502,85.4L504,86.4L506,86.7L508,85.5L510,86.3L512,88.1L514,85.8L516,85.4L518,85.0L520,84.1L522,84.5L524,85.8L526,86.9L528,84.4L528,103.6L526,101.1L524,102.2L522,103.5L520,103.9L518,103.0L516,102.6L514,102.2L512,99.9L510,101.7L508,102.5L506,101.3L504,101.6L502,102.6L500,102.9L498,102.2L496,103.0L494,100.8L492,102.1L490,101.3L488,103.4L486,101.0L484,102.8L482,104.2L480,104.0L478,102.4L476,104.1L474,104.1L472,106.0L470,104.1L468,107.3L466,107.2L464,108.2L462,108.5L460,108.0L458,111.7L456,107.3L454,106.1L452,105.5L450,108.3L448,103.3L446,103.6L444,105.8L442,109.3L440,112.7L438,115.4L436,117.0L434,118.2L432,117.0L430,113.3L428,117.8L426,113.4L424,117.9L422,114.6L420,123.2L418,122.0L416,119.2L414,117.3L412,113.3L410,116.3L408,122.7L406,120.8L404,115.8L402,117.4L400,114.3L398,121.6L396,119.1L394,120.1L392,117.0L390,113.0L388,118.9L386,119.0L384,117.2L382,122.8L380,121.6L378,117.9L376,113.7L374,112.2L372,111.1L370,114.9L368,116.4L366,115.4L364,118.5L362,120.4L360,118.3L358,115.1L356,119.2L354,112.7L352,115.2L350,116.3L348,118.7L346,120.8L344,117.4L342,116.7L340,121.6L338,118.6L336,112.3L334,112.5L332,117.7L330,123.3L328,122.3L326,115.7L324,118.6L322,124.7L320,121.1L318,126.5L316,122.7L314,119.8L312,121.2L310,123.2L308,119.8L306,118.1L304,120.0L302,123.8L300,119.9L298,116.3L296,114.3L294,118.9L292,114.5L290,108.5L288,112.2L286,114.9L284,114.4L282,118.8L280,119.8L278,119.7L276,113.1L274,115.2L272,120.1L270,122.4L268,116.6L266,118.8L264,117.8L262,111.6L260,114.8L258,117.4L256,114.3L254,113.0L252,114.4L250,116.2L248,115.0L246,118.9L244,113.8L242,111.0L240,115.6L238,111.5L236,107.3L234,109.2L232,112.4L230,112.0L228,111.5L226,116.2L224,110.3L222,113.4L220,115.7L218,112.5L216,108.6L214,112.2L212,112.5L210,114.9L208,112.0L206,112.6L204,114.7L202,113.3L200,111.4L198,110.7L196,110.4L194,111.4L192,112.3L190,108.7L188,103.0L186,104.5L184,107.1L182,108.2L180,105.2L178,108.5L176,105.7L174,104.4L172,100.1Z" class="t-wave"/>
+<rect x="546.5" y="40.5" width="180" height="96" class="t-clip"/>
+<rect x="547" y="41" width="50" height="18" class="t-plate"/><text x="553" y="54" class="t-clipname">Outro</text>
+<path d="M548,86.9L550,87.1L552,86.3L554,84.6L556,85.9L558,83.9L560,79.9L562,80.4L564,77.1L566,81.4L568,76.7L570,79.2L572,79.3L574,75.1L576,78.0L578,80.6L580,75.3L582,78.9L584,79.3L586,82.1L588,79.2L590,80.6L592,76.8L594,72.1L596,73.8L598,78.4L600,73.3L602,74.2L604,78.9L606,76.9L608,73.3L610,75.7L612,76.0L614,74.5L616,70.5L618,67.0L620,68.4L622,74.5L624,79.2L626,80.1L628,73.1L630,72.5L632,69.9L634,69.6L636,69.0L638,74.5L640,72.8L642,76.2L644,79.9L646,73.8L648,73.7L650,75.5L652,71.9L654,70.2L656,71.8L658,78.1L660,78.1L662,74.4L664,71.7L666,71.3L668,75.6L670,72.4L672,78.8L674,74.7L676,78.5L678,78.5L680,76.1L682,78.3L684,78.2L686,77.8L688,77.0L690,79.2L692,82.2L694,84.1L696,84.7L698,85.4L700,84.8L702,85.6L704,86.4L706,88.0L708,86.8L710,87.1L712,86.5L714,85.6L716,87.3L718,85.8L720,85.3L722,86.1L724,86.7L724,101.3L722,101.9L720,102.7L718,102.2L716,100.7L714,102.4L712,101.5L710,100.9L708,101.2L706,100.0L704,101.6L702,102.4L700,103.2L698,102.6L696,103.3L694,103.9L692,105.8L690,108.8L688,111.0L686,110.2L684,109.8L682,109.7L680,111.9L678,109.5L676,109.5L674,113.3L672,109.2L670,115.6L668,112.4L666,116.7L664,116.3L662,113.6L660,109.9L658,109.9L656,116.2L654,117.8L652,116.1L650,112.5L648,114.3L646,114.2L644,108.1L642,111.8L640,115.2L638,113.5L636,119.0L634,118.4L632,118.1L630,115.5L628,114.9L626,107.9L624,108.8L622,113.5L620,119.6L618,121.0L616,117.5L614,113.5L612,112.0L610,112.3L608,114.7L606,111.1L604,109.1L602,113.8L600,114.7L598,109.6L596,114.2L594,115.9L592,111.2L590,107.4L588,108.8L586,105.9L584,108.7L582,109.1L580,112.7L578,107.4L576,110.0L574,112.9L572,108.7L570,108.8L568,111.3L566,106.6L564,110.9L562,107.6L560,108.1L558,104.1L556,102.1L554,103.4L552,101.7L550,100.9L548,101.1Z" class="t-wave"/>
+<rect x="300.5" y="160.5" width="150" height="40" class="t-note" fill="url(#hatch)"/>
+<path d="M300 156V206" class="t-noteline"/><text x="310" y="184" class="t-notetext">Hold for applause</text>
+<rect x="194" y="238" width="12" height="12" class="t-midi"/><rect x="294" y="238" width="12" height="12" class="t-midi"/><rect x="384" y="238" width="12" height="12" class="t-midi"/><rect x="554" y="238" width="12" height="12" class="t-midi"/>
+<text x="212" y="248" class="t-lbl">C4 on</text><text x="402" y="248" class="t-lbl">PC 12</text>
+<rect x="244" y="302" width="12" height="12" class="t-osc"/><rect x="414" y="302" width="12" height="12" class="t-osc"/><rect x="594" y="302" width="12" height="12" class="t-osc"/>
+<text x="262" y="312" class="t-lbl">/cue/1/start</text>
+<path d="M430 28V340" class="t-head-line"/><path d="M422 14h16l-8 12z" class="t-head-tri"/>
+</svg>
+      </div>
+      <figcaption><b>Fig. 3</b> <span data-i18n="fig3">The Edit view, drawn for this page with made-up content. It is not a screenshot. Audio is a solid waveform, a note is a hatched box, MIDI is a solid square, OSC a dashed one.</span></figcaption>
+    </figure>
+    <dl class="specs">
+      <div><dt data-i18n="e1_t">Timelines</dt><dd data-i18n="e1">Several per project, each with its own tracks, frame rate and start offset.</dd></div>
+      <div><dt data-i18n="e2_t">Tracks</dt><dd data-i18n="e2">Audio, notes, MIDI and OSC.</dd></div>
+      <div><dt data-i18n="e3_t">Audio</dt><dd data-i18n="e3">Import wav, aiff, flac, mp3 and ogg, mixed on the audio device's clock, with tempo detection and a metronome click.</dd></div>
+      <div><dt data-i18n="e4_t">Operator speech</dt><dd data-i18n="e4">Write dialogue and attach generated speech (ElevenLabs, with your own API key) or imported and recorded audio. Generated speech is archived in the project, so it plays offline.</dd></div>
+      <div><dt data-i18n="e5_t">Routing</dt><dd data-i18n="e5">Send each track to a named destination or to Silent. Each computer maps destinations to its own interfaces and channels.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- 04 Live -->
+<section id="live" aria-labelledby="h-live">
+  <h2 id="h-live"><i class="sn" aria-hidden="true">04</i><span data-i18n="h_live">Run it from the booth</span></h2>
+  <p class="prose" data-i18n="live_p">Switch from Edit to Live with one control (Ctrl+1, Ctrl+2). Live is read-only apart from going to a cue, built to be read from across the room.</p>
+  <figure class="fig fig-live">
+    <img src="img/live-1440x1080.jpg" srcset="img/live-960x760.jpg 960w, img/live-1440x1080.jpg 1440w" sizes="(min-width: 1100px) 1100px, 100vw" width="1440" height="1080" loading="lazy" alt="FLUX Live view: a large timecode readout and transport on top, the running cue with its countdown on the left, the cue list on the right" data-i18n-alt="live_alt">
+    <figcaption><b>Fig. 4</b> <span data-i18n="fig4">The Live view, rendered with sample show data. This one is a real screenshot of the app.</span></figcaption>
+  </figure>
+  <dl class="three">
+    <div><dt data-i18n="l1_t">Time first</dt><dd data-i18n="l1">A timecode you can read at a glance, with the transport state printed as a word, not only a colour.</dd></div>
+    <div><dt data-i18n="l2_t">The running cue</dt><dd data-i18n="l2">The cue that is playing with its countdown, what is on standby, and the operator notes.</dd></div>
+    <div><dt data-i18n="l3_t">The whole cue list</dt><dd data-i18n="l3">The backend derives the cues and their state, so the screen only draws what the engine knows.</dd></div>
+  </dl>
+</section>
+
+<!-- 05 Setlists -->
+<section id="setlists" aria-labelledby="h-setlists">
+  <h2 id="h-setlists"><i class="sn" aria-hidden="true">05</i><span data-i18n="h_setlists">Order the timelines into a show</span></h2>
+  <div class="split">
+    <p class="prose" data-i18n="setlists_p">A setlist orders timelines into a show, with repeated or omitted entries, manual or automatic transitions, waits, and loops with devamp. Audio, cues and timecode repeat together, driven by a GO action in Live.</p>
+    <dl class="specs">
+      <div><dt data-i18n="sl1_t">Transitions</dt><dd data-i18n="sl1">Manual or automatic, with exact delays and waits.</dd></div>
+      <div><dt data-i18n="sl2_t">Loops</dt><dd data-i18n="sl2">Until GO, or a counted number of turns, with an exit after the current turn.</dd></div>
+      <div><dt data-i18n="sl3_t">No copies</dt><dd data-i18n="sl3">Entries reference timelines instead of copying them, so an edit shows everywhere it is used.</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- 06 Remote -->
+<section id="remote" aria-labelledby="h-remote">
+  <h2 id="h-remote"><i class="sn" aria-hidden="true">06</i><span data-i18n="h_remote">Drive it from a controller</span></h2>
+  <div class="split">
+    <div>
+      <p class="prose" data-i18n="remote_p">Start, stop, move between cues and timelines, and switch views from a MIDI controller (pads learned by touching them) or from OSC over UDP and TCP, for example a Stream Deck. FLUX stays the master clock: remote control moves it, and it never follows another.</p>
+      <p class="prose" data-i18n="remote_p2">It is set up in Preferences and belongs to the computer, not to the project.</p>
+    </div>
+    <table class="osc">
+      <caption data-i18n="osc_cap">A few of the fixed OSC addresses</caption>
+      <thead><tr><th scope="col" data-i18n="osc_addr">Address</th><th scope="col" data-i18n="osc_does">Does</th></tr></thead>
+      <tbody>
+        <tr><td class="m">/flux/play</td><td data-i18n="osc_play">Play</td></tr>
+        <tr><td class="m">/flux/stop</td><td data-i18n="osc_stop">Stop and go back to the start</td></tr>
+        <tr><td class="m">/flux/go</td><td data-i18n="osc_go">Run the GO action</td></tr>
+        <tr><td class="m">/flux/cue/next</td><td data-i18n="osc_next">Seek to the next cue</td></tr>
+        <tr><td class="m">/flux/cue/goto <var>n</var></td><td data-i18n="osc_goto">Seek to cue number n</td></tr>
+        <tr><td class="m">/flux/view/live</td><td data-i18n="osc_view">Switch to the Live view</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- 07 Project file -->
+<section id="project" aria-labelledby="h-project">
+  <h2 id="h-project"><i class="sn" aria-hidden="true">07</i><span data-i18n="h_project">A show is one file</span></h2>
+  <div class="split">
+    <div>
+      <p class="prose" data-i18n="project_p">A <span class="m">.flx</span> project is a zip with <span class="m">project.json</span> and the audio the tracks use, so a show opens on another machine and just works. Legacy <span class="m">.fxtc</span> projects still open.</p>
+      </div>
+    <figure class="fig">
+      <pre class="tree" aria-label="Contents of a .flx file" data-i18n-aria="tree_label">show.flx
+├─ project.json   <span data-i18n="tree1">timelines, tracks, outputs</span>
+└─ audio/         <span data-i18n="tree2">the files the tracks play</span></pre>
+      <figcaption><b>Fig. 5</b> <span data-i18n="fig5">Layout of a project archive.</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 08 Specifications -->
+<section id="specs" aria-labelledby="h-specs">
+  <h2 id="h-specs"><i class="sn" aria-hidden="true">08</i><span data-i18n="h_specs">Specifications and status</span></h2>
+  <dl class="specs wide">
+    <div><dt data-i18n="sp4_t">Audio import</dt><dd class="m">wav, aiff, flac, mp3, ogg</dd></div>
+    <div><dt data-i18n="sp5_t">Platforms</dt><dd data-i18n="sp5">Windows (installer), Linux (AppImage, DEB, RPM).</dd></div>
+    <div><dt data-i18n="sp6_t">Languages</dt><dd data-i18n="sp6">English, Spanish.</dd></div>
+    <div><dt data-i18n="sp7_t">Diagnostics</dt><dd data-i18n="sp7">A rotating log and a one-click zip of logs plus a system and device report, from the Help menu.</dd></div>
+  </dl>
+  <div class="status">
+    <div>
+      <h3 data-i18n="st_on">Available today</h3>
+      <ul class="on">
+        <li data-i18n="st1">.flx projects with several timelines</li>
+        <li data-i18n="st2">Audio and notes tracks, tempo detection, metronome</li>
+        <li data-i18n="st3">LTC and MTC generation, with a full transport</li>
+        <li data-i18n="st4">MIDI and OSC cue tracks</li>
+        <li data-i18n="st5">Live view and setlists with GO</li>
+        <li data-i18n="st6">Spoken operator tracks</li>
+        <li data-i18n="st7">MIDI and OSC remote control</li>
+      </ul>
+    </div>
+    <div>
+      <h3 data-i18n="st_off">Not built yet</h3>
+      <ul class="off">
+        <li data-i18n="sn1">Video cues</li>
+        <li data-i18n="sn2">Art-Net cues</li>
+        <li data-i18n="sn3">Chasing an external timecode</li>
+        <li data-i18n="sn4">Feedback to a controller's lights</li>
+        <li data-i18n="sn5">macOS release builds</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 09 Ordering -->
+<section id="order" class="order-sec" aria-labelledby="h-order">
+  <h2 id="h-order"><i class="sn" aria-hidden="true">09</i><span data-i18n="h_order">Get FLUX</span></h2>
+  <p class="prose" data-i18n="order_p">FLUX is in early development. Pick the installer for your system on the latest release page: the Windows setup, or the Linux AppImage, DEB or RPM.</p>
+  <div class="order">
+    <dl>
+      <div><dt data-i18n="o_version">Version</dt><dd class="m"><span data-version>0.2.0</span></dd></div>
+      <div><dt data-i18n="o_platforms">Platforms</dt><dd data-i18n="o_platforms_v">Windows, Linux</dd></div>
+      <div><dt data-i18n="o_format">Project file</dt><dd class="m">.flx</dd></div>
+    </dl>
+    <a class="btn" href="https://github.com/Blad3Mak3r/flux/releases/latest" data-i18n="download_flux">Download FLUX</a>
+  </div>
+  <p class="links2">
+    <a href="https://github.com/Blad3Mak3r/flux#getting-started" data-i18n="source">Run it from source</a>
+    <a href="docs/" data-i18n="docs_all">Read the docs</a>
+    <a href="https://github.com/Blad3Mak3r/flux/issues" data-i18n="issues">Report an issue</a>
+  </p>
+</section>
+
+</main>
+</div>
+
+<footer class="foot">
+  <img src="img/flux-symbol.svg" alt="" width="24" height="24">
+  <span class="brand-t">FLUX</span>
+  <span data-i18n="foot">Build the show. Run the show. Trust the clock.</span>
+  <span class="sp"></span>
+  <span data-i18n="license">Licensed under the GNU General Public License v3.0 or later.</span>
+  <a href="https://github.com/Blad3Mak3r/flux">GitHub</a>
+</footer>
+</body>
+</html>

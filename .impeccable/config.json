@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "border-accent-on-rounded",
+        "value": "*",
+        "files": [
+          "site/style.css"
+        ],
+        "createdAt": "2026-11-10T22:59:53.732Z",
+        "reason": "assistant: DESIGN.md Transport Keys specify a 4px bottom edge that flips to a top edge when pressed, 2px radius; not user confirmed"
+      }
+    ]
+  }
+}

@@ -1,0 +1,130 @@
+/* FLUX docs: the Bench Instrument (DESIGN.md), dark only. Same tokens as the landing page (site/style.css).
+   No glow, no blur, 2px radius at most, 1px rules. Vermilion is never used here: nothing in docs is live. */
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo-latin-wdth-normal.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+}
+
+:root {
+  --flux-panel: oklch(0.255 0.014 250);
+  --flux-panel-hi: oklch(0.31 0.015 250);
+  --flux-panel-lo: oklch(0.2 0.013 250);
+  --flux-rule: oklch(0.36 0.015 250);
+  --flux-rule-strong: oklch(0.46 0.018 250);
+  --flux-screen: oklch(0.175 0.024 205);
+  --flux-ink: oklch(0.93 0.012 85);
+  --flux-ink-dim: oklch(0.76 0.016 85);
+  --flux-phosphor: oklch(0.87 0.17 128);
+  --flux-phosphor-dim: oklch(0.6 0.12 128);
+
+  --vp-font-family-base: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --vp-font-family-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+  --flux-display: "Archivo", system-ui, "Segoe UI", Arial, sans-serif;
+}
+
+/* Colours: VitePress variables mapped onto the faceplate and screen grounds. */
+.dark {
+  --vp-c-bg: var(--flux-panel);
+  --vp-c-bg-alt: var(--flux-panel-lo);
+  --vp-c-bg-elv: var(--flux-panel-hi);
+  --vp-c-bg-soft: var(--flux-panel-hi);
+  --vp-c-gutter: var(--flux-rule);
+  --vp-c-divider: var(--flux-rule);
+  --vp-c-border: var(--flux-rule-strong);
+  --vp-c-text-1: var(--flux-ink);
+  --vp-c-text-2: var(--flux-ink-dim);
+  --vp-c-text-3: var(--flux-ink-dim);
+
+  --vp-c-brand-1: var(--flux-phosphor);
+  --vp-c-brand-2: oklch(0.8 0.16 128);
+  --vp-c-brand-3: var(--flux-phosphor-dim);
+  --vp-c-brand-soft: oklch(0.255 0.06 128 / 0.5);
+
+  --vp-button-brand-bg: var(--flux-phosphor);
+  --vp-button-brand-text: var(--flux-panel-lo);
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-hover-bg: oklch(0.92 0.17 128);
+  --vp-button-brand-hover-text: var(--flux-panel-lo);
+  --vp-button-brand-active-bg: oklch(0.8 0.16 128);
+  --vp-button-brand-active-text: var(--flux-panel-lo);
+
+  --vp-code-block-bg: var(--flux-screen);
+  --vp-code-bg: var(--flux-screen);
+  --vp-code-line-highlight-color: var(--flux-panel-hi);
+  --vp-c-default-soft: var(--flux-panel-hi);
+  --vp-nav-bg-color: var(--flux-panel-lo);
+  --vp-sidebar-bg-color: var(--flux-panel-lo);
+  --vp-local-search-bg: var(--flux-panel);
+}
+
+/* Square and flat. */
+:root {
+  --vp-border-radius: 2px;
+}
+.VPNav, .VPSidebar, .VPLocalNav { box-shadow: none; }
+
+/* Header: one continuous bar. While the page is at the top, the default theme only fills the middle of the bar
+   (.content-body). Its colour matches the page there, but here the bar is a recessed panel, so a lighter strip
+   showed to the right of the GitHub link on wide screens. Fill the whole bar and rule it off from the page. */
+.VPNavBar,
+.VPNavBar.has-sidebar,
+.VPNavBar.has-sidebar.top {
+  background-color: var(--flux-panel-lo);
+}
+.VPNavBar .divider-line,
+.VPNavBar:not(.home.top) .divider-line {
+  background-color: var(--flux-rule);
+}
+.VPNavBar .content-body {
+  background-color: transparent; /* the bar behind it is already the right colour */
+}
+.vp-doc div[class*="language-"], .vp-doc :not(pre) > code, .VPButton, .VPFeature, .custom-block {
+  border-radius: 2px;
+}
+.vp-doc div[class*="language-"] { border: 1px solid var(--flux-rule); }
+.vp-doc :not(pre) > code { color: var(--flux-ink); border: 1px solid var(--flux-rule); padding: 1px 5px; }
+.vp-doc a { text-underline-offset: 0.22em; text-decoration-thickness: 1px; text-decoration-color: var(--flux-phosphor-dim); }
+.vp-doc a:hover { text-decoration-color: var(--flux-phosphor); }
+
+/* Headings: the same wide, heavy display voice as the landing page. */
+.vp-doc h1, .vp-doc h2, .VPNavBarTitle .title {
+  font-family: var(--flux-display);
+  font-stretch: 112%;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.vp-doc h1 { line-height: 1.08; }
+.vp-doc h2 { border-top: 1px solid var(--flux-rule); }
+.vp-doc h3 { font-weight: 700; }
+.VPNavBarTitle .title { font-size: 15px; letter-spacing: 0.16em; font-stretch: 100%; }
+
+/* Tables: 1px rules, no zebra fill, legend-style header row; wide ones scroll inside their box. */
+.vp-doc table { display: block; overflow-x: auto; border-collapse: collapse; width: 100%; }
+.vp-doc th, .vp-doc td { border: 0; border-bottom: 1px solid var(--flux-rule); padding: 10px 14px 10px 0; }
+.vp-doc tr, .vp-doc tr:nth-child(2n) { background: transparent; border-top: 0; }
+.vp-doc th {
+  background: transparent;
+  border-top: 1px solid var(--flux-rule);
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--flux-ink-dim);
+}
+
+/* Browser surfaces: selection, caret, scrollbar and focus belong to the palette too. */
+::selection { background: var(--flux-phosphor); color: var(--flux-panel-lo); }
+input, textarea { caret-color: var(--flux-phosphor); }
+html { scrollbar-color: var(--flux-rule-strong) var(--flux-panel-lo); }
+:focus-visible { outline: 2px solid var(--flux-ink); outline-offset: 2px; }
+.VPSidebarItem.is-active > .item > .link > .text,
+.VPSidebarItem.is-active > .item .text { color: var(--flux-ink); font-weight: 700; }
+.VPSidebarItem.level-0.is-active > .item .indicator { background-color: var(--flux-phosphor); }
+.VPFooter { background: var(--flux-panel-lo); border-top: 1px solid var(--flux-rule); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

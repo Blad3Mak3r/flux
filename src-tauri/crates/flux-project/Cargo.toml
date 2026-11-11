@@ -1,8 +1,8 @@
 [package]
 name = "flux-project"
 version = "0.2.0"
+license = "GPL-3.0-or-later"
 description = "The .flx / legacy .fxtc project: model, archive, migrations and the editing session"
-license = "GPL-3.0-only"
 edition = "2024"
 
 [dependencies]

@@ -181,6 +181,9 @@ docs/            Specs and guides
 
 ## Documentation
 
+The guides are published at [blad3mak3r.github.io/flux/docs](https://blad3mak3r.github.io/flux/docs/), built from
+the files below.
+
 | Guide | Covers |
 | --- | --- |
 | [Project format](docs/fxtc-format.md) | The `.flx` / `.fxtc` archive: layout, fields and versioning. |
@@ -217,6 +220,7 @@ request, and every user-facing string goes through `src/i18n`.
 
 ## License
 
-FLUX is free software, released under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`).
+FLUX is licensed under the GNU General Public License, version 3 or (at your option) any later version.
+See [LICENSE](LICENSE).
 
 The Windows build includes the Steinberg ASIO SDK (`third_party/asiosdk`), used under its GPLv3 option. ASIO is a trademark of Steinberg Media Technologies GmbH.
