@@ -2,6 +2,7 @@
 name = "flux-audio"
 version = "0.2.0"
 description = "Audio files as the engine plays them: decoding, waveform peaks and tempo detection"
+license = "GPL-3.0-only"
 edition = "2024"
 
 [dependencies]

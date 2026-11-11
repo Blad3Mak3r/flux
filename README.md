@@ -217,4 +217,4 @@ request, and every user-facing string goes through `src/i18n`.
 
 ## License
 
-No license has been chosen yet, so all rights are reserved for now.
+FLUX is free software, released under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`).
