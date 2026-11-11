@@ -1,1 +1,4 @@
 * text=auto eol=lf
+
+# The ASIO SDK is kept byte for byte as Steinberg ships it.
+third_party/** -text

@@ -19,8 +19,14 @@ midir = "0.11.1"
 [target.'cfg(target_os = "linux")'.dependencies]
 cpal = { version = "0.18.2", features = ["pipewire", "jack"] }
 
-[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 cpal = { version = "0.18.2", features = ["jack"] }
+
+# ASIO is the driver most professional interfaces ship. The SDK it builds against is in
+# third_party/asiosdk (GPLv3 option of Steinberg's dual licence); the build also needs libclang and
+# MSVC. See docs/audio-routing.md.
+[target.'cfg(target_os = "windows")'.dependencies]
+cpal = { version = "0.18.2", features = ["jack", "asio"] }
 
 [dev-dependencies]
 serde_json = "1"

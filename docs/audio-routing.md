@@ -20,6 +20,14 @@ Secondary interfaces follow the Flux sample clock with the existing bounded resa
 
 Missing destinations never fall back to Programme. A bus that shares any LTC channel on the same canonical interface is entirely silenced, while LTC continues. An invalid audio channel silences the affected bus; the stream can still open for supported routes and LTC. Secondary device failures affect that interface alone and retry through the existing follower supervisor. Master loss retains the existing stop/recovery policy.
 
+## Audio drivers
+
+Preferences > Audio lists every driver the system offers. On Windows that is WASAPI, ASIO and JACK; on macOS CoreAudio and JACK; on Linux ALSA, PipeWire and JACK. ASIO is the one most professional interfaces ship, with the lowest latency and all their channels; their own ASIO driver (or Dante Virtual Soundcard, ASIO4ALL) appears as a device under it. WASAPI shared mode may show a multichannel interface as separate stereo pairs. Outputs open in 32-bit float, else 32, 24 or 16-bit integer, because many interfaces only offer 24-bit.
+
+ASIO is built from the Steinberg ASIO SDK 2.3.4 kept in `third_party/asiosdk` (only the `common` and `host` folders cpal compiles, unchanged). Steinberg offers the SDK under its own licence or under the GPL version 3; FLUX uses the GPL option, which is why the repository is GPL-3.0. `.cargo/config.toml` points `CPAL_ASIO_DIR` at it, so the build downloads nothing. Building on Windows needs MSVC and libclang with the MSVC environment loaded (`LIBCLANG_PATH`; the CI action `.github/actions/windows-deps` does both). ASIO is a trademark of Steinberg Media Technologies GmbH; the Steinberg ASIO Usage Guidelines apply wherever FLUX shows the name or logo.
+
+Not tested on hardware: whether two streams on the same ASIO driver both open (many drivers serve one client per process).
+
 ## Pending changes and reporting
 
 Routing changes during Play retain the active prepared membership. Ordinary clip edits still reach those active memberships; new track IDs remain silent until the pending routes are applied. The backend prepares the latest pending programme and applies it once Pause/Stop has been consumed by the callback. Play and hardware transitions are serialized, including remote transport commands, so Play waits for pending routing. Reopening restores the exact sample position and paused/stopped state without an intermediate Play. Undoing back to active routing cancels pending changes.

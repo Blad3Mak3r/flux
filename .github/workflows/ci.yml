@@ -44,6 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/linux-deps
+      - uses: ./.github/actions/windows-deps
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -70,6 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/linux-deps
+      - uses: ./.github/actions/windows-deps
       - uses: actions/setup-node@v7
         with:
           node-version: 24

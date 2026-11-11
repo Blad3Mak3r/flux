@@ -1,0 +1,21 @@
+name: Windows build environment
+description: MSVC environment and libclang for the ASIO bindings cpal generates on Windows.
+
+# cpal's `asio` feature (asio-sys) runs bindgen against the SDK in third_party/asiosdk. libclang
+# needs the MSVC and Windows SDK include paths, so the compiler environment is loaded first.
+runs:
+  using: composite
+  steps:
+    - name: MSVC environment
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1.13.0
+
+    - name: Find libclang
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $bin = 'C:\Program Files\LLVM\bin'
+        if (-not (Test-Path "$bin\libclang.dll")) {
+          choco install llvm -y --no-progress
+        }
+        "LIBCLANG_PATH=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
