@@ -26,7 +26,7 @@ import type {
 import { errorMessage, projectSetAutosave } from "../project/api";
 import { edit } from "../state/actions";
 import { isDirty } from "../state/doc";
-import { ask, sayError } from "../state/ui";
+import { ask, openSetup, sayError } from "../state/ui";
 import { setName } from "../state/edit";
 import {
   addDestination,
@@ -291,6 +291,7 @@ export function AudioPage({ devices }: { devices: Devices }) {
     <div className="setup-fields">
       <Scope />
       <p className="field-note">{t("setup.scope.shared")}</p>
+      <h4>{t("setup.audio.driver")}</h4>
       <SelectField
         label={t("out.driver")}
         value={driver}
@@ -309,12 +310,17 @@ export function AudioPage({ devices }: { devices: Devices }) {
           </option>
         ))}
       </SelectField>
+      <p className="field-note">{t("setup.audio.driverNote")}</p>
+      <h4>{t("routing.programme")}</h4>
+      <p className="field-note">{t("setup.audio.note")}</p>
       <AudioRoute
         kind="audio"
         deviceLabel="out.audioDevice"
         channelsLabel="out.programme"
         devices={devices}
       />
+      <h4>{t("setup.audio.preview")}</h4>
+      <p className="field-note">{t("setup.audio.previewNote")}</p>
       <AudioRoute
         kind="preview"
         deviceLabel="out.previewDevice"
@@ -358,12 +364,12 @@ export function AudioOutputsPage({ devices }: { devices: Devices }) {
       <Field label={t("routing.name")}>{({ id }) => <input id={id} value={name} disabled={adding} onChange={(event) => setName(event.target.value)} />}</Field>
       <button type="submit" className="button" disabled={adding}><PlusIcon />{t("routing.add")}</button>
     </form>
-    <details><summary>{t("routing.builtins")}</summary>
-      <div className="setup-fields">
-        <h4>{t("routing.programme")}</h4><AudioRoute kind="audio" deviceLabel="out.audioDevice" channelsLabel="routing.channels" devices={devices} />
-        <h4>{t("routing.operator")}</h4><AudioRoute kind="operator" deviceLabel="out.audioDevice" channelsLabel="routing.channels" devices={devices} />
-      </div>
-    </details>
+    <h4>{t("routing.builtins")}</h4>
+    <p className="field-note">{t("routing.builtinsNote")}</p>
+    <div className="button-row">
+      <button type="button" className="button" onClick={() => openSetup("audio")}>{t("routing.goProgramme")}</button>
+      <button type="button" className="button" onClick={() => openSetup("operator")}>{t("routing.goOperator")}</button>
+    </div>
     <ConfirmDialog open={removing !== null} title={t("routing.removeTitle")} body={t("routing.removeBody", { count: remove?.users ?? 0 })} detail={remove?.name ?? undefined} confirmLabel={t("routing.remove")}
       onCancel={() => setRemoving(null)} onConfirm={() => { if (removing) void audioRoutingEdit({ op: "remove", id: removing }); setRemoving(null); }} />
   </div>;

@@ -3,13 +3,14 @@ import type { MtcOutputConfig } from "../project/types";
 
 /**
  * The pages of the Setup dialog, gathered in the groups the page list folds into, in the order
- * they are listed. Outputs holds everything the show sends out; Remote control, what drives FLUX
+ * they are listed. Audio holds every sound the show plays and where it goes; Outputs, the timecode and show
+ * control the show sends out; Remote control, what drives FLUX
  * from outside.
  */
 export const SETUP_GROUPS = [
   { id: "show", sections: ["project", "timeline"] },
-  { id: "audio", sections: ["audio", "metronome", "operator"] },
-  { id: "outputs", sections: ["audioOutputs", "video", "ltc", "mtc", "osc"] },
+  { id: "audio", sections: ["audio", "audioOutputs", "metronome", "operator"] },
+  { id: "outputs", sections: ["video", "ltc", "mtc", "osc"] },
   { id: "control", sections: ["controlMidi", "controlOsc", "http"] },
   { id: "app", sections: ["graphics", "general"] },
 ] as const;

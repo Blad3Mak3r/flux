@@ -15,7 +15,7 @@ test("every page is listed once, in its group, and only the planned ones are una
   assert.equal(new Set(SETUP_SECTIONS).size, SETUP_SECTIONS.length);
   assert.deepEqual(SETUP_SECTIONS.filter((section) => !isAvailable(section)), ["video", "http"]);
   assert.equal(groupOf("ltc"), "outputs");
-  assert.equal(groupOf("audioOutputs"), "outputs");
+  assert.equal(groupOf("audioOutputs"), "audio");
   assert.equal(groupOf("audio"), "audio");
   assert.equal(groupOf("project"), "show");
   assert.equal(groupOf("controlOsc"), "control");

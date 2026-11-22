@@ -42,6 +42,7 @@ export function VoicePage({ devices }: { devices: Devices }) {
     finally { setBusy(false); }
   };
   return <div className="setup-fields">
+    <h4>{t("voice.section.account")}</h4>
     <p className="field-note">{t("voice.billing")}</p>
     <p role="status">{t(status?.configured ? status.sessionOnly ? "voice.keySession" : "voice.keySaved" : "voice.keyMissing")}</p>
     <Field label={t("voice.apiKey")}>
@@ -52,12 +53,15 @@ export function VoicePage({ devices }: { devices: Devices }) {
       <button className="button" type="button" disabled={busy || !apiKey} onClick={() => void keyAction(false)}>{t("voice.saveKey")}</button>
       <button className="button" type="button" disabled={busy || !status?.configured} onClick={() => void keyAction(true)}>{t("voice.deleteKey")}</button>
     </div>
+    <h4>{t("voice.section.voice")}</h4>
     <VoiceSelector scope="flux" value={voice} />
+    <h4>{t("voice.section.output")}</h4>
     {(!route || routeLost) && <p className="field-note" role="status">{t("voice.routeMissing")}</p>}
-    <button type="button" className="button" onClick={openShowCheck}>{t("check.title")}</button>
     <AudioRoute kind="operator" deviceLabel="voice.device" channelsLabel="voice.channels" devices={devices} />
     <p className="field-note">{t("voice.testNote")}</p>
     <div className="voice-actions"><button type="button" className="button" disabled={mode !== "stopped" || !route || testing} onClick={() => { setTesting(true); void invoke("voice_test_output").catch((e) => sayError(voiceError(e))).finally(() => setTesting(false)); }}>{t("voice.testOutput")}</button><button type="button" className="button" onClick={stopListening}>{t("voice.stopListen")}</button></div>
+    <button type="button" className="button" onClick={openShowCheck}>{t("check.title")}</button>
+    <h4>{t("voice.section.cache")}</h4>
     <p className="field-note">{t("voice.cacheSize", { size: cacheSize })}</p>
     <p className="field-note">{t("voice.cacheNote")}</p>
     <button type="button" className="button" onClick={() => { void invoke<string>("voice_cache", { clear: true }).then(setCacheSize).catch((e) => sayError(voiceError(e))); }}>{t("voice.clearCache")}</button>

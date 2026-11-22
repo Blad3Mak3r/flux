@@ -94,7 +94,6 @@ function writeFolded(folded: SetupGroup[]) {
 /** Shorter names for the list where the group already says the rest ("LTC" under Outputs). */
 const NAV_LABEL: Partial<Record<SetupSection, MessageKey>> = {
   audio: "setup.nav.audio",
-  audioOutputs: "setup.nav.audioOutputs",
   ltc: "setup.nav.ltc",
   mtc: "setup.nav.mtc",
   osc: "setup.nav.osc",
