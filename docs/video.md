@@ -71,6 +71,17 @@ The dialog offers MP4, M4V, MOV and WebM. WebM (VP8, VP9 or AV1 in Matroska) use
 dav1d for AV1. A WebM file has no frame count per stream, so the count comes from the container's duration. An alpha
 channel in VP8/VP9 WebM is not decoded yet: those frames show as opaque.
 
+## Editing clips
+
+A video clip is edited like an audio clip: drag it to move it, drag its edges to trim it, split it at
+the playhead and delete it. The window only says which edit and where; `video_clip_edit` applies it
+in the backend (`flux-project/src/video_clips.rs`), with the length of the video read by FFmpeg. A
+clip's `offset` and `length` count frames at the timeline's rate, as for audio.
+
+The clip shows thumbnails of the video, one per second or further apart for a long video (at most
+600). `video_thumbnails` decodes them once at 54 pixels high into one JPEG strip and keeps it in the
+app's cache folder (`video/thumbs/<asset id>.jpg`), so opening the project again reads them back.
+
 ## Output window
 
 **Preferences > Outputs > Video** chooses the display the output opens on; the choice is a local preference
