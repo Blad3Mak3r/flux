@@ -293,6 +293,7 @@ export const en = {
   "live.status.muted": "Muted",
   "live.kind.audio": "Audio",
   "live.kind.note": "Note",
+  "live.kind.video": "Video",
   "live.notes": "Notes",
   "live.notes.none": "No notes on show",
   "live.notes.left": "{time} left",

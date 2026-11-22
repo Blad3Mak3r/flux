@@ -32,6 +32,28 @@ pub struct VideoProbes(Mutex<HashMap<String, VideoProbe>>);
 
 pub type SharedProbes = Arc<VideoProbes>;
 
+static PROBES: OnceLock<SharedProbes> = OnceLock::new();
+
+/// The one store of what FFmpeg read, shared by the commands and by the cue lists.
+pub fn shared_probes() -> SharedProbes {
+    Arc::clone(PROBES.get_or_init(SharedProbes::default))
+}
+
+/// How many frames of a timeline at `rate` a video of the session lasts; `None` when it cannot be
+/// read, or before the app has said where its video cache is.
+pub fn timeline_frames_of(
+    session: &SharedSession,
+    asset: &VideoAsset,
+    rate: flux_project::FrameRate,
+) -> Option<u64> {
+    let info = probe(session, &shared_probes(), asset, CACHE.get()?).ok()?;
+    Some(flux_video::timeline_frames(
+        info.frames,
+        flux_video::Rate::new(info.rate_num, info.rate_den),
+        rate,
+    ))
+}
+
 /// Reads a video of the session with FFmpeg, or answers from what was read before.
 fn probe(
     session: &SharedSession,

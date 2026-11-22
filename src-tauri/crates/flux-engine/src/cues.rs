@@ -15,7 +15,9 @@ use crate::mixer::span;
 use flux_audio::ENGINE_RATE;
 use flux_core::Clock;
 use flux_core::Timecode;
-use flux_project::{AudioAsset, FrameRate, MidiMessage, OscArg, Project, Timeline, TrackKind};
+use flux_project::{
+    AudioAsset, FrameRate, MidiMessage, OscArg, Project, Timeline, TrackKind, VideoAsset,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -25,6 +27,7 @@ pub enum CueKind {
     Note,
     Midi,
     Osc,
+    Video,
 }
 
 /// What a MIDI or OSC cue sends, for the UI to name in the user's language. The numbers and
@@ -50,6 +53,7 @@ impl CueKind {
             Self::Note => "note",
             Self::Midi => "midi",
             Self::Osc => "osc",
+            Self::Video => "video",
         }
     }
 }
@@ -179,7 +183,18 @@ impl CueList {
     pub fn build(
         project: &Project,
         timeline: &Timeline,
+        length_of: impl FnMut(&AudioAsset) -> Option<u64>,
+    ) -> Self {
+        Self::build_with_video(project, timeline, length_of, |_| None)
+    }
+
+    /// Like [`Self::build`], with `video_frames_of` giving how many frames of the timeline a
+    /// video lasts, so a video clip that is not trimmed at its end has a length too.
+    pub fn build_with_video(
+        project: &Project,
+        timeline: &Timeline,
         mut length_of: impl FnMut(&AudioAsset) -> Option<u64>,
+        mut video_frames_of: impl FnMut(&VideoAsset) -> Option<u64>,
     ) -> Self {
         let rate = timeline.timecode.frame_rate;
         let start = timeline.timecode.start;
@@ -272,8 +287,26 @@ impl CueList {
                         cues.push(item);
                     }
                 }
-                // Video is not played yet, so its clips are no cues.
-                TrackKind::Video { .. } => {}
+                TrackKind::Video { clips } => {
+                    for clip in clips {
+                        let Some(asset) = project.videos.iter().find(|v| v.id == clip.asset) else {
+                            continue;
+                        };
+                        let rest = video_frames_of(asset).map(|f| f.saturating_sub(clip.offset));
+                        let length = match (clip.length, rest) {
+                            (Some(length), Some(rest)) => Some(length.min(rest)),
+                            (length, rest) => length.or(rest),
+                        };
+                        end = end.max(clock.frames_to_samples(clip.start + length.unwrap_or(0)));
+                        cues.push(cue(
+                            &clip.id,
+                            CueKind::Video,
+                            clip.name.as_deref().unwrap_or(&asset.name),
+                            clip.start,
+                            length,
+                        ));
+                    }
+                }
             }
         }
 
@@ -754,6 +787,37 @@ mod tests {
             notes: vec![note("m1", 250, Some(25), "late")],
         };
         assert_eq!(list(&project).end_samples(), 11 * SECOND);
+    }
+
+    #[test]
+    fn build_should_make_a_cue_of_each_video_clip_as_long_as_it_shows() {
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        project.videos.push(VideoAsset {
+            id: "v1".into(),
+            name: "Intro".into(),
+            file: "video/intro.mp4".into(),
+        });
+        project.timelines[0].tracks.push(track(
+            "video",
+            false,
+            TrackKind::Video {
+                clips: vec![flux_project::VideoClip {
+                    id: "c1".into(),
+                    asset: "v1".into(),
+                    start: 50,
+                    name: None,
+                    offset: 25,
+                    length: None,
+                }],
+            },
+        ));
+        let timeline = &project.timelines[0];
+        // A 100-frame video shown from its 25th frame lasts 75 frames.
+        let list = CueList::build_with_video(&project, timeline, |_| None, |_| Some(100));
+        let cue = &list.cues()[0];
+        assert_eq!((cue.kind, cue.name.as_str()), (CueKind::Video, "Intro"));
+        assert_eq!((cue.frame, cue.length), (50, Some(75)));
+        assert_eq!(list.end_samples(), 125 * SECOND / 25);
     }
 
     #[test]

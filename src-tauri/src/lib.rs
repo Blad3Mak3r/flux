@@ -50,7 +50,7 @@ pub fn run() {
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(video_output::SharedVideoOutput::default())
-        .manage(video_commands::SharedProbes::default())
+        .manage(video_commands::shared_probes())
         .manage(control::SharedControl::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {

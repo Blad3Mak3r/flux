@@ -293,6 +293,7 @@ export const es: Record<MessageKey, string> = {
   "live.status.muted": "Silenciado",
   "live.kind.audio": "Audio",
   "live.kind.note": "Nota",
+  "live.kind.video": "Vídeo",
   "live.notes": "Notas",
   "live.notes.none": "No hay notas a la vista",
   "live.notes.left": "Quedan {time}",
