@@ -167,7 +167,6 @@ export async function saveProject(
   return { path: target, meta: saved.meta };
 }
 
-/** Asks for audio files and registers them; the assets are for the caller to add to its project. */
 /** Asks for video files to import. Resolves to none when the dialog is cancelled. */
 export async function pickVideoPaths(): Promise<string[]> {
   return (await open({ multiple: true, filters: [VIDEO_FILTER] })) ?? [];
@@ -177,6 +176,7 @@ export async function pickVideoPaths(): Promise<string[]> {
 export const importVideo = (project: Project, path: string, at: number) =>
   invoke<ProjectState>("project_import_video", { project, path, at });
 
+/** Asks for audio files and registers them; the assets are for the caller to add to its project. */
 export async function importAudio(): Promise<AudioAsset[]> {
   const paths = await open({ multiple: true, filters: [AUDIO_FILTER] });
   if (paths === null) return [];
