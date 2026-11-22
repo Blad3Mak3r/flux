@@ -82,6 +82,15 @@ The clip shows thumbnails of the video, one per second or further apart for a lo
 600). `video_thumbnails` decodes them once at 54 pixels high into one JPEG strip and keeps it in the
 app's cache folder (`video/thumbs/<asset id>.jpg`), so opening the project again reads them back.
 
+## Sound
+
+The sound of a video plays with its clips, like an audio clip at 0 dB with no fades. A video
+track has a fader, a level meter and an output in the routing, as an audio track does. Pulling the fader
+down silences the sound and leaves the picture; muting the track takes both away. FFmpeg decodes the
+video's main audio stream once (`flux_video::audio_wav`), and the audio crate converts it to the
+engine's rate; it is kept in the audio cache beside the project's audio files. Only the first two
+channels play.
+
 ## Output window
 
 **Preferences > Outputs > Video** chooses the display the output opens on; the choice is a local preference
