@@ -127,6 +127,10 @@ components:
 
 The public name is **FLUX**, always uppercase. The modular F and the FLUX wordmark form the app's brand mark, with an 8px gap and 13px bold system lettering at 0.16em tracking. The launcher uses 22px lettering and a 12px gap. The symbol is decorative beside the readable name; an interactive mark keeps the translated About label. The existing instrument palette, controls and app icon are retained.
 
+### Launcher
+
+The 440x260 startup window is a scope screen warming up. Its ground is `screen` etched with a 40px graticule and a `grat-major` centre line; under it, two layers of soft radial fields in the signal colours (phosphor, phosphor-dim, amber, teal; never vermilion) drift and turn slowly (14s and 21s, alternating), and a 2px phosphor trace sweeps left to right every 2.4s while the checks run, fading out once they finish. This is the one sanctioned exception to the No Glow Rule: it lives only here, behind the content, and animates only transform and opacity. The readout keeps its recessed screen and a strong rule so it reads over the fields. Under reduced motion the fields stand still and the sweep is not drawn.
+
 ### About
 
 A 380px dialog opened from the brand mark or Help > About FLUX. A centred nameplate (40px symbol, 20px FLUX, a one-line tagline, the version in a 1px-ruled measure-face chip and the developer) sits over a recessed Updates panel and a row of quiet text links (Documentation, GitHub, Report a problem). The Updates panel reads like an output row: a 10px lamp and a status sentence. Off while idle, blinking amber while checking (steady under reduced motion), phosphor when up to date, amber when a version is available or installing, vermilion on a fault, with the raw error below in the measure face. It checks once when the dialog opens. A found version offers a primary "Install X and restart" spanning the row and "What's new" (the GitHub Release); installing shows a thin indeterminate bar; a failed install offers to try that version again. Without the desktop shell the panel says updates live in the desktop app and its controls are disabled.
