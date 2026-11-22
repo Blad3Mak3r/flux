@@ -3,11 +3,15 @@
 //! timeline position ([`source_frame`]), so the picture follows the engine clock and never a timer
 //! of its own.
 
+mod deck;
 mod decode;
+mod layers;
 mod mapping;
 mod player;
 
+pub use deck::{PRELOAD_FRAMES, Shown, VideoDeck};
 pub use decode::{Frame, VideoError, VideoFile, VideoInfo};
+pub use layers::{Cue, Layer, Probe, layers, upcoming};
 pub use mapping::{Rate, source_frame};
 pub use player::{PlayerStats, VideoPlayer};
 

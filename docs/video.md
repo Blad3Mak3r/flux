@@ -39,8 +39,27 @@ The Rust bindings are [`ffmpeg-next`](https://crates.io/crates/ffmpeg-next), wit
   lagging behind the clock. The thread never logs: it counts decoded, skipped and failed requests in atomics
   (`PlayerStats`) for the `flux-log` lane (see [Diagnostics](diagnostics.md)).
 
-Nothing calls the crate yet. Following steps of issue #106 connect it to the engine clock, draw the output window and
-the timeline clips, and bundle FFmpeg with the installers.
+- **`layers`**: what the video tracks of a timeline show for a `Cue` (`Black` when stopped, `At(frame)` when playing
+  or paused), topmost first: a track higher in the timeline covers the ones below, a muted track shows nothing, and
+  where clips of one track overlap the one that starts later wins. `upcoming` lists the clips that start soon.
+- **`VideoDeck`**: turns positions into pictures. Each call opens a player for every clip showing or starting within
+  `PRELOAD_FRAMES` (60), closes the others, asks each player for the frame its position maps to, and returns the
+  layers with the newest decoded frame of each. It has no timer: the output draws a picture, reads the engine's
+  position and calls it, so seek, stop and loops follow the clock by construction. Files that fail to open are
+  listed for Show check.
+
+The output window reads the engine like this, then draws what the deck returns:
+
+```rust
+let snapshot = shared_clock.load();
+let cue = match snapshot.state {
+    TransportState::Stopped => Cue::Black,
+    _ => Cue::At(clock.samples_to_frames(snapshot.estimated_position(shared_clock.now(), clock))),
+};
+let layers = deck.show(active_timeline, cue);
+```
+
+The following steps of issue #106 add that output window, the timeline clips, and FFmpeg inside the installers.
 
 ## Building
 
