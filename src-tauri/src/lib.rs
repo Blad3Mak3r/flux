@@ -57,6 +57,9 @@ pub fn run() {
             recovery::start(app.handle())?;
             diagnostics::start(app.handle());
             log::info!("{}", graphics::describe());
+            if let Err(err) = video_commands::video_cache(app.handle()) {
+                log::warn!("no video cache folder: {err}");
+            }
             let app = app.handle().clone();
             let video = app.clone();
             tauri::async_runtime::spawn_blocking(move || control::start(&app));

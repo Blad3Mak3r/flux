@@ -3,13 +3,14 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use crate::commands::SharedSession;
+use flux_audio::{AudioError, Decoded, SharedAudio};
 use flux_project::{Project, ProjectError, ProjectState, Result, VideoAsset, VideoClipOp};
 
 /// What the timeline needs of a video: its length and rate, and what to say about it.
@@ -69,13 +70,57 @@ fn probe(
     Ok(probe)
 }
 
+/// The video cache folder, once the app has said where it is.
+static CACHE: OnceLock<PathBuf> = OnceLock::new();
+
 /// Where videos kept inside a project archive are copied for FFmpeg to read.
 pub fn video_cache(app: &AppHandle) -> Result<PathBuf> {
-    Ok(app
+    if let Some(dir) = CACHE.get() {
+        return Ok(dir.clone());
+    }
+    let dir = app
         .path()
         .app_cache_dir()
         .map_err(|err| ProjectError::Io(io::Error::other(err)))?
-        .join("video"))
+        .join("video");
+    Ok(CACHE.get_or_init(|| dir).clone())
+}
+
+/// The sound of a video for the mixer, decoding it the first time; `None` for a video without
+/// sound. Kept in the audio cache beside the project's audio, under a key no audio asset has.
+pub fn load_audio(
+    session: &SharedSession,
+    cache: &SharedAudio,
+    asset: &VideoAsset,
+) -> std::result::Result<Option<Arc<Decoded>>, AudioError> {
+    let key = format!("video:{}", asset.id);
+    let decoded = match cache.get(&key) {
+        Some(decoded) => decoded,
+        None => {
+            let dir = CACHE
+                .get()
+                .ok_or_else(|| AudioError::Decode("the video cache is not ready".into()))?;
+            let path = session
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .video_path(asset, dir)?;
+            let decoded = Arc::new(
+                match flux_video::audio_wav(&path)
+                    .map_err(|err| AudioError::Decode(err.to_string()))?
+                {
+                    Some(wav) => flux_audio::decode(wav, Some("wav"))?,
+                    // Kept empty, so a silent video is read once.
+                    None => Decoded {
+                        samples: Vec::new(),
+                        source_rate: flux_audio::ENGINE_RATE,
+                    },
+                },
+            );
+            cache.insert(&key, Arc::clone(&decoded));
+            decoded
+        }
+    };
+    Ok((decoded.frames() > 0).then_some(decoded))
 }
 
 /// Opens a video of the project with FFmpeg and answers with its length, rate and size.

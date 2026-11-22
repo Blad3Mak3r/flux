@@ -62,7 +62,9 @@ pub(crate) fn prepare_plan(
         for track in &mut audible.tracks {
             if matches!(
                 track.kind,
-                flux_project::TrackKind::Audio { .. } | flux_project::TrackKind::Operator { .. }
+                flux_project::TrackKind::Audio { .. }
+                    | flux_project::TrackKind::Operator { .. }
+                    | flux_project::TrackKind::Video { .. }
             ) {
                 track.muted = false;
             }
@@ -341,7 +343,9 @@ pub(crate) fn track_level(app: &AppHandle, id: &str, value: f32, mute: bool) -> 
             .ok_or("unknownTrack")?;
         if !matches!(
             track.kind,
-            flux_project::TrackKind::Audio { .. } | flux_project::TrackKind::Operator { .. }
+            flux_project::TrackKind::Audio { .. }
+                | flux_project::TrackKind::Operator { .. }
+                | flux_project::TrackKind::Video { .. }
         ) {
             return Err("trackHasNoAudioLevel".into());
         }

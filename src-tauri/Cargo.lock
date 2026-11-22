@@ -1599,6 +1599,7 @@ name = "flux-video"
 version = "0.2.2"
 dependencies = [
  "ffmpeg-next",
+ "flux-audio",
  "flux-core",
  "flux-project",
  "jpeg-encoder",

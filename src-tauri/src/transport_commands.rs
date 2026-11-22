@@ -722,7 +722,12 @@ pub(crate) fn programme(
     audio: &SharedAudio,
     cues: &CueList,
 ) -> Programme {
-    let mut programme = mixer::build(project, timeline, |asset| load(session, audio, asset));
+    let mut programme = mixer::build_with_video(
+        project,
+        timeline,
+        |asset| load(session, audio, asset),
+        |video| crate::video_commands::load_audio(session, audio, video),
+    );
     programme.set = programme.set.with_end(Some(cues.end_samples()));
     programme
 }
