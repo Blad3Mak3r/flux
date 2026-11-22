@@ -2340,6 +2340,144 @@ input:disabled {
   color: var(--ink-dim);
 }
 
+/* The video mapping editor: the picture with its slices, beside the screen with their corners. */
+.mapping {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.mapping-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mapping-bar h4 {
+  margin: 0 auto 0 0;
+}
+
+.mapping .button[aria-pressed="true"] {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+
+.mapping-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.mapping-stage {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.mapping-stage figcaption {
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.mapping-canvas {
+  position: relative;
+  width: 100%;
+  background: var(--screen);
+  outline: 1px solid var(--rule-strong);
+  touch-action: none;
+  user-select: none;
+}
+
+.mapping-rect {
+  position: absolute;
+  border: 1px solid var(--ink-dim);
+  background: color-mix(in oklch, var(--ink-dim) 12%, transparent);
+  cursor: move;
+}
+
+.mapping-rect[data-selected="true"] {
+  border-color: var(--phosphor);
+  background: color-mix(in oklch, var(--phosphor) 14%, transparent);
+  z-index: 1;
+}
+
+.mapping-rect[data-hidden="true"],
+.mapping-quads polygon[data-hidden="true"] {
+  opacity: 0.4;
+  border-style: dashed;
+  stroke-dasharray: 4 3;
+}
+
+.mapping-label {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.mapping-quads {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mapping-quads polygon {
+  fill: color-mix(in oklch, var(--ink-dim) 12%, transparent);
+  stroke: var(--ink-dim);
+  stroke-width: 1px;
+  cursor: move;
+}
+
+.mapping-quads polygon[data-selected="true"] {
+  fill: color-mix(in oklch, var(--phosphor) 14%, transparent);
+  stroke: var(--phosphor);
+}
+
+.mapping-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--phosphor);
+  background: var(--screen);
+  z-index: 2;
+}
+
+.mapping-corner {
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+}
+
+.mapping-corner[data-corner="0"] {
+  background: var(--phosphor);
+}
+
+.mapping-resize {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+
+.mapping-slice {
+  display: grid;
+  gap: 10px;
+  max-width: 460px;
+}
+
 .setup-fields h4 {
   margin: 8px 0 0;
   font-size: 12px;
