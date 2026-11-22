@@ -1481,6 +1481,7 @@ dependencies = [
  "flux-core",
  "flux-engine",
  "flux-project",
+ "flux-video",
  "flux-voice",
  "keyring",
  "log",

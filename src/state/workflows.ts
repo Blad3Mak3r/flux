@@ -6,6 +6,8 @@ import type { Translate } from "../i18n/messages";
 import {
   errorMessage,
   importAudio,
+  importVideo,
+  pickVideoPaths,
   newProject,
   openProjectAt,
   pickProjectPath,
@@ -176,6 +178,22 @@ export async function importAudioFiles(): Promise<void> {
     // The tempo is read from the decoded audio, which the analysis leaves in the backend's cache.
     void analyse(assets).then(() => detectTempos(assets));
     select({ kind: "clip", id: last });
+  } catch (err) {
+    fail(err);
+  }
+}
+
+/** Asks for video files and adds each on a new track at the playhead; the backend reads and places them. */
+export async function importVideoFiles(): Promise<void> {
+  try {
+    for (const path of await pickVideoPaths()) {
+      const doc = useDoc.getState();
+      const at = Math.max(0, currentFrame() - activeTimeline(doc).timecode.start);
+      const { project, active } = await importVideo(doc.project, path, at);
+      dispatch({ type: "apply", project, active });
+      const videos = project.videos ?? [];
+      say("status.imported", { name: videos[videos.length - 1]?.name ?? path });
+    }
   } catch (err) {
     fail(err);
   }

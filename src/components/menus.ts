@@ -45,6 +45,7 @@ import {
   addNoteAt,
   closeDocument,
   importAudioFiles,
+  importVideoFiles,
   newDocument,
   openDocument,
   saveDocument,
@@ -128,7 +129,7 @@ function fileMenu(t: Translate): MenuItem[] {
       label: t("menu.import"),
       submenu: [
         { label: t("menu.audio"), shortcut: "I", run: () => void importAudioFiles() },
-        { label: t("menu.video"), disabled: true, run: () => {} },
+        { label: t("menu.video"), run: () => void importVideoFiles() },
       ],
     },
     {

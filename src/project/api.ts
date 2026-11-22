@@ -32,6 +32,11 @@ const AUDIO_FILTER = {
   extensions: ["wav", "aif", "aiff", "flac", "mp3", "ogg"],
 };
 
+const VIDEO_FILTER = {
+  name: "Video",
+  extensions: ["mp4", "m4v", "mov"],
+};
+
 /** Backend errors arrive as plain message strings. */
 export function errorMessage(err: unknown): string {
   const message = typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
@@ -163,6 +168,15 @@ export async function saveProject(
 }
 
 /** Asks for audio files and registers them; the assets are for the caller to add to its project. */
+/** Asks for video files to import. Resolves to none when the dialog is cancelled. */
+export async function pickVideoPaths(): Promise<string[]> {
+  return (await open({ multiple: true, filters: [VIDEO_FILTER] })) ?? [];
+}
+
+/** Adds the video at `path` on a new track of the active timeline, with a clip at `at` (frames from the timeline start). */
+export const importVideo = (project: Project, path: string, at: number) =>
+  invoke<ProjectState>("project_import_video", { project, path, at });
+
 export async function importAudio(): Promise<AudioAsset[]> {
   const paths = await open({ multiple: true, filters: [AUDIO_FILTER] });
   if (paths === null) return [];

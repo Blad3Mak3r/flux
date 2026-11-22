@@ -110,6 +110,7 @@ pub fn run() {
             commands::project_new,
             commands::project_open,
             commands::project_import_audio,
+            commands::project_import_video,
             commands::project_save,
             commands::project_set_autosave,
             recovery::recovery_list,

@@ -349,6 +349,35 @@ pub async fn project_import_audio(
     run(&session, move |s| s.import_audio(&path)).await
 }
 
+/// Adds a video file to the active timeline: a new video track with a clip at `at` (frames from the
+/// timeline start). FFmpeg reads it first, so a file it cannot decode is refused with the reason.
+#[tauri::command]
+pub async fn project_import_video(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: PathBuf,
+    at: u64,
+) -> Result<ProjectState> {
+    log::info!("importing video {}", path.display());
+    run(&session, move |s| {
+        let video = flux_video::VideoFile::open(&path)
+            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
+        let info = video.info();
+        log::info!(
+            "video {}x{} {} at {}/{} fps, {} frames",
+            info.width,
+            info.height,
+            info.codec,
+            info.rate.num,
+            info.rate.den,
+            info.frames
+        );
+        s.update(project);
+        s.import_video(&path, at)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn project_save(
     app: AppHandle,
