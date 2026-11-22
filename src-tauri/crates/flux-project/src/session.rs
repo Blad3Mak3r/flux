@@ -253,7 +253,7 @@ impl Session {
         })
     }
 
-    /// Removes a timeline and the audio no clip uses any more. The one that takes its place becomes
+    /// Removes a timeline and the audio and video no clip uses any more. The one that takes its place becomes
     /// active when it was the active one.
     pub fn remove_timeline(&mut self, id: &str) -> Result<ProjectState> {
         self.change(|project, active| {
@@ -280,6 +280,7 @@ impl Session {
                 .map(String::from)
                 .collect();
             project.assets.retain(|asset| used.contains(&asset.id));
+            project.videos.retain(|video| used.contains(&video.id));
             if active == id {
                 let neighbour = index.min(project.timelines.len() - 1);
                 *active = project.timelines[neighbour].id.clone();
@@ -614,6 +615,9 @@ impl Session {
         let mut saved = project.clone();
         saved.format_version = FORMAT_VERSION;
         saved.meta.stamp();
+        // Removing a video track leaves its file behind; the save drops what no clip shows.
+        let used: HashSet<String> = saved.used_assets().into_iter().map(String::from).collect();
+        saved.videos.retain(|video| used.contains(&video.id));
         archive::save(&path, &saved, &self.sources, &self.previews)?;
         self.sources = archive_sources(&saved, &path);
         self.sources.extend(self.voice_sources.clone());
@@ -661,10 +665,11 @@ fn timeline_mut<'a>(project: &'a mut Project, id: &str) -> Result<&'a mut Timeli
 }
 
 fn archive_sources(project: &Project, path: &Path) -> HashMap<String, AssetSource> {
-    project
-        .assets
-        .iter()
-        .map(|asset| (asset.id.clone(), AssetSource::Archive(path.to_path_buf())))
+    let audio = project.assets.iter().map(|asset| &asset.id);
+    let video = project.videos.iter().map(|video| &video.id);
+    audio
+        .chain(video)
+        .map(|id| (id.clone(), AssetSource::Archive(path.to_path_buf())))
         .collect()
 }
 
@@ -1002,6 +1007,23 @@ mod tests {
         let result = Session::default().import_audio(dir.path());
 
         assert!(matches!(result, Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn save_should_drop_a_video_no_clip_shows() {
+        let dir = TempDir::new().unwrap();
+        let (mut session, mut project) = imported_project(&dir);
+        project.videos.push(crate::VideoAsset {
+            id: "v1".into(),
+            name: "Intro".into(),
+            file: "video/intro.mp4".into(),
+        });
+
+        let saved = session
+            .save(&project, &dir.path().join("show.flx"))
+            .unwrap();
+
+        assert!(saved.videos.is_empty());
     }
 
     #[test]

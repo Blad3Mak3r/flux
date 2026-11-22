@@ -272,6 +272,8 @@ impl CueList {
                         cues.push(item);
                     }
                 }
+                // Video is not played yet, so its clips are no cues.
+                TrackKind::Video { .. } => {}
             }
         }
 

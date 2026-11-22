@@ -18,10 +18,14 @@ pub use super::meta::Meta;
 /// shape, not at the number.
 /// Version 6 separates portable signals from local hardware routing.
 /// Version 9 adds recording origin, pronunciation text and non-destructive speech trims.
-pub const FORMAT_VERSION: u32 = 12;
+/// Version 13 adds `videos` and the `video` track kind.
+pub const FORMAT_VERSION: u32 = 13;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
+
+/// Folder inside the archive that holds the video files (flat, no subfolders).
+pub const VIDEO_DIR: &str = "video/";
 
 /// Contents of `project.json`. Audio and logical signals belong to the project; each
 /// timeline has its own timecode and tracks.
@@ -38,6 +42,9 @@ pub struct Project {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice: Option<String>,
     pub assets: Vec<AudioAsset>,
+    /// The video files the video tracks play. Their ids share the namespace of `assets`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub videos: Vec<VideoAsset>,
     pub output: crate::ShowOutputs,
     /// Never empty. Only one plays at a time.
     pub timelines: Vec<Timeline>,
@@ -169,6 +176,16 @@ pub struct AudioAsset {
     pub bpm: Option<f64>,
 }
 
+/// A video file bundled in the archive.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoAsset {
+    pub id: String,
+    pub name: String,
+    /// Archive path, `video/<file name>`.
+    pub file: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
@@ -217,6 +234,10 @@ pub enum TrackKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         destination: Option<String>,
         events: Vec<OscEvent>,
+    },
+    /// Video clips shown in time with the timeline.
+    Video {
+        clips: Vec<VideoClip>,
     },
 }
 
@@ -343,6 +364,25 @@ impl AudioClip {
     }
 }
 
+/// A stretch of a video file placed on the timeline. Positions are frames at the timeline's rate.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoClip {
+    pub id: String,
+    /// Id of an entry in `Project::videos`.
+    pub asset: String,
+    pub start: u64,
+    /// The name the clip goes by in the timeline and in Live; absent means the asset's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Frames of the video skipped at the start of the clip (trim in); absent is 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub offset: u64,
+    /// Frames of the video the clip shows (trim out); absent means up to the end of the video.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub length: Option<u64>,
+}
+
 /// A note at a point of the timeline. It is shown from `at` for `length` frames, or until the next
 /// note of its track when it has none.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -460,6 +500,7 @@ impl Project {
             autosave: Autosave::default(),
             voice: None,
             assets: Vec::new(),
+            videos: Vec::new(),
             output: crate::ShowOutputs::default(),
             timelines: vec![Timeline::new(name.clone(), frame_rate)],
             name,
@@ -470,12 +511,13 @@ impl Project {
         self.timelines.iter().find(|timeline| timeline.id == id)
     }
 
-    /// Ids of the assets some clip of any timeline plays.
+    /// Ids of the audio and video assets some clip of any timeline plays.
     pub fn used_assets(&self) -> HashSet<&str> {
         let mut used = HashSet::new();
         for track in self.timelines.iter().flat_map(|t| &t.tracks) {
             match &track.kind {
                 TrackKind::Audio { clips } => used.extend(clips.iter().map(|c| c.asset.as_str())),
+                TrackKind::Video { clips } => used.extend(clips.iter().map(|c| c.asset.as_str())),
                 TrackKind::Operator { orders, .. } => used.extend(
                     orders
                         .iter()
@@ -512,6 +554,15 @@ impl Project {
                 )));
             }
         }
+        let mut video_ids = HashSet::new();
+        for video in &self.videos {
+            check_video_path(&video.file)?;
+            ensure_unique(&mut asset_ids, "asset id", &video.id)?;
+            ensure_unique(&mut asset_files, "asset file", &video.file)?;
+            video_ids.insert(video.id.as_str());
+        }
+        // Audio clips must not play a video, so they check against the audio ids only.
+        asset_ids.retain(|id| !video_ids.contains(id));
 
         if self.timelines.is_empty() {
             return Err(ProjectError::Invalid("a project needs a timeline".into()));
@@ -531,6 +582,7 @@ impl Project {
                 validate_track(
                     track,
                     &asset_ids,
+                    &video_ids,
                     &destination_ids,
                     &mut track_ids,
                     &mut item_ids,
@@ -544,6 +596,7 @@ impl Project {
 fn validate_track<'a>(
     track: &'a Track,
     asset_ids: &HashSet<&str>,
+    video_ids: &HashSet<&str>,
     destination_ids: &HashSet<&str>,
     track_ids: &mut HashSet<&'a str>,
     item_ids: &mut HashSet<&'a str>,
@@ -569,14 +622,7 @@ fn validate_track<'a>(
         TrackKind::Audio { clips } => {
             for clip in clips {
                 ensure_unique(item_ids, "clip/note id", &clip.id)?;
-                if let Some(name) = &clip.name
-                    && (name.trim().is_empty() || name.chars().count() > MAX_CLIP_NAME)
-                {
-                    return Err(ProjectError::Invalid(format!(
-                        "clip {} needs a name of 1 to {MAX_CLIP_NAME} characters; leave it out instead",
-                        clip.id
-                    )));
-                }
+                check_clip_name(&clip.id, clip.name.as_deref())?;
                 check_envelope(clip)?;
                 if clip.length == Some(0) {
                     return Err(ProjectError::Invalid(format!(
@@ -626,6 +672,35 @@ fn validate_track<'a>(
                 event.validate()?;
             }
         }
+        TrackKind::Video { clips } => {
+            for clip in clips {
+                ensure_unique(item_ids, "clip/note id", &clip.id)?;
+                check_clip_name(&clip.id, clip.name.as_deref())?;
+                if clip.length == Some(0) {
+                    return Err(ProjectError::Invalid(format!(
+                        "clip {} plays no time; leave the length out instead",
+                        clip.id
+                    )));
+                }
+                if !video_ids.contains(clip.asset.as_str()) {
+                    return Err(ProjectError::Invalid(format!(
+                        "clip {} references unknown video {}",
+                        clip.id, clip.asset
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_clip_name(id: &str, name: Option<&str>) -> Result<()> {
+    if let Some(name) = name
+        && (name.trim().is_empty() || name.chars().count() > MAX_CLIP_NAME)
+    {
+        return Err(ProjectError::Invalid(format!(
+            "clip {id} needs a name of 1 to {MAX_CLIP_NAME} characters; leave it out instead"
+        )));
     }
     Ok(())
 }
@@ -774,8 +849,17 @@ fn check_channel(channel: u16) -> Result<()> {
 
 /// An asset file must be `audio/<name>` with a plain file name: no separators, no `.`/`..`.
 pub(super) fn check_asset_path(file: &str) -> Result<()> {
+    check_path_in(AUDIO_DIR, file)
+}
+
+/// A video file must be `video/<name>` with a plain file name, like [`check_asset_path`].
+pub(super) fn check_video_path(file: &str) -> Result<()> {
+    check_path_in(VIDEO_DIR, file)
+}
+
+fn check_path_in(dir: &str, file: &str) -> Result<()> {
     let valid = file
-        .strip_prefix(AUDIO_DIR)
+        .strip_prefix(dir)
         .is_some_and(|name| !matches!(name, "" | "." | "..") && !name.contains(['/', '\\', '\0']));
     if valid {
         Ok(())
@@ -819,6 +903,7 @@ pub(super) mod tests {
                 file: "audio/click.wav".into(),
                 bpm: Some(128.5),
             }],
+            videos: Vec::new(),
             timelines: vec![Timeline {
                 controls: Vec::new(),
                 id: "l1".into(),
@@ -969,7 +1054,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 12,
+        "formatVersion": 13,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {
@@ -1581,6 +1666,124 @@ pub(super) mod tests {
         let mut output = sample_project().output.legacy_routes.unwrap();
         output.audio.as_mut().unwrap().channels = vec![1, 1];
         assert!(matches!(output.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    /// The sample project with a video track playing one bundled video.
+    pub fn video_project() -> Project {
+        let mut project = sample_project();
+        project.videos.push(VideoAsset {
+            id: "v1".into(),
+            name: "Intro".into(),
+            file: "video/intro.mp4".into(),
+        });
+        project.timelines[0].tracks.push(Track {
+            audio_output: Default::default(),
+            id: "tv".into(),
+            name: "Screen".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Video {
+                clips: vec![VideoClip {
+                    id: "cv".into(),
+                    asset: "v1".into(),
+                    start: 30,
+                    name: None,
+                    offset: 5,
+                    length: Some(100),
+                }],
+            },
+        });
+        project
+    }
+
+    fn video_clip(project: &mut Project) -> &mut VideoClip {
+        let track = project.timelines[0].tracks.last_mut().unwrap();
+        let TrackKind::Video { clips } = &mut track.kind else {
+            panic!("the last track is the video one");
+        };
+        &mut clips[0]
+    }
+
+    #[test]
+    fn a_video_track_should_round_trip_through_json() {
+        let project = video_project();
+        project.validate().unwrap();
+        let json = serde_json::to_value(&project).unwrap();
+        assert_eq!(json["videos"][0]["file"], "video/intro.mp4");
+        let kind = &json["timelines"][0]["tracks"][4]["kind"];
+        assert_eq!(kind["type"], "video");
+        assert_eq!(kind["clips"][0]["offset"], 5);
+        assert_eq!(serde_json::from_value::<Project>(json).unwrap(), project);
+    }
+
+    #[test]
+    fn a_project_without_videos_should_not_write_the_field() {
+        let json = serde_json::to_value(sample_project()).unwrap();
+        assert!(json.get("videos").is_none());
+    }
+
+    #[test]
+    fn validate_should_reject_a_video_clip_of_an_unknown_or_audio_asset() {
+        for asset in ["nope", "a1"] {
+            let mut project = video_project();
+            video_clip(&mut project).asset = asset.into();
+            assert!(
+                matches!(project.validate(), Err(ProjectError::Invalid(_))),
+                "{asset}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_should_reject_an_audio_clip_that_plays_a_video() {
+        let mut project = video_project();
+        let TrackKind::Audio { clips } = &mut project.timelines[0].tracks[0].kind else {
+            panic!("the first track is audio");
+        };
+        clips[0].asset = "v1".into();
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_video_id_taken_by_an_audio_asset() {
+        let mut project = video_project();
+        project.videos[0].id = "a1".into();
+        video_clip(&mut project).asset = "a1".into();
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_a_video_clip_of_no_length_or_a_blank_name() {
+        let mut project = video_project();
+        video_clip(&mut project).length = Some(0);
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+        let mut project = video_project();
+        video_clip(&mut project).name = Some("  ".into());
+        assert!(matches!(project.validate(), Err(ProjectError::Invalid(_))));
+    }
+
+    #[test]
+    fn validate_should_reject_video_paths_outside_the_video_folder() {
+        for bad in [
+            "audio/intro.mp4",
+            "video/../x.mp4",
+            "video/sub/x.mp4",
+            "video/",
+            "intro.mp4",
+        ] {
+            let mut project = video_project();
+            project.videos[0].file = bad.into();
+            assert!(
+                matches!(project.validate(), Err(ProjectError::InvalidAssetPath(_))),
+                "{bad} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn used_assets_should_count_video_clips() {
+        assert!(video_project().used_assets().contains("v1"));
     }
 
     #[test]
