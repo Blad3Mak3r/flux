@@ -1,8 +1,7 @@
 import { audioRoutingEdit, AudioRoutingStatus } from "../audio/routing";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { changePreferences } from "../preferences/store";
-import { freezeVoices, protectVoiceWork } from "../voice/store";
-import { VoiceSelector } from "../voice/VoiceSelector";
+import { protectVoiceWork } from "../voice/store";
 import { LegacyRoutes } from "../preferences/LegacyRoutes";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
@@ -26,7 +25,7 @@ import type {
 import { errorMessage, projectSetAutosave } from "../project/api";
 import { edit } from "../state/actions";
 import { isDirty } from "../state/doc";
-import { ask, sayError } from "../state/ui";
+import { ask, openSetup, sayError } from "../state/ui";
 import { setName } from "../state/edit";
 import {
   addDestination,
@@ -39,7 +38,6 @@ import { LanguageSelect } from "../i18n/LanguageSelect";
 import { dispatch, useDoc, useTimeline } from "../state/store";
 import { flushDocumentSync } from "../state/persist";
 import { renameTimeline, setTimecode } from "../state/timelines";
-import { reconnect } from "../transport/playback";
 import { isLost } from "../transport/lost";
 import { isPlaying } from "../transport/store";
 import { useTransport } from "../transport/store";
@@ -124,6 +122,7 @@ export function ProjectPage() {
   return (
     <div className="setup-fields">
       <TextField label={t("project.name")} value={project.name} onCommit={(name) => edit(setName(project, name))} />
+      <h4>{t("setup.project.autosave")}</h4>
       <label className="check-row">
         <input type="checkbox" checked={project.autosave.enabled} disabled={busy}
           onChange={(event) => void changeAutosave(event.target.checked, String(project.autosave.intervalSeconds))} />
@@ -134,9 +133,6 @@ export function ProjectPage() {
         onChange={(value) => void changeAutosave(project.autosave.enabled, value)}>
         {[15, 30, 60].map((seconds) => <option key={seconds} value={seconds}>{t("autosave.seconds", { seconds })}</option>)}
       </SelectField>
-      <VoiceSelector scope="project" value={project.voice} />
-      <button type="button" className="button" onClick={() => void freezeVoices()}>{t("voice.freeze")}</button>
-      <p className="field-note">{t("voice.freezeNote")}</p>
       <LegacyRoutes />
     </div>
   );
@@ -291,6 +287,7 @@ export function AudioPage({ devices }: { devices: Devices }) {
     <div className="setup-fields">
       <Scope />
       <p className="field-note">{t("setup.scope.shared")}</p>
+      <h4>{t("setup.audio.driver")}</h4>
       <SelectField
         label={t("out.driver")}
         value={driver}
@@ -309,12 +306,17 @@ export function AudioPage({ devices }: { devices: Devices }) {
           </option>
         ))}
       </SelectField>
+      <p className="field-note">{t("setup.audio.driverNote")}</p>
+      <h4>{t("routing.programme")}</h4>
+      <p className="field-note">{t("setup.audio.note")}</p>
       <AudioRoute
         kind="audio"
         deviceLabel="out.audioDevice"
         channelsLabel="out.programme"
         devices={devices}
       />
+      <h4>{t("setup.audio.preview")}</h4>
+      <p className="field-note">{t("setup.audio.previewNote")}</p>
       <AudioRoute
         kind="preview"
         deviceLabel="out.previewDevice"
@@ -358,12 +360,12 @@ export function AudioOutputsPage({ devices }: { devices: Devices }) {
       <Field label={t("routing.name")}>{({ id }) => <input id={id} value={name} disabled={adding} onChange={(event) => setName(event.target.value)} />}</Field>
       <button type="submit" className="button" disabled={adding}><PlusIcon />{t("routing.add")}</button>
     </form>
-    <details><summary>{t("routing.builtins")}</summary>
-      <div className="setup-fields">
-        <h4>{t("routing.programme")}</h4><AudioRoute kind="audio" deviceLabel="out.audioDevice" channelsLabel="routing.channels" devices={devices} />
-        <h4>{t("routing.operator")}</h4><AudioRoute kind="operator" deviceLabel="out.audioDevice" channelsLabel="routing.channels" devices={devices} />
-      </div>
-    </details>
+    <h4>{t("routing.builtins")}</h4>
+    <p className="field-note">{t("routing.builtinsNote")}</p>
+    <div className="button-row">
+      <button type="button" className="button" onClick={() => openSetup("audio")}>{t("routing.goProgramme")}</button>
+      <button type="button" className="button" onClick={() => openSetup("operator")}>{t("routing.goOperator")}</button>
+    </div>
     <ConfirmDialog open={removing !== null} title={t("routing.removeTitle")} body={t("routing.removeBody", { count: remove?.users ?? 0 })} detail={remove?.name ?? undefined} confirmLabel={t("routing.remove")}
       onCancel={() => setRemoving(null)} onConfirm={() => { if (removing) void audioRoutingEdit({ op: "remove", id: removing }); setRemoving(null); }} />
   </div>;
@@ -382,6 +384,7 @@ export function MetronomePage({ devices }: { devices: Devices }) {
       devices.audio.some((d) => d.name === route?.deviceName));
   return (
     <div className="setup-fields">
+      <p className="setup-intro">{t("setup.metronome.intro")}</p>
       <Scope project />
       <label className="setup-check">
         <input
@@ -410,6 +413,7 @@ export function MetronomePage({ devices }: { devices: Devices }) {
         channelsLabel="out.metronomeChannels"
         devices={devices}
       />
+      <p className="field-note">{t("setup.metronome.note")}</p>
       {click && route && (
         <RowStatus {...rowState(info ?? undefined, connected, lost)} />
       )}
@@ -425,6 +429,7 @@ export function LtcPage({ devices }: { devices: Devices }) {
   const lostMask = useTransport((p) => p.position?.ltcLost ?? 0);
   return (
     <div className="setup-fields">
+      <p className="setup-intro">{t("setup.ltc.intro")}</p>
       <p className="field-note">{t("setup.scope.shared")}</p>
       {signals.length === 0 && (
         <p className="empty-note">{t("setup.ltc.empty")}</p>
@@ -536,6 +541,7 @@ export function MtcPage({ devices }: { devices: Devices }) {
   const lostMask = useTransport((p) => p.position?.mtcLost ?? 0);
   return (
     <div className="setup-fields">
+      <p className="setup-intro">{t("setup.mtc.intro")}</p>
       <p className="field-note">{t("setup.scope.shared")}</p>
       {devices.midiError && (
         <p className="field-note">{t("out.midiUnavailable")}</p>
@@ -689,24 +695,11 @@ export function OscPage() {
   );
 }
 
-export function GeneralPage({ devices }: { devices: Devices }) {
-  const t = useT();
+export function GeneralPage() {
   return (
     <div className="setup-fields">
       <Scope />
       <LanguageSelect />
-      <button
-        type="button"
-        className="button"
-        onClick={() => {
-          devices.refresh();
-          reconnect(true);
-        }}
-      >
-        <RefreshIcon />
-        {t("out.refresh")}
-      </button>
-      <p className="field-note">{t("setup.general.refreshNote")}</p>
     </div>
   );
 }

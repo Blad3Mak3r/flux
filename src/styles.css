@@ -180,6 +180,10 @@ input:disabled {
   .editor-loading-panel progress {
     visibility: hidden;
   }
+
+  .setup-group-head svg {
+    transition: none;
+  }
 }
 
 .app {
@@ -2102,9 +2106,9 @@ input:disabled {
 /* ---- Setup dialog ---- */
 
 .dialog.setup {
-  width: 760px;
+  width: 780px;
   max-width: 92vw;
-  height: 520px;
+  height: 580px;
   max-height: 88vh;
   padding: 0;
 }
@@ -2130,25 +2134,74 @@ input:disabled {
 
 .setup-body {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
+  grid-template-columns: 210px minmax(0, 1fr);
   min-height: 0;
 }
 
 .setup-nav {
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
+  gap: 4px;
+  padding: 8px 0 12px;
   overflow: auto;
   border-right: 1px solid var(--rule);
 }
 
-.setup-nav button {
+.setup-group-pages {
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+}
+
+/* A group header folds its pages: smaller and engraved, so it never reads as a page itself. */
+.setup-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 14px 0 8px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.setup-group-head svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  transition: transform 120ms ease-out;
+}
+
+.setup-group-head[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.setup-group-head:hover {
+  color: var(--ink);
+}
+
+/* Folded over the open page: the header keeps its lit lamp so the selection is never lost. */
+.setup-group-lamp {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  background: var(--phosphor);
+}
+
+.setup-group-pages button {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  height: 34px;
-  padding: 0 14px 0 12px;
+  width: 100%;
+  height: 30px;
+  padding: 0 14px 0 26px;
   background: transparent;
   border: 0;
   color: var(--ink-dim);
@@ -2157,7 +2210,7 @@ input:disabled {
 }
 
 /* The marker is a square lamp, as everywhere else on the faceplate. */
-.setup-nav button > span:first-child::before {
+.setup-group-pages button > span:first-child::before {
   content: "";
   display: inline-block;
   width: 6px;
@@ -2167,23 +2220,23 @@ input:disabled {
   background: var(--lamp-off);
 }
 
-.setup-nav button:hover:not([aria-disabled="true"]) {
+.setup-group-pages button:hover:not([aria-disabled="true"]) {
   background: var(--panel-hi);
   color: var(--ink);
 }
 
-.setup-nav button[aria-selected="true"] {
+.setup-group-pages button[aria-current="page"] {
   background: var(--panel-lo);
   color: var(--ink);
   font-weight: 700;
 }
 
-.setup-nav button[aria-selected="true"] > span:first-child::before {
+.setup-group-pages button[aria-current="page"] > span:first-child::before {
   background: var(--phosphor);
 }
 
 /* Planned but not built: dimmed like a disabled control, and it says why in words. */
-.setup-nav button[aria-disabled="true"] {
+.setup-group-pages button[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -2300,13 +2353,25 @@ input:disabled {
 }
 
 .setup-foot {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 8px 20px;
   background: var(--panel-lo);
   border-top: 1px solid var(--rule);
   font-size: 12px;
   color: var(--ink-dim);
+}
+
+.setup-foot-status {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.setup-foot .button {
+  flex: none;
 }
 
 .setup-foot p {

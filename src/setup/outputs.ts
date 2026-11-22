@@ -1,22 +1,31 @@
 // Setup navigation and the existing MIDI port display helpers.
 import type { MtcOutputConfig } from "../project/types";
 
-/** The pages of the Setup dialog, in the order they are listed. */
-export const SETUP_SECTIONS = ["timeline", "project", "audio", "audioOutputs", "operator", "metronome", "ltc", "mtc", "osc", "control", "graphics", "general", "video"] as const;
-export type SetupSection = (typeof SETUP_SECTIONS)[number];
+/**
+ * The pages of the Setup dialog, gathered in the groups the page list folds into, in the order
+ * they are listed. Audio holds every sound the show plays and where it goes; Outputs, the timecode and show
+ * control the show sends out; Remote control, what drives FLUX
+ * from outside.
+ */
+export const SETUP_GROUPS = [
+  { id: "show", sections: ["project", "timeline"] },
+  { id: "audio", sections: ["audio", "audioOutputs", "metronome", "operator"] },
+  { id: "outputs", sections: ["video", "ltc", "mtc", "osc"] },
+  { id: "control", sections: ["controlMidi", "controlOsc", "http"] },
+  { id: "app", sections: ["graphics", "general"] },
+] as const;
+export type SetupGroup = (typeof SETUP_GROUPS)[number]["id"];
+export type SetupSection = (typeof SETUP_GROUPS)[number]["sections"][number];
 
-/** Video is listed so the user can see it is planned, but has no page yet. */
-export const isAvailable = (section: SetupSection): boolean => section !== "video";
+/** Every page, in the order they are listed. */
+export const SETUP_SECTIONS: readonly SetupSection[] = SETUP_GROUPS.flatMap((group) => group.sections);
 
-/** The section `step` places from `from`, wrapping round and skipping the ones that are not available. */
-export function stepSection(from: SetupSection, step: 1 | -1): SetupSection {
-  let at = SETUP_SECTIONS.indexOf(from);
-  for (let i = 0; i < SETUP_SECTIONS.length; i++) {
-    at = (at + step + SETUP_SECTIONS.length) % SETUP_SECTIONS.length;
-    if (isAvailable(SETUP_SECTIONS[at])) return SETUP_SECTIONS[at];
-  }
-  return from;
-}
+/** Video and HTTP are listed so the user can see they are planned, but have no page yet. */
+export const isAvailable = (section: SetupSection): boolean => section !== "video" && section !== "http";
+
+/** The group a page is listed in. */
+export const groupOf = (section: SetupSection): SetupGroup =>
+  SETUP_GROUPS.find((group) => (group.sections as readonly SetupSection[]).includes(section))!.id;
 
 /** An MTC output's port as one string, `""` when none is chosen: the value of its select. */
 export const portKey = ({ portName, portIndex = 0 }: MtcOutputConfig): string =>
