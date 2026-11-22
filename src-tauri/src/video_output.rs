@@ -164,10 +164,13 @@ impl VideoOutput {
         let (x, y) = (f64::from(at.x) / scale, f64::from(at.y) / scale);
         // On the editor's own display it is a window that can be moved aside, so a single screen
         // is not covered; on any other it fills the display.
-        let builder = Window::builder(app, LABEL)
+        let mut builder = Window::builder(app, LABEL)
             .title("FLUX video")
             .visible(true)
             .focused(false);
+        if let Some(icon) = app.default_window_icon().cloned() {
+            builder = builder.icon(icon).map_err(|err| err.to_string())?;
+        }
         let window = if display.main {
             builder
                 .inner_size(960.0, 540.0)
@@ -417,6 +420,15 @@ fn chosen_display(app: &AppHandle) -> Option<String> {
     preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
         .ok()
         .and_then(|prefs| prefs.video_display)
+}
+
+/// Closes the window when the last window of the editor goes, so the app quits with it: a window
+/// without a webview would otherwise keep it running with nothing to bring the editor back.
+pub fn window_gone(app: &AppHandle, label: &str) {
+    if label != LABEL && app.webview_windows().is_empty() {
+        app.state::<SharedVideoOutput>().close();
+        app.exit(0);
+    }
 }
 
 /// Opens the output on the display saved in the preferences, when there is one. Called at start.
