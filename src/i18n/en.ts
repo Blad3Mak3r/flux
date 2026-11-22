@@ -620,6 +620,7 @@ export const en = {
 
   "track.kind.midi": "MIDI",
   "track.kind.osc": "OSC",
+  "track.kind.video": "Video",
   "tracks.addMidi": "MIDI track",
   "tracks.addOsc": "OSC track",
   "menu.addMidiTrack": "Add MIDI track",

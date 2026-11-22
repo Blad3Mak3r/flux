@@ -29,8 +29,8 @@ import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
-import { ChevronRightIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, WaveIcon, VoiceIcon } from "./icons";
-import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu } from "./menus";
+import { ChevronRightIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, VideoIcon, WaveIcon, VoiceIcon } from "./icons";
+import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu, videoTrackMenu } from "./menus";
 
 export function laneHeight(track: Track): number {
   return track.kind.type === "audio" || track.kind.type === "operator" ? AUDIO_LANE_H : NOTES_LANE_H;
@@ -42,6 +42,7 @@ const KIND_ICONS = {
   notes: <NoteIcon />,
   midi: <MidiIcon />,
   osc: <OscIcon />,
+  video: <VideoIcon />,
 } as const;
 
 export const TrackHeader = memo(function TrackHeader({
@@ -73,7 +74,13 @@ export const TrackHeader = memo(function TrackHeader({
       onContextMenu={(event) =>
         menuAtPointer(
           event,
-          audio ? audioMenu(t, track) : track.kind.type === "notes" ? notesTrackMenu(t, track) : cueTrackMenu(t, track),
+          audio
+            ? audioMenu(t, track)
+            : track.kind.type === "notes"
+              ? notesTrackMenu(t, track)
+              : track.kind.type === "video"
+                ? videoTrackMenu(t, track)
+                : cueTrackMenu(t, track),
         )
       }
     >
@@ -544,7 +551,8 @@ export const TrackLane = memo(function TrackLane({
   // A double click on the empty part of a notes, MIDI or OSC lane adds one there.
   const addHere = (event: MouseEvent<HTMLDivElement>) => {
     const kind = track.kind.type;
-    if (kind === "audio" || event.target !== event.currentTarget) return;
+    // Video clips are not drawn or added from the timeline yet.
+    if (kind === "audio" || kind === "video" || event.target !== event.currentTarget) return;
     const { start } = activeTimeline(useDoc.getState()).timecode;
     const frame = start + snapFrame(Math.round(event.nativeEvent.offsetX / pxPerFrame), snapTargets());
     if (kind === "operator") void addOrder(track.id, frame - start);
@@ -564,7 +572,7 @@ export const TrackLane = memo(function TrackLane({
         const frame = start + Math.max(0, Math.round((event.clientX - event.currentTarget.getBoundingClientRect().left) / pxPerFrame));
         menuAtPointer(
           event,
-          emptyMenu(t, track.kind.type === "audio" ? undefined : { frame, trackId: track.id, kind: track.kind.type }),
+          emptyMenu(t, track.kind.type === "audio" || track.kind.type === "video" ? undefined : { frame, trackId: track.id, kind: track.kind.type }),
         );
       }}
     >
@@ -590,6 +598,8 @@ export const TrackLane = memo(function TrackLane({
             ))
           : track.kind.type === "operator"
             ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} fps={fps} pxPerFrame={pxPerFrame} />)
+          : track.kind.type === "video"
+            ? null
           : track.kind.events.map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
             ))}

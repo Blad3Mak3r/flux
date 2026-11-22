@@ -383,6 +383,11 @@ export function notesTrackMenu(t: Translate, track: Track): MenuItem[] {
   ];
 }
 
+/** A video track: only the track's own actions until clips can be placed on it. */
+export function videoTrackMenu(t: Translate, track: Track): MenuItem[] {
+  return [renameTrackItem(t, track), muteItem(t, track), "-", { label: t("menu.deleteTrack"), run: () => deleteTrack(track.id) }, "-", snapItem(t)];
+}
+
 /** A MIDI or OSC track: its header offers an event at the playhead and the track's own actions. */
 export function cueTrackMenu(t: Translate, track: Track): MenuItem[] {
   const kind = track.kind.type === "osc" ? "osc" : "midi";

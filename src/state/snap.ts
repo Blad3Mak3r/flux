@@ -56,6 +56,12 @@ function timelineItems(): SnapItem[] {
           const view = useVoice.getState().views[order.id];
           return { id: order.id, start: view?.start ?? order.at, end: view?.start != null && view.length != null ? view.start + view.length : undefined };
         });
+      case "video":
+        return track.kind.clips.map((clip) => ({
+          id: clip.id,
+          start: clip.start,
+          end: clip.length === undefined ? undefined : clip.start + clip.length,
+        }));
       default:
         return track.kind.events.map((event) => ({ id: event.id, start: event.at }));
     }

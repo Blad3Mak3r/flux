@@ -12,7 +12,7 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use super::error::{ProjectError, Result};
 use super::meta;
 use super::migrate;
-use super::model::{AudioAsset, FORMAT_VERSION, Project, check_asset_path};
+use super::model::{AudioAsset, FORMAT_VERSION, Project, check_asset_path, check_video_path};
 use super::preview::{AudioStamp, Preview, StoredPreview, preview_path};
 use flux_core::FrameRate;
 
@@ -39,6 +39,12 @@ impl ProjectArchive {
     /// Streams the audio entry stored at `file` (an asset's archive path).
     pub fn asset_reader(&mut self, file: &str) -> Result<impl Read + '_> {
         check_asset_path(file)?;
+        by_name(&mut self.archive, file)
+    }
+
+    /// Streams the video entry stored at `file` (a video's archive path).
+    pub fn video_reader(&mut self, file: &str) -> Result<impl Read + '_> {
+        check_video_path(file)?;
         by_name(&mut self.archive, file)
     }
 }
@@ -77,8 +83,13 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
     migrate::upgrade(&mut value, &file_date(path));
     let project: Project = serde_json::from_value(value)?;
     project.validate()?;
-    for asset in &project.assets {
-        by_name(&mut archive, &asset.file)?;
+    for file in project
+        .assets
+        .iter()
+        .map(|a| &a.file)
+        .chain(project.videos.iter().map(|v| &v.file))
+    {
+        by_name(&mut archive, file)?;
     }
 
     Ok((project, ProjectArchive { archive }))
@@ -255,6 +266,25 @@ fn write_archive(
         }
     }
 
+    for video in &project.videos {
+        let source = sources
+            .get(&video.id)
+            .ok_or_else(|| ProjectError::MissingAsset(video.file.clone()))?;
+        match source {
+            AssetSource::Disk(file) => {
+                zip.start_file(&video.file, stored)?;
+                io::copy(&mut BufReader::new(File::open(file)?), &mut zip)?;
+            }
+            AssetSource::Archive(archive_path) => {
+                let archive = match open_sources.entry(archive_path.as_path()) {
+                    Entry::Occupied(entry) => entry.into_mut(),
+                    Entry::Vacant(entry) => entry.insert(open_archive(archive_path)?),
+                };
+                zip.raw_copy_file(by_name(archive, &video.file)?)?;
+            }
+        }
+    }
+
     // Close the source handles before the caller renames over a possible source archive.
     drop(open_sources);
     zip.finish()?;
@@ -288,7 +318,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::model::tests::sample_project;
+    use crate::model::tests::{sample_project, video_project};
     use crate::preview::tests::stored;
 
     const AUDIO_BYTES: &[u8] = b"RIFF....fake wav payload";
@@ -332,6 +362,77 @@ mod tests {
             assert_eq!(opened, project);
             assert_eq!(read_asset(&mut archive, "audio/click.wav"), AUDIO_BYTES);
         }
+    }
+
+    const VIDEO_BYTES: &[u8] = b"....ftypisom fake mp4 payload";
+
+    fn video_sources(dir: &TempDir) -> HashMap<String, AssetSource> {
+        let mp4 = dir.path().join("intro.mp4");
+        fs::write(&mp4, VIDEO_BYTES).unwrap();
+        let mut sources = disk_sources(dir);
+        sources.insert("v1".to_owned(), AssetSource::Disk(mp4));
+        sources
+    }
+
+    #[test]
+    fn save_then_open_should_bundle_the_video_and_keep_it_when_resaving() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.flx");
+        let project = video_project();
+        save(&path, &project, &video_sources(&dir), &HashMap::new()).unwrap();
+
+        let (opened, mut archive) = open(&path).unwrap();
+        assert_eq!(opened, project);
+        assert_eq!(opened.format_version, FORMAT_VERSION);
+        let mut bytes = Vec::new();
+        archive
+            .video_reader("video/intro.mp4")
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, VIDEO_BYTES);
+        drop(archive);
+
+        let from_archive = HashMap::from([
+            ("a1".to_owned(), AssetSource::Archive(path.clone())),
+            ("v1".to_owned(), AssetSource::Archive(path.clone())),
+        ]);
+        let copy = dir.path().join("copy.flx");
+        save(&copy, &project, &from_archive, &HashMap::new()).unwrap();
+        assert_eq!(
+            entry_names(&copy),
+            ["audio/click.wav", "project.json", "video/intro.mp4"]
+        );
+    }
+
+    #[test]
+    fn open_should_reject_an_archive_missing_a_declared_video() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.flx");
+        let json = serde_json::to_vec(&video_project()).unwrap();
+        zip_with(
+            &path,
+            &[("project.json", &json), ("audio/click.wav", AUDIO_BYTES)],
+        );
+        assert!(matches!(
+            open(&path),
+            Err(ProjectError::MissingAsset(file)) if file == "video/intro.mp4"
+        ));
+    }
+
+    #[test]
+    fn video_reader_should_refuse_paths_outside_the_video_folder() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("show.flx");
+        save(
+            &path,
+            &video_project(),
+            &video_sources(&dir),
+            &HashMap::new(),
+        )
+        .unwrap();
+        let (_, mut archive) = open(&path).unwrap();
+        assert!(archive.video_reader("audio/click.wav").is_err());
     }
 
     #[test]
