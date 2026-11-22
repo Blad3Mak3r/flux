@@ -503,6 +503,13 @@ impl Session {
         self.change(|project, active| crate::routing::apply(project, active, op))
     }
 
+    /// Edits the slices of the video output (see [`crate::mapping`]).
+    pub fn edit_mapping(&mut self, op: crate::mapping::MappingOp) -> Result<ProjectState> {
+        self.change(|project, _| {
+            crate::mapping::apply(&mut project.output.video, op, || Uuid::new_v4().to_string())
+        })
+    }
+
     pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
         self.change(|project, _| project.output.edit(op))
     }
@@ -741,6 +748,13 @@ impl Session {
             self.recovery_revision,
             self.document.as_ref().map_or("", |d| d.active.as_str()),
         )
+    }
+
+    /// The slices of the video output (see [`crate::mapping`]).
+    pub fn video_slices(&self) -> &[crate::mapping::Slice] {
+        self.document
+            .as_ref()
+            .map_or(&[], |document| &document.project.output.video)
     }
 
     /// A copy of the timeline being edited and played.

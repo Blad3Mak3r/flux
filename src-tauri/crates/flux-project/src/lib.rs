@@ -11,6 +11,7 @@ mod migrate;
 mod model;
 pub mod operator;
 pub use operator::{Alignment, GeneratedVoice, OperatorOp, VoiceOrder, VoiceStatus, VoiceView};
+pub mod mapping;
 mod outputs;
 mod preview;
 pub mod recovery;
