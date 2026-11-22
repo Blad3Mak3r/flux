@@ -641,6 +641,32 @@ impl Session {
         }
     }
 
+    /// A file FFmpeg can open for a video: the imported file itself, or the entry of the archive it
+    /// lives in, copied once into `cache` (named by the asset's id, which never changes its bytes).
+    pub fn video_path(&self, asset: &VideoAsset, cache: &Path) -> Result<PathBuf> {
+        match self.sources.get(&asset.id) {
+            Some(AssetSource::Disk(path)) => Ok(path.clone()),
+            Some(AssetSource::Archive(path)) => {
+                let name = asset.file.strip_prefix(VIDEO_DIR).unwrap_or(&asset.file);
+                let target = cache.join(name);
+                if target.is_file() {
+                    return Ok(target);
+                }
+                fs::create_dir_all(cache)?;
+                let (_, mut archive) = archive::open(path)?;
+                // Written aside first, so a copy cut short is never taken for the video.
+                let partial = cache.join(format!("{name}.part"));
+                std::io::copy(
+                    &mut archive.video_reader(&asset.file)?,
+                    &mut fs::File::create(&partial)?,
+                )?;
+                fs::rename(&partial, &target)?;
+                Ok(target)
+            }
+            None => Err(ProjectError::MissingAsset(asset.id.clone())),
+        }
+    }
+
     /// The stored waveform of an asset, without decoding it: one generated in this session, or the one
     /// in the `.fxtc` the asset is read from if it was made from the same audio.
     pub fn preview(&self, asset: &AudioAsset) -> Result<Option<Preview>> {
@@ -1074,6 +1100,29 @@ mod tests {
             .read_to_end(&mut bytes)
             .unwrap();
         assert_eq!(bytes, b"not decoded here");
+    }
+
+    #[test]
+    fn video_path_should_copy_a_saved_video_out_of_the_archive_once() {
+        let dir = TempDir::new().unwrap();
+        let mp4 = dir.path().join("intro.mp4");
+        fs::write(&mp4, b"frames").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+        let state = session.import_video(&mp4, 0).unwrap();
+        let asset = state.project.videos[0].clone();
+        let cache = dir.path().join("cache");
+        assert_eq!(session.video_path(&asset, &cache).unwrap(), mp4);
+
+        let path = dir.path().join("show.flx");
+        session.save(&state.project, &path).unwrap();
+        let mut reopened = Session::default();
+        reopened.open(&path).unwrap();
+        let copied = reopened.video_path(&asset, &cache).unwrap();
+
+        assert!(copied.starts_with(&cache));
+        assert_eq!(fs::read(&copied).unwrap(), b"frames");
+        assert_eq!(reopened.video_path(&asset, &cache).unwrap(), copied);
     }
 
     #[test]

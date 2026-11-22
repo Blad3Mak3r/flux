@@ -14,6 +14,7 @@ mod show_commands;
 mod startup;
 mod transport_commands;
 mod update_commands;
+mod video_commands;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -111,6 +112,7 @@ pub fn run() {
             commands::project_open,
             commands::project_import_audio,
             commands::project_import_video,
+            video_commands::video_probe,
             commands::project_save,
             commands::project_set_autosave,
             recovery::recovery_list,
