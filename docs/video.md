@@ -67,6 +67,10 @@ The following steps of issue #106 add that output window and the timeline clips.
 refused with the reason, and then adds it on a new video track of the active timeline with a clip at the playhead.
 The file is copied into the project's `video/` folder when the project is saved, like audio.
 
+The dialog offers MP4, M4V, MOV and WebM. WebM (VP8, VP9 or AV1 in Matroska) uses FFmpeg's own VP8/VP9 decoders and
+dav1d for AV1. A WebM file has no frame count per stream, so the count comes from the container's duration. An alpha
+channel in VP8/VP9 WebM is not decoded yet: those frames show as opaque.
+
 ## Building
 
 FFmpeg's development files (headers and libraries) must be installed to build the workspace:
@@ -96,8 +100,9 @@ The shipped build is LGPL, so FFmpeg can be replaced by the user, as the licence
 
 ## Tests
 
-The tests need no GPU, display or hardware decoder. Two fixtures in `tests/fixtures/` (64x36, 50 frames, each a
-lighter grey than the one before, lossless H.264 with a keyframe every 12 frames, at 25 and 29.97 fps) check that
+The tests need no GPU, display or hardware decoder. Three fixtures in `tests/fixtures/` (64x36, 50 frames, each a
+lighter grey than the one before, with a keyframe every 12 frames: lossless H.264 in MP4 at 25 and 29.97 fps, and
+lossless VP9 in WebM at 25 fps) check that
 every frame decodes as a different picture and that seeking in any order gives the same frame as playing through.
 `source_frame` is tested at all four frame rates. To make a fixture again:
 
@@ -106,3 +111,6 @@ python3 -c "import sys; [sys.stdout.buffer.write(bytes([20+4*i])*64*36) for i in
   | ffmpeg -f rawvideo -pix_fmt gray -s 64x36 -r 25 -i - -c:v libx264 -qp 0 -pix_fmt yuv420p \
       -g 12 -bf 2 -movflags +faststart -map_metadata -1 -fflags +bitexact gray25.mp4
 ```
+
+For the WebM one, replace the encoder options with
+`-c:v libvpx-vp9 -lossless 1 -pix_fmt yuv420p -g 12 -map_metadata -1 -fflags +bitexact gray25.webm`.

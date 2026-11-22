@@ -34,7 +34,7 @@ const AUDIO_FILTER = {
 
 const VIDEO_FILTER = {
   name: "Video",
-  extensions: ["mp4", "m4v", "mov"],
+  extensions: ["mp4", "m4v", "mov", "webm"],
 };
 
 /** Backend errors arrive as plain message strings. */
