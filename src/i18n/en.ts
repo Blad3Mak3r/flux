@@ -359,6 +359,8 @@ export const en = {
   "inspector.expand": "Expand the inspector",
   "inspector.nothing": "Select a clip or a note to see its details.",
   "inspector.delete": "Delete",
+  "videoClip.title": "Video clip",
+  "videoClip.file": "Video file",
   "clip.title": "Audio clip",
   "clip.trimStart": "Trim the start of {name}",
   "clip.trimEnd": "Trim the end of {name}",

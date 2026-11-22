@@ -153,7 +153,7 @@ function editMenu(t: Translate): MenuItem[] {
     { label: t("menu.undo"), shortcut: mod("Z"), disabled: doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
     { label: t("menu.redo"), shortcut: mod("⇧+Z"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
     "-",
-    { label: t("menu.split"), shortcut: "S", disabled: ui.view !== "edit" || ui.selection?.kind !== "clip", run: () => void splitAtPlayhead() },
+    { label: t("menu.split"), shortcut: "S", disabled: ui.view !== "edit" || (ui.selection?.kind !== "clip" && ui.selection?.kind !== "video"), run: () => void splitAtPlayhead() },
     { label: t("menu.delete"), shortcut: "Del", disabled: !ui.selection, run: deleteSelection },
     { label: t("menu.deselect"), shortcut: "Esc", disabled: !ui.selection, run: () => select(null) },
   ];

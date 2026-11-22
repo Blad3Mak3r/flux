@@ -1502,6 +1502,21 @@ input:disabled {
   font-weight: 600;
 }
 
+/* The thumbnails of a video clip, side by side under its name; the clip's handles stay on top. */
+.clip-thumbs {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+.clip-thumbs > span {
+  flex: none;
+  background-repeat: no-repeat;
+}
+
 .clip-bpm,
 .clip-gain {
   margin-left: 8px;
@@ -3904,9 +3919,4 @@ input:disabled {
   .about-update[data-step="checking"] .lamp {
     animation: none;
   }
-}
-
-/* A video clip is not dragged yet: it only shows where it sits. */
-.clip-video {
-  cursor: default;
 }

@@ -20,11 +20,11 @@ export function clipLength(
 }
 
 /**
- * Length in timeline frames of a video clip: the frames of the video it shows (its trim, else the
- * rest of the video), at the video's own rate, else the guess while the video has not been read.
+ * Length in timeline frames of a video clip: its trim, which the backend counts at the timeline's
+ * rate, else the rest of the video, else the guess while the video has not been read.
  */
 export function videoClipLength(clip: VideoClip, video: VideoProbe | undefined, fps: number, guess: number): number {
+  if (clip.length !== undefined) return clip.length;
   if (!video) return guess;
-  const frames = clip.length ?? Math.max(0, video.frames - (clip.offset ?? 0));
-  return Math.round(((frames * video.rateDen) / video.rateNum) * fps);
+  return Math.max(0, Math.ceil(((video.frames * video.rateDen) / video.rateNum) * fps - 1e-6) - (clip.offset ?? 0));
 }

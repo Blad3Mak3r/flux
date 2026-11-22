@@ -104,6 +104,13 @@ export type ClipOp = "trimStart" | "trimEnd" | "fadeIn" | "fadeOut" | "split";
 export const clipEdit = (project: Project, id: string, op: ClipOp, frame: number) =>
   invoke<ProjectState>("clip_edit", { project, id, op, frame });
 
+/** What can be done to a video clip; the backend decides how (see `project/video_clips.rs`). */
+export type VideoClipOp = "move" | "trimStart" | "trimEnd" | "split" | "remove";
+
+/** Moves, trims, splits or removes a video clip of the active timeline at `frame` of it; answers with the project as it is now. */
+export const videoClipEdit = (project: Project, id: string, op: VideoClipOp, frame: number) =>
+  invoke<ProjectState>("video_clip_edit", { project, id, op, frame });
+
 /** What can be done to the names of tracks and clips, a clip's fade curves and its volume envelope; the backend decides how (see `project/item_ops.rs`). Envelope positions are in thousandths of a frame from the start of the audio file. */
 export type ItemOp =
   | { op: "renameTrack"; id: string; name: string }

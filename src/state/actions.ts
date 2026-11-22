@@ -2,6 +2,7 @@ import { operatorEdit, selectedOperatorTrack } from "../voice/store";
 // Edits to the open document, built from the latest project at the moment they run. Each is one
 // stable function, so it can be handed to any component without a closure over a stale project.
 
+import { editVideoClip } from "./clips";
 import type { Project, Tempo } from "../project/types";
 import { activeTimeline } from "./doc";
 import { dispatch, useDoc } from "./store";
@@ -54,6 +55,11 @@ export function deleteSelection(): void {
   if (selection.kind === "operator") { void operatorEdit({ op: "removeOrder", id: selection.id }); select(null); return; }
   if (selection.kind === "event") {
     void removeCueEvent(selection.id);
+    select(null);
+    return;
+  }
+  if (selection.kind === "video") {
+    void editVideoClip(selection.id, "remove", 0);
     select(null);
     return;
   }

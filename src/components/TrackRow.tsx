@@ -10,7 +10,7 @@ import type { ClipOp } from "../project/api";
 import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
-import { editClip } from "../state/clips";
+import { editClip, editVideoClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
 import { useDoc } from "../state/store";
@@ -19,6 +19,7 @@ import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
 import { clipLength, videoClipLength } from "../timeline/clip";
+import type { VideoStrip } from "../video/api";
 import { fadePoints } from "../audio/fade";
 import { traceStyle } from "../timeline/palette";
 import type { SnapTarget } from "../timeline/snap";
@@ -155,7 +156,14 @@ export const TrackHeader = memo(function TrackHeader({
  */
 function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
-  const move = kind === "operator" ? (id: string, at: number) => operatorEdit({ op: "moveOrder", id, at }) : kind === "event" ? moveCueEvent : moveTo;
+  const move =
+    kind === "operator"
+      ? (id: string, at: number) => operatorEdit({ op: "moveOrder", id, at })
+      : kind === "event"
+        ? moveCueEvent
+        : kind === "video"
+          ? (id: string, at: number) => editVideoClip(id, "move", at)
+          : moveTo;
   const [delta, setDelta] = useState(0);
   const origin = useRef<{ x: number; position: number; targets: SnapTarget[] } | null>(null);
 
@@ -199,7 +207,8 @@ type HandleProps = ReturnType<typeof useHandle>["handlers"];
  * works out what it means (a trim, a fade) and its answer replaces the clip, so a drag is one step
  * of undo. The handle shows where it was dropped until the answer arrives.
  */
-function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
+function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number, video = false) {
+  const edit = (to: number) => (video ? editVideoClip(id, op as "trimStart" | "trimEnd", to) : editClip(id, op, to));
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
   const originX = useRef<number | null>(null);
   const targets = useRef<SnapTarget[]>([]);
@@ -212,7 +221,7 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
       event.currentTarget.setPointerCapture(event.pointerId);
       originX.current = event.clientX;
       targets.current = snapTargets([id]);
-      select({ kind: "clip", id });
+      select({ kind: video ? "video" : "clip", id });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (originX.current === null) return;
@@ -222,7 +231,7 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
     onPointerUp() {
       originX.current = null;
       setSnapGuide(null);
-      if (drag && drag.to !== frame) void editClip(id, op, drag.to).finally(() => setDrag(null));
+      if (drag && drag.to !== frame) void edit(drag.to).finally(() => setDrag(null));
       else setDrag(null);
     },
     onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -230,7 +239,7 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
       event.preventDefault();
       event.stopPropagation();
       const step = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 25 : 1);
-      void editClip(id, op, Math.max(0, frame + step));
+      void edit(Math.max(0, frame + step));
     },
   };
   return { at, handlers };
@@ -432,7 +441,7 @@ function ClipBlock({
   );
 }
 
-/** A video clip: where it sits and how long it lasts. Trim, split and thumbnails come later. */
+/** A video clip: moved by dragging it, trimmed by its edges, cut with S at the playhead. The backend makes each edit. */
 function VideoBlock({
   clip,
   guessLength,
@@ -446,14 +455,38 @@ function VideoBlock({
   fps: number;
   pxPerFrame: number;
 }) {
+  const t = useT();
+  const selected = useUi((ui) => ui.selection?.id === clip.id);
   const probe = useDoc((doc) => doc.video[clip.asset]);
   const name = useDoc((doc) => clip.name ?? doc.project.videos?.find((video) => video.id === clip.asset)?.name ?? clip.asset);
   const length = videoClipLength(clip, probe, fps, guessLength);
+  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame);
+  const end = clip.start + length;
+  const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame, true);
+  const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame, true);
+  const left = trimStart.at + (shown - clip.start);
+  const width = Math.max(24, (trimEnd.at - trimStart.at) * pxPerFrame);
+  const strip = useDoc((doc) => doc.thumbs[clip.asset]);
   return (
     <div
       className="clip clip-video"
-      style={{ left: frameX(clip.start, pxPerFrame), width: Math.max(24, length * pxPerFrame), height: rowHeight - 12 }}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      data-selected={selected}
+      style={{ left: frameX(left, pxPerFrame), width, height: rowHeight - 12 }}
+      {...pointer}
     >
+      {strip && (
+        <VideoThumbTiles
+          strip={strip}
+          offset={(clip.offset ?? 0) + (trimStart.at - clip.start)}
+          width={width}
+          height={rowHeight - 14}
+          fps={fps}
+          pxPerFrame={pxPerFrame}
+        />
+      )}
       <span className="clip-label">
         {name}
         {probe && (
@@ -462,6 +495,54 @@ function VideoBlock({
           </span>
         )}
       </span>
+      <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
+      <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
+    </div>
+  );
+}
+
+/** Most tiles a clip draws, so a long clip zoomed far in stays light. */
+const MAX_TILES = 400;
+
+/**
+ * The thumbnails along a video clip, each as tall as the clip and showing the video where it starts
+ * on the timeline. `offset` is the first frame of the video the clip shows, in timeline frames.
+ */
+function VideoThumbTiles({
+  strip,
+  offset,
+  width,
+  height,
+  fps,
+  pxPerFrame,
+}: {
+  strip: VideoStrip;
+  offset: number;
+  width: number;
+  height: number;
+  fps: number;
+  pxPerFrame: number;
+}) {
+  const tile = (strip.width * height) / strip.height;
+  const count = Math.min(MAX_TILES, Math.ceil(width / tile));
+  return (
+    <div className="clip-thumbs" aria-hidden="true">
+      {Array.from({ length: count }, (_, k) => {
+        const seconds = (offset + (k * tile) / pxPerFrame) / fps;
+        const index = Math.min(strip.count - 1, Math.max(0, Math.floor(seconds / strip.seconds)));
+        return (
+          <span
+            key={k}
+            style={{
+              width: tile,
+              height,
+              backgroundImage: `url(${strip.url})`,
+              backgroundSize: `${tile * strip.count}px ${height}px`,
+              backgroundPosition: `${-index * tile}px 0`,
+            }}
+          />
+        );
+      })}
     </div>
   );
 }

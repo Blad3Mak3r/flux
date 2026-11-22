@@ -361,6 +361,8 @@ export const es: Record<MessageKey, string> = {
   "inspector.expand": "Expandir el inspector",
   "inspector.nothing": "Selecciona un clip o una nota para ver sus detalles.",
   "inspector.delete": "Eliminar",
+  "videoClip.title": "Clip de vídeo",
+  "videoClip.file": "Archivo de vídeo",
   "clip.title": "Clip de audio",
   "clip.trimStart": "Recortar el inicio de {name}",
   "clip.trimEnd": "Recortar el final de {name}",

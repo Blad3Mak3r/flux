@@ -1,4 +1,5 @@
 import { TrackRouteField } from "../audio/routing";
+import { editVideoClip } from "../state/clips";
 import { VoiceSelector } from "../voice/VoiceSelector";
 import { OrderPanel } from "../voice/VoicePanel";
 import { useT } from "../i18n";
@@ -115,6 +116,31 @@ function SelectionPanel({
       <TrackColorField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
       <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
     </div>;
+  }
+  if (selection?.kind === "video") {
+    for (const track of timeline.tracks) {
+      if (track.kind.type !== "video") continue;
+      const clip = track.kind.clips.find((c) => c.id === selection.id);
+      if (!clip) continue;
+      const { frameRate, start } = timeline.timecode;
+      return (
+        <div className="panel-body">
+          <h3>{t("videoClip.title")}</h3>
+          <dl className="facts">
+            <dt>{t("videoClip.file")}</dt>
+            <dd>{project.videos?.find((v) => v.id === clip.asset)?.name ?? clip.asset}</dd>
+          </dl>
+          <TrackNameField track={track} />
+          <TimecodeField
+            label={t("clip.start")}
+            frame={start + clip.start}
+            rate={frameRate}
+            onCommit={(frame) => void editVideoClip(clip.id, "move", Math.max(0, frame - start))}
+          />
+          <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
+        </div>
+      );
+    }
   }
   if (selection?.kind === "operator") {
     for (const track of timeline.tracks) {
