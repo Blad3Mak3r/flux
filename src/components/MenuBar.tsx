@@ -1,21 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
-import { AboutDialog } from "./AboutDialog";
 import { BrandMark } from "./BrandMark";
-import { isDirty } from "../state/doc";
-import { useDoc } from "../state/store";
-import { closeMenu, openMenu, useUi } from "../state/ui";
+import { ViewSwitch } from "../live/ViewSwitch";
+import { closeMenu, openAbout, openMenu, useUi } from "../state/ui";
 import { BAR_MENUS } from "./menus";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
 export function MenuBar() {
-  const name = useDoc((doc) => doc.project.name);
-  const dirty = useDoc(isDirty);
+  const view = useUi((ui) => ui.view);
   // Only which title is open: the items themselves are built when it opens.
   const owner = useUi((ui) => ui.menu?.owner);
   const { t } = useI18n();
   const bar = useRef<HTMLDivElement>(null);
-  const [about, setAbout] = useState(false);
 
   const show = (index: number) => {
     const { id, items } = BAR_MENUS[index];
@@ -43,39 +39,34 @@ export function MenuBar() {
   });
 
   return (
-    <nav className="menubar" aria-label={t("app.title")} data-tauri-drag-region>
-      <BrandMark onClick={() => setAbout(true)} />
-      {about ? <AboutDialog onClose={() => setAbout(false)} /> : null}
+    <nav className="menubar" data-view={view} aria-label={t("app.title")} data-tauri-drag-region>
+      <div className="menubar-start" data-tauri-drag-region>
+        <BrandMark onClick={openAbout} />
 
-      <div ref={bar} className="menu-group" role="menubar" aria-label={t("app.title")}>
-        {BAR_MENUS.map(({ id, label }, index) => (
-          <button
-            key={id}
-            type="button"
-            role="menuitem"
-            data-menu={id}
-            aria-haspopup="menu"
-            aria-expanded={owner === id}
-            onClick={() => (owner === id ? closeMenu() : show(index))}
-            // Once one is open, the others open by pointing at them, as in every desktop app.
-            onPointerEnter={() => owner && owner !== id && show(index)}
-          >
-            {t(label)}
-          </button>
-        ))}
+        <div ref={bar} className="menu-group" role="menubar" aria-label={t("app.title")}>
+          {BAR_MENUS.map(({ id, label }, index) => (
+            <button
+              key={id}
+              type="button"
+              role="menuitem"
+              data-menu={id}
+              aria-haspopup="menu"
+              aria-expanded={owner === id}
+              onClick={() => (owner === id ? closeMenu() : show(index))}
+              // Once one is open, the others open by pointing at them, as in every desktop app.
+              onPointerEnter={() => owner && owner !== id && show(index)}
+            >
+              {t(label)}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <p className="doc-name" title={name} data-tauri-drag-region>
-        {name}
-        {dirty ? (
-          <span className="dirty" title={t("project.unsaved")}>
-            <span aria-hidden="true">●</span>
-            <span className="visually-hidden">{t("project.unsaved")}</span>
-          </span>
-        ) : null}
-      </p>
+      <ViewSwitch />
 
-      {hasNativeWindow() ? <WindowControls /> : null}
+      <div className="menubar-end" data-tauri-drag-region>
+        {hasNativeWindow() ? <WindowControls /> : null}
+      </div>
     </nav>
   );
 }

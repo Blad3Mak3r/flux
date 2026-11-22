@@ -4,6 +4,7 @@ import { addOperator, addOrder, selectedOperatorTrack, operatorEdit } from "../v
 // menu opens, from the latest state, and call the same functions the keyboard does.
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { MessageKey, Translate } from "../i18n/messages";
 import type { Cue } from "../live/api";
 import type { AudioClip, Note, Track } from "../project/types";
@@ -24,7 +25,10 @@ import {
 import {
   GRID_STEPS,
   askRemoveTimeline,
+  openAbout,
+  openSetlists,
   openSetup,
+  openTimelineEditor,
   rename,
   select,
   setGridStep,
@@ -50,6 +54,7 @@ import { exportDiagnosticsFile, openLogFolder } from "../state/diagnostics";
 import { exportCueSheetFile } from "../state/export";
 import { seek, stop, toggle } from "../transport/playback";
 import { currentFrame } from "../transport/store";
+import { DOCS_URL, ISSUES_URL } from "./links";
 import { hasNativeWindow } from "./WindowControls";
 
 /** The modifier key as this platform prints it, for shortcut hints. */
@@ -84,12 +89,12 @@ export function snapMenu(t: Translate): MenuItem[] {
   return [
     snapItem(t),
     "-",
-    { label: t("snap.to"), disabled: true, run: () => {} },
+    { heading: t("snap.to") },
     source("grid"),
     source("items"),
     source("playhead"),
     "-",
-    { label: t("snap.grid"), disabled: true, run: () => {} },
+    { heading: t("snap.grid") },
     ...GRID_STEPS.map((step): MenuItem => ({
       label: t(`snap.step.${step}`),
       checked: gridStep === step,
@@ -171,8 +176,11 @@ function trackMenu(t: Translate): MenuItem[] {
   const index = track ? activeTimeline(state().doc).tracks.indexOf(track) : -1;
   const last = activeTimeline(state().doc).tracks.length - 1;
   return [
+    { heading: t("menu.section.add") },
     ...addTracksMenu(t),
     "-",
+    // Names the track the rows below act on, so nobody renames or deletes the wrong one.
+    { heading: track ? track.name || t("menu.untitledTrack") : t("menu.noTrack") },
     {
       label: t("menu.renameTrack"),
       shortcut: "F2",
@@ -201,9 +209,12 @@ function trackMenu(t: Translate): MenuItem[] {
 /** What the Timeline menu of the bar offers, for the active timeline. */
 function timelineBarMenu(t: Translate): MenuItem[] {
   const { project } = state().doc;
-  const active = activeTimeline(state().doc).id;
+  const timeline = activeTimeline(state().doc);
+  const active = timeline.id;
   return [
     { label: t("menu.timeline.new"), run: () => void addTimeline(t) },
+    "-",
+    { heading: timeline.name || t("timeline.default") },
     { label: t("menu.timeline.rename"), run: () => void openTimelineSettings(active) },
     { label: t("menu.timeline.delete"), disabled: project.timelines.length === 1, run: () => askRemoveTimeline(active) },
     "-",
@@ -211,6 +222,7 @@ function timelineBarMenu(t: Translate): MenuItem[] {
     "-",
     { label: t("menu.timeline.previous"), shortcut: mod("PgUp"), run: () => void stepTimeline(-1) },
     { label: t("menu.timeline.next"), shortcut: mod("PgDn"), run: () => void stepTimeline(1) },
+    { label: t("menu.timeline.goTo"), disabled: project.timelines.length < 2, submenu: allTimelinesMenu(t) },
   ];
 }
 
@@ -251,18 +263,22 @@ export function timelineMenu(t: Translate, id: string): MenuItem[] {
 }
 
 function viewMenu(t: Translate): MenuItem[] {
-  const { view, collapsed, follow, detached } = state().ui;
+  const { view, collapsed, follow, detached, editSurface } = state().ui;
   const locked = isPlaying();
+  const editing = view === "edit";
   return [
-    { label: t("view.edit"), shortcut: mod("1"), checked: view === "edit", disabled: locked && view !== "edit", run: () => setView("edit") },
-    { label: t("view.live"), shortcut: mod("2"), checked: view === "live", disabled: locked && view !== "live", run: () => setView("live") },
+    { label: t("view.edit"), shortcut: mod("1"), checked: editing, disabled: locked && !editing, run: () => setView("edit") },
+    { label: t("view.live"), shortcut: mod("2"), checked: !editing, disabled: locked && editing, run: () => setView("live") },
+    "-",
+    { label: t("menu.view.timeline"), checked: editing && editSurface === "timeline", disabled: !editing, run: openTimelineEditor },
+    { label: t("show.workspace"), checked: editing && editSurface === "setlists", disabled: locked, run: openSetlists },
     "-",
     { label: t("timeline.zoomIn"), shortcut: mod("="), run: () => zoomBy(ZOOM_STEP) },
     { label: t("timeline.zoomOut"), shortcut: mod("-"), run: () => zoomBy(1 / ZOOM_STEP) },
     "-",
     { label: t("inspector.legend"), shortcut: mod("B"), checked: !collapsed, run: toggleInspector },
     { label: t("timeline.follow"), checked: follow && !detached, run: toggleFollow },
-    snapItem(t),
+    { label: t("context.snap"), submenu: snapMenu(t) },
   ];
 }
 
@@ -270,8 +286,6 @@ function transportMenu(t: Translate): MenuItem[] {
   const second = () => nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
   const by = (frames: () => number) => () => seek(currentFrame() + frames());
   return [
-    { label: t("check.title"), disabled: isPlaying(), run: openShowCheck },
-    "-",
     { label: t("menu.playPause"), shortcut: "Space", run: () => void toggle() },
     { label: t("menu.stop"), shortcut: "Home", run: () => void stop() },
     "-",
@@ -279,13 +293,21 @@ function transportMenu(t: Translate): MenuItem[] {
     { label: t("menu.frameForward"), shortcut: "→", run: by(() => 1) },
     { label: t("menu.secondBack"), shortcut: "⇧+←", run: by(() => -second()) },
     { label: t("menu.secondForward"), shortcut: "⇧+→", run: by(second) },
+    "-",
+    { label: t("check.title"), disabled: isPlaying(), run: openShowCheck },
   ];
 }
 
 function helpMenu(t: Translate): MenuItem[] {
+  const web = hasNativeWindow();
   return [
+    { label: t("menu.docs"), disabled: !web, run: () => void openUrl(DOCS_URL) },
+    { label: t("menu.reportIssue"), disabled: !web, run: () => void openUrl(ISSUES_URL) },
+    "-",
     { label: t("menu.openLogs"), run: () => void openLogFolder() },
     { label: t("menu.exportDiagnostics"), run: () => void exportDiagnosticsFile() },
+    "-",
+    { label: t("about.open"), run: openAbout },
   ];
 }
 

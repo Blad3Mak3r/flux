@@ -5,7 +5,6 @@ import { useVoice } from "../voice/store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import { useT } from "../i18n";
-import { ViewSwitch } from "../live/ViewSwitch";
 import { TimelineStrip } from "./TimelineStrip";
 import { FollowToggle } from "./FollowToggle";
 import { SnapControl } from "./SnapControl";
@@ -236,7 +235,6 @@ export function Timeline() {
         <TempoBar />
         <SnapControl />
         <FollowToggle />
-        <ViewSwitch />
       </div>
 
       <div className="screen-body" style={{ "--scrollbar-h": `${scrollbarHeight}px` } as CSSProperties}>
