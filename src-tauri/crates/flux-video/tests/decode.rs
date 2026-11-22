@@ -1,10 +1,13 @@
 //! Decodes the fixtures: 50 frames of 64x36, each a flat grey a little lighter than the one before,
-//! encoded losslessly with a keyframe every 12 frames. Software decoding only, no GPU or display.
+//! encoded losslessly with a keyframe every 12 frames, as H.264 in MP4 and VP9 in WebM. Software
+//! decoding only, no GPU or display.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use flux_video::{Rate, VideoError, VideoFile, VideoPlayer};
+
+const FIXTURES: [&str; 3] = ["gray25.mp4", "gray2997.mp4", "gray25.webm"];
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -27,23 +30,24 @@ fn levels_in_order(name: &str) -> Vec<u8> {
 
 #[test]
 fn open_should_read_the_size_rate_and_frame_count() {
-    for (name, rate) in [
-        ("gray25.mp4", Rate::new(25, 1)),
-        ("gray2997.mp4", Rate::new(30_000, 1_001)),
+    for (name, rate, codec) in [
+        ("gray25.mp4", Rate::new(25, 1), "h264"),
+        ("gray2997.mp4", Rate::new(30_000, 1_001), "h264"),
+        ("gray25.webm", Rate::new(25, 1), "vp9"),
     ] {
         let file = VideoFile::open(&fixture(name)).unwrap();
         let info = file.info();
         assert_eq!((info.width, info.height), (64, 36), "{name}");
         assert_eq!(info.rate, rate, "{name}");
         assert_eq!(info.frames, 50, "{name}");
-        assert_eq!(info.codec, "h264", "{name}");
+        assert_eq!(info.codec, codec, "{name}");
         assert!(!info.has_audio, "{name}");
     }
 }
 
 #[test]
 fn every_frame_should_be_a_different_picture() {
-    for name in ["gray25.mp4", "gray2997.mp4"] {
+    for name in FIXTURES {
         let levels = levels_in_order(name);
         assert!(levels.windows(2).all(|w| w[0] < w[1]), "{name}: {levels:?}");
     }
@@ -51,7 +55,7 @@ fn every_frame_should_be_a_different_picture() {
 
 #[test]
 fn a_seek_in_any_order_should_give_the_same_frame_as_playing_through() {
-    for name in ["gray25.mp4", "gray2997.mp4"] {
+    for name in FIXTURES {
         let played = levels_in_order(name);
         let mut file = VideoFile::open(&fixture(name)).unwrap();
         // Back and forth, across keyframes (every 12), onto them and just before them.

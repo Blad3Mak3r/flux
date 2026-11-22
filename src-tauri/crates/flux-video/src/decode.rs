@@ -100,7 +100,14 @@ impl VideoFile {
         let frames = u64::try_from(stream.frames())
             .ok()
             .filter(|&n| n > 0)
-            .unwrap_or_else(|| ticks_to_index(stream.duration().max(0), time_base, rate));
+            .or_else(|| {
+                Some(ticks_to_index(stream.duration().max(0), time_base, rate)).filter(|&n| n > 0)
+            })
+            // Matroska and WebM keep no count or duration per stream: the container's duration.
+            .unwrap_or_else(|| {
+                let micros = ffmpeg_next::Rational::new(1, ffmpeg_next::ffi::AV_TIME_BASE);
+                ticks_to_index(input.duration().max(0), micros, rate)
+            });
         let decoder = CodecContext::from_parameters(stream.parameters())?
             .decoder()
             .video()?;
