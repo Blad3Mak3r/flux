@@ -18,6 +18,13 @@ const levelItems = (level: Element) =>
 function Items({ items }: { items: MenuItem[] }) {
   return items.map((item, index) => {
     if (item === "-") return <div key={index} className="menu-rule" role="separator" />;
+    if ("heading" in item) {
+      return (
+        <div key={index} className="menu-heading" role="presentation">
+          {item.heading}
+        </div>
+      );
+    }
     if ("submenu" in item) {
       return (
         // Open while pointed at or, from the keyboard, while `data-open` is set; leaving by focus closes it.

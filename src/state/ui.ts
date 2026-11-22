@@ -58,8 +58,15 @@ interface MenuRow {
   disabled?: boolean;
 }
 
-/** One row of a menu: a context menu or a menu of the menu bar. `"-"` is a separator; a row with a `submenu` opens it beside it. */
-export type MenuItem = "-" | (MenuRow & { run: () => void }) | (MenuRow & { submenu: MenuItem[] });
+/**
+ * One row of a menu: a context menu or a menu of the menu bar. `"-"` is a separator, a `heading` names
+ * the group of rows below it (it is not a row the focus stops on), and a row with a `submenu` opens it beside it.
+ */
+export type MenuItem =
+  | "-"
+  | { heading: string }
+  | (MenuRow & { run: () => void })
+  | (MenuRow & { submenu: MenuItem[] });
 
 /** The menu on show, at a point of the window; `owner` is the menu bar title it hangs from. */
 export interface OpenMenu {
@@ -99,6 +106,8 @@ interface UiState {
   /** The page of the Setup dialog that is open, or `null` while it is closed. */
   setup: SetupSection | null;
   showCheck: boolean;
+  /** The About dialog, opened from the brand mark or Help. */
+  about: boolean;
   menu: OpenMenu | null;
   /** The timeline waiting for the user to confirm that it is removed. */
   removing: string | null;
@@ -201,6 +210,7 @@ export const useUi = create<UiState>()(() => ({
   pending: null,
   setup: null,
   showCheck: false,
+  about: false,
   menu: null,
   removing: null,
 }));
@@ -346,6 +356,8 @@ export function menuAtPointer(
 }
 
 export const askRemoveTimeline = (id: string) => set({ removing: id });
+export const openAbout = () => set({ about: true, menu: null });
+export const closeAbout = () => set({ about: false });
 export const clearRemoving = () => set({ removing: null });
 
 export const ask = (pending: Pending | null) => set({ pending });
