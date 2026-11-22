@@ -1,8 +1,8 @@
-//! Draws video frames on an output window through the GPU (wgpu): the picture is fitted to the
-//! window keeping its shape, with black around it, and the window is black when there is none.
-//!
-//! The renderer is one window and one picture for now. Composition of several layers, slices of the
-//! picture and several outputs (the Resolume-style mapping) build on the same device later.
+//! Draws video frames on an output window through the GPU (wgpu). The picture reaches the window as
+//! [`Quad`]s: each takes a rectangle of the picture and stretches it between four corners of the
+//! window, with the perspective of a projector seen at an angle (a "corner pin"). With no quads the
+//! whole picture is fitted to the window keeping its shape, with black around it; the window is
+//! black when there is no picture.
 
 use thiserror::Error;
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
@@ -29,6 +29,30 @@ pub struct Picture<'a> {
     pub rgba: &'a [u8],
 }
 
+/// A rectangle of the picture shown between four points of the window: the slice of a mapping.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Quad {
+    /// `[x, y, width, height]` of the picture, each 0 to 1, from its top left corner.
+    pub input: [f32; 4],
+    /// Where the rectangle's top left, top right, bottom right and bottom left corners go, as
+    /// `[x, y]` from 0 to 1 of the window's width and height, from its top left corner.
+    pub corners: [[f32; 2]; 4],
+}
+
+/// Most quads drawn at once.
+pub const MAX_QUADS: usize = 64;
+
+/// A corner of a quad as the GPU reads it: its place in clip space and its texture coordinate,
+/// multiplied by a weight that undoes the perspective (see [`vertices`]).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Vertex {
+    pub pos: [f32; 2],
+    pub uvq: [f32; 3],
+}
+
+const VERTEX_SIZE: u64 = size_of::<Vertex>() as u64;
+
 struct Uploaded {
     id: u64,
     width: u32,
@@ -50,6 +74,7 @@ pub struct Screen {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    vertices: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     picture: Option<Uploaded>,
@@ -63,25 +88,25 @@ pub type Errors = std::sync::Arc<std::sync::Mutex<Option<String>>>;
 const SHADER: &str = r"
 struct Out {
     @builtin(position) pos: vec4f,
-    @location(0) uv: vec2f,
+    @location(0) uvq: vec3f,
 };
 
-// One triangle that covers the viewport; the viewport is where the picture goes.
 @vertex
-fn vs(@builtin(vertex_index) i: u32) -> Out {
-    let uv = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+fn vs(@location(0) pos: vec2f, @location(1) uvq: vec3f) -> Out {
     var out: Out;
-    out.pos = vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
-    out.uv = uv;
+    out.pos = vec4f(pos, 0.0, 1.0);
+    out.uvq = uvq;
     return out;
 }
 
 @group(0) @binding(0) var picture: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;
 
+// Dividing by the weight here, after the interpolation, keeps straight lines of the picture
+// straight across a quad seen in perspective.
 @fragment
 fn fs(in: Out) -> @location(0) vec4f {
-    return textureSample(picture, linear_sampler, in.uv);
+    return textureSample(picture, linear_sampler, in.uvq.xy / in.uvq.z);
 }
 ";
 
@@ -180,7 +205,11 @@ impl Screen {
                 module: &shader,
                 entry_point: Some("vs"),
                 compilation_options: Default::default(),
-                buffers: &[],
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: VERTEX_SIZE,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3],
+                })],
             },
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -200,12 +229,19 @@ impl Screen {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let vertices = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("quads"),
+            size: VERTEX_SIZE * 6 * MAX_QUADS as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         Ok(Self {
             surface,
             device,
             queue,
             config,
             pipeline,
+            vertices,
             layout,
             sampler,
             picture: None,
@@ -227,12 +263,33 @@ impl Screen {
         }
     }
 
-    /// Draws `picture` fitted to the window, or black for `None`. Waits for the display's next
-    /// refresh, so a loop calling it runs at the display's rate.
-    pub fn draw(&mut self, picture: Option<Picture<'_>>) -> Result<(), RenderError> {
+    /// Draws `picture` through `quads` (at most [`MAX_QUADS`]), or fitted to the window when there
+    /// are none; black for no picture. Waits for the display's next refresh, so a loop calling it
+    /// runs at the display's rate.
+    pub fn draw(
+        &mut self,
+        picture: Option<Picture<'_>>,
+        quads: &[Quad],
+    ) -> Result<(), RenderError> {
         if let Some(picture) = picture {
             self.upload(picture);
         }
+        let shown = picture.and(self.picture.as_ref()).map(|uploaded| {
+            let fitted;
+            let quads = if quads.is_empty() {
+                fitted = [fitted_quad(
+                    (uploaded.width, uploaded.height),
+                    (self.config.width, self.config.height),
+                )];
+                &fitted[..]
+            } else {
+                &quads[..quads.len().min(MAX_QUADS)]
+            };
+            let data: Vec<Vertex> = quads.iter().flat_map(vertices).collect();
+            self.queue
+                .write_buffer(&self.vertices, 0, &vertex_bytes(&data));
+            data.len() as u32
+        });
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -261,15 +318,11 @@ impl Screen {
                 })],
                 ..Default::default()
             });
-            if let Some(uploaded) = picture.and(self.picture.as_ref()) {
-                let (x, y, w, h) = fit(
-                    (uploaded.width, uploaded.height),
-                    (self.config.width, self.config.height),
-                );
-                pass.set_viewport(x, y, w, h, 0.0, 1.0);
+            if let (Some(count), Some(uploaded)) = (shown, self.picture.as_ref()) {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &uploaded.bind_group, &[]);
-                pass.draw(0..3, 0..1);
+                pass.set_vertex_buffer(0, self.vertices.slice(..));
+                pass.draw(0..count, 0..1);
             }
         }
         self.queue.submit([encoder.finish()]);
@@ -360,9 +413,84 @@ pub fn fit(picture: (u32, u32), window: (u32, u32)) -> (f32, f32, f32, f32) {
     ((ww - w) / 2.0, (wh - h) / 2.0, w, h)
 }
 
+/// The quad that shows the whole picture fitted to the window, as [`fit`] places it.
+pub fn fitted_quad(picture: (u32, u32), window: (u32, u32)) -> Quad {
+    let (x, y, w, h) = fit(picture, window);
+    let (ww, wh) = (window.0.max(1) as f32, window.1.max(1) as f32);
+    let (left, top, right, bottom) = (x / ww, y / wh, (x + w) / ww, (y + h) / wh);
+    Quad {
+        input: [0.0, 0.0, 1.0, 1.0],
+        corners: [[left, top], [right, top], [right, bottom], [left, bottom]],
+    }
+}
+
+/// The two triangles of `quad`. Each corner's texture coordinate is weighted by how far it is from
+/// where the quad's diagonals cross, relative to the opposite corner; the fragment shader divides
+/// the weight out again, which maps the rectangle onto the four corners in perspective instead of
+/// folding it along the diagonal the triangles share.
+pub fn vertices(quad: &Quad) -> [Vertex; 6] {
+    let [x, y, w, h] = quad.input;
+    let uv = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+    let p = quad
+        .corners
+        .map(|[cx, cy]| [cx * 2.0 - 1.0, 1.0 - cy * 2.0]);
+    let weights = diagonal_weights(&p);
+    let corner = |i: usize| Vertex {
+        pos: p[i],
+        uvq: [uv[i][0] * weights[i], uv[i][1] * weights[i], weights[i]],
+    };
+    [
+        corner(0),
+        corner(1),
+        corner(2),
+        corner(0),
+        corner(2),
+        corner(3),
+    ]
+}
+
+/// For corners `p` in order around the quad: `(d[i] + d[i+2]) / d[i+2]`, with `d` each corner's
+/// distance to where the diagonals cross. All ones when the diagonals do not cross inside (a
+/// folded or degenerate quad), which draws it without perspective rather than not at all.
+fn diagonal_weights(p: &[[f32; 2]; 4]) -> [f32; 4] {
+    let sub = |a: [f32; 2], b: [f32; 2]| [a[0] - b[0], a[1] - b[1]];
+    let cross = |a: [f32; 2], b: [f32; 2]| a[0] * b[1] - a[1] * b[0];
+    let (r, s) = (sub(p[2], p[0]), sub(p[3], p[1]));
+    let denominator = cross(r, s);
+    if denominator.abs() < 1e-9 {
+        return [1.0; 4];
+    }
+    let q0 = sub(p[1], p[0]);
+    let t = cross(q0, s) / denominator;
+    let u = cross(q0, r) / denominator;
+    if !(0.0..=1.0).contains(&t) || !(0.0..=1.0).contains(&u) {
+        return [1.0; 4];
+    }
+    let center = [p[0][0] + t * r[0], p[0][1] + t * r[1]];
+    let d = p.map(|corner| {
+        let [dx, dy] = sub(corner, center);
+        (dx * dx + dy * dy).sqrt()
+    });
+    std::array::from_fn(|i| {
+        let opposite = d[(i + 2) % 4];
+        if opposite < 1e-9 {
+            1.0
+        } else {
+            (d[i] + opposite) / opposite
+        }
+    })
+}
+
+fn vertex_bytes(vertices: &[Vertex]) -> Vec<u8> {
+    vertices
+        .iter()
+        .flat_map(|v| v.pos.iter().chain(&v.uvq).flat_map(|f| f.to_ne_bytes()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SHADER, fit};
+    use super::{Quad, SHADER, fit, fitted_quad, vertices};
 
     #[test]
     fn the_shader_should_parse_and_validate() {
@@ -383,5 +511,32 @@ mod tests {
             (420.0, 0.0, 1080.0, 1080.0)
         );
         assert_eq!(fit((1280, 720), (1920, 1080)), (0.0, 0.0, 1920.0, 1080.0));
+    }
+
+    #[test]
+    fn a_rectangle_should_have_no_perspective() {
+        let quad = fitted_quad((1080, 1080), (1920, 1080));
+        assert_eq!(quad.corners[0], [420.0 / 1920.0, 0.0]);
+        for v in vertices(&quad) {
+            assert!((v.uvq[2] - 2.0).abs() < 1e-5, "{v:?}");
+        }
+    }
+
+    #[test]
+    fn a_trapezoid_should_weigh_its_wide_side_more() {
+        // The top edge is half as wide as the bottom: the picture is seen leaning away.
+        let quad = Quad {
+            input: [0.0, 0.0, 1.0, 1.0],
+            corners: [[0.25, 0.0], [0.75, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        };
+        let v = vertices(&quad);
+        // The narrow top is far away: its corners (0, 1) weigh less than the bottom's (2, 3).
+        assert!(v[0].uvq[2] < v[2].uvq[2]);
+        // Divided out, every corner still samples its own corner of the picture.
+        let uv = |i: usize| [v[i].uvq[0] / v[i].uvq[2], v[i].uvq[1] / v[i].uvq[2]];
+        assert_eq!(
+            (uv(0), uv(1), uv(2), uv(5)),
+            ([0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0])
+        );
     }
 }
