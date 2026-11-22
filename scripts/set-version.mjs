@@ -66,9 +66,10 @@ export const TARGETS = {
   "src-tauri/crates/flux-engine/Cargo.toml": [place(crateVersion)],
   "src-tauri/crates/flux-project/Cargo.toml": [place(crateVersion)],
   "src-tauri/crates/flux-voice/Cargo.toml": [place(crateVersion)],
-  // The app and its five crates.
+  "src-tauri/crates/flux-video/Cargo.toml": [place(crateVersion)],
+  // The app and its six crates.
   "src-tauri/Cargo.lock": [
-    place(/(name = "flux-(?:timecode|core|project|audio|engine|voice)"\r?\nversion = ")([^"]+)(")/, 6),
+    place(/(name = "flux-(?:timecode|core|project|audio|engine|voice|video)"\r?\nversion = ")([^"]+)(")/, 7),
   ],
   "README.md": [
     place(/(<img alt="Version )([^"]+)(")/),
