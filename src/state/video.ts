@@ -2,7 +2,7 @@
 
 import { errorMessage } from "../project/api";
 import type { VideoAsset } from "../project/types";
-import { probeVideo, videoThumbnails } from "../video/api";
+import { probeVideo, videoSound, videoThumbnails } from "../video/api";
 import { dispatch } from "./store";
 import { sayError } from "./ui";
 
@@ -12,7 +12,7 @@ export function probeVideos(assets: VideoAsset[]): Promise<void> {
     assets.map((asset) =>
       probeVideo(asset)
         .then((info) => dispatch({ type: "video", id: asset.id, info }))
-        .then(() => loadThumbs(asset))
+        .then(() => Promise.all([loadThumbs(asset), loadSound(asset)]))
         .catch((err) => sayError(`${asset.name}: ${errorMessage(err)}`)),
     ),
   ).then(() => undefined);
@@ -23,4 +23,19 @@ async function loadThumbs(asset: VideoAsset): Promise<void> {
   const { data, ...strip } = await videoThumbnails(asset);
   const blob = await (await fetch(data)).blob();
   dispatch({ type: "thumbs", id: asset.id, strip: { ...strip, url: URL.createObjectURL(blob) } });
+}
+
+/** Fetches the waveform and tempo of a video's sound; a video without sound has neither. */
+async function loadSound(asset: VideoAsset): Promise<void> {
+  const sound = await videoSound(asset);
+  if (!sound) return;
+  dispatch({
+    type: "audio",
+    id: asset.id,
+    info: {
+      seconds: sound.durationSeconds,
+      peaks: { values: sound.peaks, perSecond: sound.peaksPerSecond },
+      bpm: sound.bpm ?? undefined,
+    },
+  });
 }

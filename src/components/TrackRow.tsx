@@ -467,6 +467,11 @@ function VideoBlock({
   const left = trimStart.at + (shown - clip.start);
   const width = Math.max(24, (trimEnd.at - trimStart.at) * pxPerFrame);
   const strip = useDoc((doc) => doc.thumbs[clip.asset]);
+  const sound = useDoc((doc) => doc.audio[clip.asset]);
+  const offset = (clip.offset ?? 0) + (trimStart.at - clip.start);
+  // With sound, the pictures take the top of the clip and the waveform the bottom.
+  const inner = rowHeight - 14;
+  const waveHeight = sound?.peaks ? Math.round(inner * 0.4) : 0;
   return (
     <div
       className="clip clip-video"
@@ -480,15 +485,30 @@ function VideoBlock({
       {strip && (
         <VideoThumbTiles
           strip={strip}
-          offset={(clip.offset ?? 0) + (trimStart.at - clip.start)}
+          offset={offset}
           width={width}
-          height={rowHeight - 14}
+          height={inner - waveHeight}
           fps={fps}
           pxPerFrame={pxPerFrame}
         />
       )}
+      {sound?.peaks && (
+        <span className="clip-video-wave" style={{ height: waveHeight }}>
+          <ClipWave
+            seed={clip.asset}
+            width={width}
+            height={waveHeight}
+            origin={frameX(left, pxPerFrame)}
+            color="currentColor"
+            peaks={sound.peaks}
+            pxPerSecond={pxPerFrame * fps}
+            startSeconds={offset / fps}
+          />
+        </span>
+      )}
       <span className="clip-label">
         {name}
+        {sound?.bpm !== undefined && <span className="clip-bpm">{sound.bpm} BPM</span>}
         {probe && (
           <span className="clip-bpm">
             {probe.width}×{probe.height} {probe.codec}

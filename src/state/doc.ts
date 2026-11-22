@@ -14,6 +14,8 @@ export interface AssetAudio {
   seconds: number;
   /** Kept as one object, so what draws it can tell by identity whether the waveform changed. */
   peaks?: Peaks;
+  /** The tempo the backend found in a video's sound. An audio file keeps its tempo in the project. */
+  bpm?: number;
 }
 
 export interface Doc {
