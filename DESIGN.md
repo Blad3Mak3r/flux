@@ -127,6 +127,10 @@ components:
 
 The public name is **FLUX**, always uppercase. The modular F and the FLUX wordmark form the app's brand mark, with an 8px gap and 13px bold system lettering at 0.16em tracking. The launcher uses 22px lettering and a 12px gap. The symbol is decorative beside the readable name; an interactive mark keeps the translated About label. The existing instrument palette, controls and app icon are retained.
 
+### About
+
+A 380px dialog opened from the brand mark or Help > About FLUX. A centred nameplate (40px symbol, 20px FLUX, a one-line tagline, the version in a 1px-ruled measure-face chip and the developer) sits over a recessed Updates panel and a row of quiet text links (Documentation, GitHub, Report a problem). The Updates panel reads like an output row: a 10px lamp and a status sentence. Off while idle, blinking amber while checking (steady under reduced motion), phosphor when up to date, amber when a version is available or installing, vermilion on a fault, with the raw error below in the measure face. It checks once when the dialog opens. A found version offers a primary "Install X and restart" spanning the row and "What's new" (the GitHub Release); installing shows a thin indeterminate bar; a failed install offers to try that version again. Without the desktop shell the panel says updates live in the desktop app and its controls are disabled.
+
 The app is an oscilloscope-style faceplate, not a dashboard. A matte charcoal-blue panel carries silkscreened legends, square engraved keys and small state lamps; set into it is a deep teal-black screen etched with a graticule, on which time is read off a ruler and clips and cues are drawn as phosphor and amber traces. The scene is a booth or a stage, so the system is dark by commitment: there is no light theme and none should be added.
 
 Time comes first. The timecode is a 5x7 dot-matrix readout at the top left of the faceplate, transport keys sit in the centre, output lamps at the right. Below, a ruler over graticule lanes with track legends on the left, and an inspector on the right. It is Operate mode: dense, measurable, quiet until something is live.
