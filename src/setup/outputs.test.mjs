@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isAvailable, portChoices, portKey, portLabel, splitPortKey, stepSection } from "./outputs.ts";
+import { SETUP_SECTIONS, groupOf, isAvailable, portChoices, portKey, portLabel, splitPortKey } from "./outputs.ts";
 
 test("ports that share a name are told apart by their place among them", () => {
   const names = ["Hub", "Other", "Hub"];
@@ -11,10 +11,12 @@ test("ports that share a name are told apart by their place among them", () => {
 
 });
 
-test("stepSection wraps round and skips the section that is not available", () => {
-  assert.equal(isAvailable("video"), false);
-  assert.equal(stepSection("project", 1), "audio");
-  assert.equal(stepSection("general", 1), "timeline");
-  assert.equal(stepSection("timeline", -1), "general");
-  assert.equal(stepSection("project", -1), "timeline");
+test("every page is listed once, in its group, and only the planned ones are unavailable", () => {
+  assert.equal(new Set(SETUP_SECTIONS).size, SETUP_SECTIONS.length);
+  assert.deepEqual(SETUP_SECTIONS.filter((section) => !isAvailable(section)), ["video", "http"]);
+  assert.equal(groupOf("ltc"), "outputs");
+  assert.equal(groupOf("audioOutputs"), "outputs");
+  assert.equal(groupOf("audio"), "audio");
+  assert.equal(groupOf("project"), "show");
+  assert.equal(groupOf("general"), "app");
 });
