@@ -34,7 +34,7 @@ import { ChevronRightIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, Vi
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu, videoTrackMenu } from "./menus";
 
 export function laneHeight(track: Track): number {
-  return track.kind.type === "audio" || track.kind.type === "operator" ? AUDIO_LANE_H : NOTES_LANE_H;
+  return track.kind.type === "audio" || track.kind.type === "operator" || track.kind.type === "video" ? AUDIO_LANE_H : NOTES_LANE_H;
 }
 
 const KIND_ICONS = {
@@ -57,7 +57,7 @@ export const TrackHeader = memo(function TrackHeader({
   onGrab: (event: PointerEvent<HTMLElement>, id: string) => void;
 }) {
   const t = useT();
-  const audio = track.kind.type === "audio" || track.kind.type === "operator";
+  const audio = track.kind.type === "audio" || track.kind.type === "operator" || track.kind.type === "video";
   const outputName = useAudioOutputName();
   const output = usePreferences((p) => p.output.trackRoutes?.find((r) => r.trackId === track.id)?.output);
   const selected = useUi((ui) => ui.selection?.kind === "track" && ui.selection.id === track.id);
