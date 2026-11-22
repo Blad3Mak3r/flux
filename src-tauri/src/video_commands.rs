@@ -247,3 +247,40 @@ pub async fn video_thumbnails(
         .await
         .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
+
+/// What the timeline draws of a video's sound: its waveform, as for an audio file, and its tempo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoSound {
+    pub duration_seconds: f64,
+    pub peaks_per_second: u32,
+    /// `[min0, max0, min1, max1, ...]` as signed bytes, full scale at -128 and 127.
+    pub peaks: Vec<i8>,
+    /// Beats per minute, or `None` when the sound shows no steady pulse.
+    pub bpm: Option<f64>,
+}
+
+/// Decodes the sound of a video (or takes it from the audio cache, where playback finds it too)
+/// and answers with its waveform and tempo; `None` for a video without sound.
+#[tauri::command]
+pub async fn video_sound(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
+    asset: VideoAsset,
+) -> std::result::Result<Option<VideoSound>, AudioError> {
+    video_cache(&app)?;
+    let (session, audio) = (Arc::clone(&session), Arc::clone(&audio));
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(
+            load_audio(&session, &audio, &asset)?.map(|decoded| VideoSound {
+                duration_seconds: decoded.duration_seconds(),
+                peaks_per_second: flux_audio::PEAKS_PER_SECOND,
+                peaks: flux_audio::peaks(&decoded),
+                bpm: flux_audio::detect_bpm(&decoded),
+            }),
+        )
+    })
+    .await
+    .map_err(|err| AudioError::Worker(err.to_string()))?
+}
