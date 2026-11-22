@@ -72,7 +72,10 @@ function Launcher() {
   };
 
   return (
-    <main className="launcher" data-tauri-drag-region>
+    <main className="launcher" data-tauri-drag-region data-finished={finished || undefined}>
+      <div className="launcher-scope" aria-hidden="true">
+        <span className="launcher-sweep" />
+      </div>
       <BrandMark />
       <DotMatrix text="00:00:00:00" label={t("readout.label")} />
       <ul className="startup" aria-live="polite">
