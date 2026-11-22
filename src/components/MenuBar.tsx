@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
-import { AboutDialog } from "./AboutDialog";
 import { BrandMark } from "./BrandMark";
 import { ViewSwitch } from "../live/ViewSwitch";
-import { closeAbout, closeMenu, openAbout, openMenu, useUi } from "../state/ui";
+import { closeMenu, openAbout, openMenu, useUi } from "../state/ui";
 import { BAR_MENUS } from "./menus";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
@@ -13,7 +12,6 @@ export function MenuBar() {
   const owner = useUi((ui) => ui.menu?.owner);
   const { t } = useI18n();
   const bar = useRef<HTMLDivElement>(null);
-  const about = useUi((ui) => ui.about);
 
   const show = (index: number) => {
     const { id, items } = BAR_MENUS[index];
@@ -44,7 +42,6 @@ export function MenuBar() {
     <nav className="menubar" data-view={view} aria-label={t("app.title")} data-tauri-drag-region>
       <div className="menubar-start" data-tauri-drag-region>
         <BrandMark onClick={openAbout} />
-        {about ? <AboutDialog onClose={closeAbout} /> : null}
 
         <div ref={bar} className="menu-group" role="menubar" aria-label={t("app.title")}>
           {BAR_MENUS.map(({ id, label }, index) => (

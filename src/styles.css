@@ -420,47 +420,159 @@ input:disabled {
 }
 
 .dialog.about {
-  width: 280px;
-  padding: 28px 24px 22px;
-  text-align: center;
+  position: relative;
+  width: 380px;
+  max-width: 92vw;
+  padding: 0;
 }
 
 .dialog.about[open] {
   display: grid;
-  justify-items: center;
-}
-
-.dialog.about img {
-  height: 36px;
-  width: auto;
-  margin-bottom: 14px;
-}
-
-.dialog.about h2 {
-  margin-bottom: 4px;
 }
 
 .dialog.about p {
   margin-bottom: 0;
-  font-size: 12px;
 }
 
-.dialog.about .about-update {
+.about-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* The nameplate: symbol, name, what it is for, and which build this is. */
+.about-head {
   display: grid;
   justify-items: center;
-  gap: 8px;
-  margin-top: 16px;
+  gap: 6px;
+  padding: 32px 28px 24px;
+  text-align: center;
 }
 
-.dialog.about .about-update p {
-  min-height: 1.4em;
+.about-head img {
+  height: 40px;
+  width: auto;
+  margin-bottom: 8px;
+}
+
+.dialog.about .about-head h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 0.18em;
+}
+
+.dialog.about .about-tagline {
+  color: var(--ink-dim);
+}
+
+.dialog.about .about-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.about-version {
+  padding: 2px 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  font-family: var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* Updates: a recessed panel with a lamp and a status word, like an output row on the faceplate. */
+.about-update {
+  display: grid;
+  gap: 12px;
+  padding: 18px 28px 22px;
+  background: var(--panel-lo);
+  border-block: 1px solid var(--rule);
+}
+
+.dialog.about .about-update-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 2.8em;
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
-.dialog.about .icon-button {
-  position: absolute;
-  top: 6px;
-  right: 6px;
+.about-update-status .lamp {
+  flex: none;
+  margin-top: 4px;
+}
+
+.about-update .lamp[data-state="cue"] {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
+.about-update[data-step="checking"] .lamp {
+  animation: about-lamp 900ms steps(2, jump-none) infinite;
+}
+
+@keyframes about-lamp {
+  to {
+    background: var(--amber-dim);
+    border-color: var(--amber-dim);
+  }
+}
+
+.dialog.about .about-update-detail {
+  margin-top: -6px;
+  padding-left: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px var(--font-measure);
+  color: var(--ink-faint);
+}
+
+.about-update progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  accent-color: var(--amber);
+}
+
+.about-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.about-update-actions .button:first-child {
+  flex: 1;
+  justify-content: center;
+}
+
+.about-links {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 16px;
+}
+
+.about-link {
+  height: 28px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.about-link:hover:not(:disabled) {
+  background: var(--panel-hi);
+  border-color: var(--rule);
+  color: var(--ink);
 }
 
 .dirty {
@@ -3630,3 +3742,9 @@ input:disabled {
 .controls-lane-label { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 3px 12px; border: 0; border-block: 1px solid var(--rule); background: var(--panel-lo); color: var(--ink-dim); font-size: 11px; cursor: pointer; text-align: left; }
 .controls-lane-label:hover { color: var(--ink); background: var(--panel-hi); }
 .controls-lane-label .icon { width: 13px; height: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .about-update[data-step="checking"] .lamp {
+    animation: none;
+  }
+}
