@@ -432,10 +432,6 @@ function ClipBlock({
   );
 }
 
-/**
- * A note on its lane: a line at its start with the text beside it. One with a length is drawn as a
- * box as long as it lasts, so what is on show at a point of the timeline can be read off the ruler.
- */
 /** A video clip: where it sits and how long it lasts. Trim, split and thumbnails come later. */
 function VideoBlock({
   clip,
@@ -470,6 +466,10 @@ function VideoBlock({
   );
 }
 
+/**
+ * A note on its lane: a line at its start with the text beside it. One with a length is drawn as a
+ * box as long as it lasts, so what is on show at a point of the timeline can be read off the ruler.
+ */
 function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPerFrame: number }) {
   const t = useT();
   const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, note.length ?? 0, pxPerFrame);
