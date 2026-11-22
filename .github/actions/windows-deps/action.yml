@@ -26,7 +26,7 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
-        $name = 'ffmpeg-n7.1-latest-win64-lgpl-shared-7.1'
+        $name = 'ffmpeg-n8.1-latest-win64-lgpl-shared-8.1'
         $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
         Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$name.zip" -OutFile $zip
         Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
