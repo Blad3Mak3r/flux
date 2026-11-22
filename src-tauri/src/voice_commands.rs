@@ -417,6 +417,17 @@ pub async fn operator_preflight(
         report.extend(flux_engine::preflight::check_hardware(
             &project, &output, &hardware,
         ));
+        let uses_video = project.timelines.iter().any(|timeline| {
+            timeline.tracks.iter().any(|track| {
+                matches!(&track.kind, flux_project::TrackKind::Video { clips } if !clips.is_empty())
+            })
+        });
+        let chosen = prefs.video_display.as_deref();
+        report.check_video(
+            uses_video,
+            chosen,
+            chosen.is_some_and(|id| crate::video_output::connected(&app, id)),
+        );
         Ok(report)
     })
     .await

@@ -27,6 +27,10 @@ pub enum IssueCode {
     LtcCollision,
     MtcCollision,
     EmptyTrack,
+    /// The display chosen for the video output is not connected.
+    VideoDisplayMissing,
+    /// The show has video clips but the video output is off.
+    VideoOutputOff,
 }
 
 /// The part of the show an issue belongs to; the dialog groups its list by it.
@@ -237,6 +241,27 @@ pub fn check_routes(
 
 impl Report {
     /// Adds issues found by another check and recounts errors (blocking) and warnings.
+    /// What the video output needs: the show has video clips, and the display chosen for them is
+    /// `chosen` (`None` when the output is off), connected or not.
+    pub fn check_video(&mut self, uses_video: bool, chosen: Option<&str>, connected: bool) {
+        let code = match chosen {
+            _ if !uses_video => return,
+            None => IssueCode::VideoOutputOff,
+            Some(_) if !connected => IssueCode::VideoDisplayMissing,
+            Some(_) => return,
+        };
+        self.extend(vec![Issue {
+            code,
+            area: Area::Outputs,
+            blocking: code == IssueCode::VideoDisplayMissing,
+            timeline_id: None,
+            timeline_name: None,
+            order_id: None,
+            name: chosen.unwrap_or_default().to_owned(),
+            frame: None,
+        }]);
+    }
+
     pub fn extend(&mut self, issues: Vec<Issue>) {
         self.issues.extend(issues);
         self.tally();
@@ -417,6 +442,29 @@ pub fn check_hardware(project: &Project, output: &OutputConfig, hardware: &Hardw
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_video_should_warn_when_off_and_block_when_the_display_is_gone() {
+        let codes = |uses, chosen, connected| {
+            let mut report = Report::default();
+            report.check_video(uses, chosen, connected);
+            report
+                .issues
+                .iter()
+                .map(|issue| (issue.code, issue.blocking))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(codes(false, None, false), vec![]);
+        assert_eq!(codes(true, Some("HDMI-1"), true), vec![]);
+        assert_eq!(
+            codes(true, None, false),
+            vec![(IssueCode::VideoOutputOff, false)]
+        );
+        assert_eq!(
+            codes(true, Some("HDMI-1"), false),
+            vec![(IssueCode::VideoDisplayMissing, true)]
+        );
+    }
     use flux_project::{
         Alignment, FrameRate, GeneratedVoice, LtcOutput, MidiEvent, MidiMessage, MidiPortRef,
         MtcOutput, OscEvent, Track, VoiceOrder,
