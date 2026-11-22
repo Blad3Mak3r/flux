@@ -7,7 +7,7 @@ import { memo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
-import type { AudioClip, MidiEvent, Note, OscEvent, Track } from "../project/types";
+import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
 import { editClip } from "../state/clips";
@@ -18,7 +18,7 @@ import { menuAtPointer, rename, select, setSnapGuide, useUi } from "../state/ui"
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
-import { clipLength } from "../timeline/clip";
+import { clipLength, videoClipLength } from "../timeline/clip";
 import { fadePoints } from "../audio/fade";
 import { traceStyle } from "../timeline/palette";
 import type { SnapTarget } from "../timeline/snap";
@@ -436,6 +436,40 @@ function ClipBlock({
  * A note on its lane: a line at its start with the text beside it. One with a length is drawn as a
  * box as long as it lasts, so what is on show at a point of the timeline can be read off the ruler.
  */
+/** A video clip: where it sits and how long it lasts. Trim, split and thumbnails come later. */
+function VideoBlock({
+  clip,
+  guessLength,
+  rowHeight,
+  fps,
+  pxPerFrame,
+}: {
+  clip: VideoClip;
+  guessLength: number;
+  rowHeight: number;
+  fps: number;
+  pxPerFrame: number;
+}) {
+  const probe = useDoc((doc) => doc.video[clip.asset]);
+  const name = useDoc((doc) => clip.name ?? doc.project.videos?.find((video) => video.id === clip.asset)?.name ?? clip.asset);
+  const length = videoClipLength(clip, probe, fps, guessLength);
+  return (
+    <div
+      className="clip clip-video"
+      style={{ left: frameX(clip.start, pxPerFrame), width: Math.max(24, length * pxPerFrame), height: rowHeight - 12 }}
+    >
+      <span className="clip-label">
+        {name}
+        {probe && (
+          <span className="clip-bpm">
+            {probe.width}×{probe.height} {probe.codec}
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPerFrame: number }) {
   const t = useT();
   const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, note.length ?? 0, pxPerFrame);
@@ -599,7 +633,9 @@ export const TrackLane = memo(function TrackLane({
           : track.kind.type === "operator"
             ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} fps={fps} pxPerFrame={pxPerFrame} />)
           : track.kind.type === "video"
-            ? null
+            ? track.kind.clips.map((clip) => (
+                <VideoBlock key={clip.id} clip={clip} guessLength={guessLength} rowHeight={height} fps={fps} pxPerFrame={pxPerFrame} />
+              ))
           : track.kind.events.map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
             ))}

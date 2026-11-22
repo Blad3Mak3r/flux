@@ -1,6 +1,7 @@
 // The open document: the project, where it lives on disk, and the undo history.
 
 import type { Project, Timeline } from "../project/types";
+import type { VideoProbe } from "../video/api";
 
 /** The waveform the backend decoded: `[min, max]` byte pairs, `perSecond` of them per second. */
 export interface Peaks {
@@ -27,6 +28,8 @@ export interface Doc {
   saved: Project | null;
   /** Real length and waveform of the assets the backend has decoded, by asset id. */
   audio: Record<string, AssetAudio>;
+  /** What FFmpeg read from the videos, by asset id. */
+  video: Record<string, VideoProbe>;
 }
 
 export type DocAction =
@@ -38,6 +41,7 @@ export type DocAction =
   /** The backend says which timeline is active, e.g. after an undo took one away. */
   | { type: "active"; id: string }
   | { type: "audio"; id: string; info: AssetAudio }
+  | { type: "video"; id: string; info: VideoProbe }
   /** A tempo read from the audio of a file opened with none: derived data, so it is no edit (no history, not unsaved work). */
   | { type: "derivedBpm"; id: string; bpm: number }
   | { type: "edit"; project: Project }
@@ -49,7 +53,7 @@ export type DocAction =
 const HISTORY_LIMIT = 200;
 
 export function initialDoc(project: Project): Doc {
-  return { project, active: project.timelines[0]?.id ?? "", path: null, past: [], future: [], saved: null, audio: {} };
+  return { project, active: project.timelines[0]?.id ?? "", path: null, past: [], future: [], saved: null, audio: {}, video: {} };
 }
 
 /** The active timeline. A project always has one; the first stands in while the backend catches up. */
@@ -72,6 +76,7 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
         future: [],
         saved: action.path === null ? null : action.project,
         audio: {},
+        video: {},
       };
     case "restore":
       return {
@@ -82,9 +87,12 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
         future: [],
         saved: action.saved,
         audio: {},
+        video: {},
       };
     case "audio":
       return { ...doc, audio: { ...doc.audio, [action.id]: action.info } };
+    case "video":
+      return { ...doc, video: { ...doc.video, [action.id]: action.info } };
     case "derivedBpm": {
       const withBpm = (project: Project): Project => ({
         ...project,

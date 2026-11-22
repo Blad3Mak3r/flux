@@ -3905,3 +3905,8 @@ input:disabled {
     animation: none;
   }
 }
+
+/* A video clip is not dragged yet: it only shows where it sits. */
+.clip-video {
+  cursor: default;
+}

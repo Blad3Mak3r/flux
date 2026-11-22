@@ -15,7 +15,8 @@ import { activeTimeline } from "../state/doc";
 import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
-import { GUESS_SECONDS, clipLength } from "../timeline/clip";
+import { GUESS_SECONDS, clipLength, videoClipLength } from "../timeline/clip";
+import type { VideoProbe } from "../video/api";
 import { RULER_H, patchReadout, setViewport, useReadout } from "../timeline/layout";
 import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
@@ -35,7 +36,13 @@ const ZOOM_STEP = 1.25;
 const TAIL = 1.15;
 const MIN_SECONDS = 120;
 
-function contentEnd(timeline: TimelineData, audio: Record<string, AssetAudio>, fps: number, guess: number): number {
+function contentEnd(
+  timeline: TimelineData,
+  audio: Record<string, AssetAudio>,
+  video: Record<string, VideoProbe>,
+  fps: number,
+  guess: number,
+): number {
   let end = 0;
   for (const track of timeline.tracks) {
     if (track.kind.type === "audio") {
@@ -48,7 +55,7 @@ function contentEnd(timeline: TimelineData, audio: Record<string, AssetAudio>, f
         end = Math.max(end, view?.start !== null && view?.start !== undefined ? view.start + (view.length ?? 0) : order.at);
       }
     } else if (track.kind.type === "video") {
-      for (const clip of track.kind.clips) end = Math.max(end, clip.start + (clip.length ?? 0));
+      for (const clip of track.kind.clips) end = Math.max(end, clip.start + videoClipLength(clip, video[clip.asset], fps, guess));
     } else {
       for (const event of track.kind.events) end = Math.max(end, event.at + 25);
     }
@@ -113,6 +120,7 @@ export function Timeline() {
   const assets = useDoc((doc) => doc.project.assets);
   const timeline = useTimeline();
   const audio = useDoc((doc) => doc.audio);
+  const video = useDoc((doc) => doc.video);
   useVoice((v) => v.views);
   const pxPerFrame = useUi((ui) => ui.zoom);
   const bars = useUi((ui) => ui.ruler === "bars");
@@ -171,7 +179,7 @@ export function Timeline() {
     [assets],
   );
 
-  const end = contentEnd(timeline, audio, realFps(frameRate), guessLength);
+  const end = contentEnd(timeline, audio, video, realFps(frameRate), guessLength);
   const contentWidth = Math.ceil(
     Math.max(end * TAIL, MIN_SECONDS * fps) * pxPerFrame,
     // Never narrower than the window, so the graticule fills the screen.
