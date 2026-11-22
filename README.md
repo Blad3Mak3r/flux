@@ -180,6 +180,7 @@ docs/            Specs and guides
 | `flux-engine` | Transport, LTC and MTC, mixer, cues, outputs, device lookup and cue firing. |
 | `flux-voice` | Speech generation for operator tracks. |
 | `flux-video` | Video decoding through FFmpeg and the timecode-to-frame mapping. |
+| `flux-render` | GPU drawing (wgpu) of the video frames on the output window. |
 
 ## Documentation
 

@@ -71,6 +71,21 @@ The dialog offers MP4, M4V, MOV and WebM. WebM (VP8, VP9 or AV1 in Matroska) use
 dav1d for AV1. A WebM file has no frame count per stream, so the count comes from the container's duration. An alpha
 channel in VP8/VP9 WebM is not decoded yet: those frames show as opaque.
 
+## Output window
+
+**Preferences > Outputs > Video** chooses the display the output opens on; the choice is a local preference
+(`videoDisplay`), like the audio devices. On a display that has a FLUX window on it, the output opens as a window that
+can be moved aside, so one screen is never covered; on any other display it fills the screen without decorations.
+
+`src-tauri/src/video_output.rs` owns the window. Its surface is made on the main thread (macOS requires it), and a
+render thread (`flux-video-output`) starts the GPU device and then, once per display refresh, reads the transport
+(`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws the top one with
+`flux-render`. The picture is fitted to the window keeping its shape, with black around it. It is black while the
+transport is stopped, before a clip and after it. A GPU error is kept for the setup page to show and never panics.
+
+Show check reports a show with video clips whose output is off (a warning) or whose display is not connected (an
+error).
+
 ## Building
 
 FFmpeg's development files (headers and libraries) must be installed to build the workspace:
