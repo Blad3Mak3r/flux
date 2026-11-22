@@ -30,6 +30,7 @@ import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
+import { Marquee } from "./Marquee";
 import { ChevronRightIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, VideoIcon, WaveIcon, VoiceIcon } from "./icons";
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu, videoTrackMenu } from "./menus";
 
@@ -98,13 +99,13 @@ export const TrackHeader = memo(function TrackHeader({
             onDone={() => rename(null)}
           />
         ) : (
-          <span
+          <Marquee
             className="track-name"
             title={track.name}
             onDoubleClick={() => rename({ kind: "track", id: track.id })}
           >
             {track.name}
-          </span>
+          </Marquee>
         )}
         <button
           type="button"

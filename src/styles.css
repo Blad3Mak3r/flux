@@ -1044,10 +1044,42 @@ input:disabled {
   min-height: 0;
 }
 
+/* Text that does not fit ends in an ellipsis, and slides to show the rest under the pointer. */
+.marquee {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marquee[data-scrolling="true"] {
+  text-overflow: clip;
+}
+
+.marquee[data-scrolling="true"] .marquee-text {
+  display: inline-block;
+  animation: marquee var(--marquee-time, 3s) ease-in-out 0.5s infinite alternate;
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(var(--marquee-shift, 0));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee[data-scrolling="true"] .marquee-text {
+    animation: none;
+  }
+}
+
 /* The track-header column sits beside the scroller, so the horizontal scrollbar spans the lanes only. */
 .screen-side {
   display: flex;
   flex: 0 0 var(--header-w);
+  /* A long track name is cut, never widening the column. */
+  min-width: 0;
+  max-width: var(--header-w);
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
@@ -3346,6 +3378,10 @@ input:disabled {
   white-space: nowrap;
 }
 
+.cue-title.marquee {
+  display: block;
+}
+
 .cue-name,
 .cue-track {
   overflow: hidden;
@@ -3391,6 +3427,16 @@ input:disabled {
 .cue-kind[data-kind="osc"] {
   background-color: var(--screen);
   border-style: dashed;
+}
+
+/* Upright bars, like the frames of a film strip. */
+.cue-kind[data-kind="video"] {
+  background-color: var(--screen);
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--cue-c) 55%, transparent) 0 3px,
+    transparent 3px 5px
+  );
 }
 
 /* Lamps say the state by shape as well as colour: filled, hollow or dashed, beside a printed word. */
@@ -3519,18 +3565,6 @@ input:disabled {
 .live-cues[data-layout="sidebar"] .cue-kind { grid-area: kind; width: 28px; height: 12px; }
 .live-cues[data-layout="sidebar"] .cue-track { grid-area: track; min-width: 0; }
 .live-cues[data-layout="sidebar"] .cue-length { grid-area: length; white-space: nowrap; }
-
-.cue-title {
-  overflow-wrap: anywhere;
-}
-
-.live-cues[data-layout="sidebar"] .cue-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
 
 .live-cues[data-layout="sidebar"] .cue-row[data-status="done"] .cue-track,
 .live-cues[data-layout="sidebar"] .cue-row[data-status="done"] .cue-length,
