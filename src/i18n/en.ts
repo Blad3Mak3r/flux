@@ -473,6 +473,7 @@ export const en = {
   "setup.section.general": "General",
   "setup.section.video": "Video",
   "setup.soon": "Coming soon",
+  "setup.project.autosave": "Recovery copy",
   "setup.audio.driver": "Driver",
   "setup.audio.preview": "Edit preview",
   "routing.builtinsNote": "Every track can use these two without adding them here. The programme is set on the Device page and the operator on the Voice operator page.",

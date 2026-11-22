@@ -14,11 +14,12 @@ import { useTransport, selectMode } from "../transport/store";
 import type { Devices } from "../devices/useDevices";
 import type { Timeline, Track, VoiceOrder } from "../project/types";
 import { AudioRoute } from "../setup/pages";
-import { addOrder, generateOrder, operatorEdit, useVoice, voiceError, importRecording, stopListening } from "./store";
+import { addOrder, freezeVoices, generateOrder, operatorEdit, useVoice, voiceError, importRecording, stopListening } from "./store";
 
 export function VoicePage({ devices }: { devices: Devices }) {
   const t = useT();
   const voice = usePreferences((p) => p.saved.voice);
+  const projectVoice = useDoc((d) => d.project.voice);
   const route = usePreferences((p) => p.saved.operator);
   const routeLost = useTransport((s) => s.position?.operatorLost || s.info?.operator?.ok === false);
   const mode = useTransport(selectMode);
@@ -55,6 +56,9 @@ export function VoicePage({ devices }: { devices: Devices }) {
     </div>
     <h4>{t("voice.section.voice")}</h4>
     <VoiceSelector scope="flux" value={voice} />
+    <VoiceSelector scope="project" value={projectVoice} />
+    <button type="button" className="button" onClick={() => void freezeVoices()}>{t("voice.freeze")}</button>
+    <p className="field-note">{t("voice.freezeNote")}</p>
     <h4>{t("voice.section.output")}</h4>
     {(!route || routeLost) && <p className="field-note" role="status">{t("voice.routeMissing")}</p>}
     <AudioRoute kind="operator" deviceLabel="voice.device" channelsLabel="voice.channels" devices={devices} />

@@ -2,7 +2,8 @@ import { VoicePage } from "../voice/VoicePanel";
 import { usePreferences } from "../preferences/store";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { ChevronRightIcon, CloseIcon } from "../components/icons";
+import { ChevronRightIcon, CloseIcon, RefreshIcon } from "../components/icons";
+import { reconnect } from "../transport/playback";
 import type { Devices } from "../devices/useDevices";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
@@ -40,14 +41,14 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
     case "graphics":
       return <GraphicsPage />;
     case "general":
-      return <GeneralPage devices={devices} />;
+      return <GeneralPage />;
     default:
       return null;
   }
 }
 
 /** What the output is doing, so a change made here can be seen to take effect. */
-function Footer() {
+function Footer({ devices }: { devices: Devices }) {
   const t = useT();
   const info = useTransport((transport) => transport.info);
   const localError = usePreferences((p) => p.error);
@@ -57,16 +58,30 @@ function Footer() {
   const clipWarnings = useTransport((transport) => transport.clipWarnings);
   const warnings = [...(info?.warnings ?? []), ...clipWarnings];
   return (
-    <footer className="setup-foot" role="status">
-      {localError && <p className="error" role="alert">{t("setup.preferencesError", { error: localError })}</p>}
-      <p>{info ? t("out.runningOn", { device: info.device, rate: info.sampleRate }) : t("setup.status.off")}</p>
-      {pending && <p>{t("setup.status.pending")}</p>}
-      {lost && <p className="warning">{t("setup.status.lost")}</p>}
-      {warnings.map((warning) => (
-        <p key={warning} className="warning">
-          {warning}
-        </p>
-      ))}
+    <footer className="setup-foot">
+      <div className="setup-foot-status" role="status">
+        {localError && <p className="error" role="alert">{t("setup.preferencesError", { error: localError })}</p>}
+        <p>{info ? t("out.runningOn", { device: info.device, rate: info.sampleRate }) : t("setup.status.off")}</p>
+        {pending && <p>{t("setup.status.pending")}</p>}
+        {lost && <p className="warning">{t("setup.status.lost")}</p>}
+        {warnings.map((warning) => (
+          <p key={warning} className="warning">
+            {warning}
+          </p>
+        ))}
+      </div>
+      <button
+        type="button"
+        className="button"
+        title={t("setup.general.refreshNote")}
+        onClick={() => {
+          devices.refresh();
+          reconnect(true);
+        }}
+      >
+        <RefreshIcon />
+        {t("out.refresh")}
+      </button>
     </footer>
   );
 }
@@ -244,7 +259,7 @@ export function SetupDialog({ devices }: { devices: Devices }) {
               <Page section={section} devices={devices} />
             </section>
           </div>
-          <Footer />
+          <Footer devices={devices} />
         </>
       )}
     </dialog>

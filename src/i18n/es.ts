@@ -477,6 +477,7 @@ export const es: Record<MessageKey, string> = {
   "setup.section.general": "General",
   "setup.section.video": "Vídeo",
   "setup.soon": "Próximamente",
+  "setup.project.autosave": "Copia de recuperación",
   "setup.audio.driver": "Driver",
   "setup.audio.preview": "Preescucha de Edición",
   "routing.builtinsNote": "Todas las pistas pueden usar estas dos sin añadirlas aquí. El programa se configura en la página Dispositivo y el operador en Operador de voz.",

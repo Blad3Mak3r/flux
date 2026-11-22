@@ -2353,13 +2353,25 @@ input:disabled {
 }
 
 .setup-foot {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 8px 20px;
   background: var(--panel-lo);
   border-top: 1px solid var(--rule);
   font-size: 12px;
   color: var(--ink-dim);
+}
+
+.setup-foot-status {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.setup-foot .button {
+  flex: none;
 }
 
 .setup-foot p {
