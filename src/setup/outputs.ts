@@ -20,8 +20,8 @@ export type SetupSection = (typeof SETUP_GROUPS)[number]["sections"][number];
 /** Every page, in the order they are listed. */
 export const SETUP_SECTIONS: readonly SetupSection[] = SETUP_GROUPS.flatMap((group) => group.sections);
 
-/** Video and HTTP are listed so the user can see they are planned, but have no page yet. */
-export const isAvailable = (section: SetupSection): boolean => section !== "video" && section !== "http";
+/** HTTP is listed so the user can see it is planned, but has no page yet. */
+export const isAvailable = (section: SetupSection): boolean => section !== "http";
 
 /** The group a page is listed in. */
 export const groupOf = (section: SetupSection): SetupGroup =>
