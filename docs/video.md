@@ -107,6 +107,24 @@ render thread (`flux-video-output`) starts the GPU device and then, once per dis
 `flux-render`. The picture is fitted to the window keeping its shape, with black around it. It is black while the
 transport is stopped, before a clip and after it. A GPU error is kept for the setup page to show and never panics.
 
+## Mapping
+
+Below the display, **Mapping** cuts the picture into slices, as the advanced output of a media server does. Each slice
+is a rectangle of the picture (dragged and resized on the left, *Picture*) placed on the screen by its four corners
+(dragged on the right, *Screen*); moving a corner leans the slice to fit a surface seen at an angle, and dragging the
+shape moves it whole. A slice can be renamed, hidden without losing its place, or have its corners put back where its
+rectangle is. **Test pattern** shows a grid with coloured corners (red top left, green top right, blue bottom right,
+yellow bottom left) wherever there is no picture, to line the slices up on the real screen. No slices is the plain
+output: the whole picture fitted to the screen.
+
+The slices belong to the project (`output.video`, see [the format](fxtc-format.md)), so they travel with the show,
+while the display stays a local preference. Every number is a fraction of a width or height, so a mapping keeps its
+shape on another resolution. `src-tauri/crates/flux-project/src/mapping.rs` owns the operations (`video_mapping_edit`):
+it clamps a rectangle inside the picture and a corner to one screen past each edge, and each drag reaches it once, on
+release, so it is one undo step. `flux-render` draws each slice as two triangles with perspective-correct texture
+coordinates (each corner weighted by its distance to where the diagonals cross), so a leaning slice does not bend
+along its diagonal.
+
 Show check reports a show with video clips whose output is off (a warning) or whose display is not connected (an
 error).
 

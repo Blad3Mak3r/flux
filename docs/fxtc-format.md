@@ -43,6 +43,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `output.ltc` | `[{ slot, level? }]` | Logical LTC outputs. `slot` is a unique positive integer within LTC, preserved when other outputs are removed. Level is linear 0–1; absent is 0.5. Device, channel and latency are local preferences. |
 | `output.mtc` | `[{ slot }]` | Logical MTC outputs with unique positive slots, independent of LTC slots. The computer assigns the MIDI port, same-name port index and latency. |
 | `output.osc` | `[{ id, name, host, port }]` | The OSC receivers (UDP) the OSC tracks send to, defined once for the project. `id` is unique among them; `host` is a name or an address without spaces, `port` 1 to 65535. A host that does not resolve is reported when the output opens and never blocks the project. Absent is an empty list. Added in version 5. |
+| `output.video` | `[{ id, name, input: { x, y, width, height }, corners: [{ x, y } ×4], hidden? }]` | The slices of the video output, drawn in order. `input` is the part of the picture shown, inside it and at least 0.005 on each side; `corners` are where its top left, top right, bottom right and bottom left go on the screen, each from −1 to 2. All numbers are fractions of the width or height from the top left. `id` is unique, `name` 1 to 80 characters, at most 64 slices. Absent or empty is the whole picture fitted to the screen. |
 
 Track kinds:
 
