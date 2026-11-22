@@ -2321,16 +2321,108 @@ input:disabled {
 
 /* ---- Launcher and welcome windows ---- */
 
+/* The launcher is a scope screen warming up: slow fields of the signal colours drift under a
+   graticule while a phosphor trace sweeps it, and the sweep stops once the checks are done.
+   Only transforms and opacity animate, so the compositor does the work. */
 .launcher {
+  position: relative;
+  isolation: isolate;
   display: grid;
   align-content: center;
   justify-items: start;
   gap: 18px;
   height: 100%;
   padding: 0 32px;
-  background: var(--panel);
+  overflow: hidden;
+  background: var(--screen);
   border: 2px solid var(--rule-strong);
   user-select: none;
+}
+
+.launcher::before,
+.launcher::after {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  z-index: -2;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.launcher::before {
+  background:
+    radial-gradient(closest-side at 72% 64%, oklch(0.87 0.17 128 / 0.26), transparent),
+    radial-gradient(closest-side at 30% 34%, oklch(0.36 0.05 205 / 0.85), transparent);
+  animation: launcher-drift-a 14s ease-in-out infinite alternate;
+}
+
+.launcher::after {
+  background:
+    radial-gradient(closest-side at 62% 30%, oklch(0.82 0.15 78 / 0.18), transparent),
+    radial-gradient(closest-side at 40% 72%, oklch(0.6 0.12 128 / 0.16), transparent);
+  animation: launcher-drift-b 21s ease-in-out infinite alternate;
+}
+
+@keyframes launcher-drift-a {
+  from {
+    transform: translate3d(-9%, -6%, 0) rotate(0deg);
+  }
+  to {
+    transform: translate3d(7%, 5%, 0) rotate(28deg);
+  }
+}
+
+@keyframes launcher-drift-b {
+  from {
+    transform: translate3d(8%, 4%, 0) rotate(0deg) scale(1);
+  }
+  to {
+    transform: translate3d(-6%, -7%, 0) rotate(-22deg) scale(1.12);
+  }
+}
+
+.launcher-scope {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--grat-major), var(--grat-major)) 0 50% / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, oklch(0.255 0.032 205 / 0.7) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(0deg, oklch(0.255 0.032 205 / 0.7) 0 1px, transparent 1px 40px);
+}
+
+.launcher-sweep {
+  position: absolute;
+  inset: 0;
+  border-right: 2px solid var(--phosphor);
+  opacity: 0.55;
+  animation: launcher-sweep 2.4s linear infinite;
+  transition: opacity 400ms var(--ease);
+}
+
+.launcher[data-finished] .launcher-sweep {
+  opacity: 0;
+}
+
+@keyframes launcher-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher::before,
+  .launcher::after {
+    animation: none;
+  }
+
+  .launcher-sweep {
+    display: none;
+  }
 }
 
 .launcher .brand img {
@@ -2345,7 +2437,7 @@ input:disabled {
 .launcher .dot-matrix {
   padding: 10px 14px;
   background: var(--screen);
-  border: 1px solid var(--rule);
+  border: 1px solid var(--rule-strong);
 }
 
 .startup {
