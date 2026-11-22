@@ -168,6 +168,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                video_output::window_gone(app, label);
+            }
             // macOS passes the opened file in an event, not on the command line. Once the launcher
             // is past, the editor is already up and replacing it could lose unsaved work.
             #[cfg(target_os = "macos")]
@@ -179,6 +187,6 @@ pub fn run() {
                 }
             }
             #[cfg(not(target_os = "macos"))]
-            let _ = (app, event);
+            let _ = event;
         });
 }
