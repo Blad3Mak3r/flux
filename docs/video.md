@@ -59,7 +59,13 @@ let cue = match snapshot.state {
 let layers = deck.show(active_timeline, cue);
 ```
 
-The following steps of issue #106 add that output window, the timeline clips, and FFmpeg inside the installers.
+The following steps of issue #106 add that output window and the timeline clips.
+
+## Importing
+
+**File > Import > Video** (`project_import_video`) opens the file with FFmpeg first, so a file it cannot read is
+refused with the reason, and then adds it on a new video track of the active timeline with a clip at the playhead.
+The file is copied into the project's `video/` folder when the project is saved, like audio.
 
 ## Building
 
@@ -69,13 +75,24 @@ FFmpeg's development files (headers and libraries) must be installed to build th
 | --- | --- |
 | Ubuntu / Debian | `sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswscale-dev` (plus `clang` and `pkg-config`) |
 | macOS | `brew install ffmpeg pkg-config` |
-| Windows | A shared FFmpeg build with its `include` and `lib` folders, for example from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases). Set `FFMPEG_DIR` to its folder and add its `bin` to `PATH` so the tests find the DLLs. |
+| Windows | `pwsh scripts/fetch-ffmpeg.ps1` downloads the shared LGPL build from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) into `src-tauri/ffmpeg`. Set `FFMPEG_DIR` to that folder, and add its `bin` to `PATH` for `cargo test`. The app build copies the DLLs next to the executable. |
 
 The bindings are generated with bindgen, which needs libclang (CI already sets `LIBCLANG_PATH` on Windows for the
 ASIO bindings). CI installs FFmpeg in `.github/actions/linux-deps`, `.github/actions/macos-deps` and
 `.github/actions/windows-deps`.
 
-The app crate does not depend on `flux-video` yet, so installers are unchanged until the step that bundles FFmpeg.
+## FFmpeg in the installers
+
+FLUX always ships the FFmpeg it was built against, so a user installs nothing else:
+
+| Installer | How FFmpeg comes with it |
+| --- | --- |
+| Windows (NSIS) | `src-tauri/tauri.windows.conf.json` adds `avcodec`, `avformat`, `avutil`, `swresample` and `swscale` from `src-tauri/ffmpeg/bin` next to `flux-timecode.exe`, and FFmpeg's `LICENSE.txt` under `ffmpeg/`. |
+| Linux AppImage | linuxdeploy bundles the FFmpeg libraries the binary links, like its other libraries. |
+| Linux deb / rpm | The package depends on the runner's FFmpeg libraries (`libavformat60` and the rest; for rpm, their sonames), which the package manager installs. The release workflow stops if the runner's FFmpeg major versions no longer match `tauri.conf.json`. |
+| macOS | Not released yet. A macOS installer will need FFmpeg's dylibs inside the app bundle, since Homebrew's are not portable. |
+
+The shipped build is LGPL, so FFmpeg can be replaced by the user, as the licence requires.
 
 ## Tests
 

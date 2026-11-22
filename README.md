@@ -128,7 +128,7 @@ FLUX is not packaged for download yet, so for now you run it from source.
 - [Node.js](https://nodejs.org/) and npm
 - The [Rust toolchain](https://rustup.rs/) (edition 2024)
 - The [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform
-- FFmpeg's development files, for video (see [Video decoding](docs/video.md#building))
+- FFmpeg's development files, for video (see [Video decoding](docs/video.md#building); on Windows, `pwsh scripts/fetch-ffmpeg.ps1`)
 - For real output: an audio interface (LTC and programme audio) and/or a MIDI interface (MTC and MIDI cues)
 
 **Run it**
