@@ -306,3 +306,21 @@ pub async fn video_sound(
     .await
     .map_err(|err| AudioError::Worker(err.to_string()))?
 }
+
+/// Adds, moves or removes a slice of the video output (see [`flux_project::mapping`]); the answer
+/// is the project with the edit made.
+#[tauri::command]
+pub async fn video_mapping_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: flux_project::mapping::MappingOp,
+) -> Result<ProjectState> {
+    let session = Arc::clone(&session);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+        s.update(project);
+        s.edit_mapping(op)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}

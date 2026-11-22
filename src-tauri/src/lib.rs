@@ -124,6 +124,8 @@ pub fn run() {
             video_commands::video_clip_edit,
             video_commands::video_thumbnails,
             video_commands::video_sound,
+            video_commands::video_mapping_edit,
+            video_output::video_output_pattern,
             video_output::video_output_status,
             video_output::video_output_choose,
             commands::project_save,

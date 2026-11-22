@@ -21,7 +21,7 @@ use crate::transport_commands::SharedOutput;
 use flux_engine::output::PositionReader;
 use flux_engine::transport::TransportState;
 use flux_project::Timeline;
-use flux_render::{Picture, Screen};
+use flux_render::{Picture, Quad, Screen};
 use flux_video::{Cue, VideoDeck};
 
 const LABEL: &str = "video-output";
@@ -66,6 +66,8 @@ struct Live {
 pub struct VideoOutput {
     live: Mutex<Option<Live>>,
     error: Mutex<Option<String>>,
+    /// A test pattern is shown where there is no picture, to line the slices up with.
+    pattern: Arc<AtomicBool>,
 }
 
 pub type SharedVideoOutput = Arc<VideoOutput>;
@@ -246,6 +248,7 @@ impl VideoOutput {
         let (width, height) = unpack(size.load(Ordering::Relaxed));
         let transport = Arc::clone(&app.state::<SharedOutput>());
         let render_stop = Arc::clone(&stop);
+        let pattern = Arc::clone(&self.pattern);
         let render = move |screen| Render {
             screen,
             deck,
@@ -253,7 +256,9 @@ impl VideoOutput {
             transport,
             size,
             stop: render_stop,
+            pattern,
             timeline: None,
+            quads: Vec::new(),
             seen: (u64::MAX, String::new()),
             reader: None,
         };
@@ -341,8 +346,11 @@ struct Render {
     transport: SharedOutput,
     size: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
-    /// The timeline last copied from the session, and the revision it was copied at.
+    pattern: Arc<AtomicBool>,
+    /// The timeline and the slices last copied from the session, and the revision they were
+    /// copied at.
     timeline: Option<Timeline>,
+    quads: Vec<Quad>,
     seen: (u64, String),
     reader: Option<PositionReader>,
 }
@@ -362,6 +370,7 @@ impl Render {
 
     /// Draws one refresh; `false` when it drew black or nothing.
     fn step(&mut self) -> bool {
+        self.refresh();
         // The transport is locked only while it changes: then the last reader is used.
         if let Ok(output) = self.transport.try_lock() {
             self.reader = output.as_ref().map(|running| running.reader());
@@ -376,7 +385,7 @@ impl Render {
                 };
                 match reader.show() {
                     Some((plan, tick)) => (Some(plan.entries[tick.entry].timeline.clone()), cue),
-                    None => (self.edited_timeline(), cue),
+                    None => (self.timeline.clone(), cue),
                 }
             }
             None => (None, Cue::Black),
@@ -398,21 +407,89 @@ impl Render {
                 rgba: &frame.rgba,
             }
         });
+        let picture = picture.or_else(|| {
+            self.pattern
+                .load(Ordering::Relaxed)
+                .then(|| test_pattern().picture())
+        });
         let drawn = picture.is_some();
         // A lost surface draws nothing and is tried again on the next refresh.
-        self.screen.draw(picture).is_ok() && drawn
+        self.screen.draw(picture, &self.quads).is_ok() && drawn
     }
 
-    /// The timeline being edited, copied again only when the document changed.
-    fn edited_timeline(&mut self) -> Option<Timeline> {
+    /// Copies the timeline being edited and the slices again when the document changed.
+    fn refresh(&mut self) {
         let session = self.session.lock().unwrap_or_else(PoisonError::into_inner);
         let (revision, active) = session.revision();
         if (revision, active) != (self.seen.0, self.seen.1.as_str()) {
             self.seen = (revision, active.to_owned());
             self.timeline = session.active_timeline_copy();
+            self.quads = session
+                .video_slices()
+                .iter()
+                .filter(|slice| !slice.hidden)
+                .map(|slice| Quad {
+                    input: [
+                        slice.input.x,
+                        slice.input.y,
+                        slice.input.width,
+                        slice.input.height,
+                    ],
+                    corners: slice.corners.map(|p| [p.x, p.y]),
+                })
+                .collect();
         }
-        self.timeline.clone()
     }
+}
+
+/// A grid to line slices up with: lines every sixteenth, a frame, a circle, and the corners told
+/// apart by colour (red top left, green top right, blue bottom right, yellow bottom left).
+struct Pattern {
+    rgba: Vec<u8>,
+}
+
+const PATTERN_SIZE: (u32, u32) = (1920, 1080);
+
+impl Pattern {
+    fn picture(&self) -> Picture<'_> {
+        Picture {
+            id: u64::MAX,
+            width: PATTERN_SIZE.0,
+            height: PATTERN_SIZE.1,
+            rgba: &self.rgba,
+        }
+    }
+}
+
+fn test_pattern() -> &'static Pattern {
+    static PATTERN: std::sync::OnceLock<Pattern> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| {
+        let (w, h) = PATTERN_SIZE;
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        let (cx, cy, radius) = (w as f32 / 2.0, h as f32 / 2.0, h as f32 * 0.4);
+        for y in 0..h {
+            for x in 0..w {
+                let grid = x % (w / 16) < 2 || y % (h / 16) < 2;
+                let frame = x < 6 || y < 6 || x >= w - 6 || y >= h - 6;
+                let distance = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
+                let circle = (distance - radius).abs() < 2.0;
+                let corner = match (x < w / 8, y < h / 8, x >= w - w / 8, y >= h - h / 8) {
+                    (true, true, _, _) => Some([220, 40, 40]),
+                    (_, true, true, _) => Some([40, 200, 60]),
+                    (_, _, true, true) => Some([50, 90, 230]),
+                    (true, _, _, true) => Some([230, 200, 40]),
+                    _ => None,
+                };
+                let [r, g, b] = if frame || grid || circle {
+                    [235, 235, 235]
+                } else {
+                    corner.unwrap_or([24, 24, 24])
+                };
+                rgba.extend_from_slice(&[r, g, b, 255]);
+            }
+        }
+        Pattern { rgba }
+    })
 }
 
 fn chosen_display(app: &AppHandle) -> Option<String> {
@@ -468,4 +545,10 @@ pub async fn video_output_choose(
     })
     .await
     .map_err(|err| err.to_string())
+}
+
+/// Shows or hides the test pattern where there is no picture.
+#[tauri::command]
+pub fn video_output_pattern(output: State<'_, SharedVideoOutput>, on: bool) {
+    output.pattern.store(on, Ordering::Relaxed);
 }
