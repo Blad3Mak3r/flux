@@ -12,8 +12,8 @@ use super::cue_ops::{self, CueEdited, CueOp};
 use super::error::{ProjectError, Result};
 use super::item_ops::{self, ItemOp};
 use super::model::{
-    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, TimecodeSettings, Timeline,
-    TrackKind, check_asset_path,
+    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, TimecodeSettings, Timeline, Track,
+    TrackKind, VIDEO_DIR, VideoAsset, VideoClip, check_asset_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
 use flux_core::FrameRate;
@@ -523,6 +523,57 @@ impl Session {
         Ok(asset)
     }
 
+    /// Adds a video file from disk to the project, on a new video track of the active timeline with a
+    /// clip at `at` (frames from the timeline start). The caller has checked that it is a video.
+    pub fn import_video(&mut self, file: &Path, at: u64) -> Result<ProjectState> {
+        let file = std::path::absolute(file)?;
+        if !fs::metadata(&file)?.is_file() {
+            return Err(ProjectError::Invalid(format!(
+                "not a file: {}",
+                file.display()
+            )));
+        }
+        let file_name = file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| ProjectError::Invalid("video file name is not valid UTF-8".into()))?;
+        let id = Uuid::new_v4().to_string();
+        let asset = VideoAsset {
+            name: file.file_stem().map_or_else(
+                || file_name.to_owned(),
+                |stem| stem.to_string_lossy().into_owned(),
+            ),
+            file: format!("{VIDEO_DIR}{id}_{file_name}"),
+            id,
+        };
+        let track = Track {
+            audio_output: Default::default(),
+            id: Uuid::new_v4().to_string(),
+            name: asset.name.clone(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Video {
+                clips: vec![VideoClip {
+                    id: Uuid::new_v4().to_string(),
+                    asset: asset.id.clone(),
+                    start: at,
+                    name: None,
+                    offset: 0,
+                    length: None,
+                }],
+            },
+        };
+        let source = AssetSource::Disk(file.clone());
+        let state = self.change(|project, active| {
+            timeline_mut(project, active)?.tracks.push(track);
+            project.videos.push(asset.clone());
+            Ok(())
+        })?;
+        self.sources.insert(asset.id, source);
+        Ok(state)
+    }
+
     /// Registers a durable speech job with a stable identity, so attaching it is idempotent.
     pub fn import_voice_job(&mut self, file: &Path, id: &str, name: &str) -> Result<AudioAsset> {
         if !id.starts_with("job-") || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
@@ -989,6 +1040,40 @@ mod tests {
 
         assert_ne!(first.id, second.id);
         assert_ne!(first.file, second.file);
+    }
+
+    #[test]
+    fn import_video_should_add_a_track_with_a_clip_and_save_the_file() {
+        let dir = TempDir::new().unwrap();
+        let mp4 = dir.path().join("intro.mp4");
+        fs::write(&mp4, b"not decoded here").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+
+        let state = session.import_video(&mp4, 50).unwrap();
+
+        let asset = &state.project.videos[0];
+        assert_eq!(asset.name, "intro");
+        assert!(asset.file.starts_with("video/") && asset.file.ends_with("_intro.mp4"));
+        let track = state.project.timelines[0].tracks.last().unwrap();
+        let TrackKind::Video { clips } = &track.kind else {
+            panic!("not a video track: {track:?}");
+        };
+        assert_eq!(
+            (clips[0].asset.as_str(), clips[0].start),
+            (asset.id.as_str(), 50)
+        );
+
+        let path = dir.path().join("show.flx");
+        session.save(&state.project, &path).unwrap();
+        let (_, mut archive) = archive::open(&path).unwrap();
+        let mut bytes = Vec::new();
+        archive
+            .video_reader(&asset.file)
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"not decoded here");
     }
 
     #[test]
