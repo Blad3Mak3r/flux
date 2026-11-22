@@ -56,8 +56,28 @@
     "targets": "all",
     "createUpdaterArtifacts": true,
     "linux": {
-      "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0", "libpipewire-0.3-0"] },
-      "rpm": { "depends": ["webkit2gtk4.1", "gtk3", "pipewire-libs"] }
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libpipewire-0.3-0",
+          "libavformat60",
+          "libavcodec60",
+          "libavutil58",
+          "libswscale7"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3",
+          "pipewire-libs",
+          "libavformat.so.60()(64bit)",
+          "libavcodec.so.60()(64bit)",
+          "libavutil.so.58()(64bit)",
+          "libswscale.so.7()(64bit)"
+        ]
+      }
     },
     "fileAssociations": [
       {

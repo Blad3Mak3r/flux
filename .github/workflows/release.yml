@@ -98,6 +98,12 @@ jobs:
       - uses: ./.github/actions/linux-deps
       - uses: ./.github/actions/windows-deps
 
+      # The deb and rpm name the FFmpeg libraries they need (tauri.conf.json, bundle.linux) by the
+      # major versions of the runner's FFmpeg, which the binary is linked against. Stop if they moved.
+      - name: Check the FFmpeg versions the Linux packages name
+        if: runner.os == 'Linux'
+        run: dpkg -s libavformat60 libavcodec60 libavutil58 libswscale7 > /dev/null
+
       - uses: actions/setup-node@v7
         with:
           node-version: 24

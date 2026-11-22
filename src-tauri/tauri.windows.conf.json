@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "resources": {
+      "ffmpeg/bin/avcodec-*.dll": "./",
+      "ffmpeg/bin/avformat-*.dll": "./",
+      "ffmpeg/bin/avutil-*.dll": "./",
+      "ffmpeg/bin/swresample-*.dll": "./",
+      "ffmpeg/bin/swscale-*.dll": "./",
+      "ffmpeg/LICENSE.txt": "ffmpeg/LICENSE.txt"
+    }
+  }
+}
