@@ -128,6 +128,7 @@ FLUX is not packaged for download yet, so for now you run it from source.
 - [Node.js](https://nodejs.org/) and npm
 - The [Rust toolchain](https://rustup.rs/) (edition 2024)
 - The [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/) for your platform
+- FFmpeg's development files, for video (see [Video decoding](docs/video.md#building))
 - For real output: an audio interface (LTC and programme audio) and/or a MIDI interface (MTC and MIDI cues)
 
 **Run it**
@@ -178,6 +179,7 @@ docs/            Specs and guides
 | `flux-audio` | Decoding, waveform peaks and tempo detection. |
 | `flux-engine` | Transport, LTC and MTC, mixer, cues, outputs, device lookup and cue firing. |
 | `flux-voice` | Speech generation for operator tracks. |
+| `flux-video` | Video decoding through FFmpeg and the timecode-to-frame mapping. |
 
 ## Documentation
 
@@ -194,6 +196,7 @@ the files below.
 | [Audio routing](docs/audio-routing.md) | Per-track destinations and per-computer interfaces. |
 | [Voice operator](docs/voice-operator.md) | Spoken operator tracks. |
 | [Diagnostics](docs/diagnostics.md) | Logs and the diagnostics export. |
+| [Video decoding](docs/video.md) | Why FFmpeg, frame-exact decoding and what building needs. |
 | [Releasing](docs/releasing.md) | Publishing a version and how the app updates itself. |
 
 Product intent and visual language live in [PRODUCT.md](PRODUCT.md) and [DESIGN.md](DESIGN.md).
