@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useT } from "../i18n";
 import { ArrowDownIcon, ArrowUpIcon, ChevronLeftIcon, ListIcon, PlusIcon, TrashIcon } from "../components/icons";
 import { TextAreaField, TextField, SelectField } from "../components/fields";
-import { ViewSwitch } from "../live/ViewSwitch";
 import { useDoc } from "../state/store";
 import { openTimelineEditor, setView, useUi } from "../state/ui";
 import { selectTimeline } from "../state/timelines";
@@ -58,7 +57,6 @@ export function SetlistEditor() {
     <header className="screen-bar">
       <button type="button" className="button" onClick={openTimelineEditor}><ChevronLeftIcon />{t("show.backTimeline")}</button>
       <h2 id="setlist-title" className="legend">{t("show.workspace")}</h2>
-      <ViewSwitch />
     </header>
     <div className="setlist-heading">
       <div><h3>{setlist?.name ?? t("show.workspace")}</h3><p>{t("show.workspaceNote")}</p></div>

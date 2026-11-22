@@ -9,7 +9,7 @@ const VIEWS: { id: View; key: "1" | "2" }[] = [
   { id: "live", key: "2" },
 ];
 
-/** Chooses between editing the timeline and running it; each view carries it at the end of its bar. */
+/** Chooses between editing the timeline and running it; it sits in the middle of the menu bar. */
 export function ViewSwitch() {
   const t = useT();
   const view = useUi((ui) => ui.view);

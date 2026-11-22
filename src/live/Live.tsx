@@ -12,7 +12,6 @@ import { Notes } from "./Notes";
 import { Running } from "./Running";
 import { useLive } from "./store";
 import { TimelineStrip } from "../components/TimelineStrip";
-import { ViewSwitch } from "./ViewSwitch";
 
 /**
  * The timeline as it is run on stage. Everything on it comes from the backend (cues, their state,
@@ -35,7 +34,6 @@ export function Live() {
         </h2>
         {prepared ? <span className="live-setlist-name" title={setlistName}>{setlistName}</span> : <TimelineStrip />}
         <button type="button" className="button" disabled={playing} onClick={openShowCheck}>{t("check.title")}</button>
-        <ViewSwitch />
       </div>
       {prepared ? <PreparedBody /> : <PlainBody />}
     </section>
