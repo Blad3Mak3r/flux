@@ -47,6 +47,8 @@ function contentEnd(timeline: TimelineData, audio: Record<string, AssetAudio>, f
         const view = useVoice.getState().views[order.id];
         end = Math.max(end, view?.start !== null && view?.start !== undefined ? view.start + (view.length ?? 0) : order.at);
       }
+    } else if (track.kind.type === "video") {
+      for (const clip of track.kind.clips) end = Math.max(end, clip.start + (clip.length ?? 0));
     } else {
       for (const event of track.kind.events) end = Math.max(end, event.at + 25);
     }

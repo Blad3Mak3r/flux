@@ -59,6 +59,14 @@ export const MidiIcon = () => (
   </Icon>
 );
 
+/** A frame of film: video. */
+export const VideoIcon = () => (
+  <Icon>
+    <rect x="2.5" y="4" width="11" height="8" rx="1" />
+    <path d="M6.5 6.2 L10 8 L6.5 9.8 Z" />
+  </Icon>
+);
+
 /** A message on a wire: OSC. */
 export const OscIcon = () => (
   <Icon>

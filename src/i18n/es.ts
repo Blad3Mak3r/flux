@@ -624,6 +624,7 @@ export const es: Record<MessageKey, string> = {
 
   "track.kind.midi": "MIDI",
   "track.kind.osc": "OSC",
+  "track.kind.video": "Vídeo",
   "tracks.addMidi": "Pista MIDI",
   "tracks.addOsc": "Pista OSC",
   "menu.addMidiTrack": "Añadir pista MIDI",

@@ -11,6 +11,8 @@ export interface Project {
   autosave: Autosave;
   voice?: string;
   assets: AudioAsset[];
+  /** The video files the video tracks play; absent when there are none. Ids share the namespace of `assets`. */
+  videos?: VideoAsset[];
   output: ShowOutputs;
   /** Never empty. The backend decides which one is active; only that one plays. */
   timelines: Timeline[];
@@ -77,6 +79,13 @@ export interface AudioAsset {
   bpm?: number;
 }
 
+export interface VideoAsset {
+  id: string;
+  name: string;
+  /** Archive path, `video/<file name>`. */
+  file: string;
+}
+
 export type AudioAssignment = { type: "inherit" } | { type: "silent" } | { type: "output"; id: string };
 export interface AudioBus { id: string; name: string }
 
@@ -110,7 +119,8 @@ export type TrackKind =
   | { type: "audio"; clips: AudioClip[] }
   | { type: "notes"; notes: Note[] }
   | { type: "midi"; port?: MidiPortRef; events: MidiEvent[] }
-  | { type: "osc"; destination?: string; events: OscEvent[] };
+  | { type: "osc"; destination?: string; events: OscEvent[] }
+  | { type: "video"; clips: VideoClip[] };
 
 /** The MIDI port a track sends to, stored as a name hint like the MTC ports. */
 export interface MidiPortRef {
@@ -204,6 +214,20 @@ export interface AudioClip {
   fadeOutCurve?: FadeCurve;
   /** The volume drawn over the clip; absent is none. */
   envelope?: EnvPoint[];
+}
+
+/** A stretch of a video file on the timeline. Positions are frames at the timeline's rate. */
+export interface VideoClip {
+  id: string;
+  /** Id of an entry in `Project.videos`. */
+  asset: string;
+  start: number;
+  /** The name the clip goes by in the timeline and in Live; absent means the video's name. */
+  name?: string;
+  /** Frames of the video skipped at the start of the clip (trim in); absent is 0. */
+  offset?: number;
+  /** Frames of the video the clip shows (trim out); absent means up to the end of the video. */
+  length?: number;
 }
 
 /**
