@@ -2,3 +2,8 @@
 # so the build downloads nothing. The variable only fills in when it is not already set.
 [env]
 CPAL_ASIO_DIR = { value = "third_party/asiosdk", relative = true }
+
+# The build script of ffmpeg-sys-next (flux-video) runs bindgen over FFmpeg's headers, which
+# overflows the 1 MB main-thread stack Windows gives a program by default. 8 MB, as on Linux and macOS.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]

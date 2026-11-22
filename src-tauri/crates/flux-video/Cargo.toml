@@ -1,0 +1,12 @@
+[package]
+name = "flux-video"
+version = "0.2.2"
+license = "GPL-3.0-or-later"
+description = "Video files as the engine shows them: probing, frame-exact decoding through FFmpeg"
+edition = "2024"
+
+[dependencies]
+flux-core = { path = "../flux-core" }
+flux-project = { path = "../flux-project" }
+thiserror = "2.0.21"
+ffmpeg-next = { version = "9.1.0", default-features = false, features = ["format", "codec", "software-scaling"] }

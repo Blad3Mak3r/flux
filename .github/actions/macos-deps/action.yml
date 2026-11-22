@@ -1,0 +1,10 @@
+name: macOS system dependencies
+description: FFmpeg for flux-video.
+
+runs:
+  using: composite
+  steps:
+    - name: Install packages
+      if: runner.os == 'macOS'
+      shell: bash
+      run: brew install ffmpeg pkg-config

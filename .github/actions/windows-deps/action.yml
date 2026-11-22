@@ -1,5 +1,5 @@
 name: Windows build environment
-description: MSVC environment and libclang for the ASIO bindings cpal generates on Windows.
+description: MSVC environment, libclang for the ASIO and FFmpeg bindings, and FFmpeg for flux-video.
 
 # cpal's `asio` feature (asio-sys) runs bindgen against the SDK in third_party/asiosdk. libclang
 # needs the MSVC and Windows SDK include paths, so the compiler environment is loaded first.
@@ -19,3 +19,17 @@ runs:
           choco install llvm -y --no-progress
         }
         "LIBCLANG_PATH=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+    # flux-video links FFmpeg: a shared LGPL build with headers and import libraries. FFMPEG_DIR is
+    # where ffmpeg-sys-next looks for them; bin goes on PATH so the tests load the DLLs.
+    - name: FFmpeg
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $name = 'ffmpeg-n8.1-latest-win64-lgpl-shared-8.1'
+        $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+        Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$name.zip" -OutFile $zip
+        Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
+        $dir = Join-Path $env:RUNNER_TEMP $name
+        "FFMPEG_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        Join-Path $dir 'bin' | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
