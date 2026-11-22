@@ -240,6 +240,11 @@ pub struct Running {
 }
 
 impl Running {
+    /// Reads where the transport is, for a thread of its own (the video output).
+    pub fn reader(&self) -> flux_engine::output::PositionReader {
+        self.output.reader()
+    }
+
     // The lanes need every subscriber and the setup they were opened for; they cannot be narrower.
     #[expect(
         clippy::too_many_arguments,

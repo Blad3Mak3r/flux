@@ -25,6 +25,9 @@ pub struct Preferences {
     pub metronome: Option<AudioOutput>,
     pub ltc: BTreeMap<u32, LtcOutput>,
     pub mtc: BTreeMap<u32, MtcOutput>,
+    /// The display the video output window opens on, by its name; `None` keeps it closed.
+    #[serde(default)]
+    pub video_display: Option<String>,
     #[serde(skip_deserializing)]
     pub revision: u64,
     #[serde(skip_deserializing)]
@@ -62,6 +65,9 @@ pub enum Change {
     },
     Voice {
         voice: Option<String>,
+    },
+    VideoDisplay {
+        display: Option<String>,
     },
     Locale {
         locale: Locale,
@@ -201,6 +207,7 @@ impl Preferences {
                 }
             }
             Change::Voice { voice } => self.voice = voice,
+            Change::VideoDisplay { display } => self.video_display = display,
             Change::Route {
                 kind,
                 field,

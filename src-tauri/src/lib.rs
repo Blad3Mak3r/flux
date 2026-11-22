@@ -15,6 +15,7 @@ mod startup;
 mod transport_commands;
 mod update_commands;
 mod video_commands;
+mod video_output;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -48,6 +49,7 @@ pub fn run() {
         .manage(std::sync::Arc::new(voice_commands::VoiceState::default()))
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
+        .manage(video_output::SharedVideoOutput::default())
         .manage(control::SharedControl::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
@@ -55,7 +57,9 @@ pub fn run() {
             diagnostics::start(app.handle());
             log::info!("{}", graphics::describe());
             let app = app.handle().clone();
+            let video = app.clone();
             tauri::async_runtime::spawn_blocking(move || control::start(&app));
+            tauri::async_runtime::spawn_blocking(move || video_output::restore(&video));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -113,6 +117,8 @@ pub fn run() {
             commands::project_import_audio,
             commands::project_import_video,
             video_commands::video_probe,
+            video_output::video_output_status,
+            video_output::video_output_choose,
             commands::project_save,
             commands::project_set_autosave,
             recovery::recovery_list,

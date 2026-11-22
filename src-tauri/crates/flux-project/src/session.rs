@@ -667,6 +667,32 @@ impl Session {
         }
     }
 
+    /// Like [`Self::video_path`], for a video of the document known by its id.
+    pub fn video_file(&self, id: &str, cache: &Path) -> Result<PathBuf> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let asset = document
+            .project
+            .videos
+            .iter()
+            .find(|video| video.id == id)
+            .ok_or_else(|| ProjectError::MissingAsset(id.to_owned()))?;
+        self.video_path(asset, cache)
+    }
+
+    /// Tells a reader whether the document changed: it changes whenever an edit is made.
+    pub fn revision(&self) -> (u64, &str) {
+        (
+            self.recovery_revision,
+            self.document.as_ref().map_or("", |d| d.active.as_str()),
+        )
+    }
+
+    /// A copy of the timeline being edited and played.
+    pub fn active_timeline_copy(&self) -> Option<Timeline> {
+        let document = self.document.as_ref()?;
+        document.project.timeline(&document.active).cloned()
+    }
+
     /// The stored waveform of an asset, without decoding it: one generated in this session, or the one
     /// in the `.fxtc` the asset is read from if it was made from the same audio.
     pub fn preview(&self, asset: &AudioAsset) -> Result<Option<Preview>> {
