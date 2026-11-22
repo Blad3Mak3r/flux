@@ -179,7 +179,6 @@ impl VideoOutput {
         } else {
             builder
                 .decorations(false)
-                .skip_taskbar(true)
                 .position(x, y)
                 .inner_size(
                     f64::from(display.width) / scale,
