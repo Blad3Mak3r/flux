@@ -543,9 +543,9 @@ input:disabled {
   position: fixed;
   z-index: 100;
   display: grid;
-  min-width: 200px;
+  min-width: 232px;
   max-width: 320px;
-  padding: 4px 0;
+  padding: 6px 0;
   background: var(--panel-hi);
   border: 1px solid var(--rule-strong);
   border-radius: 2px;
@@ -556,13 +556,30 @@ input:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 28px;
-  padding: 0 14px 0 6px;
+  height: 30px;
+  padding: 0 16px 0 8px;
   background: transparent;
   border: 0;
   border-radius: 0;
   text-align: left;
   white-space: nowrap;
+}
+
+/* Names the group of rows below it: a silkscreened legend, not a row the focus stops on. */
+.menu-heading {
+  overflow: hidden;
+  padding: 6px 16px 4px 32px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-faint);
+}
+
+.menu-rule + .menu-heading {
+  padding-top: 4px;
 }
 
 /* Hover moves the focus, so one recessed row shows both. */
@@ -594,6 +611,11 @@ input:disabled {
   position: relative;
 }
 
+/* A button does not stretch like a block: the row that opens a submenu spans the menu like the others. */
+.menu-host > .menu-item {
+  width: 100%;
+}
+
 .menu-arrow {
   display: grid;
   place-items: center;
@@ -621,7 +643,7 @@ input:disabled {
 
 .menu-rule {
   height: 1px;
-  margin: 4px 0;
+  margin: 6px 0;
   background: var(--rule);
 }
 

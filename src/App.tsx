@@ -104,7 +104,7 @@ function Shell({ devices }: { devices: Devices }) {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
       const ui = useUi.getState();
-      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.removing !== null || isTyping(event.target)) return;
+      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || isTyping(event.target)) return;
       if (event.key === " " && event.target instanceof Element && event.target.closest("button, summary, [role='button']")) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
