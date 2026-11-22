@@ -25,6 +25,7 @@ pub struct VideoPlayer {
     latest: Arc<Mutex<Option<Arc<Frame>>>>,
     stats: Arc<PlayerStats>,
     info: VideoInfo,
+    asset: String,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -67,12 +68,24 @@ impl VideoPlayer {
             latest,
             stats,
             info,
+            asset: String::new(),
             thread: Some(thread),
         })
     }
 
     pub fn info(&self) -> &VideoInfo {
         &self.info
+    }
+
+    /// Labels the player with the video asset id it plays, for [`crate::VideoDeck`].
+    pub fn for_asset(mut self, asset: &str) -> Self {
+        asset.clone_into(&mut self.asset);
+        self
+    }
+
+    /// The asset id given with [`for_asset`](Self::for_asset); empty otherwise.
+    pub fn asset(&self) -> &str {
+        &self.asset
     }
 
     /// Asks for the frame at `index` (see [`crate::source_frame`]). Never blocks.
