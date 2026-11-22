@@ -375,7 +375,8 @@ pub struct VideoClip {
     /// The name the clip goes by in the timeline and in Live; absent means the asset's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Frames of the video skipped at the start of the clip (trim in); absent is 0.
+    /// Frames skipped at the start of the video (trim in), at the timeline's rate like `start`;
+    /// absent is 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub offset: u64,
     /// Frames of the video the clip shows (trim out); absent means up to the end of the video.

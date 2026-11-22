@@ -16,6 +16,7 @@ use super::model::{
     TrackKind, VIDEO_DIR, VideoAsset, VideoClip, check_asset_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
+use super::video_clips::{self, VideoClipOp};
 use flux_core::FrameRate;
 
 /// The document being edited, as the backend last heard of it. The window that edits it can be
@@ -414,6 +415,61 @@ impl Session {
                         Uuid::new_v4().to_string()
                     })?;
                     clips.splice(index..=index, edited);
+                    return Ok(());
+                }
+            }
+            Err(unknown_clip(clip_id))
+        })
+    }
+
+    /// The video a clip of the active timeline shows, and the frame rate of that timeline.
+    pub fn video_clip_asset(&self, clip_id: &str) -> Result<(VideoAsset, FrameRate)> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let timeline = self.active_timeline(&document.project)?;
+        let clip = timeline
+            .tracks
+            .iter()
+            .filter_map(|track| match &track.kind {
+                TrackKind::Video { clips } => Some(clips),
+                _ => None,
+            })
+            .flatten()
+            .find(|clip| clip.id == clip_id)
+            .ok_or_else(|| unknown_clip(clip_id))?;
+        let asset = document
+            .project
+            .videos
+            .iter()
+            .find(|video| video.id == clip.asset)
+            .ok_or_else(|| ProjectError::MissingAsset(clip.asset.clone()))?;
+        Ok((asset.clone(), timeline.timecode.frame_rate))
+    }
+
+    /// Moves, trims, splits or removes a video clip of the active timeline (see [`VideoClipOp`])
+    /// at `frame`. Its video lasts `video_frames` at the timeline's rate. A removed clip takes its
+    /// track with it when it was the last one; the video file goes at the next save if nothing
+    /// else shows it.
+    pub fn edit_video_clip(
+        &mut self,
+        clip_id: &str,
+        op: VideoClipOp,
+        frame: u64,
+        video_frames: u64,
+    ) -> Result<ProjectState> {
+        self.change(|project, active| {
+            let timeline = timeline_mut(project, active)?;
+            for index in 0..timeline.tracks.len() {
+                let TrackKind::Video { clips } = &mut timeline.tracks[index].kind else {
+                    continue;
+                };
+                if let Some(at) = clips.iter().position(|clip| clip.id == clip_id) {
+                    let edited = video_clips::apply(&clips[at], op, frame, video_frames, || {
+                        Uuid::new_v4().to_string()
+                    })?;
+                    clips.splice(at..=at, edited);
+                    if clips.is_empty() {
+                        timeline.tracks.remove(index);
+                    }
                     return Ok(());
                 }
             }

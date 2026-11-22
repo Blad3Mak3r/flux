@@ -50,6 +50,7 @@ pub fn run() {
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(video_output::SharedVideoOutput::default())
+        .manage(video_commands::SharedProbes::default())
         .manage(control::SharedControl::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
@@ -117,6 +118,8 @@ pub fn run() {
             commands::project_import_audio,
             commands::project_import_video,
             video_commands::video_probe,
+            video_commands::video_clip_edit,
+            video_commands::video_thumbnails,
             video_output::video_output_status,
             video_output::video_output_choose,
             commands::project_save,

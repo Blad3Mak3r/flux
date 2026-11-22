@@ -8,12 +8,14 @@ mod decode;
 mod layers;
 mod mapping;
 mod player;
+mod thumbs;
 
 pub use deck::{PRELOAD_FRAMES, Shown, VideoDeck};
 pub use decode::{Frame, VideoError, VideoFile, VideoInfo};
 pub use layers::{Cue, Layer, Probe, layers, upcoming};
-pub use mapping::{Rate, source_frame};
+pub use mapping::{Rate, source_frame, timeline_frames};
 pub use player::{PlayerStats, VideoPlayer};
+pub use thumbs::{THUMB_HEIGHT, Thumbs, thumbnails};
 
 /// Starts FFmpeg's global state. Safe to call more than once; [`VideoFile::open`] calls it.
 pub fn init() -> Result<(), VideoError> {

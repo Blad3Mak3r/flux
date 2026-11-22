@@ -29,6 +29,8 @@ pub enum VideoError {
     NoRate,
     #[error("the decoding thread could not start: {0}")]
     Thread(#[from] std::io::Error),
+    #[error("the thumbnails could not be encoded: {0}")]
+    Encode(String),
     #[error("frame {index} is past the end of the video ({frames} frames)")]
     PastEnd { index: u64, frames: u64 },
 }
@@ -62,6 +64,8 @@ pub struct VideoFile {
     stream: usize,
     decoder: decoder::Video,
     scaler: Option<Scaler>,
+    /// The size frames are converted to; `None` keeps the video's own.
+    output: Option<(u32, u32)>,
     time_base: Rational,
     start_pts: i64,
     info: VideoInfo,
@@ -128,6 +132,7 @@ impl VideoFile {
             stream: index,
             decoder,
             scaler: None,
+            output: None,
             time_base,
             start_pts,
             info,
@@ -137,6 +142,11 @@ impl VideoFile {
             sought: None,
             eof: false,
         })
+    }
+
+    /// Converts the frames to `width` x `height` from now on, e.g. for thumbnails.
+    pub fn set_output_size(&mut self, width: u32, height: u32) {
+        self.output = Some((width.max(1), height.max(1)));
     }
 
     pub fn info(&self) -> &VideoInfo {
@@ -279,23 +289,30 @@ impl VideoFile {
     }
 
     fn convert(&mut self, index: u64, picture: &frame::Video) -> Result<Frame, VideoError> {
-        let (width, height) = (picture.width(), picture.height());
+        let (source_width, source_height) = (picture.width(), picture.height());
+        let (width, height) = self.output.unwrap_or((source_width, source_height));
         let scaler = match &mut self.scaler {
             Some(scaler)
-                if scaler.input().width == width
-                    && scaler.input().height == height
-                    && scaler.input().format == picture.format() =>
+                if scaler.input().width == source_width
+                    && scaler.input().height == source_height
+                    && scaler.input().format == picture.format()
+                    && (scaler.output().width, scaler.output().height) == (width, height) =>
             {
                 scaler
             }
             slot => slot.insert(Scaler::get(
                 picture.format(),
-                width,
-                height,
+                source_width,
+                source_height,
                 Pixel::RGBA,
                 width,
                 height,
-                Flags::BILINEAR,
+                // Area averaging keeps small pictures from shimmering; same size is a copy.
+                if self.output.is_some() {
+                    Flags::AREA
+                } else {
+                    Flags::BILINEAR
+                },
             )?),
         };
         let mut rgba = frame::Video::empty();

@@ -1,14 +1,16 @@
 //! Tauri commands for the videos of the project: what FFmpeg reads from them.
 
+use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use serde::Serialize;
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use crate::commands::SharedSession;
-use flux_project::{ProjectError, Result, VideoAsset};
+use flux_project::{Project, ProjectError, ProjectState, Result, VideoAsset, VideoClipOp};
 
 /// What the timeline needs of a video: its length and rate, and what to say about it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -21,6 +23,50 @@ pub struct VideoProbe {
     pub width: u32,
     pub height: u32,
     pub codec: String,
+}
+
+/// What FFmpeg read from each video, by asset id: a video's bytes never change under its id.
+#[derive(Default)]
+pub struct VideoProbes(Mutex<HashMap<String, VideoProbe>>);
+
+pub type SharedProbes = Arc<VideoProbes>;
+
+/// Reads a video of the session with FFmpeg, or answers from what was read before.
+fn probe(
+    session: &SharedSession,
+    probes: &VideoProbes,
+    asset: &VideoAsset,
+    cache: &std::path::Path,
+) -> Result<VideoProbe> {
+    if let Some(known) = probes
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&asset.id)
+    {
+        return Ok(known.clone());
+    }
+    let path = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .video_path(asset, cache)?;
+    let video = flux_video::VideoFile::open(&path)
+        .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
+    let info = video.info();
+    let probe = VideoProbe {
+        frames: info.frames,
+        rate_num: info.rate.num,
+        rate_den: info.rate.den,
+        width: info.width,
+        height: info.height,
+        codec: info.codec.clone(),
+    };
+    probes
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(asset.id.clone(), probe.clone());
+    Ok(probe)
 }
 
 /// Where videos kept inside a project archive are copied for FFmpeg to read.
@@ -37,27 +83,122 @@ pub fn video_cache(app: &AppHandle) -> Result<PathBuf> {
 pub async fn video_probe(
     app: AppHandle,
     session: State<'_, SharedSession>,
+    probes: State<'_, SharedProbes>,
     asset: VideoAsset,
 ) -> Result<VideoProbe> {
     let cache = video_cache(&app)?;
-    let session = Arc::clone(&session);
+    let (session, probes) = (Arc::clone(&session), Arc::clone(&probes));
+    tauri::async_runtime::spawn_blocking(move || probe(&session, &probes, &asset, &cache))
+        .await
+        .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Moves, trims, splits or removes a video clip of the active timeline at `frame` of it (see
+/// [`VideoClipOp`]); the answer is the project with the edit made. The length of the video comes
+/// from FFmpeg.
+#[tauri::command]
+pub async fn video_clip_edit(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    probes: State<'_, SharedProbes>,
+    project: Project,
+    id: String,
+    op: VideoClipOp,
+    frame: u64,
+) -> Result<ProjectState> {
+    let cache = video_cache(&app)?;
+    let (session, probes) = (Arc::clone(&session), Arc::clone(&probes));
     tauri::async_runtime::spawn_blocking(move || {
-        let path = session
+        let (asset, rate) = {
+            let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+            s.update(project);
+            s.video_clip_asset(&id)?
+        };
+        let info = probe(&session, &probes, &asset, &cache)?;
+        let frames = flux_video::timeline_frames(
+            info.frames,
+            flux_video::Rate::new(info.rate_num, info.rate_den),
+            rate,
+        );
+        session
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .video_path(&asset, &cache)?;
-        let video = flux_video::VideoFile::open(&path)
-            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
-        let info = video.info();
-        Ok(VideoProbe {
-            frames: info.frames,
-            rate_num: info.rate.num,
-            rate_den: info.rate.den,
-            width: info.width,
-            height: info.height,
-            codec: info.codec.clone(),
-        })
+            .edit_video_clip(&id, op, frame, frames)
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// The thumbnails of a video for its clips on the timeline: `count` pictures of `width` x `height`
+/// side by side in one JPEG, the `i`th of them showing the video at `i * seconds` seconds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoThumbs {
+    pub width: u32,
+    pub height: u32,
+    pub count: u32,
+    pub seconds: f64,
+    /// The strip as a `data:` URL, for an `<img>` or a CSS background.
+    #[serde(skip_deserializing)]
+    pub data: String,
+}
+
+/// Decodes the thumbnails of a video once and keeps them in the cache by the asset's id, which
+/// never names other bytes; later calls read them back.
+fn thumbs(
+    session: &SharedSession,
+    asset: &VideoAsset,
+    cache: &std::path::Path,
+) -> Result<VideoThumbs> {
+    let dir = cache.join("thumbs");
+    let (jpeg_path, meta_path) = (
+        dir.join(format!("{}.jpg", asset.id)),
+        dir.join(format!("{}.json", asset.id)),
+    );
+    let cached = std::fs::read(&jpeg_path).ok().zip(
+        std::fs::read(&meta_path)
+            .ok()
+            .and_then(|meta| serde_json::from_slice::<VideoThumbs>(&meta).ok()),
+    );
+    let (jpeg, mut meta) = match cached {
+        Some(found) => found,
+        None => {
+            let path = session
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .video_path(asset, cache)?;
+            let made = flux_video::thumbnails(&path)
+                .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
+            let meta = VideoThumbs {
+                width: made.width,
+                height: made.height,
+                count: made.count,
+                seconds: made.seconds,
+                data: String::new(),
+            };
+            std::fs::create_dir_all(&dir)?;
+            std::fs::write(&jpeg_path, &made.jpeg)?;
+            std::fs::write(
+                &meta_path,
+                serde_json::to_vec(&meta).map_err(|err| ProjectError::Io(io::Error::other(err)))?,
+            )?;
+            (made.jpeg, meta)
+        }
+    };
+    meta.data = format!("data:image/jpeg;base64,{}", BASE64.encode(jpeg));
+    Ok(meta)
+}
+
+/// Answers with the thumbnails of a video of the project (see [`VideoThumbs`]).
+#[tauri::command]
+pub async fn video_thumbnails(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    asset: VideoAsset,
+) -> Result<VideoThumbs> {
+    let cache = video_cache(&app)?;
+    let session = Arc::clone(&session);
+    tauri::async_runtime::spawn_blocking(move || thumbs(&session, &asset, &cache))
+        .await
+        .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }

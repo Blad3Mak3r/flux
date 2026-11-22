@@ -106,3 +106,15 @@ fn the_player_should_end_on_the_newest_request() {
     };
     assert_eq!(frame.rgba[0], played[30]);
 }
+
+#[test]
+fn thumbnails_should_give_one_picture_a_second_side_by_side() {
+    for name in FIXTURES {
+        let thumbs = flux_video::thumbnails(&fixture(name)).unwrap();
+        // 64x36 at the thumbnail height, 50 frames at about 25 or 30 per second.
+        assert_eq!((thumbs.width, thumbs.height), (96, 54), "{name}");
+        assert_eq!(thumbs.count, 2, "{name}");
+        assert!((0.99..1.01).contains(&thumbs.seconds), "{name}");
+        assert_eq!(&thumbs.jpeg[..2], &[0xFF, 0xD8], "{name}");
+    }
+}

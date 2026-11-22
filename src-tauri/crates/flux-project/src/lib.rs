@@ -18,6 +18,7 @@ pub mod routing;
 pub use outputs::{ClickSettings, LtcSignal, MtcSignal, ShowOutputs, SignalOp, UNASSIGNED_DEVICE};
 mod session;
 pub mod show;
+mod video_clips;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
@@ -38,6 +39,7 @@ pub use model::{
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, ProjectState, Session};
+pub use video_clips::VideoClipOp;
 
 /// Whether a path has a supported project extension, including legacy projects.
 pub fn is_project_path(path: &std::path::Path) -> bool {
