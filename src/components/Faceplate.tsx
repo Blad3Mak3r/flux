@@ -4,7 +4,7 @@ import type { Devices, Presence } from "../devices/useDevices";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { SetupSection } from "../setup/outputs";
-import { activeTimeline } from "../state/doc";
+import { activeTimeline, isDirty } from "../state/doc";
 import { useDoc } from "../state/store";
 import { openSetup } from "../state/ui";
 import { formatFrames } from "../timecode";
@@ -203,12 +203,33 @@ function Lamps({ devices }: { devices: Devices }) {
   );
 }
 
+/** The show's name, printed on the plate like the label on a rack unit. */
+function ProjectName() {
+  const t = useT();
+  const name = useDoc((doc) => doc.project.name);
+  const dirty = useDoc(isDirty);
+  return (
+    <p className="project-name" title={name}>
+      <span className="project-name-text">{name}</span>
+      {dirty ? (
+        <span className="dirty" title={t("project.unsaved")}>
+          <span aria-hidden="true">●</span>
+          <span className="visually-hidden">{t("project.unsaved")}</span>
+        </span>
+      ) : null}
+    </p>
+  );
+}
+
 export function Faceplate({ devices }: { devices: Devices }) {
   return (
     <header className="faceplate">
       <Readout />
       <Keys />
-      <Lamps devices={devices} />
+      <div className="faceplate-end">
+        <ProjectName />
+        <Lamps devices={devices} />
+      </div>
     </header>
   );
 }
