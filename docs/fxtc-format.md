@@ -8,9 +8,11 @@ New projects and Save as use `.flx` by default. Opening accepts either extension
 project.json          deflated
 audio/<file name>     stored (audio is large and usually compressed already)
 peaks/<file name>.bin stored, optional: the waveform preview of that audio (see below)
+video/<file name>     stored, the video files of the video tracks
 ```
 
-- The `audio/` folder is flat: an asset file is `audio/<name>` with no further separators, `.` or `..`.
+- The `audio/` and `video/` folders are flat: an asset file is `audio/<name>` (a video `video/<name>`) with no further
+  separators, `.` or `..`.
 - Readers reject any archive entry whose name escapes the archive root (zip-slip).
 
 ## `project.json`
@@ -26,11 +28,12 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `11`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `13`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
 | `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
+| `videos[]` | `{ id, name, file }` | The video files the video tracks show. `file` is the archive path under `video/`. Ids share one namespace with `assets` (an audio clip cannot point at a video, nor a video clip at audio), and files are unique across both. A video no clip shows is dropped on save. Absent is an empty list. Added in version 13. |
 | `timelines[]` | `{ id, name, timecode, tempo, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
 | `timelines[].tempo` | `{ bpm, beatsPerBar, click }` | The beat grid of the timeline, counted from its origin: `bpm` 20 to 400, `beatsPerBar` 1 to 16 (the beat is a quarter note), `click` whether the metronome plays while this timeline runs. Absent in files written before it existed, read as 120 BPM, 4 beats, click off, without a version bump. Which bars the ruler shows is a view setting of the window and is not stored. |
 | `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
@@ -91,7 +94,13 @@ Track kinds:
   `{ "type": "int" | "float" | "string" | "bool", "value": … }` and sent as `i`, `f`, `s`, `T`/`F`. A destination that
   is not in `output.osc` is rejected on open and save; one that is absent sends nothing.
 
-Other kinds of track (video, Art-Net) will be added as new kinds. Events are kept in order of `at`; event ids share the
+- `{ "type": "video", "clips": [{ id, asset, start, name?, offset?, length? }] }` — video shown in time with the
+  timeline. `asset` is the id of an entry in `videos`; `name`, `offset` and `length` work as for audio clips (frames at
+  the timeline's rate; `length` at least 1, absent means up to the end of the video). Clip ids share the namespace of
+  clip and note ids. Added in version 13. This build stores and validates video tracks only: it does not decode or play
+  them yet, and Live shows no cue for them.
+
+Other kinds of track (Art-Net) will be added as new kinds. Events are kept in order of `at`; event ids share the
 namespace of clip and note ids.
 
 Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/note ids
@@ -341,7 +350,7 @@ Other track kinds must retain the inherited default. Removing a custom destinati
 
 Hardware mappings belong to installation preferences: `audioRoutes` maps custom output IDs to an interface name hint and mono/stereo channels. Programme and Operator reuse their existing local preference fields. These mappings are never written into the project. Unmapped or missing outputs remain silent in Live; they never fall back to Programme. Edit with a preview route auditions every assigned track through that route, while Silent remains silent.
 
-Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving now writes version 12; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.
+Version 9 and earlier open with inherited assignments and no custom outputs, including recovery records. Saving writes the current version; earlier builds reject it. Physical resolved `audioRoutes` and `trackRoutes` are runtime configuration, not fields of portable `ShowOutputs`.
 
 ### Version 11: voice order sources
 
@@ -371,3 +380,8 @@ absence/false repeats the event on every loop turn.
 Older projects open with empty setlists/controls and per-event repetition enabled. Prepared
 run state, loop turns, devamp requests, operational level overrides and OSC listener/subscriber
 state are never archived. See [setlists.md](setlists.md) and [osc-api.md](osc-api.md).
+
+### Version 13: video tracks
+
+Adds `videos` (the bundled files under `video/`) and the `video` track kind. Nothing is reshaped: an older project
+opens with no videos. Saving writes version 13, which builds supporting version 12 or earlier reject before parsing.
