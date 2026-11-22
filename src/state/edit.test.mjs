@@ -43,6 +43,13 @@ test("setTrackGain stores the fader on an audio track without touching the input
   assert.equal(after.timelines[0].tracks[1], before.timelines[0].tracks[1]);
 });
 
+test("setTrackGain stores the fader on a video track, which has sound too", () => {
+  const before = withTracks(emptyProject("Show", "fps25"), [
+    { id: "v1", name: "Screen", muted: false, kind: { type: "video", clips: [] } },
+  ]);
+  assert.equal(setTrackGain(before, TL, "v1", -12).timelines[0].tracks[0].gainDb, -12);
+});
+
 test("setTrackGain stores 0 dB as no value", () => {
   const down = setTrackGain(project(), TL, "t1", -6);
   const reset = setTrackGain(down, TL, "t1", 0);
