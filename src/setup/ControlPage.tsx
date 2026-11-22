@@ -80,7 +80,7 @@ function ActionFields({
  * machine's, kept by the backend in the app's own folder, not in the project. The backend listens
  * and runs the actions; this page shows how each input is doing and forwards the user's choices.
  */
-export function ControlPage() {
+export function ControlPage({ part }: { part: "midi" | "osc" }) {
   const t = useT();
   const [view, setView] = useState<ControlView | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -130,7 +130,8 @@ export function ControlPage() {
     <div className="setup-fields">
       <p className="setup-intro">{t("setup.control.intro")}</p>
 
-      <h4>{t("setup.control.midi")}</h4>
+      {part === "midi" ? (
+        <>
       {view.midiError && <p className="field-note">{t("out.midiUnavailable")}</p>}
       <label className="check-row">
         <input type="checkbox" checked={midi.enabled} onChange={(event) => save({ ...prefs, midi: { ...midi, enabled: event.target.checked } })} />
@@ -226,8 +227,9 @@ export function ControlPage() {
         )}
       </div>
       {!canLearn && <p className="field-note">{t("setup.control.learn.needsPort")}</p>}
-
-      <h4>{t("setup.control.osc")}</h4>
+        </>
+      ) : (
+        <>
       <label className="check-row">
         <input type="checkbox" checked={osc.enabled} onChange={(event) => save({ ...prefs, osc: { ...osc, enabled: event.target.checked } })} />
         <span>{t("setup.control.osc.enable")}</span>
@@ -255,6 +257,8 @@ export function ControlPage() {
           </li>
         ))}
       </ul>
+        </>
+      )}
 
       {problem && (
         <p className="field-note" role="alert">

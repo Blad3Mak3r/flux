@@ -33,8 +33,10 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <MtcPage devices={devices} />;
     case "osc":
       return <OscPage />;
-    case "control":
-      return <ControlPage />;
+    case "controlMidi":
+      return <ControlPage part="midi" />;
+    case "controlOsc":
+      return <ControlPage part="osc" />;
     case "graphics":
       return <GraphicsPage />;
     case "general":
@@ -96,6 +98,8 @@ const NAV_LABEL: Partial<Record<SetupSection, MessageKey>> = {
   ltc: "setup.nav.ltc",
   mtc: "setup.nav.mtc",
   osc: "setup.nav.osc",
+  controlMidi: "setup.nav.controlMidi",
+  controlOsc: "setup.nav.osc",
   http: "setup.nav.http",
 };
 
