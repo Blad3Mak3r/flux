@@ -58,6 +58,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/linux-deps
+      - uses: ./.github/actions/macos-deps
       - uses: ./.github/actions/windows-deps
       - uses: dtolnay/rust-toolchain@stable
         with:
