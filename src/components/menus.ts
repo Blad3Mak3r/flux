@@ -54,6 +54,7 @@ import { exportDiagnosticsFile, openLogFolder } from "../state/diagnostics";
 import { exportCueSheetFile } from "../state/export";
 import { seek, stop, toggle } from "../transport/playback";
 import { currentFrame } from "../transport/store";
+import { DOCS_URL, ISSUES_URL } from "./links";
 import { hasNativeWindow } from "./WindowControls";
 
 /** The modifier key as this platform prints it, for shortcut hints. */
@@ -296,9 +297,6 @@ function transportMenu(t: Translate): MenuItem[] {
     { label: t("check.title"), disabled: isPlaying(), run: openShowCheck },
   ];
 }
-
-const DOCS_URL = "https://blad3mak3r.github.io/flux/docs/";
-const ISSUES_URL = "https://github.com/Blad3Mak3r/flux/issues/new";
 
 function helpMenu(t: Translate): MenuItem[] {
   const web = hasNativeWindow();

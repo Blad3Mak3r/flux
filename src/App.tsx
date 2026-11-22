@@ -2,6 +2,7 @@ import { bindShow } from "./show/api";
 import { SetlistEditor } from "./show/SetlistEditor";
 import { ControlEditor } from "./show/ControlEditor";
 import { ShowCheckDialog } from "./voice/ShowCheckDialog";
+import { AboutDialog } from "./components/AboutDialog";
 import { ErrorDialog } from "./components/ErrorDialog";
 import { bindVoice, protectVoiceWork } from "./voice/store";
 import { useOutputView } from "./preferences/outputs";
@@ -32,7 +33,7 @@ import { splitAtPlayhead } from "./state/clips";
 import { activeTimeline, isDirty } from "./state/doc";
 import { bindDocumentSync, flushDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
+import { ask, closeAbout, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
 import {
   addNoteAt,
   closeDocument,
@@ -72,6 +73,7 @@ function Shell({ devices }: { devices: Devices }) {
   const controlEditor = useUi((ui) => ui.controlEditor);
   const view = useUi((ui) => ui.view);
   const asking = useUi((ui) => ui.pending !== null);
+  const about = useUi((ui) => ui.about);
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced ?? false);
 
   // The clock of the audio device is the master; one that does not keep real time ruins the timecode.
@@ -214,6 +216,8 @@ function Shell({ devices }: { devices: Devices }) {
       <StatusBar />
       <SetupDialog devices={devices} />
       <ShowCheckDialog />
+      {/* Outside the menu bar, whose button rules would strip the dialog's buttons. */}
+      {about ? <AboutDialog onClose={closeAbout} /> : null}
       <MenuHost />
       <TimelineConfirm />
       <UnsavedDialog
