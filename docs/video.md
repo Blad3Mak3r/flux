@@ -91,6 +91,10 @@ video's main audio stream once (`flux_video::audio_wav`), and the audio crate co
 engine's rate; it is kept in the audio cache beside the project's audio files. Only the first two
 channels play.
 
+The clip draws the waveform of that sound under its thumbnails and shows the tempo found in it, as an
+audio clip does (`video_sound`). The tempo is read again each time the project opens; it is not
+saved with the video.
+
 ## Output window
 
 **Preferences > Outputs > Video** chooses the display the output opens on; the choice is a local preference
