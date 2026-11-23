@@ -809,6 +809,8 @@ mod tests {
                     offset: 25,
                     length: None,
                     fit: Default::default(),
+                    fade_in: 0,
+                    fade_out: 0,
                 }],
             },
         ));

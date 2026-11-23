@@ -72,6 +72,8 @@ mod tests {
             offset,
             length,
             fit: Default::default(),
+            fade_in: 0,
+            fade_out: 0,
         }
     }
 
@@ -93,6 +95,8 @@ mod tests {
             offset: 0,
             length: None,
             fit: Default::default(),
+            fade_in: 0,
+            fade_out: 0,
         };
         let last = timeline_frames(10, Rate::new(30, 1), FrameRate::Fps25) - 1;
         assert!(source_frame(&clip, last, FrameRate::Fps25, Rate::new(30, 1), 10).is_some());

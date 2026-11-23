@@ -23,6 +23,10 @@ pub enum VideoClipOp {
     Remove,
     /// Sizes the video into the composition this way; the frame is not used.
     Fit(VideoFit),
+    /// The fade in ends at the frame; at the clip's start there is none.
+    FadeIn,
+    /// The fade out begins at the frame; at the clip's end there is none.
+    FadeOut,
 }
 
 fn refused(clip: &VideoClip, why: &str) -> ProjectError {
@@ -47,6 +51,8 @@ pub fn apply(
         VideoClipOp::Move => edited.start = frame,
         VideoClipOp::Remove => return Ok(Vec::new()),
         VideoClipOp::Fit(fit) => edited.fit = fit,
+        VideoClipOp::FadeIn => edited.fade_in = frame.saturating_sub(clip.start),
+        VideoClipOp::FadeOut => edited.fade_out = end.saturating_sub(frame),
         VideoClipOp::TrimStart => {
             if length == 0 {
                 return Err(refused(clip, "there is no video left to trim"));
@@ -70,7 +76,8 @@ pub fn apply(
                 return Err(refused(clip, "the cut must fall inside the clip"));
             }
             edited.length = Some(frame - clip.start);
-            let second = VideoClip {
+            edited.fade_out = 0;
+            let mut second = VideoClip {
                 id: new_id(),
                 asset: clip.asset.clone(),
                 start: frame,
@@ -78,11 +85,24 @@ pub fn apply(
                 offset: clip.offset + frame - clip.start,
                 length: Some(end - frame),
                 fit: clip.fit,
+                fade_in: 0,
+                fade_out: clip.fade_out,
             };
+            fit_fades(&mut edited, video_frames);
+            fit_fades(&mut second, video_frames);
             return Ok(vec![edited, second]);
         }
     }
+    fit_fades(&mut edited, video_frames);
     Ok(vec![edited])
+}
+
+/// Keeps the fades inside the clip: the fade out gives way to the fade in.
+fn fit_fades(clip: &mut VideoClip, video_frames: u64) {
+    let rest = video_frames.saturating_sub(clip.offset);
+    let length = clip.length.unwrap_or(rest).min(rest);
+    clip.fade_in = clip.fade_in.min(length);
+    clip.fade_out = clip.fade_out.min(length - clip.fade_in);
 }
 
 #[cfg(test)]
@@ -100,7 +120,32 @@ mod tests {
             offset: 0,
             length: None,
             fit: VideoFit::Fit,
+            fade_in: 0,
+            fade_out: 0,
         }
+    }
+
+    #[test]
+    fn fades_should_stay_inside_the_clip_and_never_overlap() {
+        let short = edit(&clip(), VideoClipOp::TrimEnd, 200);
+        let faded = edit(&short, VideoClipOp::FadeIn, 160);
+        let faded = edit(&faded, VideoClipOp::FadeOut, 120);
+        assert_eq!((faded.fade_in, faded.fade_out), (60, 40));
+        // Trimmed shorter, the fades shrink with it.
+        let trimmed = edit(&faded, VideoClipOp::TrimEnd, 150);
+        assert_eq!((trimmed.fade_in, trimmed.fade_out), (50, 0));
+        // A handle dragged back to the edge takes the fade away.
+        assert_eq!(edit(&faded, VideoClipOp::FadeIn, 100).fade_in, 0);
+    }
+
+    #[test]
+    fn a_split_should_keep_the_fade_in_first_and_the_fade_out_second() {
+        let faded = edit(&clip(), VideoClipOp::TrimEnd, 500);
+        let faded = edit(&faded, VideoClipOp::FadeIn, 150);
+        let faded = edit(&faded, VideoClipOp::FadeOut, 450);
+        let halves = apply(&faded, VideoClipOp::Split, 300, VIDEO, || "c2".into()).unwrap();
+        assert_eq!((halves[0].fade_in, halves[0].fade_out), (50, 0));
+        assert_eq!((halves[1].fade_in, halves[1].fade_out), (0, 50));
     }
 
     #[test]

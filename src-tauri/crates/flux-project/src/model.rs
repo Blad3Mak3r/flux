@@ -385,6 +385,12 @@ pub struct VideoClip {
     /// How the video is sized into the composition; absent is [`VideoFit::Fit`].
     #[serde(default, skip_serializing_if = "VideoFit::is_fit")]
     pub fit: VideoFit,
+    /// Frames the picture takes to rise from black, or from what is below it; absent is 0 (a cut).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_in: u64,
+    /// Frames the picture takes to fall to black, or to what is below it, at its end; absent is 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_out: u64,
 }
 
 /// How a clip's video is sized into the composition, as a media server sizes a clip into its
@@ -1718,6 +1724,8 @@ pub(super) mod tests {
                     offset: 5,
                     length: Some(100),
                     fit: Default::default(),
+                    fade_in: 0,
+                    fade_out: 0,
                 }],
             },
         });

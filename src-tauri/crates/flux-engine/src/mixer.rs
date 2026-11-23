@@ -589,6 +589,9 @@ pub fn build_with_video(
                         let mut as_audio = AudioClip::new(&clip.id, &clip.asset, clip.start);
                         as_audio.offset = clip.offset;
                         as_audio.length = clip.length;
+                        // The sound fades with the picture.
+                        as_audio.fade_in = clip.fade_in;
+                        as_audio.fade_out = clip.fade_out;
                         clips.push(ClipPlayer {
                             span: span(&as_audio, &clock, audio.frames() as u64),
                             envelope: None,
@@ -673,6 +676,8 @@ mod tests {
                     offset: 1,
                     length: Some(1),
                     fit: Default::default(),
+                    fade_in: 0,
+                    fade_out: 0,
                 }],
             },
         });
