@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useT } from "../i18n";
 import { TextField } from "../components/fields";
 import { useDoc } from "../state/store";
-import { maskEdit, mappingEdit, showTestPattern } from "../video/mapping";
+import { maskEdit, mappingEdit, showTestPattern, useComposition } from "../video/mapping";
 import type { Mask, MappingOp, MaskOp } from "../video/mapping";
 import type { Point, Rect, Size, Slice } from "../video/mapping";
 
@@ -90,8 +90,8 @@ export function MappingEditor({
   );
   const edit = (op: MappingOp) => mappingEdit(screenId, op);
   const editMask = (op: MaskOp) => maskEdit(screenId, op);
-  // The mapping measures the picture in the size of the project's first video, as the output does.
-  const video = useDoc((doc) => doc.video[doc.project.videos?.[0]?.id ?? ""]);
+  // The mapping measures the picture in the composition, as the output does.
+  const composition = useComposition();
   const [selected, setSelected] = useState<string | null>(null);
   // What the screen's handles and the panel below are for: a slice or a mask.
   const [focus, setFocus] = useState<"slice" | "mask">("slice");
@@ -113,9 +113,7 @@ export function MappingEditor({
   const shownMask = (mask: Mask) =>
     maskDraft?.id === mask.id ? maskDraft : mask;
   const editingMask = focus === "mask" && currentMask !== null;
-  const picture: Size = video
-    ? { width: video.width, height: video.height }
-    : DEFAULT_SIZE;
+  const picture: Size = { width: composition.width, height: composition.height };
   const display: Size = screen ?? DEFAULT_SIZE;
   const pictureAspect = `${picture.width} / ${picture.height}`;
   const screenAspect = `${display.width} / ${display.height}`;

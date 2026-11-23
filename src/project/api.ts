@@ -12,6 +12,7 @@ import type {
   OscArg,
   Project,
   ProjectState,
+  VideoFit,
 } from "./types";
 
 /** The document the backend holds for the window: the project, where it lives and how it started. */
@@ -105,7 +106,7 @@ export const clipEdit = (project: Project, id: string, op: ClipOp, frame: number
   invoke<ProjectState>("clip_edit", { project, id, op, frame });
 
 /** What can be done to a video clip; the backend decides how (see `project/video_clips.rs`). */
-export type VideoClipOp = "move" | "trimStart" | "trimEnd" | "split" | "remove";
+export type VideoClipOp = "move" | "trimStart" | "trimEnd" | "split" | "remove" | { fit: VideoFit };
 
 /** Moves, trims, splits or removes a video clip of the active timeline at `frame` of it; answers with the project as it is now. */
 export const videoClipEdit = (project: Project, id: string, op: VideoClipOp, frame: number) =>

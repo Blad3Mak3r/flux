@@ -4,7 +4,7 @@ import { VoiceSelector } from "../voice/VoiceSelector";
 import { OrderPanel } from "../voice/VoicePanel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { FadeCurve, Project, Timeline, Track } from "../project/types";
+import type { FadeCurve, Project, Timeline, Track, VideoFit } from "../project/types";
 import { deleteSelection, edit, nameClip, nameTrack, setTimelineTempo } from "../state/actions";
 import { editItem } from "../state/items";
 import { detectTempo } from "../state/audio";
@@ -12,7 +12,7 @@ import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
 import { toggleInspector, useUi } from "../state/ui";
 import type { Selected } from "../state/ui";
-import { MAX_BPM, MIN_BPM } from "../project/types";
+import { MAX_BPM, MIN_BPM, VIDEO_FITS } from "../project/types";
 import {
   findItem,
   setAssetBpm,
@@ -137,6 +137,18 @@ function SelectionPanel({
             rate={frameRate}
             onCommit={(frame) => void editVideoClip(clip.id, "move", Math.max(0, frame - start))}
           />
+          <SelectField
+            label={t("videoClip.fit")}
+            value={clip.fit ?? "fit"}
+            hint={t("videoClip.fitHint")}
+            onChange={(fit) => void editVideoClip(clip.id, { fit: fit as VideoFit }, 0)}
+          >
+            {VIDEO_FITS.map((fit) => (
+              <option key={fit} value={fit}>
+                {t(`videoClip.fit.${fit}`)}
+              </option>
+            ))}
+          </SelectField>
           <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
         </div>
       );

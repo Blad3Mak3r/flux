@@ -228,7 +228,13 @@ export interface VideoClip {
   offset?: number;
   /** Frames of the video the clip shows (trim out); absent means up to the end of the video. */
   length?: number;
+  /** How the picture is sized into the composition; absent is `fit`. */
+  fit?: VideoFit;
 }
+
+/** How a video clip is sized into the composition, as the backend names it. */
+export type VideoFit = "fit" | "fill" | "stretch" | "none";
+export const VIDEO_FITS: readonly VideoFit[] = ["fit", "fill", "stretch", "none"];
 
 /**
  * Text for the operator at a point of the timeline. It is shown from `at` for `length` frames, or
@@ -253,6 +259,8 @@ export interface ShowOutputs {
   legacyRoutes?: OutputConfig;
   /** The screens of the video output and their slices; none is the main screen with no slices. */
   screens?: import("../video/mapping").VideoScreen[];
+  /** The size of the picture the clips are sized into; absent is the first video's size. */
+  composition?: { width: number; height: number };
 }
 
 /** Devices are stored by name hint only, never by OS identifier. */

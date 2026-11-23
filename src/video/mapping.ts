@@ -140,6 +140,34 @@ export async function maskEdit(screen: string, op: MaskOp): Promise<void> {
   }
 }
 
+/** Where the size of the composition comes from, when the project does not set it. */
+const DEFAULT_COMPOSITION = { width: 1920, height: 1080 };
+
+/**
+ * The size of the composition the clips are sized into and the slices cut, as the output uses it:
+ * the one the project sets, else its first video's, else 1920 × 1080.
+ */
+export function useComposition(): { width: number; height: number; set: boolean } {
+  const set = useDoc((doc) => doc.project.output.composition);
+  const video = useDoc((doc) => doc.video[doc.project.videos?.[0]?.id ?? ""]);
+  if (set) return { ...set, set: true };
+  return video ? { width: video.width, height: video.height, set: false } : { ...DEFAULT_COMPOSITION, set: false };
+}
+
+/** Sets the size of the composition; both sides empty go back to the first video's size. */
+export async function compositionSet(width: string, height: string): Promise<void> {
+  try {
+    const state = await invoke<ProjectState>("video_composition_set", {
+      project: useDoc.getState().project,
+      width,
+      height,
+    });
+    dispatch({ type: "apply", ...state });
+  } catch (error) {
+    sayError(errorMessage(error));
+  }
+}
+
 /** Adds, removes or renames a screen; its window opens or closes on its own. */
 export async function screenEdit(op: ScreenOp): Promise<void> {
   try {

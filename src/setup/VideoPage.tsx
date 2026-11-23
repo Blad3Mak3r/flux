@@ -5,7 +5,7 @@ import { SelectField, TextField } from "../components/fields";
 import { errorMessage } from "../project/api";
 import { sayError } from "../state/ui";
 import { useDoc } from "../state/store";
-import { MAIN_SCREEN, screenEdit } from "../video/mapping";
+import { MAIN_SCREEN, compositionSet, screenEdit, useComposition } from "../video/mapping";
 import { MappingEditor } from "./MappingEditor";
 
 // Mirrors src-tauri/src/video_output.rs.
@@ -43,6 +43,7 @@ export function VideoPage() {
   const [selected, setSelected] = useState(MAIN_SCREEN);
   // A screen added, renamed or removed is asked for again at once rather than at the next refresh.
   const screens = useDoc((doc) => doc.project.output.screens);
+  const composition = useComposition();
 
   useEffect(() => {
     let alive = true;
@@ -85,6 +86,33 @@ export function VideoPage() {
     <>
       <div className="setup-fields">
         <p className="setup-intro">{t("setup.video.intro")}</p>
+        <h4 id="composition-title">{t("setup.video.composition")}</h4>
+        <fieldset className="mapping-values" aria-labelledby="composition-title">
+          <TextField
+            label={t("setup.video.field.width")}
+            inputMode="numeric"
+            monospace
+            value={String(composition.width)}
+            onCommit={(width) => void compositionSet(width, String(composition.height))}
+          />
+          <TextField
+            label={t("setup.video.field.height")}
+            inputMode="numeric"
+            monospace
+            value={String(composition.height)}
+            onCommit={(height) => void compositionSet(String(composition.width), height)}
+          />
+        </fieldset>
+        <p className="field-note">
+          {t(composition.set ? "setup.video.compositionSet" : "setup.video.compositionAuto")}
+        </p>
+        {composition.set && (
+          <div className="button-row">
+            <button type="button" className="button" onClick={() => void compositionSet("", "")}>
+              {t("setup.video.compositionReset")}
+            </button>
+          </div>
+        )}
         <div
           className="screen-tabs"
           role="group"
