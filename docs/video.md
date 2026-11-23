@@ -85,6 +85,26 @@ Alpha, PNG, QuickTime Animation) keep it through the conversion to RGBA. `VideoI
 the output blends such a picture over the layers below by its alpha, never takes it as hiding them, and its thumbnails
 show it over black.
 
+## Converting to HAP
+
+HAP compresses every frame on its own, as media servers expect: a seek costs one frame and decoding is light enough
+for several layers at full size. The video clip inspector shows the file's codec and, for any other, **Convert to
+HAP** (`video_convert_hap`, offered when `video_hap_available` says this FFmpeg has the `hap` encoder, which needs
+snappy). `flux_video::convert_to_hap` reads the frames with `VideoFile`, as playback does, so frame `n` of the copy is
+frame `n` of the source at the same rate, and writes them into a QuickTime file as HAP, or HAP Alpha when the source
+has alpha, at the source's size rounded up to a multiple of 4 (what HAP's textures need). The sound goes beside them
+as 16-bit PCM, decoded the way the mixer hears it, so it stays in step. Progress goes out as
+`video-convert-progress` events; `video_convert_cancel` stops it and removes the partial file. One conversion runs
+at a time.
+
+The copy is written beside the imported file as `<name> (HAP).mov` (`(HAP 2)` and on when that exists), or into
+`converted/` in the video cache for a video kept inside the project or in a folder that cannot be written. When it is
+done, `project_replace_video` (`Session::replace_video`) makes it a new asset in the place and under the name of the
+old one and moves every clip of every timeline onto it, keeping their place, trim, fit and fades: one step of undo,
+which brings the old file back. A save keeps only the asset in use.
+
+FFmpeg's HAP decoder still hands over RGBA, so the frames are uploaded to the graphics card as for any codec.
+
 ## Editing clips
 
 A video clip is edited like an audio clip: drag it to move it, drag its edges to trim it, split it at
@@ -210,6 +230,10 @@ python3 -c "import sys; [sys.stdout.buffer.write(bytes([20+4*i])*64*36) for i in
 
 For the WebM one, replace the encoder options with
 `-c:v libvpx-vp9 -lossless 1 -pix_fmt yuv420p -g 12 -map_metadata -1 -fflags +bitexact gray25.webm`.
+
+`tests/hap.rs` converts the fixtures and reads the copies back: the same size, rate, frame count and grey levels,
+HAP Alpha for `alpha25.webm`, the sound of `tone.mp4` and `tone.webm` sample for sample, and nothing left behind when
+cancelled. It is skipped where FFmpeg has no HAP encoder.
 
 `alpha25.webm` (10 frames of 64x36, the left half opaque red and the right half transparent) checks that a WebM alpha
 track is kept:

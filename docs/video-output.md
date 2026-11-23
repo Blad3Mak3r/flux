@@ -129,6 +129,15 @@ should not light. **Add mask** puts a square on the screen stage:
 
 A screen has up to 8 masks of up to 32 points.
 
+## Converting to HAP
+
+Large files and shows with several layers play best in **HAP**, the codec media servers use: every frame stands on
+its own, so jumping anywhere in the clip is instant. Select a video clip and press **Convert to HAP** in the inspector;
+it shows how far it has got and can be cancelled. The copy (`<name> (HAP).mov`, beside the original file) keeps the
+same frames, rate and sound, and HAP Alpha keeps the transparency of a transparent clip. When it is done, every clip of
+that video uses the copy, with its place, trim, fit and fades unchanged; **Undo** goes back to the original. HAP files
+are much larger than H.264, so a project that bundles them grows accordingly.
+
 ## Decoding on the graphics card
 
 FLUX decodes H.264, HEVC, VP9 and AV1 clips on the graphics card when the computer has a decoder for them (Direct3D 11
