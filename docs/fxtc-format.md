@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v13)
+# `.flx` / `.fxtc` project format (v14)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -28,12 +28,14 @@ transport's `seek` takes a timecode, `timecode.start` included.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `formatVersion` | number | `13`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
+| `formatVersion` | number | `14`. A file with a newer version is rejected before it is parsed further; an older one is migrated on opening (see Versioning). |
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
 | `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
 | `videos[]` | `{ id, name, file }` | The video files the video tracks show. `file` is the archive path under `video/`. Ids share one namespace with `assets` (an audio clip cannot point at a video, nor a video clip at audio), and files are unique across both. A video no clip shows is dropped on save. Absent is an empty list. Added in version 13. |
+| `mode` | `timeline` \| `vj` | What the window shows and plays: the timelines or the VJ grid. Absent is `timeline`. Switching keeps both, so nothing is lost. Added in version 14. |
+| `vj` | `{ layers, columns }` | The VJ grid, see [VJ grid](#vj-grid-version-14). Absent until the project is first shown in VJ mode. Added in version 14. |
 | `timelines[]` | `{ id, name, timecode, tempo, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
 | `timelines[].tempo` | `{ bpm, beatsPerBar, click }` | The beat grid of the timeline, counted from its origin: `bpm` 20 to 400, `beatsPerBar` 1 to 16 (the beat is a quarter note), `click` whether the metronome plays while this timeline runs. Absent in files written before it existed, read as 120 BPM, 4 beats, click off, without a version bump. Which bars the ruler shows is a view setting of the window and is not stored. |
 | `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
@@ -216,6 +218,7 @@ does not rewrite a file, including files without `meta`; their generated identit
 - **7**: added `autosave`, owned by the project. Older files receive `{ "enabled": true, "intervalSeconds": 30 }`.
 - **8**: added operator tracks, spoken orders and inherited voice selections. Older projects have no operator tracks or explicit voice selections.
 - **9**: added recording origins, pronunciation overrides and non-destructive operator trims; earlier recordings default to generated origin and zero trims.
+- **14**: added `mode` and the VJ grid `vj`. Nothing was reshaped, so there is no migration.
 
 ## Saving
 
@@ -391,3 +394,27 @@ state are never archived. See [setlists.md](setlists.md) and [osc-api.md](osc-ap
 
 Adds `videos` (the bundled files under `video/`) and the `video` track kind. Nothing is reshaped: an older project
 opens with no videos. Saving writes version 13, which builds supporting version 12 or earlier reject before parsing.
+
+### Version 14: VJ grid
+
+Adds `mode` and `vj`. Nothing is reshaped: an older project opens in `timeline` mode with no grid. Saving writes version
+14, which builds supporting version 13 or earlier reject before parsing.
+
+#### VJ grid (version 14)
+
+A grid of clips launched by hand, like a media server's clip deck. A project holds its timelines and its grid at once,
+and `mode` only picks which one the window shows. The first time a project is shown in VJ mode it gets 3 layers and 8
+columns. Which clip is playing is not stored: it belongs to the running show.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `vj.columns[]` | `{ id, name? }` | Left first, 1 to 64 (in VJ mode). `name` absent is the column's number. |
+| `vj.layers[]` | `{ id, name?, opacity?, gainDb?, crossfade?, clips? }` | Drawing order: the first is at the bottom, the last on top. 1 to 16 (in VJ mode). `opacity` 0 to 1, absent is 1; `gainDb` −60 to 6, the volume of its clips' sound, absent is 0 dB; `crossfade` is `a` or `b`, the crossfader side, absent is neither. Layer and column ids are unique within the grid; names are 1 to 64 characters. |
+| `vj.layers[].clips[]` | `{ id, column, asset, name?, playback?, fit? }` | At most one per column of the layer. `column` is a column id; `asset` an entry of `videos`. `id` is unique among every clip of the project. `playback` is what the clip does at the end of its video: `loop` (absent), `once` or `pingPong`. `fit` as for video clips, absent is `fit`. |
+
+Commands: `vj_edit` (`project`, `op`) edits the grid or the mode; `op` is tagged by `op`: `setMode`, `addLayer`,
+`removeLayer`, `moveLayer`, `renameLayer`, `layerOpacity`, `layerGain`, `layerCrossfade`, `addColumn`, `removeColumn`,
+`moveColumn`, `renameColumn`, `placeVideo` (a video of the project into a cell), `moveClip` (swaps with the clip already
+there), `removeClip`, `renameClip`, `clipPlayback`, `clipFit`. The last layer and column cannot be removed.
+`project_import_vj_video` (`project`, `path`, `layer`, `column`) adds a video file from disk into a cell. Both answer
+with `ProjectState`, and a refusal leaves the document as it was.
