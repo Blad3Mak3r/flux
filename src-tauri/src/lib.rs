@@ -16,6 +16,7 @@ mod transport_commands;
 mod update_commands;
 mod video_commands;
 mod video_output;
+mod vj_commands;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -50,6 +51,7 @@ pub fn run() {
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(video_output::SharedVideoOutput::default())
+        .manage(vj_commands::SharedGrid::default())
         .manage(video_commands::shared_probes())
         .manage(control::SharedControl::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
@@ -125,6 +127,11 @@ pub fn run() {
             commands::project_import_video,
             commands::project_import_vj_video,
             commands::vj_edit,
+            vj_commands::vj_launch,
+            vj_commands::vj_launch_column,
+            vj_commands::vj_stop,
+            vj_commands::vj_crossfader,
+            vj_commands::vj_play_state,
             video_commands::video_probe,
             video_commands::video_clip_edit,
             video_commands::video_thumbnails,

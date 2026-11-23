@@ -1,6 +1,7 @@
 //! The video output: a window for each screen of the project, on the display the setup chose for
 //! it, drawn by the GPU from the engine position. It is black while the transport is stopped or no
-//! clip shows.
+//! clip shows. A VJ project shows its grid instead: the clips launched by hand, on the grid's own
+//! clock.
 //!
 //! Each window has a render thread that owns its GPU surface; every window shares one
 //! [`VideoDeck`], so a clip is decoded once however many screens show it. Each refresh a render
@@ -299,6 +300,7 @@ impl VideoOutput {
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let (width, height) = unpack(size.load(Ordering::Relaxed));
         let transport = Arc::clone(&app.state::<SharedOutput>());
+        let grid = Arc::clone(&app.state::<crate::vj_commands::SharedGrid>());
         let render_stop = Arc::clone(&stop);
         let pattern = Arc::clone(&self.pattern);
         let screen_id = self.screen.clone();
@@ -322,6 +324,8 @@ impl VideoOutput {
             card_frame: Vec::new(),
             card_id: 0,
             decoding: None,
+            grid,
+            vj: None,
         };
         let thread = thread::Builder::new()
             .name("flux-video-output".into())
@@ -525,6 +529,10 @@ struct Render {
     card_id: u64,
     /// Where the clips were decoded at the last refresh, written to the log when it changes.
     decoding: Option<flux_video::Decoding>,
+    /// What the VJ grid plays, and the grid copied from the session for a VJ project, which
+    /// shows its grid instead of a timeline.
+    grid: crate::vj_commands::SharedGrid,
+    vj: Option<flux_project::vj::Vj>,
 }
 
 /// The size the test card is made at when the project has no video; the GPU scales it to each
@@ -547,35 +555,20 @@ impl Render {
     /// Draws one refresh; `false` when it drew black or nothing.
     fn step(&mut self) -> bool {
         self.refresh();
-        // The transport is locked only while it changes: then the last reader is used.
-        if let Ok(output) = self.transport.try_lock() {
-            self.reader = output.as_ref().map(|running| running.reader());
-        }
-        let (timeline, cue) = match &self.reader {
-            Some(reader) => {
-                let (state, frame) = reader.timeline_frame();
-                let cue = if state == TransportState::Stopped {
-                    Cue::Black
-                } else {
-                    Cue::At(frame)
+        let shown = match &self.vj {
+            Some(vj) => {
+                let (play, now) = {
+                    let grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
+                    (grid.play.clone(), grid.now())
                 };
-                match reader.show() {
-                    Some((plan, tick)) => (Some(plan.entries[tick.entry].timeline.clone()), cue),
-                    None => (self.timeline.clone(), cue),
-                }
+                self.deck
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_mut()
+                    .map(|deck| deck.show_grid(vj, &play, now))
+                    .unwrap_or_default()
             }
-            None => (None, Cue::Black),
-        };
-        let shown = match &timeline {
-            // Held only while the deck asks for frames: the pictures are shared, not copied.
-            Some(timeline) => self
-                .deck
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .as_mut()
-                .map(|deck| deck.show(timeline, cue))
-                .unwrap_or_default(),
-            None => Vec::new(),
+            None => self.timeline_pictures(),
         };
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
@@ -621,6 +614,40 @@ impl Render {
             .draw(&pictures, self.card_size, &self.quads, &self.masks)
             .is_ok()
             && drawn
+    }
+
+    /// The layers the timeline shows where the transport is, topmost first.
+    fn timeline_pictures(&mut self) -> Vec<flux_video::Shown> {
+        // The transport is locked only while it changes: then the last reader is used.
+        if let Ok(output) = self.transport.try_lock() {
+            self.reader = output.as_ref().map(|running| running.reader());
+        }
+        let (timeline, cue) = match &self.reader {
+            Some(reader) => {
+                let (state, frame) = reader.timeline_frame();
+                let cue = if state == TransportState::Stopped {
+                    Cue::Black
+                } else {
+                    Cue::At(frame)
+                };
+                match reader.show() {
+                    Some((plan, tick)) => (Some(plan.entries[tick.entry].timeline.clone()), cue),
+                    None => (self.timeline.clone(), cue),
+                }
+            }
+            None => (None, Cue::Black),
+        };
+        match &timeline {
+            // Held only while the deck asks for frames: the pictures are shared, not copied.
+            Some(timeline) => self
+                .deck
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_mut()
+                .map(|deck| deck.show(timeline, cue))
+                .unwrap_or_default(),
+            None => Vec::new(),
+        }
     }
 
     /// Writes to the log where the clips are decoded when it changes; the main screen's window
@@ -672,6 +699,7 @@ impl Render {
         }
         self.seen = (revision, active.to_owned());
         self.timeline = session.active_timeline_copy();
+        self.vj = session.grid_copy();
         let screens = session.video_screens();
         let this = screens.iter().find(|screen| screen.id == self.screen_id);
         let slices = this.map_or(&[][..], |screen| &screen.slices);

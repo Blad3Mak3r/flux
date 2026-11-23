@@ -920,6 +920,12 @@ impl Session {
         )
     }
 
+    /// A copy of the VJ grid, `None` unless the project is a VJ project.
+    pub fn grid_copy(&self) -> Option<crate::vj::Vj> {
+        let project = &self.document.as_ref()?.project;
+        (project.mode == crate::ProjectMode::Vj).then(|| project.vj.clone())
+    }
+
     /// A copy of the timeline being edited and played.
     pub fn active_timeline_copy(&self) -> Option<Timeline> {
         let document = self.document.as_ref()?;
