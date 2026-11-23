@@ -77,6 +77,9 @@ pub struct VideoInfo {
     /// FFmpeg's short name of the codec, e.g. `h264`, `hevc`, `hap`, `prores`.
     pub codec: String,
     pub has_audio: bool,
+    /// The picture carries transparency: an alpha channel (ProRes 4444, HAP Alpha, PNG, QuickTime
+    /// Animation) or a WebM alpha track.
+    pub alpha: bool,
 }
 
 /// One decoded picture, packed RGBA (4 bytes a pixel, rows without padding).
@@ -86,6 +89,8 @@ pub struct Frame {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
+    /// It has an alpha channel: where it is not opaque, what is below it shows.
+    pub alpha: bool,
 }
 
 /// An open video file that hands out any of its frames by index, exactly: a frame far from the last
@@ -157,10 +162,26 @@ impl VideoFile {
                 let micros = ffmpeg_next::Rational::new(1, ffmpeg_next::ffi::AV_TIME_BASE);
                 ticks_to_index(input.duration().max(0), micros, rate)
             });
-        let (decoder, decoding) = open_decoder(stream.parameters(), accelerate)?;
-        let codec = decoder
-            .codec()
-            .map_or_else(String::new, |c| c.name().to_owned());
+        let parameters = stream.parameters();
+        // FFmpeg's own VP8 and VP9 decoders leave a WebM alpha track out; libvpx's reads it.
+        let alpha_decoder = (stream.metadata().get("alpha_mode") == Some("1"))
+            .then(|| match parameters.id() {
+                codec::Id::VP8 => ffmpeg_next::decoder::find_by_name("libvpx"),
+                codec::Id::VP9 => ffmpeg_next::decoder::find_by_name("libvpx-vp9"),
+                _ => None,
+            })
+            .flatten();
+        let (decoder, decoding) = match alpha_decoder {
+            Some(alpha) => (
+                CodecContext::from_parameters(parameters)?
+                    .decoder()
+                    .open_as(alpha)?
+                    .video()?,
+                Decoding::Software,
+            ),
+            None => open_decoder(parameters, accelerate)?,
+        };
+        let codec = decoder.id().name().to_owned();
         let has_audio = input.streams().best(Type::Audio).is_some();
         let info = VideoInfo {
             width: decoder.width(),
@@ -169,6 +190,7 @@ impl VideoFile {
             frames,
             codec,
             has_audio,
+            alpha: alpha_decoder.is_some() || has_alpha(decoder.format()),
         };
         Ok(Self {
             input,
@@ -428,8 +450,16 @@ impl VideoFile {
             width,
             height,
             rgba: packed,
+            alpha: has_alpha(picture.format()),
         })
     }
+}
+
+/// Whether pictures in `format` carry an alpha channel.
+fn has_alpha(format: Pixel) -> bool {
+    // SAFETY: the descriptors are static; an unknown format has none.
+    let descriptor = unsafe { ffmpeg_next::ffi::av_pix_fmt_desc_get(format.into()).as_ref() };
+    descriptor.is_some_and(|d| d.flags & ffmpeg_next::ffi::AV_PIX_FMT_FLAG_ALPHA as u64 != 0)
 }
 
 /// A decoder for a stream of `parameters`, on the GPU when `accelerate` and this computer has a

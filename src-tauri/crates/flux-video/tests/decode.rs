@@ -88,6 +88,23 @@ fn an_accelerated_file_should_give_the_same_frames_wherever_it_decodes() {
 }
 
 #[test]
+fn a_webm_with_an_alpha_track_should_keep_its_transparency() {
+    // 10 frames of 64x36: the left half opaque red, the right half transparent (VP9, lossless).
+    let mut file = VideoFile::open_accelerated(&fixture("alpha25.webm")).unwrap();
+    let info = file.info().clone();
+    assert!(info.alpha);
+    assert_eq!((info.codec.as_str(), info.frames), ("vp9", 10));
+    let frame = file.frame(4).unwrap();
+    assert!(frame.alpha);
+    let pixel = |x: usize| &frame.rgba[x * 4..x * 4 + 4];
+    assert!(pixel(5)[0] > 250 && pixel(5)[3] == 255, "{:?}", pixel(5));
+    assert_eq!(pixel(50)[3], 0);
+    // Without an alpha track nothing changes.
+    let opaque = VideoFile::open(&fixture("gray25.webm")).unwrap();
+    assert!(!opaque.info().alpha);
+}
+
+#[test]
 fn a_frame_past_the_end_should_be_an_error() {
     let mut file = VideoFile::open(&fixture("gray25.mp4")).unwrap();
     assert!(matches!(

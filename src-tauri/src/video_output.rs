@@ -599,7 +599,7 @@ impl Render {
                 place,
                 opacity: shown.layer.opacity,
             });
-            if shown.layer.opacity >= 1.0 && covers(place) {
+            if shown.layer.opacity >= 1.0 && !frame.alpha && covers(place) {
                 break;
             }
         }
