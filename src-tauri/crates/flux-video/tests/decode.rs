@@ -1,6 +1,6 @@
 //! Decodes the fixtures: 50 frames of 64x36, each a flat grey a little lighter than the one before,
-//! encoded losslessly with a keyframe every 12 frames, as H.264 in MP4 and VP9 in WebM. Software
-//! decoding only, no GPU or display.
+//! encoded losslessly with a keyframe every 12 frames, as H.264 in MP4 and VP9 in WebM. No display
+//! is needed; a GPU decoder is used only where the computer has one.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -64,6 +64,24 @@ fn a_seek_in_any_order_should_give_the_same_frame_as_playing_through() {
                 level(&mut file, index),
                 played[index as usize],
                 "{name} frame {index}"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_accelerated_file_should_give_the_same_frames_wherever_it_decodes() {
+    for name in FIXTURES {
+        let played = levels_in_order(name);
+        let mut file = VideoFile::open_accelerated(&fixture(name)).unwrap();
+        for index in [0, 1, 2, 30, 13, 49, 12] {
+            let level = level(&mut file, index);
+            // A GPU converts its colours on its own way: a step or two apart at most.
+            assert!(
+                level.abs_diff(played[index as usize]) <= 2,
+                "{name} frame {index} on {:?}: {level} vs {}",
+                file.decoding(),
+                played[index as usize]
             );
         }
     }

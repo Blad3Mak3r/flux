@@ -13,7 +13,7 @@ mod thumbs;
 
 pub use audio::audio_wav;
 pub use deck::{PRELOAD_FRAMES, Shown, VideoDeck};
-pub use decode::{Frame, VideoError, VideoFile, VideoInfo};
+pub use decode::{Decoding, Frame, VideoError, VideoFile, VideoInfo};
 pub use layers::{Cue, Layer, Probe, layers, upcoming};
 pub use mapping::{Rate, source_frame, timeline_frames};
 pub use player::{PlayerStats, VideoPlayer};

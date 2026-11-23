@@ -4,7 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 
-use crate::decode::{Frame, VideoError, VideoFile, VideoInfo};
+use crate::decode::{Decoding, Frame, VideoError, VideoFile, VideoInfo};
 
 /// What the decoding thread did, counted for the `flux-log` lane to write: the thread never logs.
 #[derive(Debug, Default)]
@@ -15,6 +15,8 @@ pub struct PlayerStats {
     pub skipped: AtomicU64,
     /// Requests that failed to decode (past the end, a damaged file).
     pub errors: AtomicU64,
+    /// Where the frames are decoded now: it changes to the CPU when the GPU fails.
+    pub decoding: Mutex<Decoding>,
 }
 
 /// Decodes one video file on a thread of its own. The caller asks for the frame the clock is at
@@ -41,8 +43,12 @@ impl VideoPlayer {
         let thread = thread::Builder::new().name("flux-video".into()).spawn({
             let latest = Arc::clone(&latest);
             let stats = Arc::clone(&stats);
-            move || match VideoFile::open(&path) {
+            move || match VideoFile::open_accelerated(&path) {
                 Ok(file) => {
+                    *stats
+                        .decoding
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = file.decoding();
                     let _ = opened.send(Ok(file.info().clone()));
                     run(file, &inbox, &latest, &stats);
                 }
@@ -107,6 +113,15 @@ impl VideoPlayer {
     pub fn stats(&self) -> &PlayerStats {
         &self.stats
     }
+
+    /// Where its frames are decoded now.
+    pub fn decoding(&self) -> Decoding {
+        *self
+            .stats
+            .decoding
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl Drop for VideoPlayer {
@@ -139,7 +154,12 @@ fn run(
         if shown == Some(index) {
             continue;
         }
-        match file.frame(index) {
+        let decoded = file.frame(index);
+        *stats
+            .decoding
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = file.decoding();
+        match decoded {
             Ok(frame) => {
                 *latest.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(frame));
                 stats.decoded.fetch_add(1, Ordering::Relaxed);
