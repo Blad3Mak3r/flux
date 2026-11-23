@@ -63,7 +63,10 @@ pub fn run() {
             let app = app.handle().clone();
             let video = app.clone();
             tauri::async_runtime::spawn_blocking(move || control::start(&app));
-            tauri::async_runtime::spawn_blocking(move || video_output::restore(&video));
+            // Follows the project's screens for as long as the app runs.
+            let _ = std::thread::Builder::new()
+                .name("flux-video-screens".into())
+                .spawn(move || video_output::restore(&video));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -125,6 +128,7 @@ pub fn run() {
             video_commands::video_thumbnails,
             video_commands::video_sound,
             video_commands::video_mapping_edit,
+            video_commands::video_screen_edit,
             video_output::video_output_pattern,
             video_output::video_output_status,
             video_output::video_output_choose,

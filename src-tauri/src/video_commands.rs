@@ -324,13 +324,31 @@ pub async fn video_sound(
 pub async fn video_mapping_edit(
     session: State<'_, SharedSession>,
     project: Project,
+    screen: String,
     op: flux_project::mapping::MappingOp,
 ) -> Result<ProjectState> {
     let session = Arc::clone(&session);
     tauri::async_runtime::spawn_blocking(move || {
         let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
         s.update(project);
-        s.edit_mapping(op)
+        s.edit_mapping(&screen, op)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Adds, removes or renames a screen of the video output; its window follows on its own.
+#[tauri::command]
+pub async fn video_screen_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: flux_project::mapping::ScreenOp,
+) -> Result<ProjectState> {
+    let session = Arc::clone(&session);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+        s.update(project);
+        s.edit_screens(op)
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
