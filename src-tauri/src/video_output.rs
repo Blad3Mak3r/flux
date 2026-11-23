@@ -2,9 +2,10 @@
 //! it, drawn by the GPU from the engine position. It is black while the transport is stopped or no
 //! clip shows.
 //!
-//! A render thread owns the GPU surface and a [`VideoDeck`]. Each refresh it reads where the
-//! transport is, asks the deck for the pictures at that frame and draws the top one; the decoding
-//! runs on the deck's own threads. Nothing here logs from the render loop: failures are counted and
+//! Each window has a render thread that owns its GPU surface; every window shares one
+//! [`VideoDeck`], so a clip is decoded once however many screens show it. Each refresh a render
+//! thread reads where the transport is, asks the deck for the pictures at that frame and draws the
+//! top one; the decoding runs on the deck's own threads. Nothing here logs from the render loop: failures are counted and
 //! the status command reports them.
 
 use std::collections::BTreeMap;
@@ -83,7 +84,12 @@ struct VideoOutput {
     live: Mutex<Option<Live>>,
     error: Mutex<Option<String>>,
     pattern: Arc<AtomicBool>,
+    deck: SharedDeck,
 }
+
+/// The one deck every screen's window draws from, so a clip is decoded once however many screens
+/// show it. Made when the first window opens.
+type SharedDeck = Arc<Mutex<Option<VideoDeck>>>;
 
 /// The windows of every screen, by screen id.
 #[derive(Default)]
@@ -91,6 +97,7 @@ pub struct VideoOutputs {
     outputs: Mutex<BTreeMap<String, Arc<VideoOutput>>>,
     /// A test pattern is shown where there is no picture, to line the slices up with.
     pattern: Arc<AtomicBool>,
+    deck: SharedDeck,
     /// The app is quitting: no window opens again.
     closing: AtomicBool,
     /// One sync at a time, so two never open the same window.
@@ -269,16 +276,23 @@ impl VideoOutput {
             }
         };
 
-        let cache = crate::video_commands::video_cache(app).map_err(|err| err.to_string())?;
         let session = Arc::clone(&app.state::<SharedSession>());
-        let resolve_session = Arc::clone(&session);
-        let deck = VideoDeck::new(move |asset| {
-            resolve_session
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .video_file(asset, &cache)
-                .ok()
-        });
+        {
+            let mut deck = self.deck.lock().unwrap_or_else(PoisonError::into_inner);
+            if deck.is_none() {
+                let cache =
+                    crate::video_commands::video_cache(app).map_err(|err| err.to_string())?;
+                let resolve_session = Arc::clone(&session);
+                *deck = Some(VideoDeck::new(move |asset| {
+                    resolve_session
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .video_file(asset, &cache)
+                        .ok()
+                }));
+            }
+        }
+        let deck = Arc::clone(&self.deck);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let (width, height) = unpack(size.load(Ordering::Relaxed));
         let transport = Arc::clone(&app.state::<SharedOutput>());
@@ -400,6 +414,7 @@ impl VideoOutputs {
                             live: Mutex::default(),
                             error: Mutex::default(),
                             pattern: Arc::clone(&self.pattern),
+                            deck: Arc::clone(&self.deck),
                         })
                     });
                     let display = prefs.as_ref().and_then(|p| p.video_display_for(&screen.id));
@@ -473,7 +488,7 @@ struct Render {
     screen: Screen,
     /// The id of the screen it draws, whose slices it shows.
     screen_id: String,
-    deck: VideoDeck,
+    deck: SharedDeck,
     session: SharedSession,
     transport: SharedOutput,
     size: Arc<AtomicU64>,
@@ -535,7 +550,14 @@ impl Render {
             None => (None, Cue::Black),
         };
         let shown = match &timeline {
-            Some(timeline) => self.deck.show(timeline, cue),
+            // Held only while the deck asks for frames: the pictures are shared, not copied.
+            Some(timeline) => self
+                .deck
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_mut()
+                .map(|deck| deck.show(timeline, cue))
+                .unwrap_or_default(),
             None => Vec::new(),
         };
         let top = shown

@@ -106,7 +106,7 @@ covered; on any other display it fills the screen without decorations.
 
 `src-tauri/src/video_output.rs` owns the windows. A thread (`flux-video-screens`) follows the project and opens,
 renames or closes a window when a screen is added, renamed or removed or another project opens. Each window's surface is made on the main thread (macOS requires it), and a
-render thread (`flux-video-output`, one per window, each with its own `VideoDeck`) starts the GPU device and then, once per display refresh, reads the transport
+render thread (`flux-video-output`, one per window, all sharing one `VideoDeck`, so a clip is decoded once however many screens show it) starts the GPU device and then, once per display refresh, reads the transport
 (`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws the top one with
 `flux-render`. The picture is fitted to the window keeping its shape, with black around it. It is black while the
 transport is stopped, before a clip and after it. A GPU error is kept for the setup page to show and never panics.
