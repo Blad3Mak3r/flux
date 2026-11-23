@@ -209,7 +209,8 @@ type HandleProps = ReturnType<typeof useHandle>["handlers"];
  * of undo. The handle shows where it was dropped until the answer arrives.
  */
 function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number, video = false) {
-  const edit = (to: number) => (video ? editVideoClip(id, op as "trimStart" | "trimEnd", to) : editClip(id, op, to));
+  const edit = (to: number) =>
+    video ? editVideoClip(id, op as "trimStart" | "trimEnd" | "fadeIn" | "fadeOut", to) : editClip(id, op, to);
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
   const originX = useRef<number | null>(null);
   const targets = useRef<SnapTarget[]>([]);
@@ -442,7 +443,7 @@ function ClipBlock({
   );
 }
 
-/** A video clip: moved by dragging it, trimmed by its edges, cut with S at the playhead. The backend makes each edit. */
+/** A video clip: moved by dragging it, trimmed by its edges, faded by the squares at its top corners, cut with S at the playhead. The backend makes each edit. */
 function VideoBlock({
   clip,
   guessLength,
@@ -465,8 +466,12 @@ function VideoBlock({
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame, true);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame, true);
+  const fadeIn = useHandle(clip.id, "fadeIn", clip.start + (clip.fadeIn ?? 0), pxPerFrame, true);
+  const fadeOut = useHandle(clip.id, "fadeOut", end - (clip.fadeOut ?? 0), pxPerFrame, true);
   const left = trimStart.at + (shown - clip.start);
   const width = Math.max(24, (trimEnd.at - trimStart.at) * pxPerFrame);
+  const fadeInPx = Math.min(width, Math.max(0, (fadeIn.at - trimStart.at) * pxPerFrame));
+  const fadeOutPx = Math.min(width, Math.max(0, (trimEnd.at - fadeOut.at) * pxPerFrame));
   const strip = useDoc((doc) => doc.thumbs[clip.asset]);
   const sound = useDoc((doc) => doc.audio[clip.asset]);
   const offset = (clip.offset ?? 0) + (trimStart.at - clip.start);
@@ -507,6 +512,14 @@ function VideoBlock({
           />
         </span>
       )}
+      {(fadeInPx > 0 || fadeOutPx > 0) && (
+        <svg className="clip-fades" width={width} height={inner} aria-hidden="true">
+          {fadeInPx > 0 && <polyline points={fadePoints("linear", "in", fadeInPx, inner)} />}
+          {fadeOutPx > 0 && (
+            <polyline transform={`translate(${width - fadeOutPx} 0)`} points={fadePoints("linear", "out", fadeOutPx, inner)} />
+          )}
+        </svg>
+      )}
       <span className="clip-label">
         {name}
         {sound?.bpm !== undefined && <span className="clip-bpm">{sound.bpm} BPM</span>}
@@ -518,6 +531,18 @@ function VideoBlock({
       </span>
       <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
       <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
+      <ClipHandle
+        edge="fadeIn"
+        label={t("clip.fadeIn", { name })}
+        style={{ left: fadeHandleLeft(fadeInPx, width) }}
+        handlers={fadeIn.handlers}
+      />
+      <ClipHandle
+        edge="fadeOut"
+        label={t("clip.fadeOut", { name })}
+        style={{ left: fadeHandleLeft(width - fadeOutPx, width) }}
+        handlers={fadeOut.handlers}
+      />
     </div>
   );
 }

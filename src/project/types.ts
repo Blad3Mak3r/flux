@@ -230,6 +230,10 @@ export interface VideoClip {
   length?: number;
   /** How the picture is sized into the composition; absent is `fit`. */
   fit?: VideoFit;
+  /** Frames the picture takes to rise from black (or from what is below); absent is 0. */
+  fadeIn?: number;
+  /** Frames the picture takes to fall to black (or to what is below) at its end; absent is 0. */
+  fadeOut?: number;
 }
 
 /** How a video clip is sized into the composition, as the backend names it. */
