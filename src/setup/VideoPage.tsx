@@ -27,6 +27,8 @@ interface VideoOutputStatus {
   displays: Display[];
   /** The main screen first. */
   screens: ScreenStatus[];
+  /** `cpu`, or the GPU decoder's name; absent with no clip open. */
+  decoding: string | null;
 }
 
 const OFF = "";
@@ -180,6 +182,13 @@ export function VideoPage() {
                   ? t("setup.video.closed")
                   : t("setup.video.offNote")}
         </p>
+        {status.decoding && (
+          <p className="field-note">
+            {status.decoding === "cpu"
+              ? t("setup.video.decodingCpu")
+              : t("setup.video.decodingGpu", { device: status.decoding })}
+          </p>
+        )}
         {current.id !== MAIN_SCREEN && (
           <div className="button-row">
             <button

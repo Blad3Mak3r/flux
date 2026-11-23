@@ -50,6 +50,9 @@ pub struct VideoOutputStatus {
     pub displays: Vec<Display>,
     /// The screens of the project, the main one first.
     pub screens: Vec<ScreenStatus>,
+    /// Where the open clips are decoded: `cpu`, or the GPU device's name (`d3d11va`,
+    /// `videotoolbox`, `vaapi`...); `None` with no clip open.
+    pub decoding: Option<String>,
 }
 
 /// What the setup page shows about one screen.
@@ -318,6 +321,7 @@ impl VideoOutput {
             card_slices: Vec::new(),
             card_frame: Vec::new(),
             card_id: 0,
+            decoding: None,
         };
         let thread = thread::Builder::new()
             .name("flux-video-output".into())
@@ -461,7 +465,18 @@ impl VideoOutputs {
                 }
             })
             .collect();
-        VideoOutputStatus { displays, screens }
+        let decoding = self
+            .deck
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(flux_video::VideoDeck::decoding)
+            .map(decoding_name);
+        VideoOutputStatus {
+            displays,
+            screens,
+            decoding,
+        }
     }
 
     /// Closes every window for good: the app is quitting.
@@ -508,6 +523,8 @@ struct Render {
     card_slices: Vec<CardSlice>,
     card_frame: Vec<u8>,
     card_id: u64,
+    /// Where the clips were decoded at the last refresh, written to the log when it changes.
+    decoding: Option<flux_video::Decoding>,
 }
 
 /// The size the test card is made at when the project has no video; the GPU scales it to each
@@ -560,6 +577,9 @@ impl Render {
                 .unwrap_or_default(),
             None => Vec::new(),
         };
+        if self.screen_id == flux_project::mapping::MAIN_SCREEN {
+            self.note_decoding();
+        }
         let top = shown
             .iter()
             .find_map(|shown| shown.frame.as_ref().map(|frame| (&shown.layer, frame)));
@@ -594,6 +614,23 @@ impl Render {
             .draw(picture, self.card_size, &self.quads, &self.masks)
             .is_ok()
             && drawn
+    }
+
+    /// Writes to the log where the clips are decoded when it changes; the main screen's window
+    /// does it for all of them, which share one deck.
+    fn note_decoding(&mut self) {
+        let now = self
+            .deck
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(flux_video::VideoDeck::decoding);
+        if now != self.decoding {
+            if let Some(decoding) = now {
+                log::info!("video: decoding on {}", decoding_name(decoding));
+            }
+            self.decoding = now;
+        }
     }
 
     /// Draws the sweep on the test card where it is now; `false` while the pattern is off.
@@ -675,6 +712,14 @@ impl Render {
             self.card_slices = card_slices;
             self.card = None;
         }
+    }
+}
+
+/// `cpu`, or the GPU device's name.
+fn decoding_name(decoding: flux_video::Decoding) -> String {
+    match decoding {
+        flux_video::Decoding::Software => "cpu".to_owned(),
+        flux_video::Decoding::Hardware(device) => device.to_owned(),
     }
 }
 

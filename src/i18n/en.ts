@@ -513,6 +513,8 @@ export const en = {
   "setup.video.addScreen": "Add screen",
   "setup.video.screenName": "Screen name",
   "setup.video.composition": "Composition",
+  "setup.video.decodingGpu": "The clips are decoded on the graphics card ({device}).",
+  "setup.video.decodingCpu": "The clips are decoded on the processor: this computer has no graphics card decoder for them. HAP or a lower resolution plays more smoothly.",
   "setup.video.compositionAuto": "Every clip is sized into this picture, which is the size of the first video. Type a size to set your own, for example the width of two projectors side by side.",
   "setup.video.compositionSet": "Every clip is sized into this picture, as its Fit says, and the slices are cut from it.",
   "setup.video.compositionReset": "Use the video's size",

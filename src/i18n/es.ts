@@ -517,6 +517,8 @@ export const es: Record<MessageKey, string> = {
   "setup.video.addScreen": "Añadir salida",
   "setup.video.screenName": "Nombre de la salida",
   "setup.video.composition": "Composición",
+  "setup.video.decodingGpu": "Los clips se decodifican en la tarjeta gráfica ({device}).",
+  "setup.video.decodingCpu": "Los clips se decodifican en el procesador: este ordenador no tiene decodificador en la tarjeta gráfica para ellos. HAP o una resolución menor se reproducen con más fluidez.",
   "setup.video.compositionAuto": "Cada clip se ajusta a esta imagen, que tiene el tamaño del primer vídeo. Escribe un tamaño para fijar el tuyo, por ejemplo el ancho de dos proyectores uno al lado del otro.",
   "setup.video.compositionSet": "Cada clip se ajusta a esta imagen según su ajuste, y los slices salen de ella.",
   "setup.video.compositionReset": "Usar el tamaño del vídeo",
