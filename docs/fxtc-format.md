@@ -96,13 +96,14 @@ Track kinds:
   `{ "type": "int" | "float" | "string" | "bool", "value": … }` and sent as `i`, `f`, `s`, `T`/`F`. A destination that
   is not in `output.osc` is rejected on open and save; one that is absent sends nothing.
 
-- `{ "type": "video", "clips": [{ id, asset, start, name?, offset?, length?, fit? }] }` — video shown in time with the
+- `{ "type": "video", "clips": [{ id, asset, start, name?, offset?, length?, fit?, fadeIn?, fadeOut? }] }` — video shown in time with the
   timeline. `asset` is the id of an entry in `videos`; `name`, `offset` and `length` work as for audio clips (frames at
   the timeline's rate; `length` at least 1, absent means up to the end of the video). Clip ids share the namespace of
   clip and note ids. `fit` is how the picture is sized into the composition (`output.composition`): `fit` (the
   default, written as absent) fits it whole keeping its shape, `fill` covers the composition keeping its shape and crops
   the rest, `stretch` takes exactly the composition, `none` keeps the video's own size in pixels; each is centred and
-  the composition outside it is black. Added in version 13. The clips play on the screens of `output.screens` in time with the clock,
+  the composition outside it shows the tracks below, or black. `fadeIn` and `fadeOut` are frames, as for audio clips
+  (absent is 0): the picture and its sound rise from nothing over the first and fall to nothing over the last. Added in version 13. The clips play on the screens of `output.screens` in time with the clock,
   their sound plays through the track's routing, and Live lists each clip as a cue (see [Video](video-output.md)).
 
 Other kinds of track (Art-Net) will be added as new kinds. Events are kept in order of `at`; event ids share the

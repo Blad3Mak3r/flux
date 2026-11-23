@@ -50,7 +50,8 @@ The Rust bindings are [`ffmpeg-next`](https://crates.io/crates/ffmpeg-next), wit
 
 - **`layers`**: what the video tracks of a timeline show for a `Cue` (`Black` when stopped, `At(frame)` when playing
   or paused), topmost first: a track higher in the timeline covers the ones below, a muted track shows nothing, and
-  where clips of one track overlap the one that starts later wins. `upcoming` lists the clips that start soon.
+  where clips of one track overlap the one that starts later wins, with the one under it too while it fades. Each layer
+  carries its clip's fit and its opacity. `upcoming` lists the clips that start soon.
 - **`VideoDeck`**: turns positions into pictures. Each call opens a player for every clip showing or starting within
   `PRELOAD_FRAMES` (60), closes the others, asks each player for the frame its position maps to, and returns the
   layers with the newest decoded frame of each. It has no timer: the output draws a picture, reads the engine's
@@ -116,9 +117,13 @@ covered; on any other display it fills the screen without decorations.
 `src-tauri/src/video_output.rs` owns the windows. A thread (`flux-video-screens`) follows the project and opens,
 renames or closes a window when a screen is added, renamed or removed or another project opens. Each window's surface is made on the main thread (macOS requires it), and a
 render thread (`flux-video-output`, one per window, all sharing one `VideoDeck`, so a clip is decoded once however many screens show it) starts the GPU device and then, once per display refresh, reads the transport
-(`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws the top one with
-`flux-render`. The frame is placed in the composition (`output.composition`, else the first video's size) as its clip's
-`fit` says (`flux_render::placement`; the shader leaves the composition outside it black), and with no slices the
+(`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws them with
+`flux-render`, from the top one down to the first opaque one that fills the composition (at most `MAX_LAYERS`, 4), one
+over another with alpha blending. Each frame is placed in the composition (`output.composition`, else the first video's
+size) as its clip's `fit` says (`flux_render::placement`) and covers what is below by its layer's opacity, which the
+clip's `fadeIn` and `fadeOut` ramp from 0 on its first and last frame (`flux_video::opacity`); outside its place the
+layers below show, and black under all of them. While the top clip of a track fades, the clip it overlaps on that track
+is drawn under it, which cross-fades them. With no slices the
 composition is fitted to the window keeping its shape, with black around it. It is black while the
 transport is stopped, before a clip and after it. A GPU error is kept for the setup page to show and never panics.
 

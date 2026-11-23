@@ -28,7 +28,15 @@ audio track: pulling the fader down silences the sound and keeps the picture, an
   larger is cropped.
 
 The picture follows the transport frame by frame. It is black while stopped, before a clip and after it. When two video
-tracks overlap, the upper track is the one shown.
+tracks overlap, the upper track covers the lower one wherever its picture is; around a clip that does not fill the
+composition, the track below shows.
+
+### Fades
+
+The small squares at the top corners of a video clip set its fades, as on an audio clip: drag the left one in for a fade
+in, the right one for a fade out. A clip fades in from black, or from whatever the tracks below show, and fades out the
+same way, and its sound fades with it. To cross-fade two clips, overlap them, on one track or on two, and fade in the
+one that starts later: while it fades, the clip under it shows through.
 
 ## Composition
 
