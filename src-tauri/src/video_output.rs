@@ -24,7 +24,7 @@ use flux_engine::output::PositionReader;
 use flux_engine::transport::TransportState;
 use flux_project::Timeline;
 use flux_render::pattern::CardSlice;
-use flux_render::{Picture, Quad, Screen};
+use flux_render::{Mask, Picture, Quad, Screen};
 use flux_video::{Cue, VideoDeck};
 
 /// Every output window's label starts with it; the screen's id follows.
@@ -296,6 +296,7 @@ impl VideoOutput {
             pattern,
             timeline: None,
             quads: Vec::new(),
+            masks: Vec::new(),
             seen: (u64::MAX, String::new()),
             reader: None,
             card: None,
@@ -482,6 +483,7 @@ struct Render {
     /// copied at.
     timeline: Option<Timeline>,
     quads: Vec<Quad>,
+    masks: Vec<Mask>,
     seen: (u64, String),
     reader: Option<PositionReader>,
     /// The test card, made when it is shown and again when the slices change, the frame with its
@@ -560,7 +562,7 @@ impl Render {
         });
         let drawn = picture.is_some();
         // A lost surface draws nothing and is tried again on the next refresh.
-        self.screen.draw(picture, &self.quads).is_ok() && drawn
+        self.screen.draw(picture, &self.quads, &self.masks).is_ok() && drawn
     }
 
     /// Draws the sweep on the test card where it is now; `false` while the pattern is off.
@@ -596,10 +598,17 @@ impl Render {
         self.seen = (revision, active.to_owned());
         self.timeline = session.active_timeline_copy();
         let screens = session.video_screens();
-        let slices = screens
+        let this = screens.iter().find(|screen| screen.id == self.screen_id);
+        let slices = this.map_or(&[][..], |screen| &screen.slices);
+        self.masks = this
+            .map_or(&[][..], |screen| &screen.masks)
             .iter()
-            .find(|screen| screen.id == self.screen_id)
-            .map_or(&[][..], |screen| &screen.slices);
+            .filter(|mask| !mask.hidden)
+            .map(|mask| Mask {
+                points: mask.points.iter().map(|p| [p.x, p.y]).collect(),
+                invert: mask.invert,
+            })
+            .collect();
         let shown = slices.iter().filter(|slice| !slice.hidden);
         let rect = |r: &flux_project::mapping::Rect| [r.x, r.y, r.width, r.height];
         self.quads = shown
@@ -607,6 +616,13 @@ impl Render {
             .map(|slice| Quad {
                 input: rect(&slice.input),
                 corners: slice.corners.map(|p| [p.x, p.y]),
+                soft: [
+                    slice.soft_edge.left,
+                    slice.soft_edge.right,
+                    slice.soft_edge.top,
+                    slice.soft_edge.bottom,
+                ],
+                gamma: slice.soft_edge.gamma,
             })
             .collect();
         let card_slices: Vec<CardSlice> = shown

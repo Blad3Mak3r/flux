@@ -337,6 +337,24 @@ pub async fn video_mapping_edit(
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
 
+/// Adds, moves or removes a mask of a screen of the video output.
+#[tauri::command]
+pub async fn video_mask_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    screen: String,
+    op: flux_project::mapping::MaskOp,
+) -> Result<ProjectState> {
+    let session = Arc::clone(&session);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+        s.update(project);
+        s.edit_masks(&screen, op)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
 /// Adds, removes or renames a screen of the video output; its window follows on its own.
 #[tauri::command]
 pub async fn video_screen_edit(
