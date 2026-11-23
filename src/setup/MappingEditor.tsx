@@ -4,6 +4,7 @@ import { useT } from "../i18n";
 import { TextField } from "../components/fields";
 import { useDoc } from "../state/store";
 import { mappingEdit, showTestPattern } from "../video/mapping";
+import type { MappingOp } from "../video/mapping";
 import type { Point, Rect, Size, Slice } from "../video/mapping";
 
 const NO_SLICES: Slice[] = [];
@@ -59,17 +60,26 @@ const DEFAULT_SIZE: Size = { width: 1920, height: 1080 };
 const CORNERS = ["topLeft", "topRight", "bottomRight", "bottomLeft"] as const;
 
 /**
- * The slices of the video output: on the left the picture, where each slice is a rectangle to
+ * The slices of one screen of the video output: on the left the picture, where each slice is a rectangle to
  * move or resize; on the right the screen, where the selected slice's four corners are dragged.
  * The backend keeps every number within bounds; this only shows a drag until it is let go.
  */
 export function MappingEditor({
+  screenId,
   screen,
 }: {
+  /** The screen of the project whose slices are edited. */
+  screenId: string;
+  /** The size of the display it is on, when it has one. */
   screen: { width: number; height: number } | null;
 }) {
   const t = useT();
-  const slices = useDoc((doc) => doc.project.output.video ?? NO_SLICES);
+  const slices = useDoc(
+    (doc) =>
+      doc.project.output.screens?.find((s) => s.id === screenId)?.slices ??
+      NO_SLICES,
+  );
+  const edit = (op: MappingOp) => mappingEdit(screenId, op);
   // The mapping measures the picture in the size of the project's first video, as the output does.
   const video = useDoc((doc) => doc.video[doc.project.videos?.[0]?.id ?? ""]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -118,7 +128,7 @@ export function MappingEditor({
       },
       () => {
         if (next !== slice)
-          void mappingEdit({
+          void edit({
             op: "setInput",
             id: slice.id,
             input: next.input,
@@ -146,7 +156,7 @@ export function MappingEditor({
       },
       () => {
         if (next !== slice)
-          void mappingEdit({
+          void edit({
             op: "setCorners",
             id: slice.id,
             corners: next.corners,
@@ -174,7 +184,7 @@ export function MappingEditor({
       },
       () => {
         if (next !== slice)
-          void mappingEdit({
+          void edit({
             op: "setCorners",
             id: slice.id,
             corners: next.corners,
@@ -191,7 +201,7 @@ export function MappingEditor({
         <button
           type="button"
           className="button"
-          onClick={() => void mappingEdit({ op: "add" })}
+          onClick={() => void edit({ op: "add" })}
         >
           {t("setup.video.addSlice")}
         </button>
@@ -210,7 +220,7 @@ export function MappingEditor({
           <button
             type="button"
             className="button"
-            onClick={() => void mappingEdit({ op: "clear" })}
+            onClick={() => void edit({ op: "clear" })}
           >
             {t("setup.video.clear")}
           </button>
@@ -321,7 +331,7 @@ export function MappingEditor({
             label={t("setup.video.sliceName")}
             value={current.name}
             onCommit={(name) =>
-              void mappingEdit({ op: "rename", id: current.id, name })
+              void edit({ op: "rename", id: current.id, name })
             }
           />
           <fieldset className="mapping-values">
@@ -339,7 +349,7 @@ export function MappingEditor({
                     : picture.height,
                 )}
                 onCommit={(text) =>
-                  void mappingEdit({
+                  void edit({
                     op: "setInputValue",
                     id: current.id,
                     field,
@@ -366,7 +376,7 @@ export function MappingEditor({
                     axis === "x" ? display.width : display.height,
                   )}
                   onCommit={(text) =>
-                    void mappingEdit({
+                    void edit({
                       op: "setCornerValue",
                       id: current.id,
                       corner,
@@ -385,7 +395,7 @@ export function MappingEditor({
               className="button"
               aria-pressed={current.hidden ?? false}
               onClick={() =>
-                void mappingEdit({
+                void edit({
                   op: "setHidden",
                   id: current.id,
                   hidden: !current.hidden,
@@ -397,16 +407,14 @@ export function MappingEditor({
             <button
               type="button"
               className="button"
-              onClick={() =>
-                void mappingEdit({ op: "resetCorners", id: current.id })
-              }
+              onClick={() => void edit({ op: "resetCorners", id: current.id })}
             >
               {t("setup.video.resetCorners")}
             </button>
             <button
               type="button"
               className="button danger"
-              onClick={() => void mappingEdit({ op: "remove", id: current.id })}
+              onClick={() => void edit({ op: "remove", id: current.id })}
             >
               {t("setup.video.removeSlice")}
             </button>

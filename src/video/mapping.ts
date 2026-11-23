@@ -34,6 +34,20 @@ export interface Size {
   height: number;
 }
 
+/** A window of the output on a display of its own, with its slices. The main one always exists. */
+export interface VideoScreen {
+  id: string;
+  name: string;
+  slices?: Slice[];
+}
+
+export const MAIN_SCREEN = "main";
+
+export type ScreenOp =
+  | { op: "add" }
+  | { op: "remove"; id: string }
+  | { op: "rename"; id: string; name: string };
+
 export type MappingOp =
   | { op: "add" }
   | { op: "remove"; id: string }
@@ -59,10 +73,27 @@ export type MappingOp =
   | { op: "setHidden"; id: string; hidden: boolean }
   | { op: "clear" };
 
-/** Sends one edit of the mapping to the backend; the answer enters the undo history. */
-export async function mappingEdit(op: MappingOp): Promise<void> {
+/** Sends one edit of a screen's slices to the backend; the answer enters the undo history. */
+export async function mappingEdit(
+  screen: string,
+  op: MappingOp,
+): Promise<void> {
   try {
     const state = await invoke<ProjectState>("video_mapping_edit", {
+      project: useDoc.getState().project,
+      screen,
+      op,
+    });
+    dispatch({ type: "apply", ...state });
+  } catch (error) {
+    sayError(errorMessage(error));
+  }
+}
+
+/** Adds, removes or renames a screen; its window opens or closes on its own. */
+export async function screenEdit(op: ScreenOp): Promise<void> {
+  try {
+    const state = await invoke<ProjectState>("video_screen_edit", {
       project: useDoc.getState().project,
       op,
     });

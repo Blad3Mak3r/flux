@@ -251,8 +251,8 @@ export interface ShowOutputs {
   mtc: { slot: number }[];
   osc?: OscDestination[];
   legacyRoutes?: OutputConfig;
-  /** The slices of the video output; none is the whole picture fitted to the screen. */
-  video?: import("../video/mapping").Slice[];
+  /** The screens of the video output and their slices; none is the main screen with no slices. */
+  screens?: import("../video/mapping").VideoScreen[];
 }
 
 /** Devices are stored by name hint only, never by OS identifier. */

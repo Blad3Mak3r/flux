@@ -2340,6 +2340,48 @@ input:disabled {
   color: var(--ink-dim);
 }
 
+/* The screens of the video output, one tab each; the dot is lit while its window is open. */
+.screen-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.screen-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--panel-lo);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.screen-tab:hover {
+  color: var(--ink);
+}
+
+.screen-tab[aria-pressed="true"] {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+
+.screen-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rule-strong);
+}
+
+.screen-tab[data-open="true"] .screen-dot {
+  background: var(--phosphor);
+}
+
 /* The video mapping editor: the picture with its slices, beside the screen with their corners. */
 .mapping {
   display: grid;
