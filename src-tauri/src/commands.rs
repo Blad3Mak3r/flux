@@ -54,6 +54,10 @@ pub async fn project_sync(session: State<'_, SharedSession>, project: Project) -
     run(&session, move |s| s.sync(project)).await
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "injected state and arguments of a command"
+)]
 #[tauri::command]
 pub async fn project_new(
     session: State<'_, SharedSession>,
@@ -62,6 +66,7 @@ pub async fn project_new(
     output: State<'_, SharedOutput>,
     name: String,
     frame_rate: FrameRate,
+    mode: Option<flux_project::ProjectMode>,
     voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<ProjectState> {
     session
@@ -71,9 +76,10 @@ pub async fn project_new(
     let _voice_transition = voice.begin_transition()?;
     release(&output).await;
     audio.clear();
-    log::info!("new project {name:?}");
+    let mode = mode.unwrap_or_default();
+    log::info!("new {mode:?} project {name:?}");
     recovery::transition(&session, &store, move |s| {
-        let project = s.new_project(&name, frame_rate);
+        let project = s.new_project_of(&name, frame_rate, mode);
         Ok(ProjectState {
             project,
             active: s.active(),
@@ -403,8 +409,8 @@ fn check_video(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Edits the VJ grid, or switches the project between its timelines and the grid (see
-/// [`flux_project::vj`]); the answer is the project with the edit made.
+/// Edits the VJ grid of a VJ project (see [`flux_project::vj`]); the answer is the project with
+/// the edit made.
 #[tauri::command]
 pub async fn vj_edit(
     session: State<'_, SharedSession>,

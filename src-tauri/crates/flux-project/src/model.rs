@@ -49,10 +49,10 @@ pub struct Project {
     pub output: crate::ShowOutputs,
     /// Never empty. Only one plays at a time.
     pub timelines: Vec<Timeline>,
-    /// Whether the window shows the timelines or the VJ grid; absent is the timelines.
+    /// The kind of project, chosen when it is created and never changed; absent is a timeline project.
     #[serde(default, skip_serializing_if = "crate::vj::ProjectMode::is_timeline")]
     pub mode: crate::vj::ProjectMode,
-    /// The VJ grid, kept while the project shows its timelines; absent is none yet.
+    /// The VJ grid of a VJ project; a timeline project has none.
     #[serde(default, skip_serializing_if = "crate::vj::Vj::is_empty")]
     pub vj: crate::vj::Vj,
 }

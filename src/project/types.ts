@@ -16,9 +16,9 @@ export interface Project {
   output: ShowOutputs;
   /** Never empty. The backend decides which one is active; only that one plays. */
   timelines: Timeline[];
-  /** Whether the window shows the timelines or the VJ grid; absent is the timelines. */
+  /** The kind of project, chosen when it is created and never changed; absent is `timeline`. */
   mode?: ProjectMode;
-  /** The VJ grid, kept while the timelines are shown; absent until the project first shows it. */
+  /** The VJ grid; only a VJ project has one. */
   vj?: VjGrid;
 }
 

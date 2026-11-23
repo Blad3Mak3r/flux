@@ -1,7 +1,8 @@
 //! The VJ grid of a project, played like a media server's clip deck: layers stacked one over the
 //! other, columns across them, and in each cell at most one clip, a video the user launches by hand.
-//! A project holds its timelines and its grid at once; its `mode` only says which of the two the
-//! window shows, so switching between them loses nothing.
+//! A project is of one kind for good, chosen when it is created: a timeline project has no grid, and
+//! a VJ project plays its grid. A VJ project still holds a timeline, so that one day its grid can
+//! follow the clock.
 //!
 //! The layers are listed in drawing order: the first is at the bottom, the last on top. Opacity,
 //! volume and the crossfader side of a layer are stored with the project; which clip is playing is
@@ -18,11 +19,11 @@ use crate::{ProjectError, Result};
 pub const MAX_LAYERS: usize = 16;
 /// Most columns a grid has.
 pub const MAX_COLUMNS: usize = 64;
-/// The grid a project gets the first time it is shown in VJ mode.
+/// The grid a new VJ project starts with.
 pub const DEFAULT_LAYERS: usize = 3;
 pub const DEFAULT_COLUMNS: usize = 8;
 
-/// Which part of the project the window shows and plays.
+/// The kind of a project, chosen when it is created and never changed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ProjectMode {
@@ -187,11 +188,6 @@ impl Playback {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum VjOp {
-    /// Shows the timelines or the grid. The first time a project shows the grid it gets
-    /// [`DEFAULT_LAYERS`] layers and [`DEFAULT_COLUMNS`] columns.
-    SetMode {
-        mode: ProjectMode,
-    },
     /// A new empty layer on top of the others.
     AddLayer,
     /// Takes the layer and its clips away; the last layer stays.
@@ -262,22 +258,28 @@ pub enum VjOp {
     },
 }
 
-/// Applies `op` to the project; `new_id` names whatever it creates. The caller validates the result.
+impl Vj {
+    /// The grid of a new VJ project: [`DEFAULT_LAYERS`] layers and [`DEFAULT_COLUMNS`] columns.
+    pub fn starting(mut new_id: impl FnMut() -> String) -> Self {
+        Self {
+            layers: (0..DEFAULT_LAYERS).map(|_| Layer::new(new_id())).collect(),
+            columns: (0..DEFAULT_COLUMNS)
+                .map(|_| Column {
+                    id: new_id(),
+                    name: None,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Applies `op` to a VJ project; `new_id` names whatever it creates. The caller validates the result.
 pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String) -> Result<()> {
+    if project.mode != ProjectMode::Vj {
+        return Err(ProjectError::Invalid("only a VJ project has a grid".into()));
+    }
     let vj = &mut project.vj;
     match op {
-        VjOp::SetMode { mode } => {
-            if mode == ProjectMode::Vj && vj.is_empty() {
-                vj.layers = (0..DEFAULT_LAYERS).map(|_| Layer::new(new_id())).collect();
-                vj.columns = (0..DEFAULT_COLUMNS)
-                    .map(|_| Column {
-                        id: new_id(),
-                        name: None,
-                    })
-                    .collect();
-            }
-            project.mode = mode;
-        }
         VjOp::AddLayer => {
             if vj.layers.len() >= MAX_LAYERS {
                 return Err(ProjectError::Invalid(format!(
@@ -426,17 +428,25 @@ fn typed_name(name: &str) -> Result<Option<String>> {
 
 /// Checks the grid: unique ids (a clip's is unique among every item of the project, in `item_ids`),
 /// each clip in a known column, at most one clip per cell, clips showing known videos, levels in
-/// range, and a grid in VJ mode.
+/// range, a grid in a VJ project and none in a timeline project.
 pub(crate) fn validate<'a>(
     project: &'a Project,
     video_ids: &HashSet<&str>,
     item_ids: &mut HashSet<&'a str>,
 ) -> Result<()> {
     let vj = &project.vj;
-    if project.mode == ProjectMode::Vj && (vj.layers.is_empty() || vj.columns.is_empty()) {
-        return Err(ProjectError::Invalid(
-            "a project in VJ mode needs a layer and a column".into(),
-        ));
+    match project.mode {
+        ProjectMode::Vj if vj.layers.is_empty() || vj.columns.is_empty() => {
+            return Err(ProjectError::Invalid(
+                "a VJ project needs a layer and a column".into(),
+            ));
+        }
+        ProjectMode::Timeline if !vj.is_empty() => {
+            return Err(ProjectError::Invalid(
+                "a timeline project has no VJ grid".into(),
+            ));
+        }
+        _ => {}
     }
     if vj.layers.len() > MAX_LAYERS || vj.columns.len() > MAX_COLUMNS {
         return Err(ProjectError::Invalid(format!(
@@ -526,18 +536,12 @@ mod tests {
         }
     }
 
-    /// A project shown in VJ mode, with its default grid (layers g1 to g3, columns g4 to g11).
+    /// A VJ project with the starting grid (layers g1 to g3, columns g4 to g11).
     fn vj_project() -> (Project, impl FnMut() -> String) {
         let mut project = video_project();
         let mut new_id = ids();
-        apply(
-            &mut project,
-            VjOp::SetMode {
-                mode: ProjectMode::Vj,
-            },
-            &mut new_id,
-        )
-        .unwrap();
+        project.mode = ProjectMode::Vj;
+        project.vj = Vj::starting(&mut new_id);
         (project, new_id)
     }
 
@@ -555,24 +559,26 @@ mod tests {
     }
 
     #[test]
-    fn set_mode_should_give_the_first_vj_view_a_default_grid_and_keep_the_timelines() {
+    fn starting_grid_should_be_a_valid_vj_project() {
         let (project, _) = vj_project();
-        assert_eq!(project.mode, ProjectMode::Vj);
         assert_eq!(project.vj.layers.len(), DEFAULT_LAYERS);
         assert_eq!(project.vj.columns.len(), DEFAULT_COLUMNS);
-        assert_eq!(project.timelines, video_project().timelines);
         project.validate().unwrap();
     }
 
     #[test]
-    fn set_mode_should_keep_the_grid_when_going_back_and_forth() {
-        let (mut project, mut new_id) = vj_project();
-        place(&mut project, "g1", "g4", &mut new_id);
-        let grid = project.vj.clone();
-        for mode in [ProjectMode::Timeline, ProjectMode::Vj] {
-            apply(&mut project, VjOp::SetMode { mode }, &mut new_id).unwrap();
-        }
-        assert_eq!(project.vj, grid);
+    fn a_timeline_project_should_have_no_grid() {
+        let mut project = video_project();
+        assert!(apply(&mut project, VjOp::AddLayer, ids()).is_err());
+        project.vj = Vj::starting(ids());
+        assert!(project.validate().is_err());
+    }
+
+    #[test]
+    fn a_vj_project_should_need_its_grid() {
+        let (mut project, _) = vj_project();
+        project.vj = Vj::default();
+        assert!(project.validate().is_err());
     }
 
     #[test]

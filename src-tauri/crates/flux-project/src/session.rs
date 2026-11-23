@@ -166,12 +166,27 @@ impl Session {
     }
 
     pub fn new_project(&mut self, name: &str, frame_rate: FrameRate) -> Project {
+        self.new_project_of(name, frame_rate, crate::ProjectMode::Timeline)
+    }
+
+    /// Starts a new project of the given kind, which it keeps for good; a VJ project starts with
+    /// the grid of [`crate::vj::Vj::starting`].
+    pub fn new_project_of(
+        &mut self,
+        name: &str,
+        frame_rate: FrameRate,
+        mode: crate::ProjectMode,
+    ) -> Project {
         self.recovery_id = Uuid::new_v4().to_string();
         self.recovery_revision += 1;
         self.sources.clear();
         self.voice_sources.clear();
         self.previews.clear();
-        let project = Project::new(name, frame_rate);
+        let mut project = Project::new(name, frame_rate);
+        if mode == crate::ProjectMode::Vj {
+            project.mode = mode;
+            project.vj = crate::vj::Vj::starting(|| Uuid::new_v4().to_string());
+        }
         self.document = Some(Document::new(project.clone(), None));
         project
     }
@@ -703,8 +718,7 @@ impl Session {
         Ok(state)
     }
 
-    /// Edits the VJ grid or switches the project between its timelines and the grid (see
-    /// [`crate::vj`]).
+    /// Edits the VJ grid of a VJ project (see [`crate::vj`]).
     pub fn edit_vj(&mut self, op: crate::VjOp) -> Result<ProjectState> {
         self.change(|project, _| crate::vj::apply(project, op, || Uuid::new_v4().to_string()))
     }
@@ -1413,11 +1427,9 @@ mod tests {
         fs::write(&mp4, b"h264").unwrap();
         fs::write(&mov, b"hap").unwrap();
         let mut session = Session::default();
-        session.new_project("Show", FrameRate::Fps25);
-        let mode = crate::VjOp::SetMode {
-            mode: crate::ProjectMode::Vj,
-        };
-        let grid = session.edit_vj(mode).unwrap().project.vj;
+        let grid = session
+            .new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj)
+            .vj;
         let (layer, column) = (&grid.layers[1].id, &grid.columns[2].id);
 
         let state = session.import_vj_video(&mp4, layer, column).unwrap();
