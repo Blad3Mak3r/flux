@@ -62,6 +62,10 @@ pub enum VideoError {
     Thread(#[from] std::io::Error),
     #[error("the thumbnails could not be encoded: {0}")]
     Encode(String),
+    #[error("this FFmpeg cannot write HAP")]
+    NoHap,
+    #[error("the conversion was cancelled")]
+    Cancelled,
     #[error("frame {index} is past the end of the video ({frames} frames)")]
     PastEnd { index: u64, frames: u64 },
 }

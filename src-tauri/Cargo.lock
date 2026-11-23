@@ -1605,6 +1605,7 @@ dependencies = [
  "flux-core",
  "flux-project",
  "jpeg-encoder",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

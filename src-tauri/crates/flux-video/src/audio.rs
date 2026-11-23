@@ -37,15 +37,25 @@ pub fn audio_wav(path: &Path) -> Result<Option<Vec<u8>>, VideoError> {
     Ok((pcm.rate > 0).then(|| pcm.wav()))
 }
 
+/// Decoded sound as interleaved 16-bit samples of one or two channels.
 #[derive(Default)]
-struct Pcm {
-    rate: u32,
-    channels: u16,
-    samples: Vec<i16>,
+pub(crate) struct Pcm {
+    pub(crate) rate: u32,
+    pub(crate) channels: u16,
+    pub(crate) samples: Vec<i16>,
 }
 
 impl Pcm {
-    fn drain(&mut self, decoder: &mut decoder::Audio) -> Result<(), VideoError> {
+    /// Sound known to be at `rate` with `channels` (1 or 2) before its first frame.
+    pub(crate) fn new(rate: u32, channels: u16) -> Self {
+        Self {
+            rate,
+            channels,
+            samples: Vec::new(),
+        }
+    }
+
+    pub(crate) fn drain(&mut self, decoder: &mut decoder::Audio) -> Result<(), VideoError> {
         let mut decoded = frame::Audio::empty();
         loop {
             match decoder.receive_frame(&mut decoded) {
