@@ -54,6 +54,17 @@ pub fn timeline_frames_of(
     ))
 }
 
+/// The size of the project's first video, which the mapping measures its picture in; `None` when
+/// there is none or it cannot be read.
+pub fn picture_size(session: &SharedSession) -> Option<(u32, u32)> {
+    let first = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .first_video()?;
+    let info = probe(session, &shared_probes(), &first, CACHE.get()?).ok()?;
+    Some((info.width, info.height))
+}
+
 /// Reads a video of the session with FFmpeg, or answers from what was read before.
 fn probe(
     session: &SharedSession,

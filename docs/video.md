@@ -112,10 +112,13 @@ transport is stopped, before a clip and after it. A GPU error is kept for the se
 Below the display, **Mapping** cuts the picture into slices, as the advanced output of a media server does. Each slice
 is a rectangle of the picture (dragged and resized on the left, *Picture*) placed on the screen by its four corners
 (dragged on the right, *Screen*); moving a corner leans the slice to fit a surface seen at an angle, and dragging the
-shape moves it whole. A slice can be renamed, hidden without losing its place, or have its corners put back where its
+shape moves it whole. Below the stages, the selected slice's rectangle and corners can also be typed in pixels: the picture is
+measured in the size of the project's first video (1920 × 1080 without one) and the corners in the chosen display's
+size, and the backend turns the pixels into fractions (`setInputValue`, `setCornerValue`). A slice can be renamed, hidden without losing its place, or have its corners put back where its
 rectangle is. **Test pattern** shows a test card wherever there is no picture, to line the slices up on the real
 screen: a grid of tinted cells, the diagonals and two circles that show how a slice leans, colour bars and a grey ramp,
-coloured corners (red top left, green top right, blue bottom right, yellow bottom left) and a white bar that sweeps
+coloured corners (red top left, green top right, blue bottom right, yellow bottom left), the picture's size and
+aspect ratio, each slice outlined in a colour of its own with its name, size and position in pixels, and a white bar that sweeps
 across every three seconds, so each slice shows which way its part of the picture runs
 (`flux-render/src/pattern.rs`). No slices is the plain
 output: the whole picture fitted to the screen.

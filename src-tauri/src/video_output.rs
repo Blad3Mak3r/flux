@@ -21,6 +21,7 @@ use crate::transport_commands::SharedOutput;
 use flux_engine::output::PositionReader;
 use flux_engine::transport::TransportState;
 use flux_project::Timeline;
+use flux_render::pattern::CardSlice;
 use flux_render::{Picture, Quad, Screen};
 use flux_video::{Cue, VideoDeck};
 
@@ -262,6 +263,8 @@ impl VideoOutput {
             seen: (u64::MAX, String::new()),
             reader: None,
             card: None,
+            card_size: CARD_SIZE,
+            card_slices: Vec::new(),
             card_frame: Vec::new(),
             card_since: None,
             card_id: 0,
@@ -357,15 +360,18 @@ struct Render {
     quads: Vec<Quad>,
     seen: (u64, String),
     reader: Option<PositionReader>,
-    /// The test card, made the first time it is shown, the frame with its sweep, and when the
-    /// sweep started.
+    /// The test card, made when it is shown and again when the slices change, the frame with its
+    /// sweep, and when the sweep started.
     card: Option<Vec<u8>>,
+    card_size: (u32, u32),
+    card_slices: Vec<CardSlice>,
     card_frame: Vec<u8>,
     card_since: Option<Instant>,
     card_id: u64,
 }
 
-/// The size the test card is made at; the GPU scales it to each slice.
+/// The size the test card is made at when the project has no video; the GPU scales it to each
+/// slice.
 const CARD_SIZE: (u32, u32) = (1920, 1080);
 
 impl Render {
@@ -424,8 +430,8 @@ impl Render {
         let picture = picture.or_else(|| {
             card.then(|| Picture {
                 id: self.card_id,
-                width: CARD_SIZE.0,
-                height: CARD_SIZE.1,
+                width: self.card_size.0,
+                height: self.card_size.1,
                 rgba: &self.card_frame,
             })
         });
@@ -440,10 +446,11 @@ impl Render {
             self.card_since = None;
             return false;
         }
-        let (width, height) = CARD_SIZE;
+        let (width, height) = self.card_size;
+        let slices = &self.card_slices;
         let card = self
             .card
-            .get_or_insert_with(|| flux_render::pattern::test_card(width, height));
+            .get_or_insert_with(|| flux_render::pattern::test_card(width, height, slices));
         let since = *self.card_since.get_or_insert_with(Instant::now);
         let seconds = since.elapsed().as_secs_f32();
         flux_render::pattern::sweep(card, &mut self.card_frame, width, height, seconds);
@@ -456,23 +463,35 @@ impl Render {
     fn refresh(&mut self) {
         let session = self.session.lock().unwrap_or_else(PoisonError::into_inner);
         let (revision, active) = session.revision();
-        if (revision, active) != (self.seen.0, self.seen.1.as_str()) {
-            self.seen = (revision, active.to_owned());
-            self.timeline = session.active_timeline_copy();
-            self.quads = session
-                .video_slices()
-                .iter()
-                .filter(|slice| !slice.hidden)
-                .map(|slice| Quad {
-                    input: [
-                        slice.input.x,
-                        slice.input.y,
-                        slice.input.width,
-                        slice.input.height,
-                    ],
-                    corners: slice.corners.map(|p| [p.x, p.y]),
-                })
-                .collect();
+        if (revision, active) == (self.seen.0, self.seen.1.as_str()) {
+            return;
+        }
+        self.seen = (revision, active.to_owned());
+        self.timeline = session.active_timeline_copy();
+        let shown = session.video_slices().iter().filter(|slice| !slice.hidden);
+        let rect = |r: &flux_project::mapping::Rect| [r.x, r.y, r.width, r.height];
+        self.quads = shown
+            .clone()
+            .map(|slice| Quad {
+                input: rect(&slice.input),
+                corners: slice.corners.map(|p| [p.x, p.y]),
+            })
+            .collect();
+        let card_slices: Vec<CardSlice> = shown
+            .map(|slice| CardSlice {
+                name: slice.name.clone(),
+                input: rect(&slice.input),
+            })
+            .collect();
+        drop(session);
+        // The card is drawn at the size the mapping measures the picture in.
+        let size = crate::video_commands::picture_size(&self.session)
+            .filter(|&(w, h)| (16..=8192).contains(&w) && (16..=8192).contains(&h))
+            .unwrap_or(CARD_SIZE);
+        if (size, &card_slices) != (self.card_size, &self.card_slices) {
+            self.card_size = size;
+            self.card_slices = card_slices;
+            self.card = None;
         }
     }
 }
