@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v9)
+# `.flx` / `.fxtc` project format (v13)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -98,8 +98,8 @@ Track kinds:
 - `{ "type": "video", "clips": [{ id, asset, start, name?, offset?, length? }] }` — video shown in time with the
   timeline. `asset` is the id of an entry in `videos`; `name`, `offset` and `length` work as for audio clips (frames at
   the timeline's rate; `length` at least 1, absent means up to the end of the video). Clip ids share the namespace of
-  clip and note ids. Added in version 13. This build stores and validates video tracks only: it does not decode or play
-  them yet, and Live shows no cue for them.
+  clip and note ids. Added in version 13. The clips play on the screens of `output.screens` in time with the clock,
+  their sound plays through the track's routing, and Live lists each clip as a cue (see [Video](video-output.md)).
 
 Other kinds of track (Art-Net) will be added as new kinds. Events are kept in order of `at`; event ids share the
 namespace of clip and note ids.

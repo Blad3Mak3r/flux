@@ -110,7 +110,7 @@ are neither shown nor queued. MIDI and OSC events are cues of kind `midi` and `o
 `controlChange`, `programChange`, `msc`, `sysEx`, `osc`) and `Cue.detail` writes it in notation (`C4 · ch 1 · vel 100`,
 `GO 12.5 · L2`, `/cue/1/start 1 0.5`), which the UI shows next to the translated action. A note with a length is
 `running` for that long; the others are instant, so they go from `next` to `done`. Firing them is described below.
-Starting video or Art-Net will be new track kinds.
+Each video clip is a cue of kind `video`, named after the clip (or its video), running for as long as the clip shows. Art-Net will be a new track kind.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
