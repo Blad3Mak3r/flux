@@ -453,7 +453,8 @@ impl Render {
             .get_or_insert_with(|| flux_render::pattern::test_card(width, height, slices));
         let since = *self.card_since.get_or_insert_with(Instant::now);
         let seconds = since.elapsed().as_secs_f32();
-        flux_render::pattern::sweep(card, &mut self.card_frame, width, height, seconds);
+        let clock = chrono::Local::now().format("%H:%M:%S").to_string();
+        flux_render::pattern::sweep(card, &mut self.card_frame, width, height, seconds, &clock);
         // Each refresh is a new picture: high ids, apart from the hashes of video frames.
         self.card_id = u64::MAX - (seconds * 1000.0) as u64;
         true

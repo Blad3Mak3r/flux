@@ -1573,6 +1573,7 @@ name = "flux-timecode"
 version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "dirs",
  "flux-audio",
  "flux-core",

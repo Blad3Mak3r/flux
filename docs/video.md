@@ -118,7 +118,7 @@ size, and the backend turns the pixels into fractions (`setInputValue`, `setCorn
 rectangle is. **Test pattern** shows a test card wherever there is no picture, to line the slices up on the real
 screen: a grid of tinted cells, the diagonals and two circles that show how a slice leans, colour bars and a grey ramp,
 coloured corners (red top left, green top right, blue bottom right, yellow bottom left), the picture's size and
-aspect ratio, each slice outlined in a colour of its own with its name, size and position in pixels, and a white bar that sweeps
+the time of day, each slice outlined in a colour of its own with its name, size and position in pixels, and a white bar that sweeps
 across every three seconds, so each slice shows which way its part of the picture runs
 (`flux-render/src/pattern.rs`). No slices is the plain
 output: the whole picture fitted to the screen.

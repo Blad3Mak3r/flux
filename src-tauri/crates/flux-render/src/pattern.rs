@@ -50,7 +50,7 @@ pub fn test_card(width: u32, height: u32, slices: &[CardSlice]) -> Vec<u8> {
         width,
         height,
     };
-    let unit = (height as f32 / 1080.0 * 3.0).round().max(1.0) as u32;
+    let unit = unit(height);
     // Slices that start at the same place write their names one under the other.
     let mut starts: Vec<[f32; 2]> = Vec::new();
     for (index, slice) in slices.iter().enumerate() {
@@ -60,26 +60,22 @@ pub fn test_card(width: u32, height: u32, slices: &[CardSlice]) -> Vec<u8> {
         let colour = SLICE_COLOURS[index % SLICE_COLOURS.len()];
         canvas.slice(slice, colour, unit, below);
     }
-    // The size in the middle, above the centre, in large type.
-    let divisor = gcd(width, height).max(1);
-    let lines = [
-        (format!("{width} x {height}"), unit * 3),
-        (
-            format!("{}:{}", width / divisor, height / divisor),
-            unit * 2,
-        ),
-    ];
-    let mut y = (height as f32 * 0.30) as u32;
-    for (text, scale) in &lines {
-        let x = (width / 2).saturating_sub(text_width(text, *scale) / 2);
-        canvas.label(x, y, text, *scale, [245, 245, 245]);
-        y += 12 * scale;
-    }
+    // The size in the middle, above the centre, in large type; the clock goes under it.
+    let (y, scale) = (title_y(height), unit * 3);
+    let text = format!("{width} x {height}");
+    let x = (width / 2).saturating_sub(text_width(&text, scale) / 2);
+    canvas.label(x, y, &text, scale, [245, 245, 245]);
     rgba
 }
 
-fn gcd(a: u32, b: u32) -> u32 {
-    if b == 0 { a } else { gcd(b, a % b) }
+/// The scale of the card's small lettering: 3 pixels a dot on a picture 1080 high.
+fn unit(height: u32) -> u32 {
+    (height as f32 / 1080.0 * 3.0).round().max(1.0) as u32
+}
+
+/// Where the size is written, above the centre.
+fn title_y(height: u32) -> u32 {
+    (height as f32 * 0.30) as u32
 }
 
 /// Width in pixels of `text` drawn at `scale` (8 pixels a character at 1).
@@ -258,9 +254,10 @@ fn background(width: u32, height: u32) -> Vec<u8> {
     rgba
 }
 
-/// Copies `card` into `out` with the sweep at `seconds` since it started: a white bar crossing
-/// from left to right, with a soft trail, every [`SWEEP_SECONDS`].
-pub fn sweep(card: &[u8], out: &mut Vec<u8>, width: u32, height: u32, seconds: f32) {
+/// Copies `card` into `out` with the sweep at `seconds` since it started (a white bar crossing
+/// from left to right, with a soft trail, every [`SWEEP_SECONDS`]) and `clock`, the time of day,
+/// under the size.
+pub fn sweep(card: &[u8], out: &mut Vec<u8>, width: u32, height: u32, seconds: f32, clock: &str) {
     out.clear();
     out.extend_from_slice(card);
     let w = width as f32;
@@ -288,6 +285,21 @@ pub fn sweep(card: &[u8], out: &mut Vec<u8>, width: u32, height: u32, seconds: f
             }
         }
     }
+    let unit = unit(height);
+    let scale = unit * 2;
+    let x = (width / 2).saturating_sub(text_width(clock, scale) / 2);
+    let mut canvas = Canvas {
+        rgba: out,
+        width,
+        height,
+    };
+    canvas.label(
+        x,
+        title_y(height) + 36 * unit,
+        clock,
+        scale,
+        [245, 245, 245],
+    );
 }
 
 #[cfg(test)]
@@ -328,7 +340,7 @@ mod tests {
         let card = test_card(w, h, &[]);
         let mut out = Vec::new();
         // Halfway through, the bar is just past the middle of its travel.
-        sweep(&card, &mut out, w, h, SWEEP_SECONDS / 2.0);
+        sweep(&card, &mut out, w, h, SWEEP_SECONDS / 2.0, "");
         let core = (w as f32 / 160.0).max(2.0);
         let middle = ((w as f32 + core + w as f32 / 12.0) / 2.0 - core).ceil() as u32;
         assert_eq!(pixel(&out, w, middle, h / 3), [255, 255, 255]);
