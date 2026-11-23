@@ -2478,6 +2478,30 @@ input:disabled {
   max-width: 460px;
 }
 
+.mapping-size {
+  margin-left: 6px;
+  font-family: var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  letter-spacing: 0;
+}
+
+.mapping-values {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mapping-values legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
 .setup-fields h4 {
   margin: 8px 0 0;
   font-size: 12px;

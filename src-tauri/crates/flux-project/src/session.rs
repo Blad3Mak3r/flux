@@ -750,6 +750,11 @@ impl Session {
         )
     }
 
+    /// The project's first video, which the mapping measures its picture in.
+    pub fn first_video(&self) -> Option<crate::VideoAsset> {
+        self.document.as_ref()?.project.videos.first().cloned()
+    }
+
     /// The slices of the video output (see [`crate::mapping`]).
     pub fn video_slices(&self) -> &[crate::mapping::Slice] {
         self.document

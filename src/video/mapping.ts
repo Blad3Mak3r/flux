@@ -28,12 +28,33 @@ export interface Slice {
   hidden?: boolean;
 }
 
+/** A picture's or a screen's size in pixels; typed values are pixels of it. */
+export interface Size {
+  width: number;
+  height: number;
+}
+
 export type MappingOp =
   | { op: "add" }
   | { op: "remove"; id: string }
   | { op: "rename"; id: string; name: string }
   | { op: "setInput"; id: string; input: Rect }
   | { op: "setCorners"; id: string; corners: Slice["corners"] }
+  | {
+      op: "setInputValue";
+      id: string;
+      field: "x" | "y" | "width" | "height";
+      text: string;
+      size: Size;
+    }
+  | {
+      op: "setCornerValue";
+      id: string;
+      corner: number;
+      axis: "x" | "y";
+      text: string;
+      size: Size;
+    }
   | { op: "resetCorners"; id: string }
   | { op: "setHidden"; id: string; hidden: boolean }
   | { op: "clear" };
@@ -41,7 +62,10 @@ export type MappingOp =
 /** Sends one edit of the mapping to the backend; the answer enters the undo history. */
 export async function mappingEdit(op: MappingOp): Promise<void> {
   try {
-    const state = await invoke<ProjectState>("video_mapping_edit", { project: useDoc.getState().project, op });
+    const state = await invoke<ProjectState>("video_mapping_edit", {
+      project: useDoc.getState().project,
+      op,
+    });
     dispatch({ type: "apply", ...state });
   } catch (error) {
     sayError(errorMessage(error));
@@ -49,4 +73,5 @@ export async function mappingEdit(op: MappingOp): Promise<void> {
 }
 
 /** Shows a test pattern on the output where there is no picture, to line the slices up with. */
-export const showTestPattern = (on: boolean) => invoke("video_output_pattern", { on }).catch(() => undefined);
+export const showTestPattern = (on: boolean) =>
+  invoke("video_output_pattern", { on }).catch(() => undefined);

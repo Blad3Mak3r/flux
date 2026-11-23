@@ -85,6 +85,21 @@ pub enum MappingOp {
         id: String,
         corners: [Point; 4],
     },
+    /// Sets one side of the rectangle to a typed number of pixels of a picture of `size`.
+    SetInputValue {
+        id: String,
+        field: RectField,
+        text: String,
+        size: Size,
+    },
+    /// Sets one coordinate of a corner to a typed number of pixels of a screen of `size`.
+    SetCornerValue {
+        id: String,
+        corner: usize,
+        axis: Axis,
+        text: String,
+        size: Size,
+    },
     /// Puts the slice's corners back on the corners of its rectangle, as the screen's.
     ResetCorners {
         id: String,
@@ -95,6 +110,43 @@ pub enum MappingOp {
     },
     /// Takes every slice away: the output shows the whole picture again.
     Clear,
+}
+
+/// A picture's or a screen's size in pixels, to turn typed pixels into fractions.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct Size {
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RectField {
+    X,
+    Y,
+    Width,
+    Height,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Axis {
+    X,
+    Y,
+}
+
+/// A typed number of pixels as a fraction of `of` pixels.
+fn fraction(text: &str, of: f32) -> Result<f32> {
+    let pixels = text
+        .trim()
+        .parse::<f32>()
+        .ok()
+        .filter(|v| v.is_finite())
+        .ok_or_else(|| ProjectError::Invalid("not a number of pixels".into()))?;
+    if !(of.is_finite() && of >= 1.0) {
+        return Err(ProjectError::Invalid("no size to measure pixels in".into()));
+    }
+    Ok(pixels / of)
 }
 
 /// Applies `op` to `slices`; `new_id` names a new slice. The caller validates the result.
@@ -140,6 +192,50 @@ pub fn apply(
                 x: p.x.clamp(-CORNER_REACH, 1.0 + CORNER_REACH),
                 y: p.y.clamp(-CORNER_REACH, 1.0 + CORNER_REACH),
             });
+        }
+        MappingOp::SetInputValue {
+            id,
+            field,
+            text,
+            size,
+        } => {
+            let at = find(slices, &id)?;
+            let mut r = slices[at].input;
+            // A side that would run past the picture is shortened, and a position moves the
+            // rectangle without changing its size, as far as the picture allows.
+            match field {
+                RectField::X => r.x = fraction(&text, size.width)?.clamp(0.0, 1.0 - r.width),
+                RectField::Y => r.y = fraction(&text, size.height)?.clamp(0.0, 1.0 - r.height),
+                RectField::Width => {
+                    r.width = fraction(&text, size.width)?.clamp(MIN_SIDE, 1.0 - r.x)
+                }
+                RectField::Height => {
+                    r.height = fraction(&text, size.height)?.clamp(MIN_SIDE, 1.0 - r.y)
+                }
+            }
+            slices[at].input = clamp_rect(r);
+        }
+        MappingOp::SetCornerValue {
+            id,
+            corner,
+            axis,
+            text,
+            size,
+        } => {
+            let at = find(slices, &id)?;
+            let point = slices[at]
+                .corners
+                .get_mut(corner)
+                .ok_or_else(|| ProjectError::Invalid(format!("no corner {corner}")))?;
+            let reach = -CORNER_REACH..=1.0 + CORNER_REACH;
+            match axis {
+                Axis::X => {
+                    point.x = fraction(&text, size.width)?.clamp(*reach.start(), *reach.end())
+                }
+                Axis::Y => {
+                    point.y = fraction(&text, size.height)?.clamp(*reach.start(), *reach.end())
+                }
+            }
         }
         MappingOp::ResetCorners { id } => {
             let at = find(slices, &id)?;
@@ -306,6 +402,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(slices[0].corners[0].x, -1.0);
+        assert!(validate(&slices).is_ok());
+    }
+
+    #[test]
+    fn typed_pixels_should_set_the_rectangle_and_the_corners() {
+        let mut slices = added();
+        let size = Size {
+            width: 1920.0,
+            height: 1080.0,
+        };
+        let input = |field, text: &str| MappingOp::SetInputValue {
+            id: "s1".into(),
+            field,
+            text: text.into(),
+            size,
+        };
+        apply(&mut slices, input(RectField::Width, "960"), String::new).unwrap();
+        apply(&mut slices, input(RectField::X, " 1500 "), String::new).unwrap();
+        let r = slices[0].input;
+        // The rectangle stops at the right edge rather than shrinking.
+        assert_eq!((r.x, r.width), (0.5, 0.5));
+        assert!(apply(&mut slices, input(RectField::Y, "abc"), String::new).is_err());
+        let corner = MappingOp::SetCornerValue {
+            id: "s1".into(),
+            corner: 2,
+            axis: Axis::Y,
+            text: "540".into(),
+            size,
+        };
+        apply(&mut slices, corner, String::new).unwrap();
+        assert_eq!(slices[0].corners[2], Point { x: 1.0, y: 0.5 });
+        let missing = MappingOp::SetCornerValue {
+            id: "s1".into(),
+            corner: 4,
+            axis: Axis::X,
+            text: "0".into(),
+            size,
+        };
+        assert!(apply(&mut slices, missing, String::new).is_err());
         assert!(validate(&slices).is_ok());
     }
 
