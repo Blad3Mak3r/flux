@@ -503,10 +503,24 @@ impl Session {
         self.change(|project, active| crate::routing::apply(project, active, op))
     }
 
-    /// Edits the slices of the video output (see [`crate::mapping`]).
-    pub fn edit_mapping(&mut self, op: crate::mapping::MappingOp) -> Result<ProjectState> {
+    /// Edits the slices of one screen of the video output (see [`crate::mapping`]).
+    pub fn edit_mapping(
+        &mut self,
+        screen: &str,
+        op: crate::mapping::MappingOp,
+    ) -> Result<ProjectState> {
         self.change(|project, _| {
-            crate::mapping::apply(&mut project.output.video, op, || Uuid::new_v4().to_string())
+            let screen = crate::mapping::screen_mut(&mut project.output.screens, screen)?;
+            crate::mapping::apply(&mut screen.slices, op, || Uuid::new_v4().to_string())
+        })
+    }
+
+    /// Adds, removes or renames a screen of the video output.
+    pub fn edit_screens(&mut self, op: crate::mapping::ScreenOp) -> Result<ProjectState> {
+        self.change(|project, _| {
+            crate::mapping::edit_screens(&mut project.output.screens, op, || {
+                Uuid::new_v4().to_string()
+            })
         })
     }
 
@@ -755,11 +769,13 @@ impl Session {
         self.document.as_ref()?.project.videos.first().cloned()
     }
 
-    /// The slices of the video output (see [`crate::mapping`]).
-    pub fn video_slices(&self) -> &[crate::mapping::Slice] {
-        self.document
-            .as_ref()
-            .map_or(&[], |document| &document.project.output.video)
+    /// The screens of the video output, the main one first; only the main one with no project.
+    pub fn video_screens(&self) -> Vec<crate::mapping::VideoScreen> {
+        crate::mapping::screens(
+            self.document
+                .as_ref()
+                .map_or(&[], |document| &document.project.output.screens),
+        )
     }
 
     /// A copy of the timeline being edited and played.

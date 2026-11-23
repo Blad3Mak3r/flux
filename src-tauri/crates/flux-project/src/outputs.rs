@@ -18,9 +18,10 @@ pub struct ShowOutputs {
     pub osc: Vec<OscDestination>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_routes: Option<OutputConfig>,
-    /// The slices of the video output; none is the whole picture fitted to the screen.
+    /// The screens of the video output and their slices; none is the main screen showing the
+    /// whole picture.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub video: Vec<crate::mapping::Slice>,
+    pub screens: Vec<crate::mapping::VideoScreen>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -68,7 +69,7 @@ impl ShowOutputs {
             }
             Ok(())
         }
-        crate::mapping::validate(&self.video)?;
+        crate::mapping::validate_screens(&self.screens)?;
         slots(self.ltc.iter().map(|s| s.slot))?;
         slots(self.mtc.iter().map(|s| s.slot))?;
         if self
@@ -143,7 +144,7 @@ impl From<OutputConfig> for ShowOutputs {
     fn from(routes: OutputConfig) -> Self {
         Self {
             audio: Vec::new(),
-            video: Vec::new(),
+            screens: Vec::new(),
             metronome: routes
                 .metronome
                 .as_ref()
