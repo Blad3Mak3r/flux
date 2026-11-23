@@ -2,7 +2,7 @@
 
 Video tracks ([project format](fxtc-format.md), version 13) are decoded by the `flux-video` crate
 (`src-tauri/crates/flux-video/`) through **FFmpeg**. This page records why, what the crate does, and what building
-FLUX needs now that it links FFmpeg.
+FLUX needs now that it links FFmpeg. How to use video in a show is in [Video and projection mapping](video-output.md).
 
 ## Why FFmpeg
 
