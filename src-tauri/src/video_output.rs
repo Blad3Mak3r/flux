@@ -10,7 +10,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Monitor, State, Window, WindowEvent};
@@ -261,6 +261,10 @@ impl VideoOutput {
             quads: Vec::new(),
             seen: (u64::MAX, String::new()),
             reader: None,
+            card: None,
+            card_frame: Vec::new(),
+            card_since: None,
+            card_id: 0,
         };
         let thread = thread::Builder::new()
             .name("flux-video-output".into())
@@ -353,7 +357,16 @@ struct Render {
     quads: Vec<Quad>,
     seen: (u64, String),
     reader: Option<PositionReader>,
+    /// The test card, made the first time it is shown, the frame with its sweep, and when the
+    /// sweep started.
+    card: Option<Vec<u8>>,
+    card_frame: Vec<u8>,
+    card_since: Option<Instant>,
+    card_id: u64,
 }
+
+/// The size the test card is made at; the GPU scales it to each slice.
+const CARD_SIZE: (u32, u32) = (1920, 1080);
 
 impl Render {
     fn run(mut self) {
@@ -407,14 +420,36 @@ impl Render {
                 rgba: &frame.rgba,
             }
         });
+        let card = picture.is_none() && self.sweep_card();
         let picture = picture.or_else(|| {
-            self.pattern
-                .load(Ordering::Relaxed)
-                .then(|| test_pattern().picture())
+            card.then(|| Picture {
+                id: self.card_id,
+                width: CARD_SIZE.0,
+                height: CARD_SIZE.1,
+                rgba: &self.card_frame,
+            })
         });
         let drawn = picture.is_some();
         // A lost surface draws nothing and is tried again on the next refresh.
         self.screen.draw(picture, &self.quads).is_ok() && drawn
+    }
+
+    /// Draws the sweep on the test card where it is now; `false` while the pattern is off.
+    fn sweep_card(&mut self) -> bool {
+        if !self.pattern.load(Ordering::Relaxed) {
+            self.card_since = None;
+            return false;
+        }
+        let (width, height) = CARD_SIZE;
+        let card = self
+            .card
+            .get_or_insert_with(|| flux_render::pattern::test_card(width, height));
+        let since = *self.card_since.get_or_insert_with(Instant::now);
+        let seconds = since.elapsed().as_secs_f32();
+        flux_render::pattern::sweep(card, &mut self.card_frame, width, height, seconds);
+        // Each refresh is a new picture: high ids, apart from the hashes of video frames.
+        self.card_id = u64::MAX - (seconds * 1000.0) as u64;
+        true
     }
 
     /// Copies the timeline being edited and the slices again when the document changed.
@@ -440,56 +475,6 @@ impl Render {
                 .collect();
         }
     }
-}
-
-/// A grid to line slices up with: lines every sixteenth, a frame, a circle, and the corners told
-/// apart by colour (red top left, green top right, blue bottom right, yellow bottom left).
-struct Pattern {
-    rgba: Vec<u8>,
-}
-
-const PATTERN_SIZE: (u32, u32) = (1920, 1080);
-
-impl Pattern {
-    fn picture(&self) -> Picture<'_> {
-        Picture {
-            id: u64::MAX,
-            width: PATTERN_SIZE.0,
-            height: PATTERN_SIZE.1,
-            rgba: &self.rgba,
-        }
-    }
-}
-
-fn test_pattern() -> &'static Pattern {
-    static PATTERN: std::sync::OnceLock<Pattern> = std::sync::OnceLock::new();
-    PATTERN.get_or_init(|| {
-        let (w, h) = PATTERN_SIZE;
-        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-        let (cx, cy, radius) = (w as f32 / 2.0, h as f32 / 2.0, h as f32 * 0.4);
-        for y in 0..h {
-            for x in 0..w {
-                let grid = x % (w / 16) < 2 || y % (h / 16) < 2;
-                let frame = x < 6 || y < 6 || x >= w - 6 || y >= h - 6;
-                let distance = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
-                let circle = (distance - radius).abs() < 2.0;
-                let corner = match (x < w / 8, y < h / 8, x >= w - w / 8, y >= h - h / 8) {
-                    (true, true, _, _) => Some([220, 40, 40]),
-                    (_, true, true, _) => Some([40, 200, 60]),
-                    (_, _, true, true) => Some([50, 90, 230]),
-                    (true, _, _, true) => Some([230, 200, 40]),
-                    _ => None,
-                };
-                let [r, g, b] = if frame || grid || circle {
-                    [235, 235, 235]
-                } else {
-                    corner.unwrap_or([24, 24, 24])
-                };
-                rgba.extend_from_slice(&[r, g, b, 255]);
-            }
-        }
-        Pattern { rgba }
-    })
 }
 
 fn chosen_display(app: &AppHandle) -> Option<String> {

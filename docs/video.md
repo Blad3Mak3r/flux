@@ -113,8 +113,11 @@ Below the display, **Mapping** cuts the picture into slices, as the advanced out
 is a rectangle of the picture (dragged and resized on the left, *Picture*) placed on the screen by its four corners
 (dragged on the right, *Screen*); moving a corner leans the slice to fit a surface seen at an angle, and dragging the
 shape moves it whole. A slice can be renamed, hidden without losing its place, or have its corners put back where its
-rectangle is. **Test pattern** shows a grid with coloured corners (red top left, green top right, blue bottom right,
-yellow bottom left) wherever there is no picture, to line the slices up on the real screen. No slices is the plain
+rectangle is. **Test pattern** shows a test card wherever there is no picture, to line the slices up on the real
+screen: a grid of tinted cells, the diagonals and two circles that show how a slice leans, colour bars and a grey ramp,
+coloured corners (red top left, green top right, blue bottom right, yellow bottom left) and a white bar that sweeps
+across every three seconds, so each slice shows which way its part of the picture runs
+(`flux-render/src/pattern.rs`). No slices is the plain
 output: the whole picture fitted to the screen.
 
 The slices belong to the project (`output.video`, see [the format](fxtc-format.md)), so they travel with the show,

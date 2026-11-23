@@ -4,6 +4,8 @@
 //! whole picture is fitted to the window keeping its shape, with black around it; the window is
 //! black when there is no picture.
 
+pub mod pattern;
+
 use thiserror::Error;
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
