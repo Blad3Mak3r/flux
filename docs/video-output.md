@@ -7,6 +7,8 @@ stage. How the decoding works and what building FLUX needs is in [Video decoding
 
 ## Clips on the timeline
 
+![The Edit view playing a show with an audio track, a video track with its thumbnails, notes, MIDI and OSC](./screenshots/edit-1440.jpg)
+
 **File > Import > Video** adds a file on a new video track of the active timeline, with a clip at the playhead. FLUX
 reads MP4, M4V, MOV and WebM (VP8, VP9 or AV1). A file it cannot read is refused with the reason. The file is copied into
 the project when it is saved, so the show stays self-contained.
@@ -39,7 +41,7 @@ not connected.
 
 ## Slices
 
-![The mapping editor: a slice of the picture on the left, placed on the screen on the right](./screenshots/video-mapping.png)
+![The mapping editor: a slice of the picture on the left, placed on the screen on the right, and a mask](./screenshots/mapping-1560.jpg)
 
 With no slices, the whole picture is fitted to the screen, keeping its shape. **Add slice** cuts the picture into parts
 and places each one where it goes, as the advanced output of a media server does:
@@ -60,7 +62,7 @@ with another resolution.
 
 ## Test pattern
 
-![The test pattern on a leaning slice, with a soft edge on its right and a mask](./screenshots/video-output.png)
+![The test pattern on two projector screens: grid, circles, colour bars, coloured corners, each slice named with its size, the picture size, the time and the white sweep](./screenshots/pattern-1440.jpg)
 
 **Test pattern** shows a test card on every screen wherever there is no picture, to line the slices up on the real
 surface. It has:
@@ -77,6 +79,8 @@ surface. It has:
 Turn it off before the show: it is only drawn where no clip is showing, but it is meant for setting up.
 
 ## Soft edge
+
+![Two projector outputs side by side, each fading out where they overlap, the left one with a mask](./screenshots/outputs-1440.jpg)
 
 When two projectors overlap to make one wider picture, the overlap is twice as bright. **Soft edge** fades a slice to
 black over a percentage of its width or height from each side (**Left**, **Right**, **Top**, **Bottom**), so the two
