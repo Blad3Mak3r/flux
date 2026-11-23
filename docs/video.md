@@ -97,19 +97,23 @@ saved with the video.
 
 ## Output window
 
-**Preferences > Outputs > Video** chooses the display the output opens on; the choice is a local preference
-(`videoDisplay`), like the audio devices. On a display that has a FLUX window on it, the output opens as a window that
-can be moved aside, so one screen is never covered; on any other display it fills the screen without decorations.
+The output has one or more **screens**, each a window on a display of its own with its own slices (see Mapping). The
+main screen always exists; **Add screen** in **Preferences > Outputs > Video** adds up to eight, which can be renamed and
+removed. The screens belong to the project (`output.screens`); which display each opens on is a local preference
+(`videoDisplays`, by screen id, like the audio devices; the older single `videoDisplay` is read as the main screen's). On
+a display that has a FLUX window on it, a screen opens as a window that can be moved aside, so one screen is never
+covered; on any other display it fills the screen without decorations.
 
-`src-tauri/src/video_output.rs` owns the window. Its surface is made on the main thread (macOS requires it), and a
-render thread (`flux-video-output`) starts the GPU device and then, once per display refresh, reads the transport
+`src-tauri/src/video_output.rs` owns the windows. A thread (`flux-video-screens`) follows the project and opens,
+renames or closes a window when a screen is added, renamed or removed or another project opens. Each window's surface is made on the main thread (macOS requires it), and a
+render thread (`flux-video-output`, one per window, each with its own `VideoDeck`) starts the GPU device and then, once per display refresh, reads the transport
 (`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws the top one with
 `flux-render`. The picture is fitted to the window keeping its shape, with black around it. It is black while the
 transport is stopped, before a clip and after it. A GPU error is kept for the setup page to show and never panics.
 
 ## Mapping
 
-Below the display, **Mapping** cuts the picture into slices, as the advanced output of a media server does. Each slice
+Below the display, **Mapping** cuts the picture into slices for the selected screen, as the advanced output of a media server does. Each slice
 is a rectangle of the picture (dragged and resized on the left, *Picture*) placed on the screen by its four corners
 (dragged on the right, *Screen*); moving a corner leans the slice to fit a surface seen at an angle, and dragging the
 shape moves it whole. Below the stages, the selected slice's rectangle and corners can also be typed in pixels: the picture is
@@ -123,7 +127,7 @@ across every three seconds, so each slice shows which way its part of the pictur
 (`flux-render/src/pattern.rs`). No slices is the plain
 output: the whole picture fitted to the screen.
 
-The slices belong to the project (`output.video`, see [the format](fxtc-format.md)), so they travel with the show,
+The slices belong to the project (`output.screens`, see [the format](fxtc-format.md)), so they travel with the show,
 while the display stays a local preference. Every number is a fraction of a width or height, so a mapping keeps its
 shape on another resolution. `src-tauri/crates/flux-project/src/mapping.rs` owns the operations (`video_mapping_edit`):
 it clamps a rectangle inside the picture and a corner to one screen past each edge, and each drag reaches it once, on
@@ -131,8 +135,8 @@ release, so it is one undo step. `flux-render` draws each slice as two triangles
 coordinates (each corner weighted by its distance to where the diagonals cross), so a leaning slice does not bend
 along its diagonal.
 
-Show check reports a show with video clips whose output is off (a warning) or whose display is not connected (an
-error).
+Show check reports a show with video clips whose screens are all off (a warning) or a screen whose display is not
+connected (an error).
 
 ## Building
 
