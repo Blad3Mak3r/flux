@@ -127,6 +127,14 @@ across every three seconds, so each slice shows which way its part of the pictur
 (`flux-render/src/pattern.rs`). No slices is the plain
 output: the whole picture fitted to the screen.
 
+**Soft edge** fades a slice to black over a percentage of its width or height from each side, so two projectors
+whose pictures overlap blend into one; **Curve** shapes the fade (1 dims the light evenly, more keeps it brighter for
+longer, less darker). **Add mask** puts a square on the screen whose points are dragged (or the whole shape), with
+**Add point** after the selected point and **Remove point** down to three. A mask blacks out its shape over every slice
+of its screen, or, inverted, everything but its shape; up to 8 masks of up to 32 points. `flux-render` does both in the
+fragment shader: the soft edge from each fragment's place in its slice, and the masks with an even-odd test against
+their outlines, passed in a uniform (`video_mask_edit` edits them).
+
 The slices belong to the project (`output.screens`, see [the format](fxtc-format.md)), so they travel with the show,
 while the display stays a local preference. Every number is a fraction of a width or height, so a mapping keeps its
 shape on another resolution. `src-tauri/crates/flux-project/src/mapping.rs` owns the operations (`video_mapping_edit`):
