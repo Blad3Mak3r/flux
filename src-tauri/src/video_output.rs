@@ -562,15 +562,20 @@ impl Render {
         };
         let top = shown
             .iter()
-            .find_map(|shown| shown.frame.as_ref().map(|frame| (&shown.layer.clip, frame)));
-        let picture = top.map(|(clip, frame)| {
+            .find_map(|shown| shown.frame.as_ref().map(|frame| (&shown.layer, frame)));
+        let picture = top.map(|(layer, frame)| {
             let mut hash = DefaultHasher::new();
-            (clip, frame.index).hash(&mut hash);
+            (&layer.clip, frame.index).hash(&mut hash);
             Picture {
                 id: hash.finish(),
                 width: frame.width,
                 height: frame.height,
                 rgba: &frame.rgba,
+                place: flux_render::placement(
+                    sizing(layer.fit),
+                    (frame.width, frame.height),
+                    self.card_size,
+                ),
             }
         });
         let card = picture.is_none() && self.sweep_card();
@@ -580,11 +585,15 @@ impl Render {
                 width: self.card_size.0,
                 height: self.card_size.1,
                 rgba: &self.card_frame,
+                place: [0.0, 0.0, 1.0, 1.0],
             })
         });
         let drawn = picture.is_some();
         // A lost surface draws nothing and is tried again on the next refresh.
-        self.screen.draw(picture, &self.quads, &self.masks).is_ok() && drawn
+        self.screen
+            .draw(picture, self.card_size, &self.quads, &self.masks)
+            .is_ok()
+            && drawn
     }
 
     /// Draws the sweep on the test card where it is now; `false` while the pattern is off.
@@ -654,15 +663,29 @@ impl Render {
             })
             .collect();
         drop(session);
-        // The card is drawn at the size the mapping measures the picture in.
+        // The composition: the size the clips are sized into, the slices cut and the card drawn.
         let size = crate::video_commands::picture_size(&self.session)
-            .filter(|&(w, h)| (16..=8192).contains(&w) && (16..=8192).contains(&h))
+            .filter(|&(w, h)| {
+                let sides = flux_project::mapping::COMPOSITION_SIDES;
+                sides.contains(&w) && sides.contains(&h)
+            })
             .unwrap_or(CARD_SIZE);
         if (size, &card_slices) != (self.card_size, &self.card_slices) {
             self.card_size = size;
             self.card_slices = card_slices;
             self.card = None;
         }
+    }
+}
+
+/// The renderer's sizing for a clip's fit.
+fn sizing(fit: flux_project::VideoFit) -> flux_render::Sizing {
+    use flux_project::VideoFit;
+    match fit {
+        VideoFit::Fit => flux_render::Sizing::Fit,
+        VideoFit::Fill => flux_render::Sizing::Fill,
+        VideoFit::Stretch => flux_render::Sizing::Stretch,
+        VideoFit::None => flux_render::Sizing::None,
     }
 }
 

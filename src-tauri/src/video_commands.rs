@@ -54,13 +54,17 @@ pub fn timeline_frames_of(
     ))
 }
 
-/// The size of the project's first video, which the mapping measures its picture in; `None` when
-/// there is none or it cannot be read.
+/// The size of the composition the clips are sized into and the mapping measures its picture in:
+/// the one set in the project, else the size of its first video; `None` when neither is known.
 pub fn picture_size(session: &SharedSession) -> Option<(u32, u32)> {
-    let first = session
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .first_video()?;
+    let (composition, first) = {
+        let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+        (session.composition(), session.first_video())
+    };
+    if let Some(composition) = composition {
+        return Some((composition.width, composition.height));
+    }
+    let first = first?;
     let info = probe(session, &shared_probes(), &first, CACHE.get()?).ok()?;
     Some((info.width, info.height))
 }
@@ -350,6 +354,25 @@ pub async fn video_mask_edit(
         let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
         s.update(project);
         s.edit_masks(&screen, op)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Sets the size of the composition the clips are sized into; both sides empty go back to the
+/// first video's size.
+#[tauri::command]
+pub async fn video_composition_set(
+    session: State<'_, SharedSession>,
+    project: Project,
+    width: String,
+    height: String,
+) -> Result<ProjectState> {
+    let session = Arc::clone(&session);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+        s.update(project);
+        s.set_composition(&width, &height)
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?

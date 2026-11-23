@@ -30,6 +30,37 @@ pub struct Picture<'a> {
     pub width: u32,
     pub height: u32,
     pub rgba: &'a [u8],
+    /// Where it sits in the composition, `[x, y, width, height]` as fractions of it (see
+    /// [`placement`]); the composition outside it is black.
+    pub place: [f32; 4],
+}
+
+/// How a picture is sized into the composition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sizing {
+    /// As large as it fits with its shape kept, centred.
+    Fit,
+    /// As small as it covers the composition with its shape kept, centred.
+    Fill,
+    /// Exactly the composition.
+    Stretch,
+    /// At its own size in pixels, centred.
+    None,
+}
+
+/// Where a picture of `picture` pixels sits in a composition of `composition` pixels when sized
+/// `sizing`: `[x, y, width, height]` as fractions of the composition, which can reach past it.
+pub fn placement(sizing: Sizing, picture: (u32, u32), composition: (u32, u32)) -> [f32; 4] {
+    let (pw, ph) = (picture.0.max(1) as f32, picture.1.max(1) as f32);
+    let (cw, ch) = (composition.0.max(1) as f32, composition.1.max(1) as f32);
+    let scale = match sizing {
+        Sizing::Stretch => return [0.0, 0.0, 1.0, 1.0],
+        Sizing::Fit => (cw / pw).min(ch / ph),
+        Sizing::Fill => (cw / pw).max(ch / ph),
+        Sizing::None => 1.0,
+    };
+    let (w, h) = (pw * scale / cw, ph * scale / ch);
+    [(1.0 - w) / 2.0, (1.0 - h) / 2.0, w, h]
 }
 
 /// A rectangle of the picture shown between four points of the window: the slice of a mapping.
@@ -62,7 +93,7 @@ pub struct Mask {
 pub const MAX_MASKS: usize = 8;
 pub const MAX_MASK_POINTS: usize = 32;
 /// The masks' uniform: a header, one line of 4 numbers per mask and two points per line.
-const MASKS_SIZE: u64 = 16 + 16 * MAX_MASKS as u64 + 8 * (MAX_MASKS * MAX_MASK_POINTS) as u64;
+const MASKS_SIZE: u64 = 32 + 16 * MAX_MASKS as u64 + 8 * (MAX_MASKS * MAX_MASK_POINTS) as u64;
 
 /// A corner of a quad as the GPU reads it: its place in clip space and its texture coordinate,
 /// multiplied by a weight that undoes the perspective (see [`vertices`]).
@@ -146,6 +177,7 @@ fn vs(
 // and whether it is inverted; the points, two to a line.
 struct Masks {
     size: vec4f,
+    place: vec4f,
     info: array<vec4u, 8>,
     points: array<vec4f, 128>,
 };
@@ -189,12 +221,15 @@ fn ramp(t: f32, width: f32) -> f32 {
 // straight across a quad seen in perspective.
 @fragment
 fn fs(in: Out) -> @location(0) vec4f {
-    let colour = textureSample(picture, linear_sampler, in.uvq.xy / in.uvq.z);
+    // The slice's texture coordinate is in the composition; the picture sits at `place` in it.
+    let at = (in.uvq.xy / in.uvq.z - masks.place.xy) / masks.place.zw;
+    let colour = textureSample(picture, linear_sampler, at);
+    let within = all(at >= vec2f(0.0)) && all(at <= vec2f(1.0));
     let l = in.local / in.uvq.z;
     let edge = ramp(l.x, in.soft.x) * ramp(1.0 - l.x, in.soft.y) * ramp(l.y, in.soft.z)
         * ramp(1.0 - l.y, in.soft.w);
     var shown = 0.0;
-    if edge > 0.0 {
+    if edge > 0.0 && within {
         shown = pow(edge, 1.0 / max(in.gamma, 0.01));
     }
     let p = in.pos.xy / masks.size.xy;
@@ -396,28 +431,31 @@ impl Screen {
         }
     }
 
-    /// Draws `picture` through `quads` (at most [`MAX_QUADS`]), or fitted to the window when there
-    /// are none, with `masks` hiding parts of it; black for no picture. Waits for the display's
-    /// next refresh, so a loop calling it runs at the display's rate.
+    /// Draws `picture`, placed in a composition of `composition` pixels, through `quads` (at most
+    /// [`MAX_QUADS`]) or with the composition fitted to the window when there are none, with
+    /// `masks` hiding parts of it; black for no picture. Waits for the display's next refresh, so
+    /// a loop calling it runs at the display's rate.
     pub fn draw(
         &mut self,
         picture: Option<Picture<'_>>,
+        composition: (u32, u32),
         quads: &[Quad],
         masks: &[Mask],
     ) -> Result<(), RenderError> {
+        let place = picture.map_or([0.0, 0.0, 1.0, 1.0], |picture| picture.place);
         self.queue.write_buffer(
             &self.masks,
             0,
-            &mask_bytes(masks, (self.config.width, self.config.height)),
+            &mask_bytes(masks, (self.config.width, self.config.height), place),
         );
         if let Some(picture) = picture {
             self.upload(picture);
         }
-        let shown = picture.and(self.picture.as_ref()).map(|uploaded| {
+        let shown = picture.and(self.picture.as_ref()).map(|_| {
             let fitted;
             let quads = if quads.is_empty() {
                 fitted = [fitted_quad(
-                    (uploaded.width, uploaded.height),
+                    composition,
                     (self.config.width, self.config.height),
                 )];
                 &fitted[..]
@@ -642,16 +680,20 @@ fn vertex_bytes(vertices: &[Vertex]) -> Vec<u8> {
         .collect()
 }
 
-/// The masks' uniform for a window of `window` pixels: at most [`MAX_MASKS`] masks of 3 to
+/// The masks' uniform for a window of `window` pixels, with where the picture sits in the
+/// composition: at most [`MAX_MASKS`] masks of 3 to
 /// [`MAX_MASK_POINTS`] points; others are left out.
-fn mask_bytes(masks: &[Mask], window: (u32, u32)) -> Vec<u8> {
+fn mask_bytes(masks: &[Mask], window: (u32, u32), place: [f32; 4]) -> Vec<u8> {
     let shown: Vec<&Mask> = masks
         .iter()
         .filter(|m| (3..=MAX_MASK_POINTS).contains(&m.points.len()))
         .take(MAX_MASKS)
         .collect();
     let mut bytes = Vec::with_capacity(MASKS_SIZE as usize);
-    for f in [window.0 as f32, window.1 as f32, shown.len() as f32, 0.0] {
+    for f in [window.0 as f32, window.1 as f32, shown.len() as f32, 0.0]
+        .into_iter()
+        .chain(place)
+    {
         bytes.extend_from_slice(&f.to_ne_bytes());
     }
     let mut first = 0u32;
@@ -678,8 +720,23 @@ fn mask_bytes(masks: &[Mask], window: (u32, u32)) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MASKS_SIZE, Mask, Quad, SHADER, fit, fitted_quad, mask_bytes, vertex_bytes, vertices,
+        MASKS_SIZE, Mask, Quad, SHADER, Sizing, fit, fitted_quad, mask_bytes, placement,
+        vertex_bytes, vertices,
     };
+
+    #[test]
+    fn placement_should_size_the_picture_into_the_composition() {
+        let (wide, full) = ((1920, 1080), (3840, 1080));
+        assert_eq!(placement(Sizing::Stretch, wide, full), [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(placement(Sizing::Fit, wide, full), [0.25, 0.0, 0.5, 1.0]);
+        assert_eq!(
+            placement(Sizing::None, (960, 540), full),
+            [0.375, 0.25, 0.25, 0.5]
+        );
+        let fill = placement(Sizing::Fill, wide, full);
+        assert_eq!((fill[0], fill[2]), (0.0, 1.0));
+        assert!((fill[3] - 2.0).abs() < 1e-6 && (fill[1] + 0.5).abs() < 1e-6);
+    }
 
     #[test]
     fn the_shader_should_parse_and_validate() {
@@ -741,14 +798,15 @@ mod tests {
             points: vec![[0.0, 0.0], [1.0, 1.0]],
             invert: false,
         };
-        let bytes = mask_bytes(&[line, square], (1920, 1080));
+        let bytes = mask_bytes(&[line, square], (1920, 1080), [0.25, 0.0, 0.5, 1.0]);
         assert_eq!(bytes.len() as u64, MASKS_SIZE);
         let float = |at: usize| f32::from_ne_bytes(bytes[at..at + 4].try_into().unwrap());
         let int = |at: usize| u32::from_ne_bytes(bytes[at..at + 4].try_into().unwrap());
         // A line is no shape: only the square is drawn, from the first point, inverted.
         assert_eq!((float(0), float(4), float(8)), (1920.0, 1080.0, 1.0));
-        assert_eq!((int(16), int(20), int(24)), (0, 4, 1));
-        assert_eq!(float(16 + 16 * 8 + 8), 0.2);
+        assert_eq!((float(16), float(24)), (0.25, 0.5));
+        assert_eq!((int(32), int(36), int(40)), (0, 4, 1));
+        assert_eq!(float(32 + 16 * 8 + 8), 0.2);
     }
 
     #[test]
