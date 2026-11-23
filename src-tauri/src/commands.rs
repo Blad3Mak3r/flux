@@ -360,20 +360,60 @@ pub async fn project_import_video(
 ) -> Result<ProjectState> {
     log::info!("importing video {}", path.display());
     run(&session, move |s| {
-        let video = flux_video::VideoFile::open(&path)
-            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
-        let info = video.info();
-        log::info!(
-            "video {}x{} {} at {}/{} fps, {} frames",
-            info.width,
-            info.height,
-            info.codec,
-            info.rate.num,
-            info.rate.den,
-            info.frames
-        );
+        check_video(&path)?;
         s.update(project);
         s.import_video(&path, at)
+    })
+    .await
+}
+
+/// Adds a video file to the cell of the VJ grid at `layer` and `column`, in place of its clip.
+/// FFmpeg reads it first, like [`project_import_video`].
+#[tauri::command]
+pub async fn project_import_vj_video(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: PathBuf,
+    layer: String,
+    column: String,
+) -> Result<ProjectState> {
+    log::info!("importing video {} into the grid", path.display());
+    run(&session, move |s| {
+        check_video(&path)?;
+        s.update(project);
+        s.import_vj_video(&path, &layer, &column)
+    })
+    .await
+}
+
+/// Opens a video with FFmpeg and logs what it is; a file it cannot decode is refused with the reason.
+fn check_video(path: &Path) -> Result<()> {
+    let video = flux_video::VideoFile::open(path)
+        .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
+    let info = video.info();
+    log::info!(
+        "video {}x{} {} at {}/{} fps, {} frames",
+        info.width,
+        info.height,
+        info.codec,
+        info.rate.num,
+        info.rate.den,
+        info.frames
+    );
+    Ok(())
+}
+
+/// Edits the VJ grid, or switches the project between its timelines and the grid (see
+/// [`flux_project::vj`]); the answer is the project with the edit made.
+#[tauri::command]
+pub async fn vj_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: flux_project::VjOp,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.edit_vj(op)
     })
     .await
 }

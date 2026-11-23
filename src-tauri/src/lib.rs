@@ -123,6 +123,8 @@ pub fn run() {
             commands::project_open,
             commands::project_import_audio,
             commands::project_import_video,
+            commands::project_import_vj_video,
+            commands::vj_edit,
             video_commands::video_probe,
             video_commands::video_clip_edit,
             video_commands::video_thumbnails,
