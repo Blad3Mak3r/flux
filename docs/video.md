@@ -34,10 +34,19 @@ The Rust bindings are [`ffmpeg-next`](https://crates.io/crates/ffmpeg-next), wit
 - **`VideoFile`**: an open file that hands out any frame by index as packed RGBA. A frame up to 48 frames ahead of
   the last one decoded is reached by decoding on; anything else seeks to the keyframe before it and decodes up to
   it. A gap in the timestamps shows the frame before it.
+  `VideoFile::open_accelerated` decodes on the GPU when the computer has a decoder for the codec: it tries, in order,
+  D3D11VA then DXVA2 on Windows, VideoToolbox on macOS, and VA-API then CUDA on Linux, and the first device that opens
+  and that the codec supports is handed to FFmpeg (`hw_device_ctx`, with 4 extra surfaces for the frames kept while one
+  is chosen). Each frame is copied from the GPU (`av_hwframe_transfer_data`) and converted to RGBA as before. When
+  FFmpeg cannot take the stream on the GPU (a profile the GPU lacks, such as 4:2:2 or lossless) it goes on on the CPU by
+  itself, and a decode error on the GPU reopens the decoder on the CPU and tries the frame again; either way the file
+  stays on the CPU from then on. `decoding()` says which it is. Probing and thumbnails use `open`, on the CPU.
 - **`VideoPlayer`**: one `VideoFile` on a thread of its own. The caller requests the frame the clock is at and
   reads the newest decoded one; only the newest request is decoded, so a slow decode drops frames instead of
   lagging behind the clock. The thread never logs: it counts decoded, skipped and failed requests in atomics
-  (`PlayerStats`) for the `flux-log` lane (see [Diagnostics](diagnostics.md)).
+  (`PlayerStats`) for the `flux-log` lane (see [Diagnostics](diagnostics.md)). Players decode with
+  `open_accelerated`; `VideoDeck::decoding` reports the GPU device when any open clip uses one. The Video page of the
+  preferences shows it, and the main screen's output writes it to the log when it changes.
 
 - **`layers`**: what the video tracks of a timeline show for a `Cue` (`Black` when stopped, `At(frame)` when playing
   or paused), topmost first: a track higher in the timeline covers the ones below, a muted track shows nothing, and
@@ -177,7 +186,8 @@ The shipped build is LGPL, so FFmpeg can be replaced by the user, as the licence
 
 ## Tests
 
-The tests need no GPU, display or hardware decoder. Three fixtures in `tests/fixtures/` (64x36, 50 frames, each a
+The tests need no GPU, display or hardware decoder; on a computer with one, the accelerated decode is checked against
+the CPU's frames. Three fixtures in `tests/fixtures/` (64x36, 50 frames, each a
 lighter grey than the one before, with a keyframe every 12 frames: lossless H.264 in MP4 at 25 and 29.97 fps, and
 lossless VP9 in WebM at 25 fps) check that
 every frame decodes as a different picture and that seeking in any order gives the same frame as playing through.

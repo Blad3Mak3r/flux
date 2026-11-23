@@ -119,6 +119,13 @@ should not light. **Add mask** puts a square on the screen stage:
 
 A screen has up to 8 masks of up to 32 points.
 
+## Decoding on the graphics card
+
+FLUX decodes H.264, HEVC, VP9 and AV1 clips on the graphics card when the computer has a decoder for them (Direct3D 11
+on Windows, VideoToolbox on macOS, VA-API or NVIDIA on Linux), which leaves the processor free and plays large
+files smoothly. When the card cannot take a file, it is decoded on the processor instead, without a break.
+**Preferences > Outputs > Video** says which one is in use while a clip is open.
+
 ## Running the show
 
 Choose each screen's display before the show and run Show check. The windows open with the project and follow the
