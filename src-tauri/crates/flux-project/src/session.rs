@@ -13,7 +13,7 @@ use super::error::{ProjectError, Result};
 use super::item_ops::{self, ItemOp};
 use super::model::{
     AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, TimecodeSettings, Timeline, Track,
-    TrackKind, VIDEO_DIR, VideoAsset, VideoClip, check_asset_path,
+    TrackKind, VIDEO_DIR, VideoAsset, VideoClip, check_asset_path, check_video_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
 use super::video_clips::{self, VideoClipOp};
@@ -503,6 +503,49 @@ impl Session {
         self.change(|project, active| crate::routing::apply(project, active, op))
     }
 
+    /// Edits the slices of one screen of the video output (see [`crate::mapping`]).
+    pub fn edit_mapping(
+        &mut self,
+        screen: &str,
+        op: crate::mapping::MappingOp,
+    ) -> Result<ProjectState> {
+        self.change(|project, _| {
+            let screen = crate::mapping::screen_mut(&mut project.output.screens, screen)?;
+            crate::mapping::apply(&mut screen.slices, op, || Uuid::new_v4().to_string())
+        })
+    }
+
+    /// Edits the masks of one screen of the video output.
+    pub fn edit_masks(&mut self, screen: &str, op: crate::mapping::MaskOp) -> Result<ProjectState> {
+        self.change(|project, _| {
+            let screen = crate::mapping::screen_mut(&mut project.output.screens, screen)?;
+            crate::mapping::edit_masks(&mut screen.masks, op, || Uuid::new_v4().to_string())
+        })
+    }
+
+    /// Adds, removes or renames a screen of the video output.
+    pub fn edit_screens(&mut self, op: crate::mapping::ScreenOp) -> Result<ProjectState> {
+        self.change(|project, _| {
+            crate::mapping::edit_screens(&mut project.output.screens, op, || {
+                Uuid::new_v4().to_string()
+            })
+        })
+    }
+
+    /// Sets the size of the video composition from two typed numbers of pixels.
+    /// Sets the size of the composition; both sides empty go back to the first video's size.
+    pub fn set_composition(&mut self, width: &str, height: &str) -> Result<ProjectState> {
+        let composition = if width.trim().is_empty() && height.trim().is_empty() {
+            None
+        } else {
+            Some(crate::mapping::Composition::parse(width, height)?)
+        };
+        self.change(|project, _| {
+            project.output.composition = composition;
+            Ok(())
+        })
+    }
+
     pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
         self.change(|project, _| project.output.edit(op))
     }
@@ -617,6 +660,9 @@ impl Session {
                     name: None,
                     offset: 0,
                     length: None,
+                    fit: Default::default(),
+                    fade_in: 0,
+                    fade_out: 0,
                 }],
             },
         };
@@ -627,6 +673,63 @@ impl Session {
             Ok(())
         })?;
         self.sources.insert(asset.id, source);
+        Ok(state)
+    }
+
+    /// Puts the video file at `file` (a converted copy, such as a HAP one) in place of the video
+    /// `asset`: it becomes a new asset, in the same place of the project's list and under the same
+    /// name, and every clip of every timeline that showed the old one shows the new one, keeping
+    /// its place, trim and settings. The old file stays known, so undo brings it back; a save
+    /// leaves it out once nothing uses it.
+    pub fn replace_video(&mut self, asset: &str, file: &Path) -> Result<ProjectState> {
+        let file = std::path::absolute(file)?;
+        if !fs::metadata(&file)?.is_file() {
+            return Err(ProjectError::Invalid(format!(
+                "not a file: {}",
+                file.display()
+            )));
+        }
+        let extension = file
+            .extension()
+            .and_then(|e| e.to_str())
+            .ok_or_else(|| ProjectError::Invalid("video file has no extension".into()))?;
+        let id = Uuid::new_v4().to_string();
+        let state = self.change(|project, _| {
+            let slot = project
+                .videos
+                .iter_mut()
+                .find(|video| video.id == asset)
+                .ok_or_else(|| ProjectError::MissingAsset(asset.to_owned()))?;
+            let stem: String = slot
+                .file
+                .strip_prefix(VIDEO_DIR)
+                .and_then(|name| name.split_once('_').map(|(_, rest)| rest))
+                .map(|name| {
+                    Path::new(name)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(name)
+                })
+                .unwrap_or(&slot.name)
+                .to_owned();
+            *slot = VideoAsset {
+                id: id.clone(),
+                name: slot.name.clone(),
+                file: format!("{VIDEO_DIR}{id}_{stem}.{extension}"),
+            };
+            check_video_path(&slot.file)?;
+            for timeline in &mut project.timelines {
+                for track in &mut timeline.tracks {
+                    if let TrackKind::Video { clips } = &mut track.kind {
+                        for clip in clips.iter_mut().filter(|clip| clip.asset == asset) {
+                            clip.asset.clone_from(&id);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })?;
+        self.sources.insert(id, AssetSource::Disk(file));
         Ok(state)
     }
 
@@ -743,6 +846,25 @@ impl Session {
         )
     }
 
+    /// The project's first video, which the mapping measures its picture in.
+    /// The composition size set in the project, if any.
+    pub fn composition(&self) -> Option<crate::mapping::Composition> {
+        self.document.as_ref()?.project.output.composition
+    }
+
+    pub fn first_video(&self) -> Option<crate::VideoAsset> {
+        self.document.as_ref()?.project.videos.first().cloned()
+    }
+
+    /// The screens of the video output, the main one first; only the main one with no project.
+    pub fn video_screens(&self) -> Vec<crate::mapping::VideoScreen> {
+        crate::mapping::screens(
+            self.document
+                .as_ref()
+                .map_or(&[], |document| &document.project.output.screens),
+        )
+    }
+
     /// A copy of the timeline being edited and played.
     pub fn active_timeline_copy(&self) -> Option<Timeline> {
         let document = self.document.as_ref()?;
@@ -778,8 +900,13 @@ impl Session {
         let used: HashSet<String> = saved.used_assets().into_iter().map(String::from).collect();
         saved.videos.retain(|video| used.contains(&video.id));
         archive::save(&path, &saved, &self.sources, &self.previews)?;
-        self.sources = archive_sources(&saved, &path);
+        let before = std::mem::replace(&mut self.sources, archive_sources(&saved, &path));
         self.sources.extend(self.voice_sources.clone());
+        // What the save left out stays known where it was, so an undo past the save finds it: a
+        // file on disk, or a video read from the archive it replaced, still in the video cache.
+        for (id, source) in before {
+            self.sources.entry(id).or_insert(source);
+        }
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
         let mut document = Document::new(saved.clone(), Some(path.to_path_buf()));
@@ -1182,6 +1309,72 @@ mod tests {
             .read_to_end(&mut bytes)
             .unwrap();
         assert_eq!(bytes, b"not decoded here");
+    }
+
+    #[test]
+    fn replace_video_should_move_every_clip_to_the_new_file_and_undo_should_bring_it_back() {
+        let dir = TempDir::new().unwrap();
+        let mp4 = dir.path().join("intro.mp4");
+        let mov = dir.path().join("converted.mov");
+        fs::write(&mp4, b"h264").unwrap();
+        fs::write(&mov, b"hap").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+        let before = session.import_video(&mp4, 10).unwrap();
+        let old = before.project.videos[0].clone();
+
+        let after = session.replace_video(&old.id, &mov).unwrap();
+
+        let new = &after.project.videos[0];
+        assert_eq!(after.project.videos.len(), 1);
+        assert_ne!(new.id, old.id);
+        assert_eq!(new.name, "intro");
+        assert!(
+            new.file.starts_with("video/") && new.file.ends_with("_intro.mov"),
+            "{}",
+            new.file
+        );
+        let TrackKind::Video { clips } = &after.project.timelines[0].tracks.last().unwrap().kind
+        else {
+            panic!("not a video track");
+        };
+        assert_eq!(
+            (clips[0].asset.as_str(), clips[0].start),
+            (new.id.as_str(), 10)
+        );
+        let cache = dir.path().join("cache");
+        assert_eq!(session.video_path(new, &cache).unwrap(), mov);
+
+        // Undo is the old project sent back: its file is still known.
+        session.update(before.project.clone());
+        assert_eq!(session.video_path(&old, &cache).unwrap(), mp4);
+        let path = dir.path().join("show.flx");
+        session.save(&after.project, &path).unwrap();
+        let (_, mut archive) = archive::open(&path).unwrap();
+        let mut bytes = Vec::new();
+        archive
+            .video_reader(&new.file)
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"hap");
+        assert!(archive.video_reader(&old.file).is_err());
+        // Undo past the save: the original is still read from where it was imported.
+        session.update(before.project);
+        assert_eq!(session.video_path(&old, &cache).unwrap(), mp4);
+    }
+
+    #[test]
+    fn replace_video_should_refuse_an_unknown_video() {
+        let dir = TempDir::new().unwrap();
+        let mov = dir.path().join("converted.mov");
+        fs::write(&mov, b"hap").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+
+        let result = session.replace_video("nope", &mov);
+
+        assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
     }
 
     #[test]

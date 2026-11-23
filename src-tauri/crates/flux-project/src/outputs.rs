@@ -18,6 +18,14 @@ pub struct ShowOutputs {
     pub osc: Vec<OscDestination>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_routes: Option<OutputConfig>,
+    /// The screens of the video output and their slices; none is the main screen showing the
+    /// whole picture.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub screens: Vec<crate::mapping::VideoScreen>,
+    /// The size of the picture the clips are sized into and the slices cut; absent is the size of
+    /// the first video, or 1920 x 1080 without one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub composition: Option<crate::mapping::Composition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -64,6 +72,10 @@ impl ShowOutputs {
                 }
             }
             Ok(())
+        }
+        crate::mapping::validate_screens(&self.screens)?;
+        if let Some(composition) = &self.composition {
+            composition.validate()?;
         }
         slots(self.ltc.iter().map(|s| s.slot))?;
         slots(self.mtc.iter().map(|s| s.slot))?;
@@ -139,6 +151,8 @@ impl From<OutputConfig> for ShowOutputs {
     fn from(routes: OutputConfig) -> Self {
         Self {
             audio: Vec::new(),
+            screens: Vec::new(),
+            composition: None,
             metronome: routes
                 .metronome
                 .as_ref()

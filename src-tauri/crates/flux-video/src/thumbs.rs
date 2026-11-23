@@ -49,7 +49,17 @@ pub fn thumbnails(path: &Path) -> Result<Thumbs, VideoError> {
         for y in 0..height as usize {
             let from = &frame.rgba[y * row..(y + 1) * row];
             let at = y * strip_row + i as usize * row;
-            strip[at..at + row].copy_from_slice(from);
+            let to = &mut strip[at..at + row];
+            to.copy_from_slice(from);
+            // A transparent picture is shown over black, as the output shows it on its own.
+            if frame.alpha {
+                for pixel in to.as_chunks_mut::<4>().0 {
+                    let a = u16::from(pixel[3]);
+                    for c in &mut pixel[..3] {
+                        *c = (u16::from(*c) * a / 255) as u8;
+                    }
+                }
+            }
         }
     }
     let mut jpeg = Vec::new();

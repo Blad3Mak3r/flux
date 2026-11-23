@@ -11,6 +11,7 @@ mod migrate;
 mod model;
 pub mod operator;
 pub use operator::{Alignment, GeneratedVoice, OperatorOp, VoiceOrder, VoiceStatus, VoiceView};
+pub mod mapping;
 mod outputs;
 mod preview;
 pub mod recovery;
@@ -35,7 +36,7 @@ pub use model::{
     ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, EnvPoint, FORMAT_VERSION, FadeCurve,
     LtcOutput, MAX_BPM, MAX_CLIP_NAME, MAX_ENVELOPE_POINTS, MAX_OFFSET_MS, MIN_BPM, Meta,
     MetronomeOutput, MtcOutput, Note, OutputConfig, Project, Tempo, TimecodeSettings, Timeline,
-    Track, TrackKind, VIDEO_DIR, VideoAsset, VideoClip,
+    Track, TrackKind, VIDEO_DIR, VideoAsset, VideoClip, VideoFit,
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, ProjectState, Session};

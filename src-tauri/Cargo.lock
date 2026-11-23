@@ -1561,6 +1561,7 @@ dependencies = [
 name = "flux-render"
 version = "0.2.2"
 dependencies = [
+ "font8x8",
  "naga",
  "pollster",
  "thiserror 2.0.21",
@@ -1572,6 +1573,7 @@ name = "flux-timecode"
 version = "0.2.2"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "dirs",
  "flux-audio",
  "flux-core",
@@ -1603,6 +1605,7 @@ dependencies = [
  "flux-core",
  "flux-project",
  "jpeg-encoder",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -1626,6 +1629,12 @@ name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
+name = "font8x8"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875488b8711a968268c7cf5d139578713097ca4635a76044e8fe8eedf831d07e"
 
 [[package]]
 name = "foreign-types"

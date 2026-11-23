@@ -25,9 +25,14 @@ pub struct Preferences {
     pub metronome: Option<AudioOutput>,
     pub ltc: BTreeMap<u32, LtcOutput>,
     pub mtc: BTreeMap<u32, MtcOutput>,
-    /// The display the video output window opens on, by its name; `None` keeps it closed.
+    /// The display the main screen of the video output opened on before screens had ids of
+    /// their own; read as the main screen's when `video_displays` does not name it.
     #[serde(default)]
     pub video_display: Option<String>,
+    /// The display each screen of the video output opens on, by screen id and display name; a
+    /// screen not listed stays closed.
+    #[serde(default)]
+    pub video_displays: BTreeMap<String, String>,
     #[serde(skip_deserializing)]
     pub revision: u64,
     #[serde(skip_deserializing)]
@@ -67,6 +72,8 @@ pub enum Change {
         voice: Option<String>,
     },
     VideoDisplay {
+        #[serde(default = "main_screen")]
+        screen: String,
         display: Option<String>,
     },
     Locale {
@@ -189,7 +196,20 @@ fn validate(p: &Preferences) -> Result<(), String> {
     Ok(())
 }
 
+fn main_screen() -> String {
+    flux_project::mapping::MAIN_SCREEN.into()
+}
+
 impl Preferences {
+    /// The display the screen `screen` of the video output opens on.
+    pub fn video_display_for(&self, screen: &str) -> Option<String> {
+        self.video_displays.get(screen).cloned().or_else(|| {
+            (screen == flux_project::mapping::MAIN_SCREEN)
+                .then(|| self.video_display.clone())
+                .flatten()
+        })
+    }
+
     fn apply(&mut self, change: Change) -> Result<(), String> {
         match change {
             Change::Microphone { microphone } => self.microphone = Some(microphone),
@@ -207,7 +227,15 @@ impl Preferences {
                 }
             }
             Change::Voice { voice } => self.voice = voice,
-            Change::VideoDisplay { display } => self.video_display = display,
+            Change::VideoDisplay { screen, display } => {
+                if screen == flux_project::mapping::MAIN_SCREEN {
+                    self.video_display = None;
+                }
+                match display {
+                    Some(display) => self.video_displays.insert(screen, display),
+                    None => self.video_displays.remove(&screen),
+                };
+            }
             Change::Route {
                 kind,
                 field,

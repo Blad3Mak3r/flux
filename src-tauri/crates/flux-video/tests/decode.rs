@@ -1,6 +1,6 @@
 //! Decodes the fixtures: 50 frames of 64x36, each a flat grey a little lighter than the one before,
-//! encoded losslessly with a keyframe every 12 frames, as H.264 in MP4 and VP9 in WebM. Software
-//! decoding only, no GPU or display.
+//! encoded losslessly with a keyframe every 12 frames, as H.264 in MP4 and VP9 in WebM. No display
+//! is needed; a GPU decoder is used only where the computer has one.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -67,6 +67,41 @@ fn a_seek_in_any_order_should_give_the_same_frame_as_playing_through() {
             );
         }
     }
+}
+
+#[test]
+fn an_accelerated_file_should_give_the_same_frames_wherever_it_decodes() {
+    for name in FIXTURES {
+        let played = levels_in_order(name);
+        let mut file = VideoFile::open_accelerated(&fixture(name)).unwrap();
+        for index in [0, 1, 2, 30, 13, 49, 12] {
+            let level = level(&mut file, index);
+            // A GPU converts its colours on its own way: a step or two apart at most.
+            assert!(
+                level.abs_diff(played[index as usize]) <= 2,
+                "{name} frame {index} on {:?}: {level} vs {}",
+                file.decoding(),
+                played[index as usize]
+            );
+        }
+    }
+}
+
+#[test]
+fn a_webm_with_an_alpha_track_should_keep_its_transparency() {
+    // 10 frames of 64x36: the left half opaque red, the right half transparent (VP9, lossless).
+    let mut file = VideoFile::open_accelerated(&fixture("alpha25.webm")).unwrap();
+    let info = file.info().clone();
+    assert!(info.alpha);
+    assert_eq!((info.codec.as_str(), info.frames), ("vp9", 10));
+    let frame = file.frame(4).unwrap();
+    assert!(frame.alpha);
+    let pixel = |x: usize| &frame.rgba[x * 4..x * 4 + 4];
+    assert!(pixel(5)[0] > 250 && pixel(5)[3] == 255, "{:?}", pixel(5));
+    assert_eq!(pixel(50)[3], 0);
+    // Without an alpha track nothing changes.
+    let opaque = VideoFile::open(&fixture("gray25.webm")).unwrap();
+    assert!(!opaque.info().alpha);
 }
 
 #[test]

@@ -14,3 +14,4 @@ ffmpeg-next = { version = "9.1.0", default-features = false, features = ["format
 
 [dev-dependencies]
 flux-audio = { path = "../flux-audio" }
+tempfile = "3.27.0"

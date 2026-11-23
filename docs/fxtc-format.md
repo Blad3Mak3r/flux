@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v9)
+# `.flx` / `.fxtc` project format (v13)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -43,6 +43,8 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `output.ltc` | `[{ slot, level? }]` | Logical LTC outputs. `slot` is a unique positive integer within LTC, preserved when other outputs are removed. Level is linear 0–1; absent is 0.5. Device, channel and latency are local preferences. |
 | `output.mtc` | `[{ slot }]` | Logical MTC outputs with unique positive slots, independent of LTC slots. The computer assigns the MIDI port, same-name port index and latency. |
 | `output.osc` | `[{ id, name, host, port }]` | The OSC receivers (UDP) the OSC tracks send to, defined once for the project. `id` is unique among them; `host` is a name or an address without spaces, `port` 1 to 65535. A host that does not resolve is reported when the output opens and never blocks the project. Absent is an empty list. Added in version 5. |
+| `output.composition` | `{ width, height }` | The size in pixels of the picture every video clip is sized into (by its `fit`) and the slices of `output.screens` are cut from, each side 16 to 8192. Absent is the size of the first entry of `videos`, or 1920 × 1080 without one. |
+| `output.screens` | `[{ id, name, slices?: [{ id, name, input: { x, y, width, height }, corners: [{ x, y } ×4], hidden?, softEdge?: { left, right, top, bottom, gamma } }], masks?: [{ id, name, points: [{ x, y }], invert?, hidden? }] }]` | The screens of the video output, at most 8, each a window on a display of its own. The screen `main` always exists: when it is not listed it has no slices and is named "Screen 1". `id` is unique and `name` 1 to 80 characters; the display each opens on is a local preference. `slices` are drawn in order. `input` is the part of the picture shown, inside it and at least 0.005 on each side; `corners` are where its top left, top right, bottom right and bottom left go on the screen, each from −1 to 2. All numbers are fractions of the width or height from the top left. `id` is unique, `name` 1 to 80 characters, at most 64 slices. No slices is the whole picture fitted to the screen. `softEdge` sides are fractions 0 to 1 of the slice (absent: hard edges) and `gamma` 0.2 to 5 (default 1). `masks` (at most 8, 3 to 32 points each, within 0 to 1) black out their shape over the screen's slices, or everything else when `invert`. |
 
 Track kinds:
 
@@ -94,11 +96,15 @@ Track kinds:
   `{ "type": "int" | "float" | "string" | "bool", "value": … }` and sent as `i`, `f`, `s`, `T`/`F`. A destination that
   is not in `output.osc` is rejected on open and save; one that is absent sends nothing.
 
-- `{ "type": "video", "clips": [{ id, asset, start, name?, offset?, length? }] }` — video shown in time with the
+- `{ "type": "video", "clips": [{ id, asset, start, name?, offset?, length?, fit?, fadeIn?, fadeOut? }] }` — video shown in time with the
   timeline. `asset` is the id of an entry in `videos`; `name`, `offset` and `length` work as for audio clips (frames at
   the timeline's rate; `length` at least 1, absent means up to the end of the video). Clip ids share the namespace of
-  clip and note ids. Added in version 13. This build stores and validates video tracks only: it does not decode or play
-  them yet, and Live shows no cue for them.
+  clip and note ids. `fit` is how the picture is sized into the composition (`output.composition`): `fit` (the
+  default, written as absent) fits it whole keeping its shape, `fill` covers the composition keeping its shape and crops
+  the rest, `stretch` takes exactly the composition, `none` keeps the video's own size in pixels; each is centred and
+  the composition outside it shows the tracks below, or black. `fadeIn` and `fadeOut` are frames, as for audio clips
+  (absent is 0): the picture and its sound rise from nothing over the first and fall to nothing over the last. Added in version 13. The clips play on the screens of `output.screens` in time with the clock,
+  their sound plays through the track's routing, and Live lists each clip as a cue (see [Video](video-output.md)).
 
 Other kinds of track (Art-Net) will be added as new kinds. Events are kept in order of `at`; event ids share the
 namespace of clip and note ids.

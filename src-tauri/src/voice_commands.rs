@@ -422,11 +422,19 @@ pub async fn operator_preflight(
                 matches!(&track.kind, flux_project::TrackKind::Video { clips } if !clips.is_empty())
             })
         });
-        let chosen = prefs.video_display.as_deref();
+        // A screen on a display that is not connected is reported first; otherwise whether any
+        // screen opens at all.
+        let chosen: Vec<String> = flux_project::mapping::screens(&project.output.screens)
+            .iter()
+            .filter_map(|screen| prefs.video_display_for(&screen.id))
+            .collect();
+        let missing = chosen
+            .iter()
+            .find(|id| !crate::video_output::connected(&app, id));
         report.check_video(
             uses_video,
-            chosen,
-            chosen.is_some_and(|id| crate::video_output::connected(&app, id)),
+            missing.or(chosen.first()).map(String::as_str),
+            missing.is_none(),
         );
         Ok(report)
     })

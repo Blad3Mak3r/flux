@@ -26,9 +26,9 @@ QLab's cue model on a REAPER-style timeline.
 
 <br>
 
-<img src="docs/screenshots/live-1440x1080.jpg" alt="FLUX Live view: a large timecode readout and transport on top, the running cue with its countdown on the left, the cue list on the right" width="860">
+<img src="docs/screenshots/edit-1440.jpg" alt="FLUX Edit view while playing: the timecode readout and transport on top, then an audio track, a video track with thumbnails, operator notes, MIDI Show Control cues and OSC cues under the playhead" width="860">
 
-<sub>The Live view, rendered with sample show data.</sub>
+<sub>The Edit view playing a sample show, at twice the pixel density. A real screenshot of the app.</sub>
 
 </div>
 
@@ -197,6 +197,7 @@ the files below.
 | [Audio routing](docs/audio-routing.md) | Per-track destinations and per-computer interfaces. |
 | [Voice operator](docs/voice-operator.md) | Spoken operator tracks. |
 | [Diagnostics](docs/diagnostics.md) | Logs and the diagnostics export. |
+| [Video and projection mapping](docs/video-output.md) | Video clips, output screens, slices, soft edges and masks. |
 | [Video decoding](docs/video.md) | Why FFmpeg, frame-exact decoding and what building needs. |
 | [Releasing](docs/releasing.md) | Publishing a version and how the app updates itself. |
 
@@ -208,13 +209,14 @@ FLUX is in early development (`0.2.2`).
 
 | Available today | Not built yet |
 | --- | --- |
-| `.flx` projects with several timelines | Video cues |
-| Audio and notes tracks, tempo detection, metronome | Art-Net cues |
-| LTC and MTC generation, with a full transport | Chasing an external timecode |
-| MIDI and OSC cue tracks | macOS release builds |
+| `.flx` projects with several timelines | Art-Net cues |
+| Audio and notes tracks, tempo detection, metronome | Chasing an external timecode |
+| LTC and MTC generation, with a full transport | macOS release builds |
+| MIDI and OSC cue tracks | |
 | Live view and setlists with GO | |
 | Spoken operator tracks | |
 | MIDI and OSC remote control, with lit pads | |
+| Video tracks on several screens, with slices, soft edges and masks | |
 
 ## Contributing
 

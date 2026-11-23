@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { VideoAsset } from "../project/types";
+import type { Project, ProjectState, VideoAsset } from "../project/types";
 
 // Mirrors src-tauri/src/video_commands.rs.
 
@@ -43,3 +43,25 @@ export interface VideoSound {
 
 /** Decodes the sound of a video in the backend; `null` for a video without sound. */
 export const videoSound = (asset: VideoAsset) => invoke<VideoSound | null>("video_sound", { asset });
+
+/** Whether the backend's FFmpeg can write HAP. */
+export const hapAvailable = () => invoke<boolean>("video_hap_available");
+
+/** How far a conversion to HAP has got: `done` of `total` frames of the video `asset`. */
+export interface ConvertProgress {
+  asset: string;
+  done: number;
+  total: number;
+}
+
+export const CONVERT_PROGRESS = "video-convert-progress";
+
+/** Writes a HAP copy of a video; resolves to where it is, for {@link replaceVideo}. */
+export const convertToHap = (asset: VideoAsset) => invoke<string>("video_convert_hap", { asset });
+
+/** Stops the conversion running; its {@link convertToHap} rejects. */
+export const cancelConvert = () => invoke<void>("video_convert_cancel");
+
+/** Puts the video at `path` in place of the video `asset` in every clip that shows it. */
+export const replaceVideo = (project: Project, asset: string, path: string) =>
+  invoke<ProjectState>("project_replace_video", { project, asset, path });
