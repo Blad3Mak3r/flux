@@ -264,9 +264,9 @@ figcaption b { color: var(--ink); font-family: var(--measure); font-weight: 600;
 .t-head-line { stroke: var(--ink); stroke-width: 2; }
 .t-head-tri { fill: var(--ink); }
 
-/* Fig. 4: real screenshot */
+/* Real screenshots */
 .fig-live { margin: 8px 0 40px; }
-.fig-live img { width: 100%; height: auto; border: 2px solid var(--rule); outline: 1px solid var(--panel-lo); background: var(--screen); }
+.fig-live img, .fig .shot { width: 100%; height: auto; border: 2px solid var(--rule); outline: 1px solid var(--panel-lo); background: var(--screen); }
 
 /* Remote: OSC table */
 .osc { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }

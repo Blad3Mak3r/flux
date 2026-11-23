@@ -26,9 +26,9 @@ QLab's cue model on a REAPER-style timeline.
 
 <br>
 
-<img src="docs/screenshots/live-1440x1080.jpg" alt="FLUX Live view: a large timecode readout and transport on top, the running cue with its countdown on the left, the cue list on the right" width="860">
+<img src="docs/screenshots/edit-1440.jpg" alt="FLUX Edit view while playing: the timecode readout and transport on top, then an audio track, a video track with thumbnails, operator notes, MIDI Show Control cues and OSC cues under the playhead" width="860">
 
-<sub>The Live view, rendered with sample show data.</sub>
+<sub>The Edit view playing a sample show, at twice the pixel density. A real screenshot of the app.</sub>
 
 </div>
 
