@@ -19,7 +19,8 @@ pub use super::meta::Meta;
 /// Version 6 separates portable signals from local hardware routing.
 /// Version 9 adds recording origin, pronunciation text and non-destructive speech trims.
 /// Version 13 adds `videos` and the `video` track kind.
-pub const FORMAT_VERSION: u32 = 13;
+/// Version 14 adds `mode` and the VJ grid `vj`.
+pub const FORMAT_VERSION: u32 = 14;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -48,6 +49,12 @@ pub struct Project {
     pub output: crate::ShowOutputs,
     /// Never empty. Only one plays at a time.
     pub timelines: Vec<Timeline>,
+    /// Whether the window shows the timelines or the VJ grid; absent is the timelines.
+    #[serde(default, skip_serializing_if = "crate::vj::ProjectMode::is_timeline")]
+    pub mode: crate::vj::ProjectMode,
+    /// The VJ grid, kept while the project shows its timelines; absent is none yet.
+    #[serde(default, skip_serializing_if = "crate::vj::Vj::is_empty")]
+    pub vj: crate::vj::Vj,
 }
 
 /// Recovery preferences travel with the project, never with the machine.
@@ -535,6 +542,8 @@ impl Project {
             videos: Vec::new(),
             output: crate::ShowOutputs::default(),
             timelines: vec![Timeline::new(name.clone(), frame_rate)],
+            mode: Default::default(),
+            vj: Default::default(),
             name,
         }
     }
@@ -558,6 +567,8 @@ impl Project {
                 _ => {}
             }
         }
+        let grid = self.vj.layers.iter().flat_map(|layer| &layer.clips);
+        used.extend(grid.map(|clip| clip.asset.as_str()));
         used
     }
 
@@ -621,6 +632,7 @@ impl Project {
                 )?;
             }
         }
+        crate::vj::validate(self, &video_ids, &mut item_ids)?;
         self.output.validate()
     }
 }
@@ -915,6 +927,8 @@ pub(super) mod tests {
 
     pub fn sample_project() -> Project {
         Project {
+            mode: Default::default(),
+            vj: Default::default(),
             setlists: Vec::new(),
             voice: None,
             autosave: Autosave::default(),
@@ -1086,7 +1100,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 13,
+        "formatVersion": 14,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {
