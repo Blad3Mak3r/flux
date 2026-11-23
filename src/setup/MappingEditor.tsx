@@ -3,8 +3,8 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useT } from "../i18n";
 import { TextField } from "../components/fields";
 import { useDoc } from "../state/store";
-import { mappingEdit, showTestPattern } from "../video/mapping";
-import type { MappingOp } from "../video/mapping";
+import { maskEdit, mappingEdit, showTestPattern } from "../video/mapping";
+import type { Mask, MappingOp, MaskOp } from "../video/mapping";
 import type { Point, Rect, Size, Slice } from "../video/mapping";
 
 const NO_SLICES: Slice[] = [];
@@ -58,6 +58,10 @@ const pct = (v: number) => `${v * 100}%`;
 const px = (v: number, of: number) => String(Math.round(v * of));
 const DEFAULT_SIZE: Size = { width: 1920, height: 1080 };
 const CORNERS = ["topLeft", "topRight", "bottomRight", "bottomLeft"] as const;
+const EDGES = ["left", "right", "top", "bottom"] as const;
+const NO_MASKS: Mask[] = [];
+/** A fraction as the percentage shown in a field, to a tenth. */
+const percent = (v: number) => String(Math.round(v * 1000) / 10);
 
 /**
  * The slices of one screen of the video output: on the left the picture, where each slice is a rectangle to
@@ -79,10 +83,21 @@ export function MappingEditor({
       doc.project.output.screens?.find((s) => s.id === screenId)?.slices ??
       NO_SLICES,
   );
+  const masks = useDoc(
+    (doc) =>
+      doc.project.output.screens?.find((s) => s.id === screenId)?.masks ??
+      NO_MASKS,
+  );
   const edit = (op: MappingOp) => mappingEdit(screenId, op);
+  const editMask = (op: MaskOp) => maskEdit(screenId, op);
   // The mapping measures the picture in the size of the project's first video, as the output does.
   const video = useDoc((doc) => doc.video[doc.project.videos?.[0]?.id ?? ""]);
   const [selected, setSelected] = useState<string | null>(null);
+  // What the screen's handles and the panel below are for: a slice or a mask.
+  const [focus, setFocus] = useState<"slice" | "mask">("slice");
+  const [selectedMask, setSelectedMask] = useState<string | null>(null);
+  const [point, setPoint] = useState(0);
+  const [maskDraft, setMaskDraft] = useState<Mask | null>(null);
   const [pattern, setPattern] = useState(false);
   // The slice being dragged, as it looks before the backend has it.
   const [draft, setDraft] = useState<Slice | null>(null);
@@ -93,6 +108,11 @@ export function MappingEditor({
   const current =
     slices.find((s) => s.id === selected) ?? slices[slices.length - 1] ?? null;
   const shown = (slice: Slice) => (draft?.id === slice.id ? draft : slice);
+  const currentMask =
+    masks.find((m) => m.id === selectedMask) ?? masks[masks.length - 1] ?? null;
+  const shownMask = (mask: Mask) =>
+    maskDraft?.id === mask.id ? maskDraft : mask;
+  const editingMask = focus === "mask" && currentMask !== null;
   const picture: Size = video
     ? { width: video.width, height: video.height }
     : DEFAULT_SIZE;
@@ -106,6 +126,7 @@ export function MappingEditor({
     resize: boolean,
   ) => {
     setSelected(slice.id);
+    setFocus("slice");
     let next = slice;
     drag(
       event,
@@ -168,6 +189,7 @@ export function MappingEditor({
 
   const moveQuad = (slice: Slice, event: ReactPointerEvent<Element>) => {
     setSelected(slice.id);
+    setFocus("slice");
     let next = slice;
     drag(
       event,
@@ -194,6 +216,40 @@ export function MappingEditor({
     );
   };
 
+  /** Drags one point of a mask, or the whole mask when `index` is null. */
+  const moveMask = (
+    mask: Mask,
+    index: number | null,
+    event: ReactPointerEvent<Element>,
+  ) => {
+    setSelectedMask(mask.id);
+    setFocus("mask");
+    if (index !== null) setPoint(index);
+    let next = mask;
+    drag(
+      event,
+      output.current,
+      (d) => {
+        next = {
+          ...mask,
+          points: mask.points.map((p, i) =>
+            index === null || i === index ? { x: p.x + d.x, y: p.y + d.y } : p,
+          ),
+        };
+        setMaskDraft(next);
+      },
+      () => {
+        if (next !== mask)
+          void editMask({
+            op: "setPoints",
+            id: mask.id,
+            points: next.points,
+          }).finally(() => setMaskDraft(null));
+        else setMaskDraft(null);
+      },
+    );
+  };
+
   return (
     <section className="mapping" aria-labelledby="mapping-title">
       <div className="mapping-bar">
@@ -201,7 +257,12 @@ export function MappingEditor({
         <button
           type="button"
           className="button"
-          onClick={() => void edit({ op: "add" })}
+          onClick={() =>
+            void edit({ op: "add" }).then(() => {
+              setSelected(null);
+              setFocus("slice");
+            })
+          }
         >
           {t("setup.video.addSlice")}
         </button>
@@ -215,6 +276,18 @@ export function MappingEditor({
           }}
         >
           {t("setup.video.pattern")}
+        </button>
+        <button
+          type="button"
+          className="button"
+          onClick={() =>
+            void editMask({ op: "add" }).then(() => {
+              setSelectedMask(null);
+              setFocus("mask");
+            })
+          }
+        >
+          {t("setup.video.addMask")}
         </button>
         {slices.length > 0 && (
           <button
@@ -231,7 +304,7 @@ export function MappingEditor({
           ? t("setup.video.noSlices")
           : t("setup.video.mappingIntro")}
       </p>
-      {slices.length > 0 && (
+      {(slices.length > 0 || masks.length > 0) && (
         <div className="mapping-stages">
           <figure className="mapping-stage">
             <figcaption>
@@ -305,8 +378,38 @@ export function MappingEditor({
                     onPointerDown={(e) => moveQuad(slice, e)}
                   />
                 ))}
+                {masks.map((mask) => (
+                  <polygon
+                    key={mask.id}
+                    className="mapping-mask"
+                    points={shownMask(mask)
+                      .points.map((p) => `${p.x},${p.y}`)
+                      .join(" ")}
+                    data-selected={editingMask && mask.id === currentMask?.id}
+                    data-hidden={mask.hidden ?? false}
+                    data-invert={mask.invert ?? false}
+                    vectorEffect="non-scaling-stroke"
+                    onPointerDown={(e) => moveMask(mask, null, e)}
+                  />
+                ))}
               </svg>
-              {current &&
+              {editingMask &&
+                shownMask(currentMask).points.map((p, i) => (
+                  <span
+                    key={i}
+                    className="mapping-handle mapping-point"
+                    data-selected={i === point}
+                    role="presentation"
+                    title={t("setup.video.maskPoint", {
+                      name: currentMask.name,
+                      n: i + 1,
+                    })}
+                    style={{ left: pct(p.x), top: pct(p.y) }}
+                    onPointerDown={(e) => moveMask(currentMask, i, e)}
+                  />
+                ))}
+              {!editingMask &&
+                current &&
                 shown(current).corners.map((p, i) => (
                   <span
                     key={i}
@@ -325,7 +428,87 @@ export function MappingEditor({
           </figure>
         </div>
       )}
-      {current && (
+      {editingMask && (
+        <div className="mapping-slice">
+          <TextField
+            label={t("setup.video.maskName")}
+            value={currentMask.name}
+            onCommit={(name) =>
+              void editMask({ op: "rename", id: currentMask.id, name })
+            }
+          />
+          <div className="button-row">
+            <button
+              type="button"
+              className="button"
+              aria-pressed={currentMask.invert ?? false}
+              onClick={() =>
+                void editMask({
+                  op: "setInvert",
+                  id: currentMask.id,
+                  invert: !currentMask.invert,
+                })
+              }
+            >
+              {t("setup.video.invertMask")}
+            </button>
+            <button
+              type="button"
+              className="button"
+              aria-pressed={currentMask.hidden ?? false}
+              onClick={() =>
+                void editMask({
+                  op: "setHidden",
+                  id: currentMask.id,
+                  hidden: !currentMask.hidden,
+                })
+              }
+            >
+              {t("setup.video.hide")}
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={() =>
+                void editMask({
+                  op: "addPoint",
+                  id: currentMask.id,
+                  after: Math.min(point, currentMask.points.length - 1),
+                }).then(() => setPoint(point + 1))
+              }
+            >
+              {t("setup.video.addPoint")}
+            </button>
+            <button
+              type="button"
+              className="button"
+              disabled={currentMask.points.length <= 3}
+              onClick={() =>
+                void editMask({
+                  op: "removePoint",
+                  id: currentMask.id,
+                  index: Math.min(point, currentMask.points.length - 1),
+                }).then(() => setPoint(Math.max(0, point - 1)))
+              }
+            >
+              {t("setup.video.removePoint")}
+            </button>
+            <button
+              type="button"
+              className="button danger"
+              onClick={() =>
+                void editMask({ op: "remove", id: currentMask.id }).then(() =>
+                  setFocus("slice"),
+                )
+              }
+            >
+              {t("setup.video.removeMask")}
+            </button>
+          </div>
+          <p className="field-note">{t("setup.video.maskNote")}</p>
+        </div>
+      )}
+      {!editingMask && current && (
         <div className="mapping-slice">
           <TextField
             label={t("setup.video.sliceName")}
@@ -388,6 +571,35 @@ export function MappingEditor({
                 />
               )),
             )}
+          </fieldset>
+          <fieldset className="mapping-values mapping-edges">
+            <legend>{t("setup.video.softEdge")}</legend>
+            {EDGES.map((field) => (
+              <TextField
+                key={field}
+                label={t(`setup.video.edge.${field}`)}
+                inputMode="decimal"
+                monospace
+                value={percent(current.softEdge?.[field] ?? 0)}
+                onCommit={(text) =>
+                  void edit({ op: "setSoftEdge", id: current.id, field, text })
+                }
+              />
+            ))}
+            <TextField
+              label={t("setup.video.edge.gamma")}
+              inputMode="decimal"
+              monospace
+              value={String(current.softEdge?.gamma ?? 1)}
+              onCommit={(text) =>
+                void edit({
+                  op: "setSoftEdge",
+                  id: current.id,
+                  field: "gamma",
+                  text,
+                })
+              }
+            />
           </fieldset>
           <div className="button-row">
             <button

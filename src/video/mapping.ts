@@ -26,7 +26,36 @@ export interface Slice {
   /** Top left, top right, bottom right, bottom left. */
   corners: [Point, Point, Point, Point];
   hidden?: boolean;
+  /** How far in from each edge it fades to black, as fractions of it, and the fade's curve. */
+  softEdge?: SoftEdge;
 }
+
+export interface SoftEdge {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  gamma: number;
+}
+
+/** A shape on a screen that hides the picture inside it, or outside it when inverted. */
+export interface Mask {
+  id: string;
+  name: string;
+  points: Point[];
+  invert?: boolean;
+  hidden?: boolean;
+}
+
+export type MaskOp =
+  | { op: "add" }
+  | { op: "remove"; id: string }
+  | { op: "rename"; id: string; name: string }
+  | { op: "setPoints"; id: string; points: Point[] }
+  | { op: "addPoint"; id: string; after: number }
+  | { op: "removePoint"; id: string; index: number }
+  | { op: "setInvert"; id: string; invert: boolean }
+  | { op: "setHidden"; id: string; hidden: boolean };
 
 /** A picture's or a screen's size in pixels; typed values are pixels of it. */
 export interface Size {
@@ -39,6 +68,7 @@ export interface VideoScreen {
   id: string;
   name: string;
   slices?: Slice[];
+  masks?: Mask[];
 }
 
 export const MAIN_SCREEN = "main";
@@ -69,6 +99,12 @@ export type MappingOp =
       text: string;
       size: Size;
     }
+  | {
+      op: "setSoftEdge";
+      id: string;
+      field: "left" | "right" | "top" | "bottom" | "gamma";
+      text: string;
+    }
   | { op: "resetCorners"; id: string }
   | { op: "setHidden"; id: string; hidden: boolean }
   | { op: "clear" };
@@ -80,6 +116,20 @@ export async function mappingEdit(
 ): Promise<void> {
   try {
     const state = await invoke<ProjectState>("video_mapping_edit", {
+      project: useDoc.getState().project,
+      screen,
+      op,
+    });
+    dispatch({ type: "apply", ...state });
+  } catch (error) {
+    sayError(errorMessage(error));
+  }
+}
+
+/** Sends one edit of a screen's masks to the backend; the answer enters the undo history. */
+export async function maskEdit(screen: string, op: MaskOp): Promise<void> {
+  try {
+    const state = await invoke<ProjectState>("video_mask_edit", {
       project: useDoc.getState().project,
       screen,
       op,

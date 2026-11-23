@@ -2489,6 +2489,39 @@ input:disabled {
   stroke: var(--phosphor);
 }
 
+.mapping-quads .mapping-mask {
+  fill: color-mix(in oklch, black 55%, transparent);
+  stroke: var(--ink);
+  stroke-dasharray: 5 3;
+}
+
+.mapping-quads .mapping-mask[data-invert="true"] {
+  fill: color-mix(in oklch, var(--ink) 8%, transparent);
+}
+
+.mapping-quads .mapping-mask[data-selected="true"] {
+  stroke: var(--phosphor);
+}
+
+.mapping-quads .mapping-mask[data-hidden="true"] {
+  opacity: 0.4;
+}
+
+.mapping-point {
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+}
+
+.mapping-point[data-selected="true"] {
+  background: var(--phosphor);
+}
+
+.mapping-values.mapping-edges {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .mapping-handle {
   position: absolute;
   width: 12px;
