@@ -108,7 +108,9 @@ covered; on any other display it fills the screen without decorations.
 renames or closes a window when a screen is added, renamed or removed or another project opens. Each window's surface is made on the main thread (macOS requires it), and a
 render thread (`flux-video-output`, one per window, all sharing one `VideoDeck`, so a clip is decoded once however many screens show it) starts the GPU device and then, once per display refresh, reads the transport
 (`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws the top one with
-`flux-render`. The picture is fitted to the window keeping its shape, with black around it. It is black while the
+`flux-render`. The frame is placed in the composition (`output.composition`, else the first video's size) as its clip's
+`fit` says (`flux_render::placement`; the shader leaves the composition outside it black), and with no slices the
+composition is fitted to the window keeping its shape, with black around it. It is black while the
 transport is stopped, before a clip and after it. A GPU error is kept for the setup page to show and never panics.
 
 ## Mapping
@@ -117,7 +119,7 @@ Below the display, **Mapping** cuts the picture into slices for the selected scr
 is a rectangle of the picture (dragged and resized on the left, *Picture*) placed on the screen by its four corners
 (dragged on the right, *Screen*); moving a corner leans the slice to fit a surface seen at an angle, and dragging the
 shape moves it whole. Below the stages, the selected slice's rectangle and corners can also be typed in pixels: the picture is
-measured in the size of the project's first video (1920 × 1080 without one) and the corners in the chosen display's
+measured in the size of the composition and the corners in the chosen display's
 size, and the backend turns the pixels into fractions (`setInputValue`, `setCornerValue`). A slice can be renamed, hidden without losing its place, or have its corners put back where its
 rectangle is. **Test pattern** shows a test card wherever there is no picture, to line the slices up on the real
 screen: a grid of tinted cells, the diagonals and two circles that show how a slice leans, colour bars and a grey ramp,

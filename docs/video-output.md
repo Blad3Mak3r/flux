@@ -19,8 +19,23 @@ delete it. It shows thumbnails of the picture and, under them, the waveform of i
 The sound of the video plays with the clip. The video track has a fader, a meter and an output in the routing, like an
 audio track: pulling the fader down silences the sound and keeps the picture, and muting the track takes both away.
 
+**Fit** in the clip's inspector chooses how its picture is sized into the composition (see [Composition](#composition)):
+
+- **Fit** shows the whole picture as large as it goes, keeping its shape, with black bars where it does not reach.
+- **Fill** covers the whole composition, keeping its shape and cropping what reaches past it.
+- **Stretch** takes exactly the composition, changing the picture's shape if it has to.
+- **No fit** keeps the video at its own size in pixels, centred: smaller than the composition leaves black around it,
+  larger is cropped.
+
 The picture follows the transport frame by frame. It is black while stopped, before a clip and after it. When two video
 tracks overlap, the upper track is the one shown.
+
+## Composition
+
+The **composition** is the picture every clip is sized into and every slice is cut from. It is the size of the
+project's first video until **Preferences > Outputs > Video > Composition** sets one of its own, for example 3840 × 1080
+for two 1920 × 1080 projectors side by side: each clip is then fitted, filled or stretched into it as its **Fit** says.
+**Use the video's size** goes back to the first video's size. The composition belongs to the project.
 
 ## Screens
 
@@ -43,15 +58,15 @@ not connected.
 
 ![The mapping editor: a slice of the picture on the left, placed on the screen on the right, and a mask](./screenshots/mapping-1560.jpg)
 
-With no slices, the whole picture is fitted to the screen, keeping its shape. **Add slice** cuts the picture into parts
+With no slices, the whole composition is fitted to the screen, keeping its shape. **Add slice** cuts the picture into parts
 and places each one where it goes, as the advanced output of a media server does:
 
 - **Picture** (left) is the video. Drag the slice to choose which part of it the slice shows, and its corner to resize it.
 - **Screen** (right) is the output. Drag each of the four corners to place the slice; moving one corner on its own leans
   the slice to fit a surface seen at an angle, and dragging inside the shape moves it whole.
 
-Each stage shows its size in pixels: the picture in the size of the project's first video (1920 × 1080 without one), the
-screen in the size of the chosen display. Below the stages, the selected slice's rectangle (**X**, **Y**, **Width**,
+Each stage shows its size in pixels: the picture in the size of the composition, the screen in the size of the chosen
+display. Below the stages, the selected slice's rectangle (**X**, **Y**, **Width**,
 **Height**) and its corners can be typed in those pixels instead of dragged.
 
 A slice can be renamed, hidden without losing its place, or have its corners put back where its rectangle is
