@@ -6,6 +6,8 @@ import type { Translate } from "../i18n/messages";
 import {
   errorMessage,
   importAudio,
+  importVideo,
+  pickVideoPaths,
   newProject,
   openProjectAt,
   pickProjectPath,
@@ -19,6 +21,7 @@ import { flushDocumentSync } from "./persist";
 import { currentFrame } from "../transport/store";
 import { seek, startTransport } from "../transport/playback";
 import { analyse, detectTempos, forgetAnalyses } from "./audio";
+import { probeVideos } from "./video";
 import { activeTimeline, isDirty } from "./doc";
 import { addAudioClip, addNote, emptyProject } from "./edit";
 import { edit } from "./actions";
@@ -90,7 +93,7 @@ export function startDocument(t: Translate, phase: (value: EditorPhase) => void)
         load(fresh, null);
       }
     }
-    if (project?.assets.length) {
+    if (project?.assets.length || project?.videos?.length) {
       phase("audio");
       await prepareAudio(project);
     }
@@ -122,6 +125,7 @@ async function openAt(path: string): Promise<Project | undefined> {
 }
 
 async function prepareAudio(project: Project): Promise<void> {
+  void probeVideos(project.videos ?? []);
   await analyse(project.assets);
   await detectTempos(project.assets, true);
 }
@@ -176,6 +180,23 @@ export async function importAudioFiles(): Promise<void> {
     // The tempo is read from the decoded audio, which the analysis leaves in the backend's cache.
     void analyse(assets).then(() => detectTempos(assets));
     select({ kind: "clip", id: last });
+  } catch (err) {
+    fail(err);
+  }
+}
+
+/** Asks for video files and adds each on a new track at the playhead; the backend reads and places them. */
+export async function importVideoFiles(): Promise<void> {
+  try {
+    for (const path of await pickVideoPaths()) {
+      const doc = useDoc.getState();
+      const at = Math.max(0, currentFrame() - activeTimeline(doc).timecode.start);
+      const { project, active } = await importVideo(doc.project, path, at);
+      dispatch({ type: "apply", project, active });
+      const added = (project.videos ?? []).filter((video) => !doc.project.videos?.some((old) => old.id === video.id));
+      for (const video of added) say("status.imported", { name: video.name });
+      void probeVideos(added);
+    }
   } catch (err) {
     fail(err);
   }

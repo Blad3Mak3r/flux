@@ -12,6 +12,7 @@ import type {
   OscArg,
   Project,
   ProjectState,
+  VideoFit,
 } from "./types";
 
 /** The document the backend holds for the window: the project, where it lives and how it started. */
@@ -30,6 +31,11 @@ const SAVE_FILTER = { name: en["app.title"], extensions: ["flx"] };
 const AUDIO_FILTER = {
   name: "Audio",
   extensions: ["wav", "aif", "aiff", "flac", "mp3", "ogg"],
+};
+
+const VIDEO_FILTER = {
+  name: "Video",
+  extensions: ["mp4", "m4v", "mov", "webm"],
 };
 
 /** Backend errors arrive as plain message strings. */
@@ -99,6 +105,13 @@ export type ClipOp = "trimStart" | "trimEnd" | "fadeIn" | "fadeOut" | "split";
 export const clipEdit = (project: Project, id: string, op: ClipOp, frame: number) =>
   invoke<ProjectState>("clip_edit", { project, id, op, frame });
 
+/** What can be done to a video clip; the backend decides how (see `project/video_clips.rs`). */
+export type VideoClipOp = "move" | "trimStart" | "trimEnd" | "fadeIn" | "fadeOut" | "split" | "remove" | { fit: VideoFit };
+
+/** Moves, trims, fades, splits or removes a video clip of the active timeline at `frame` of it; answers with the project as it is now. */
+export const videoClipEdit = (project: Project, id: string, op: VideoClipOp, frame: number) =>
+  invoke<ProjectState>("video_clip_edit", { project, id, op, frame });
+
 /** What can be done to the names of tracks and clips, a clip's fade curves and its volume envelope; the backend decides how (see `project/item_ops.rs`). Envelope positions are in thousandths of a frame from the start of the audio file. */
 export type ItemOp =
   | { op: "renameTrack"; id: string; name: string }
@@ -161,6 +174,15 @@ export async function saveProject(
   const saved = await invoke<Project>("project_save", { project, path: target });
   return { path: target, meta: saved.meta };
 }
+
+/** Asks for video files to import. Resolves to none when the dialog is cancelled. */
+export async function pickVideoPaths(): Promise<string[]> {
+  return (await open({ multiple: true, filters: [VIDEO_FILTER] })) ?? [];
+}
+
+/** Adds the video at `path` on a new track of the active timeline, with a clip at `at` (frames from the timeline start). */
+export const importVideo = (project: Project, path: string, at: number) =>
+  invoke<ProjectState>("project_import_video", { project, path, at });
 
 /** Asks for audio files and registers them; the assets are for the caller to add to its project. */
 export async function importAudio(): Promise<AudioAsset[]> {

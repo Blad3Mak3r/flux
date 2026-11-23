@@ -43,7 +43,7 @@ export function TrackRouteField({ track }: { track: Track }) {
   const health = routing?.active.find((r) => r.id === activeTarget);
   const assignment = track.audioOutput;
   const value = assignment?.type === "output" ? assignment.id : assignment?.type ?? "inherit";
-  if (track.kind.type !== "audio" && track.kind.type !== "operator") return null;
+  if (track.kind.type !== "audio" && track.kind.type !== "operator" && track.kind.type !== "video") return null;
   return <>
     <SelectField label={t("routing.trackOutput")} value={value} hint={t(view === "edit" && preview ? "routing.previewActive" : "routing.effective", { output: name(target) })}
       onChange={(id) => void audioRoutingEdit({ op: "assign", trackId: track.id, output: id === "inherit" || id === "silent" ? { type: id } : { type: "output", id } })}>

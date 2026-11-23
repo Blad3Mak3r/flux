@@ -375,12 +375,44 @@ pub struct VideoClip {
     /// The name the clip goes by in the timeline and in Live; absent means the asset's name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Frames of the video skipped at the start of the clip (trim in); absent is 0.
+    /// Frames skipped at the start of the video (trim in), at the timeline's rate like `start`;
+    /// absent is 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub offset: u64,
     /// Frames of the video the clip shows (trim out); absent means up to the end of the video.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub length: Option<u64>,
+    /// How the video is sized into the composition; absent is [`VideoFit::Fit`].
+    #[serde(default, skip_serializing_if = "VideoFit::is_fit")]
+    pub fit: VideoFit,
+    /// Frames the picture takes to rise from black, or from what is below it; absent is 0 (a cut).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_in: u64,
+    /// Frames the picture takes to fall to black, or to what is below it, at its end; absent is 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub fade_out: u64,
+}
+
+/// How a clip's video is sized into the composition, as a media server sizes a clip into its
+/// layer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoFit {
+    /// As large as it fits with its shape kept, centred: black bars where the shapes differ.
+    #[default]
+    Fit,
+    /// As small as it covers the composition with its shape kept, centred: the edges are cut.
+    Fill,
+    /// Exactly the composition, its shape changed to it.
+    Stretch,
+    /// At its own size in pixels, centred.
+    None,
+}
+
+impl VideoFit {
+    fn is_fit(&self) -> bool {
+        *self == Self::Fit
+    }
 }
 
 /// A note at a point of the timeline. It is shown from `at` for `length` frames, or until the next
@@ -1691,6 +1723,9 @@ pub(super) mod tests {
                     name: None,
                     offset: 5,
                     length: Some(100),
+                    fit: Default::default(),
+                    fade_in: 0,
+                    fade_out: 0,
                 }],
             },
         });

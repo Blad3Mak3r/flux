@@ -14,10 +14,11 @@ import { voiceError, stopListening, useVoice } from "./store";
 import { RecoveredAudio } from "./RecoveredAudio";
 
 type IssueCode = "ungenerated" | "stale" | "beforeOrigin" | "missingAudio" | "overlap" | "missingRoute" | "ltcConflict" | "silentOutput"
-  | "midiPortMissing" | "oscDestinationMissing" | "oscDestinationInvalid" | "emptyTrack" | "ltcUnavailable" | "mtcUnavailable" | "ltcCollision" | "mtcCollision";
+  | "midiPortMissing" | "oscDestinationMissing" | "oscDestinationInvalid" | "emptyTrack" | "ltcUnavailable" | "mtcUnavailable" | "ltcCollision" | "mtcCollision"
+  | "videoDisplayMissing" | "videoOutputOff";
 type Area = "operator" | "midi" | "osc" | "outputs";
 /** The Setup page that fixes an issue that is not about a track or an order. */
-const SETUP_PAGE: Partial<Record<IssueCode, SetupSection>> = { ltcUnavailable: "ltc", ltcCollision: "ltc", mtcUnavailable: "mtc", mtcCollision: "mtc", oscDestinationMissing: "osc", oscDestinationInvalid: "osc" };
+const SETUP_PAGE: Partial<Record<IssueCode, SetupSection>> = { ltcUnavailable: "ltc", ltcCollision: "ltc", mtcUnavailable: "mtc", mtcCollision: "mtc", oscDestinationMissing: "osc", oscDestinationInvalid: "osc", videoDisplayMissing: "video", videoOutputOff: "video" };
 /** A MIDI port or an empty track is fixed on the track itself, in the Edit view. */
 const onTrack = (issue: ShowIssue) => issue.area === "midi" || issue.code === "emptyTrack";
 export interface ShowIssue { code: IssueCode; area: Area; blocking: boolean; timelineId: string | null; timelineName: string | null; orderId: string | null; name: string; frame: number | null }

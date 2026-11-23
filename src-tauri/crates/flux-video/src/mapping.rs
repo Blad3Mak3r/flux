@@ -40,6 +40,18 @@ pub fn source_frame(
         .filter(|&index| index < video_frames)
 }
 
+/// How many frames of the timeline a video of `video_frames` at `video` lasts: the frames that
+/// start before it ends, so the last one shows a picture.
+pub fn timeline_frames(video_frames: u64, video: Rate, timeline: FrameRate) -> u64 {
+    if video.num == 0 || video.den == 0 {
+        return 0;
+    }
+    let (tl_num, tl_den) = timeline.fraction();
+    let frames = u128::from(video_frames) * u128::from(video.den) * u128::from(tl_num);
+    let per = u128::from(video.num) * u128::from(tl_den);
+    u64::try_from(frames.div_ceil(per)).unwrap_or(u64::MAX)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,7 +71,35 @@ mod tests {
             name: None,
             offset,
             length,
+            fit: Default::default(),
+            fade_in: 0,
+            fade_out: 0,
         }
+    }
+
+    #[test]
+    fn timeline_frames_should_cover_the_whole_video() {
+        for (timeline, video) in RATES {
+            assert_eq!(timeline_frames(500, video, timeline), 500, "{timeline:?}");
+        }
+        // 50 frames at 25 fps last 2 s: 60 frames at 30.
+        assert_eq!(timeline_frames(50, Rate::new(25, 1), FrameRate::Fps30), 60);
+        // 10 frames at 30 fps last 1/3 s: the 9th frame at 25 still starts inside it.
+        assert_eq!(timeline_frames(10, Rate::new(30, 1), FrameRate::Fps25), 9);
+        // Every timeline frame of it maps to a frame of the video.
+        let clip = flux_project::VideoClip {
+            id: "c".into(),
+            asset: "v".into(),
+            start: 0,
+            name: None,
+            offset: 0,
+            length: None,
+            fit: Default::default(),
+            fade_in: 0,
+            fade_out: 0,
+        };
+        let last = timeline_frames(10, Rate::new(30, 1), FrameRate::Fps25) - 1;
+        assert!(source_frame(&clip, last, FrameRate::Fps25, Rate::new(30, 1), 10).is_some());
     }
 
     #[test]

@@ -20,16 +20,10 @@ runs:
         }
         "LIBCLANG_PATH=$bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-    # flux-video links FFmpeg: a shared LGPL build with headers and import libraries. FFMPEG_DIR is
-    # where ffmpeg-sys-next looks for them; bin goes on PATH so the tests load the DLLs.
+    # flux-video links FFmpeg: a shared LGPL build with headers and import libraries, in
+    # src-tauri/ffmpeg. FFMPEG_DIR is where ffmpeg-sys-next looks for them; bin goes on PATH so the
+    # tests load the DLLs, and the installer ships them (tauri.windows.conf.json).
     - name: FFmpeg
       if: runner.os == 'Windows'
       shell: pwsh
-      run: |
-        $name = 'ffmpeg-n8.1-latest-win64-lgpl-shared-8.1'
-        $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
-        Invoke-WebRequest "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$name.zip" -OutFile $zip
-        Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
-        $dir = Join-Path $env:RUNNER_TEMP $name
-        "FFMPEG_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-        Join-Path $dir 'bin' | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      run: ./scripts/fetch-ffmpeg.ps1

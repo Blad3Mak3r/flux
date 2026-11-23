@@ -1,10 +1,13 @@
 //! Decodes the fixtures: 50 frames of 64x36, each a flat grey a little lighter than the one before,
-//! encoded losslessly with a keyframe every 12 frames. Software decoding only, no GPU or display.
+//! encoded losslessly with a keyframe every 12 frames, as H.264 in MP4 and VP9 in WebM. No display
+//! is needed; a GPU decoder is used only where the computer has one.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use flux_video::{Rate, VideoError, VideoFile, VideoPlayer};
+
+const FIXTURES: [&str; 3] = ["gray25.mp4", "gray2997.mp4", "gray25.webm"];
 
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -27,23 +30,24 @@ fn levels_in_order(name: &str) -> Vec<u8> {
 
 #[test]
 fn open_should_read_the_size_rate_and_frame_count() {
-    for (name, rate) in [
-        ("gray25.mp4", Rate::new(25, 1)),
-        ("gray2997.mp4", Rate::new(30_000, 1_001)),
+    for (name, rate, codec) in [
+        ("gray25.mp4", Rate::new(25, 1), "h264"),
+        ("gray2997.mp4", Rate::new(30_000, 1_001), "h264"),
+        ("gray25.webm", Rate::new(25, 1), "vp9"),
     ] {
         let file = VideoFile::open(&fixture(name)).unwrap();
         let info = file.info();
         assert_eq!((info.width, info.height), (64, 36), "{name}");
         assert_eq!(info.rate, rate, "{name}");
         assert_eq!(info.frames, 50, "{name}");
-        assert_eq!(info.codec, "h264", "{name}");
+        assert_eq!(info.codec, codec, "{name}");
         assert!(!info.has_audio, "{name}");
     }
 }
 
 #[test]
 fn every_frame_should_be_a_different_picture() {
-    for name in ["gray25.mp4", "gray2997.mp4"] {
+    for name in FIXTURES {
         let levels = levels_in_order(name);
         assert!(levels.windows(2).all(|w| w[0] < w[1]), "{name}: {levels:?}");
     }
@@ -51,7 +55,7 @@ fn every_frame_should_be_a_different_picture() {
 
 #[test]
 fn a_seek_in_any_order_should_give_the_same_frame_as_playing_through() {
-    for name in ["gray25.mp4", "gray2997.mp4"] {
+    for name in FIXTURES {
         let played = levels_in_order(name);
         let mut file = VideoFile::open(&fixture(name)).unwrap();
         // Back and forth, across keyframes (every 12), onto them and just before them.
@@ -63,6 +67,41 @@ fn a_seek_in_any_order_should_give_the_same_frame_as_playing_through() {
             );
         }
     }
+}
+
+#[test]
+fn an_accelerated_file_should_give_the_same_frames_wherever_it_decodes() {
+    for name in FIXTURES {
+        let played = levels_in_order(name);
+        let mut file = VideoFile::open_accelerated(&fixture(name)).unwrap();
+        for index in [0, 1, 2, 30, 13, 49, 12] {
+            let level = level(&mut file, index);
+            // A GPU converts its colours on its own way: a step or two apart at most.
+            assert!(
+                level.abs_diff(played[index as usize]) <= 2,
+                "{name} frame {index} on {:?}: {level} vs {}",
+                file.decoding(),
+                played[index as usize]
+            );
+        }
+    }
+}
+
+#[test]
+fn a_webm_with_an_alpha_track_should_keep_its_transparency() {
+    // 10 frames of 64x36: the left half opaque red, the right half transparent (VP9, lossless).
+    let mut file = VideoFile::open_accelerated(&fixture("alpha25.webm")).unwrap();
+    let info = file.info().clone();
+    assert!(info.alpha);
+    assert_eq!((info.codec.as_str(), info.frames), ("vp9", 10));
+    let frame = file.frame(4).unwrap();
+    assert!(frame.alpha);
+    let pixel = |x: usize| &frame.rgba[x * 4..x * 4 + 4];
+    assert!(pixel(5)[0] > 250 && pixel(5)[3] == 255, "{:?}", pixel(5));
+    assert_eq!(pixel(50)[3], 0);
+    // Without an alpha track nothing changes.
+    let opaque = VideoFile::open(&fixture("gray25.webm")).unwrap();
+    assert!(!opaque.info().alpha);
 }
 
 #[test]
@@ -101,4 +140,16 @@ fn the_player_should_end_on_the_newest_request() {
         std::thread::sleep(Duration::from_millis(5));
     };
     assert_eq!(frame.rgba[0], played[30]);
+}
+
+#[test]
+fn thumbnails_should_give_one_picture_a_second_side_by_side() {
+    for name in FIXTURES {
+        let thumbs = flux_video::thumbnails(&fixture(name)).unwrap();
+        // 64x36 at the thumbnail height, 50 frames at about 25 or 30 per second.
+        assert_eq!((thumbs.width, thumbs.height), (96, 54), "{name}");
+        assert_eq!(thumbs.count, 2, "{name}");
+        assert!((0.99..1.01).contains(&thumbs.seconds), "{name}");
+        assert_eq!(&thumbs.jpeg[..2], &[0xFF, 0xD8], "{name}");
+    }
 }

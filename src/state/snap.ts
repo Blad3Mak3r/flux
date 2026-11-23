@@ -3,7 +3,7 @@ import { useVoice } from "../voice/store";
 // edges of the clips and notes, the playhead and the origin.
 
 import { nominalFps, realFps } from "../timecode";
-import { GUESS_SECONDS, clipLength } from "../timeline/clip";
+import { GUESS_SECONDS, clipLength, videoClipLength } from "../timeline/clip";
 import { collectTargets, fixedSpacing, snapMove, snapPoint } from "../timeline/snap";
 import type { SnapItem, SnapSource, SnapTarget } from "../timeline/snap";
 import { lineSpacing } from "../timeline/scale";
@@ -60,7 +60,7 @@ function timelineItems(): SnapItem[] {
         return track.kind.clips.map((clip) => ({
           id: clip.id,
           start: clip.start,
-          end: clip.length === undefined ? undefined : clip.start + clip.length,
+          end: clip.start + videoClipLength(clip, doc.video[clip.asset], fps, guess),
         }));
       default:
         return track.kind.events.map((event) => ({ id: event.id, start: event.at }));

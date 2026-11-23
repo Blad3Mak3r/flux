@@ -52,7 +52,14 @@ pub fn cue_list(
     session: &SharedSession,
     audio: &SharedAudio,
 ) -> CueList {
-    CueList::build(project, timeline, |asset| samples_of(session, audio, asset))
+    CueList::build_with_video(
+        project,
+        timeline,
+        |asset| samples_of(session, audio, asset),
+        |video| {
+            crate::video_commands::timeline_frames_of(session, video, timeline.timecode.frame_rate)
+        },
+    )
 }
 
 /// The timeline of `project` that the backend has active.

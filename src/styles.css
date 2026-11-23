@@ -1044,10 +1044,42 @@ input:disabled {
   min-height: 0;
 }
 
+/* Text that does not fit ends in an ellipsis, and slides to show the rest under the pointer. */
+.marquee {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marquee[data-scrolling="true"] {
+  text-overflow: clip;
+}
+
+.marquee[data-scrolling="true"] .marquee-text {
+  display: inline-block;
+  animation: marquee var(--marquee-time, 3s) ease-in-out 0.5s infinite alternate;
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(var(--marquee-shift, 0));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee[data-scrolling="true"] .marquee-text {
+    animation: none;
+  }
+}
+
 /* The track-header column sits beside the scroller, so the horizontal scrollbar spans the lanes only. */
 .screen-side {
   display: flex;
   flex: 0 0 var(--header-w);
+  /* A long track name is cut, never widening the column. */
+  min-width: 0;
+  max-width: var(--header-w);
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
@@ -1500,6 +1532,36 @@ input:disabled {
   color: var(--ink);
   font-size: 11px;
   font-weight: 600;
+}
+
+/* The thumbnails of a video clip, side by side under its name; the clip's handles stay on top. */
+.clip-thumbs {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.85;
+}
+
+/* The waveform of a video's sound, under its thumbnails. */
+.clip-video-wave {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.clip-video-wave .clip-wave {
+  inset: auto;
+  top: 0;
+  left: 0;
+}
+
+.clip-thumbs > span {
+  flex: none;
+  background-repeat: no-repeat;
 }
 
 .clip-bpm,
@@ -1966,6 +2028,13 @@ input:disabled {
   color: var(--ink-dim);
 }
 
+.hap-convert progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  accent-color: var(--phosphor);
+}
+
 .field[data-invalid] .field-note {
   color: var(--signal);
   font-weight: 600;
@@ -2275,6 +2344,243 @@ input:disabled {
 }
 
 .setup-intro {
+  color: var(--ink-dim);
+}
+
+/* The screens of the video output, one tab each; the dot is lit while its window is open. */
+.screen-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.screen-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--panel-lo);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.screen-tab:hover {
+  color: var(--ink);
+}
+
+.screen-tab[aria-pressed="true"] {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+
+.screen-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rule-strong);
+}
+
+.screen-tab[data-open="true"] .screen-dot {
+  background: var(--phosphor);
+}
+
+/* The video mapping editor: the picture with its slices, beside the screen with their corners. */
+.mapping {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.mapping-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mapping-bar h4 {
+  margin: 0 auto 0 0;
+}
+
+.mapping .button[aria-pressed="true"] {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+
+.mapping-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.mapping-stage {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.mapping-stage figcaption {
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.mapping-canvas {
+  position: relative;
+  width: 100%;
+  background: var(--screen);
+  outline: 1px solid var(--rule-strong);
+  touch-action: none;
+  user-select: none;
+}
+
+.mapping-rect {
+  position: absolute;
+  border: 1px solid var(--ink-dim);
+  background: color-mix(in oklch, var(--ink-dim) 12%, transparent);
+  cursor: move;
+}
+
+.mapping-rect[data-selected="true"] {
+  border-color: var(--phosphor);
+  background: color-mix(in oklch, var(--phosphor) 14%, transparent);
+  z-index: 1;
+}
+
+.mapping-rect[data-hidden="true"],
+.mapping-quads polygon[data-hidden="true"] {
+  opacity: 0.4;
+  border-style: dashed;
+  stroke-dasharray: 4 3;
+}
+
+.mapping-label {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.mapping-quads {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.mapping-quads polygon {
+  fill: color-mix(in oklch, var(--ink-dim) 12%, transparent);
+  stroke: var(--ink-dim);
+  stroke-width: 1px;
+  cursor: move;
+}
+
+.mapping-quads polygon[data-selected="true"] {
+  fill: color-mix(in oklch, var(--phosphor) 14%, transparent);
+  stroke: var(--phosphor);
+}
+
+.mapping-quads .mapping-mask {
+  fill: color-mix(in oklch, black 55%, transparent);
+  stroke: var(--ink);
+  stroke-dasharray: 5 3;
+}
+
+.mapping-quads .mapping-mask[data-invert="true"] {
+  fill: color-mix(in oklch, var(--ink) 8%, transparent);
+}
+
+.mapping-quads .mapping-mask[data-selected="true"] {
+  stroke: var(--phosphor);
+}
+
+.mapping-quads .mapping-mask[data-hidden="true"] {
+  opacity: 0.4;
+}
+
+.mapping-point {
+  width: 10px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+}
+
+.mapping-point[data-selected="true"] {
+  background: var(--phosphor);
+}
+
+.mapping-values.mapping-edges {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.mapping-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--phosphor);
+  background: var(--screen);
+  z-index: 2;
+}
+
+.mapping-corner {
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  cursor: grab;
+}
+
+.mapping-corner[data-corner="0"] {
+  background: var(--phosphor);
+}
+
+.mapping-resize {
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+}
+
+.mapping-slice {
+  display: grid;
+  gap: 10px;
+  max-width: 460px;
+}
+
+.mapping-size {
+  margin-left: 6px;
+  font-family: var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  letter-spacing: 0;
+}
+
+.mapping-values {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.mapping-values legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: 12px;
   color: var(--ink-dim);
 }
 
@@ -3316,6 +3622,10 @@ input:disabled {
   white-space: nowrap;
 }
 
+.cue-title.marquee {
+  display: block;
+}
+
 .cue-name,
 .cue-track {
   overflow: hidden;
@@ -3361,6 +3671,16 @@ input:disabled {
 .cue-kind[data-kind="osc"] {
   background-color: var(--screen);
   border-style: dashed;
+}
+
+/* Upright bars, like the frames of a film strip. */
+.cue-kind[data-kind="video"] {
+  background-color: var(--screen);
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--cue-c) 55%, transparent) 0 3px,
+    transparent 3px 5px
+  );
 }
 
 /* Lamps say the state by shape as well as colour: filled, hollow or dashed, beside a printed word. */
@@ -3489,18 +3809,6 @@ input:disabled {
 .live-cues[data-layout="sidebar"] .cue-kind { grid-area: kind; width: 28px; height: 12px; }
 .live-cues[data-layout="sidebar"] .cue-track { grid-area: track; min-width: 0; }
 .live-cues[data-layout="sidebar"] .cue-length { grid-area: length; white-space: nowrap; }
-
-.cue-title {
-  overflow-wrap: anywhere;
-}
-
-.live-cues[data-layout="sidebar"] .cue-title {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
 
 .live-cues[data-layout="sidebar"] .cue-row[data-status="done"] .cue-track,
 .live-cues[data-layout="sidebar"] .cue-row[data-status="done"] .cue-length,

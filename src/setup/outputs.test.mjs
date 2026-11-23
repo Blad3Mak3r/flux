@@ -13,7 +13,7 @@ test("ports that share a name are told apart by their place among them", () => {
 
 test("every page is listed once, in its group, and only the planned ones are unavailable", () => {
   assert.equal(new Set(SETUP_SECTIONS).size, SETUP_SECTIONS.length);
-  assert.deepEqual(SETUP_SECTIONS.filter((section) => !isAvailable(section)), ["video", "http"]);
+  assert.deepEqual(SETUP_SECTIONS.filter((section) => !isAvailable(section)), ["http"]);
   assert.equal(groupOf("ltc"), "outputs");
   assert.equal(groupOf("audioOutputs"), "audio");
   assert.equal(groupOf("audio"), "audio");

@@ -14,6 +14,8 @@ mod show_commands;
 mod startup;
 mod transport_commands;
 mod update_commands;
+mod video_commands;
+mod video_output;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -47,14 +49,24 @@ pub fn run() {
         .manage(std::sync::Arc::new(voice_commands::VoiceState::default()))
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
+        .manage(video_output::SharedVideoOutput::default())
+        .manage(video_commands::shared_probes())
         .manage(control::SharedControl::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
             recovery::start(app.handle())?;
             diagnostics::start(app.handle());
             log::info!("{}", graphics::describe());
+            if let Err(err) = video_commands::video_cache(app.handle()) {
+                log::warn!("no video cache folder: {err}");
+            }
             let app = app.handle().clone();
+            let video = app.clone();
             tauri::async_runtime::spawn_blocking(move || control::start(&app));
+            // Follows the project's screens for as long as the app runs.
+            let _ = std::thread::Builder::new()
+                .name("flux-video-screens".into())
+                .spawn(move || video_output::restore(&video));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -110,6 +122,22 @@ pub fn run() {
             commands::project_new,
             commands::project_open,
             commands::project_import_audio,
+            commands::project_import_video,
+            video_commands::video_probe,
+            video_commands::video_clip_edit,
+            video_commands::video_thumbnails,
+            video_commands::video_sound,
+            video_commands::video_mapping_edit,
+            video_commands::video_screen_edit,
+            video_commands::video_composition_set,
+            video_commands::video_hap_available,
+            video_commands::video_convert_hap,
+            video_commands::video_convert_cancel,
+            video_commands::project_replace_video,
+            video_commands::video_mask_edit,
+            video_output::video_output_pattern,
+            video_output::video_output_status,
+            video_output::video_output_choose,
             commands::project_save,
             commands::project_set_autosave,
             recovery::recovery_list,
@@ -159,6 +187,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            if let tauri::RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = &event
+            {
+                video_output::window_gone(app, label);
+            }
             // macOS passes the opened file in an event, not on the command line. Once the launcher
             // is past, the editor is already up and replacing it could lose unsaved work.
             #[cfg(target_os = "macos")]
@@ -170,6 +206,6 @@ pub fn run() {
                 }
             }
             #[cfg(not(target_os = "macos"))]
-            let _ = (app, event);
+            let _ = event;
         });
 }

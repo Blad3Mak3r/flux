@@ -7,6 +7,7 @@ import { seek } from "../transport/playback";
 import { menuAtPointer } from "../state/ui";
 import { traceStyle } from "../timeline/palette";
 import { cueMenu } from "../components/menus";
+import { Marquee } from "../components/Marquee";
 import type { Cue, CueStatus } from "./api";
 import { cueName } from "./names";
 import { useLive } from "./store";
@@ -57,12 +58,12 @@ const CueRow = memo(function CueRow({ cue, status, progress }: RowProps) {
           <span className="visually-hidden">{t(`live.kind.${cue.kind}`)}</span>
         </span>
         <span className="cue-name" title={name}>
-          <span className="cue-title">{name}</span>
+          <Marquee className="cue-title">{name}</Marquee>
           {cue.kind === "operator" && <span className="voice-live-state">{t(`voice.status.${voice?.status ?? "ungenerated"}`)}{voice?.beforeOrigin && ` · ${t("voice.positionInvalid")}`}{(!route || routeLost) && ` · ${t("voice.routeMissing")}`}</span>}
         </span>
-        <span className="cue-track" title={cue.trackName}>
+        <Marquee className="cue-track" title={cue.trackName}>
           {cue.trackName}
-        </span>
+        </Marquee>
         <span className="cue-time measure"><span className="visually-hidden">{t("live.col.time")} </span>{cue.timecode}</span>
         <span className="cue-length measure"><span className="visually-hidden">{t("live.col.length")} </span>{cue.duration ?? "—"}</span>
       </button>

@@ -417,6 +417,25 @@ pub async fn operator_preflight(
         report.extend(flux_engine::preflight::check_hardware(
             &project, &output, &hardware,
         ));
+        let uses_video = project.timelines.iter().any(|timeline| {
+            timeline.tracks.iter().any(|track| {
+                matches!(&track.kind, flux_project::TrackKind::Video { clips } if !clips.is_empty())
+            })
+        });
+        // A screen on a display that is not connected is reported first; otherwise whether any
+        // screen opens at all.
+        let chosen: Vec<String> = flux_project::mapping::screens(&project.output.screens)
+            .iter()
+            .filter_map(|screen| prefs.video_display_for(&screen.id))
+            .collect();
+        let missing = chosen
+            .iter()
+            .find(|id| !crate::video_output::connected(&app, id));
+        report.check_video(
+            uses_video,
+            missing.or(chosen.first()).map(String::as_str),
+            missing.is_none(),
+        );
         Ok(report)
     })
     .await

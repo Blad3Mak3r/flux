@@ -1,9 +1,12 @@
+import { useEffect } from "react";
 import { TrackRouteField } from "../audio/routing";
+import { editVideoClip } from "../state/clips";
+import { cancelVideoConvert, checkHap, convertVideo, useConvert } from "../state/video";
 import { VoiceSelector } from "../voice/VoiceSelector";
 import { OrderPanel } from "../voice/VoicePanel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { FadeCurve, Project, Timeline, Track } from "../project/types";
+import type { FadeCurve, Project, Timeline, Track, VideoAsset, VideoFit } from "../project/types";
 import { deleteSelection, edit, nameClip, nameTrack, setTimelineTempo } from "../state/actions";
 import { editItem } from "../state/items";
 import { detectTempo } from "../state/audio";
@@ -11,7 +14,7 @@ import type { AssetAudio } from "../state/doc";
 import { useDoc, useTimeline } from "../state/store";
 import { toggleInspector, useUi } from "../state/ui";
 import type { Selected } from "../state/ui";
-import { MAX_BPM, MIN_BPM } from "../project/types";
+import { MAX_BPM, MIN_BPM, VIDEO_FITS } from "../project/types";
 import {
   findItem,
   setAssetBpm,
@@ -104,6 +107,7 @@ function SelectionPanel({
   onDelete: () => void;
 }) {
   const t = useT();
+  const probes = useDoc((doc) => doc.video);
   if (selection?.kind === "track") {
     const track = timeline.tracks.find((t) => t.id === selection.id);
     if (!track) return null;
@@ -115,6 +119,47 @@ function SelectionPanel({
       <TrackColorField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
       <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
     </div>;
+  }
+  if (selection?.kind === "video") {
+    for (const track of timeline.tracks) {
+      if (track.kind.type !== "video") continue;
+      const clip = track.kind.clips.find((c) => c.id === selection.id);
+      if (!clip) continue;
+      const { frameRate, start } = timeline.timecode;
+      const video = project.videos?.find((v) => v.id === clip.asset);
+      const codec = probes[clip.asset]?.codec;
+      return (
+        <div className="panel-body">
+          <h3>{t("videoClip.title")}</h3>
+          <dl className="facts">
+            <dt>{t("videoClip.file")}</dt>
+            <dd>{project.videos?.find((v) => v.id === clip.asset)?.name ?? clip.asset}</dd>
+            {codec ? <><dt>{t("videoClip.codec")}</dt><dd>{codec}</dd></> : null}
+          </dl>
+          <TrackNameField track={track} />
+          <TimecodeField
+            label={t("clip.start")}
+            frame={start + clip.start}
+            rate={frameRate}
+            onCommit={(frame) => void editVideoClip(clip.id, "move", Math.max(0, frame - start))}
+          />
+          <SelectField
+            label={t("videoClip.fit")}
+            value={clip.fit ?? "fit"}
+            hint={t("videoClip.fitHint")}
+            onChange={(fit) => void editVideoClip(clip.id, { fit: fit as VideoFit }, 0)}
+          >
+            {VIDEO_FITS.map((fit) => (
+              <option key={fit} value={fit}>
+                {t(`videoClip.fit.${fit}`)}
+              </option>
+            ))}
+          </SelectField>
+          {video && codec && codec !== "hap" ? <HapConvert asset={video} /> : null}
+          <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
+        </div>
+      );
+    }
   }
   if (selection?.kind === "operator") {
     for (const track of timeline.tracks) {
@@ -330,5 +375,34 @@ export function Inspector() {
         <SelectionPanel project={project} timeline={timeline} selection={selection} audio={audio} onEdit={edit} onDelete={deleteSelection} />
       </div>
     </aside>
+  );
+}
+
+/** Converting the clip's video to HAP: the button, or how far it has got with a way to stop it. */
+function HapConvert({ asset }: { asset: VideoAsset }) {
+  const t = useT();
+  const converting = useConvert((s) => s.converting);
+  const available = useConvert((s) => s.available);
+  useEffect(checkHap, []);
+  if (available === false) return null;
+  if (converting?.asset === asset.id) {
+    const percent = converting.total > 0 ? Math.round((converting.done / converting.total) * 100) : 0;
+    return (
+      <div className="field hap-convert" role="status">
+        <p className="field-note">{t("videoClip.hap.converting", { percent })}</p>
+        <progress max={100} value={percent} aria-label={t("videoClip.hap.converting", { percent })} />
+        <button type="button" className="button" disabled={converting.cancelled} onClick={cancelVideoConvert}>
+          {t("videoClip.hap.cancel")}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="field hap-convert">
+      <button type="button" className="button" disabled={converting !== null} onClick={() => void convertVideo(asset)}>
+        {t("videoClip.hap.convert")}
+      </button>
+      <p className="field-note">{t("videoClip.hap.hint")}</p>
+    </div>
   );
 }

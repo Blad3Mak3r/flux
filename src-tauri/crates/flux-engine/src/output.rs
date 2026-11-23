@@ -1277,6 +1277,18 @@ impl PositionReader {
         self.position_at(self.shared.load())
     }
 
+    /// The transport state and the frames played since the origin of the timeline that plays, as
+    /// the video output maps them to pictures.
+    pub fn timeline_frame(&self) -> (TransportState, u64) {
+        let snapshot = self.shared.load();
+        let (clock, _) = self
+            .shared
+            .show_timecode(&snapshot)
+            .unwrap_or((self.clock, self.start));
+        let samples = snapshot.estimated_position(self.shared.now(), clock);
+        (snapshot.state, clock.samples_to_frames(samples))
+    }
+
     fn position_at(&self, snapshot: Snapshot) -> Position {
         let (clock, start) = self
             .shared

@@ -13,7 +13,7 @@ use flux_audio::{AudioError, Decoded, ENGINE_RATE};
 use flux_core::Clock;
 use flux_project::{
     AudioAsset, AudioClip, ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, FadeCurve, Project,
-    Timeline, TrackKind,
+    Timeline, TrackKind, VideoAsset,
 };
 
 /// Frames mixed at a time, on the stack: the callback must not allocate.
@@ -498,7 +498,19 @@ fn track_gain_from_db(db: f32) -> f32 {
 pub fn build(
     project: &Project,
     timeline: &Timeline,
+    load: impl FnMut(&AudioAsset) -> Result<Arc<Decoded>, AudioError>,
+) -> Programme {
+    build_with_video(project, timeline, load, |_| Ok(None))
+}
+
+/// Like [`build`], with the sound of the video tracks too: `load_video` supplies the decoded sound
+/// of a video, or `None` for one without sound. A video clip sounds like an audio clip at 0 dB
+/// with no fades, through its track's fader and output.
+pub fn build_with_video(
+    project: &Project,
+    timeline: &Timeline,
     mut load: impl FnMut(&AudioAsset) -> Result<Arc<Decoded>, AudioError>,
+    mut load_video: impl FnMut(&VideoAsset) -> Result<Option<Arc<Decoded>>, AudioError>,
 ) -> Programme {
     // Keep one buffer per asset in this programme even when the bounded global cache evicts it.
     let mut decoded = std::collections::HashMap::<String, Arc<Decoded>>::new();
@@ -559,6 +571,44 @@ pub fn build(
             }
             continue;
         }
+        if let TrackKind::Video { clips: video_clips } = &track.kind {
+            let index = tracks.len();
+            tracks.push((
+                track.id.clone(),
+                track.gain_db.map_or(1.0, track_gain_from_db),
+            ));
+            for clip in video_clips {
+                let Some(asset) = project.videos.iter().find(|video| video.id == clip.asset) else {
+                    continue;
+                };
+                if failed.contains(&asset.id.as_str()) {
+                    continue;
+                }
+                match load_video(asset) {
+                    Ok(Some(audio)) => {
+                        let mut as_audio = AudioClip::new(&clip.id, &clip.asset, clip.start);
+                        as_audio.offset = clip.offset;
+                        as_audio.length = clip.length;
+                        // The sound fades with the picture.
+                        as_audio.fade_in = clip.fade_in;
+                        as_audio.fade_out = clip.fade_out;
+                        clips.push(ClipPlayer {
+                            span: span(&as_audio, &clock, audio.frames() as u64),
+                            envelope: None,
+                            audio,
+                            gain: 1.0,
+                            track: index,
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(err) => {
+                        failed.push(&asset.id);
+                        warnings.push(format!("{} is silent: {err}", asset.name));
+                    }
+                }
+            }
+            continue;
+        }
         let TrackKind::Audio { clips: track_clips } = &track.kind else {
             continue;
         };
@@ -601,6 +651,55 @@ pub fn build(
 mod tests {
     use super::*;
     use flux_project::{AudioClip, ClipOp, FrameRate, Track, apply_clip_op};
+
+    #[test]
+    fn video_clips_should_sound_through_their_track_like_audio_clips() {
+        let mut project = Project::new("Show", FrameRate::Fps25);
+        project.videos.push(VideoAsset {
+            id: "v1".into(),
+            name: "Intro".into(),
+            file: "video/intro.mp4".into(),
+        });
+        project.timelines[0].tracks.push(Track {
+            audio_output: Default::default(),
+            id: "video".into(),
+            name: "Video".into(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Video {
+                clips: vec![flux_project::VideoClip {
+                    id: "c1".into(),
+                    asset: "v1".into(),
+                    start: 2,
+                    name: None,
+                    offset: 1,
+                    length: Some(1),
+                    fit: Default::default(),
+                    fade_in: 0,
+                    fade_out: 0,
+                }],
+            },
+        });
+        let timeline = project.timelines[0].clone();
+        let programme = build_with_video(
+            &project,
+            &timeline,
+            |_| unreachable!("no audio clips"),
+            |_| Ok(Some(ramp(10_000))),
+        );
+        assert!(programme.warnings.is_empty());
+        // Frame 2 at 25 fps is sample 3840, and the clip starts one frame into the video.
+        let per_frame = (ENGINE_RATE / 25) as usize;
+        let (left, _) = mix(&programme.set, 2 * per_frame as u64, 4);
+        assert_eq!(left[0], per_frame as f32 * SCALE);
+        // One frame long: silent after it.
+        let (after, _) = mix(&programme.set, 3 * per_frame as u64, 4);
+        assert_eq!(after, vec![0.0; 4]);
+        // A video without sound adds nothing.
+        let silent = build_with_video(&project, &timeline, |_| unreachable!(), |_| Ok(None));
+        assert!(silent.set.is_empty());
+    }
 
     #[test]
     fn operator_bus_is_separate_and_obeys_faders_and_overlap() {

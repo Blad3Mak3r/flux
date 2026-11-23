@@ -12,10 +12,11 @@ use super::cue_ops::{self, CueEdited, CueOp};
 use super::error::{ProjectError, Result};
 use super::item_ops::{self, ItemOp};
 use super::model::{
-    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, TimecodeSettings, Timeline,
-    TrackKind, check_asset_path,
+    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, TimecodeSettings, Timeline, Track,
+    TrackKind, VIDEO_DIR, VideoAsset, VideoClip, check_asset_path, check_video_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
+use super::video_clips::{self, VideoClipOp};
 use flux_core::FrameRate;
 
 /// The document being edited, as the backend last heard of it. The window that edits it can be
@@ -421,6 +422,61 @@ impl Session {
         })
     }
 
+    /// The video a clip of the active timeline shows, and the frame rate of that timeline.
+    pub fn video_clip_asset(&self, clip_id: &str) -> Result<(VideoAsset, FrameRate)> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let timeline = self.active_timeline(&document.project)?;
+        let clip = timeline
+            .tracks
+            .iter()
+            .filter_map(|track| match &track.kind {
+                TrackKind::Video { clips } => Some(clips),
+                _ => None,
+            })
+            .flatten()
+            .find(|clip| clip.id == clip_id)
+            .ok_or_else(|| unknown_clip(clip_id))?;
+        let asset = document
+            .project
+            .videos
+            .iter()
+            .find(|video| video.id == clip.asset)
+            .ok_or_else(|| ProjectError::MissingAsset(clip.asset.clone()))?;
+        Ok((asset.clone(), timeline.timecode.frame_rate))
+    }
+
+    /// Moves, trims, splits or removes a video clip of the active timeline (see [`VideoClipOp`])
+    /// at `frame`. Its video lasts `video_frames` at the timeline's rate. A removed clip takes its
+    /// track with it when it was the last one; the video file goes at the next save if nothing
+    /// else shows it.
+    pub fn edit_video_clip(
+        &mut self,
+        clip_id: &str,
+        op: VideoClipOp,
+        frame: u64,
+        video_frames: u64,
+    ) -> Result<ProjectState> {
+        self.change(|project, active| {
+            let timeline = timeline_mut(project, active)?;
+            for index in 0..timeline.tracks.len() {
+                let TrackKind::Video { clips } = &mut timeline.tracks[index].kind else {
+                    continue;
+                };
+                if let Some(at) = clips.iter().position(|clip| clip.id == clip_id) {
+                    let edited = video_clips::apply(&clips[at], op, frame, video_frames, || {
+                        Uuid::new_v4().to_string()
+                    })?;
+                    clips.splice(at..=at, edited);
+                    if clips.is_empty() {
+                        timeline.tracks.remove(index);
+                    }
+                    return Ok(());
+                }
+            }
+            Err(unknown_clip(clip_id))
+        })
+    }
+
     /// Renames a track or a clip, or changes a clip's fade curves or volume envelope (see [`ItemOp`]).
     pub fn item_edit(&mut self, op: ItemOp) -> Result<ProjectState> {
         self.change(|project, active| item_ops::apply(project, active, op))
@@ -445,6 +501,49 @@ impl Session {
         op: crate::routing::AudioRoutingOp,
     ) -> Result<ProjectState> {
         self.change(|project, active| crate::routing::apply(project, active, op))
+    }
+
+    /// Edits the slices of one screen of the video output (see [`crate::mapping`]).
+    pub fn edit_mapping(
+        &mut self,
+        screen: &str,
+        op: crate::mapping::MappingOp,
+    ) -> Result<ProjectState> {
+        self.change(|project, _| {
+            let screen = crate::mapping::screen_mut(&mut project.output.screens, screen)?;
+            crate::mapping::apply(&mut screen.slices, op, || Uuid::new_v4().to_string())
+        })
+    }
+
+    /// Edits the masks of one screen of the video output.
+    pub fn edit_masks(&mut self, screen: &str, op: crate::mapping::MaskOp) -> Result<ProjectState> {
+        self.change(|project, _| {
+            let screen = crate::mapping::screen_mut(&mut project.output.screens, screen)?;
+            crate::mapping::edit_masks(&mut screen.masks, op, || Uuid::new_v4().to_string())
+        })
+    }
+
+    /// Adds, removes or renames a screen of the video output.
+    pub fn edit_screens(&mut self, op: crate::mapping::ScreenOp) -> Result<ProjectState> {
+        self.change(|project, _| {
+            crate::mapping::edit_screens(&mut project.output.screens, op, || {
+                Uuid::new_v4().to_string()
+            })
+        })
+    }
+
+    /// Sets the size of the video composition from two typed numbers of pixels.
+    /// Sets the size of the composition; both sides empty go back to the first video's size.
+    pub fn set_composition(&mut self, width: &str, height: &str) -> Result<ProjectState> {
+        let composition = if width.trim().is_empty() && height.trim().is_empty() {
+            None
+        } else {
+            Some(crate::mapping::Composition::parse(width, height)?)
+        };
+        self.change(|project, _| {
+            project.output.composition = composition;
+            Ok(())
+        })
     }
 
     pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
@@ -523,6 +622,117 @@ impl Session {
         Ok(asset)
     }
 
+    /// Adds a video file from disk to the project, on a new video track of the active timeline with a
+    /// clip at `at` (frames from the timeline start). The caller has checked that it is a video.
+    pub fn import_video(&mut self, file: &Path, at: u64) -> Result<ProjectState> {
+        let file = std::path::absolute(file)?;
+        if !fs::metadata(&file)?.is_file() {
+            return Err(ProjectError::Invalid(format!(
+                "not a file: {}",
+                file.display()
+            )));
+        }
+        let file_name = file
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| ProjectError::Invalid("video file name is not valid UTF-8".into()))?;
+        let id = Uuid::new_v4().to_string();
+        let asset = VideoAsset {
+            name: file.file_stem().map_or_else(
+                || file_name.to_owned(),
+                |stem| stem.to_string_lossy().into_owned(),
+            ),
+            file: format!("{VIDEO_DIR}{id}_{file_name}"),
+            id,
+        };
+        let track = Track {
+            audio_output: Default::default(),
+            id: Uuid::new_v4().to_string(),
+            name: asset.name.clone(),
+            muted: false,
+            gain_db: None,
+            color: None,
+            kind: TrackKind::Video {
+                clips: vec![VideoClip {
+                    id: Uuid::new_v4().to_string(),
+                    asset: asset.id.clone(),
+                    start: at,
+                    name: None,
+                    offset: 0,
+                    length: None,
+                    fit: Default::default(),
+                    fade_in: 0,
+                    fade_out: 0,
+                }],
+            },
+        };
+        let source = AssetSource::Disk(file.clone());
+        let state = self.change(|project, active| {
+            timeline_mut(project, active)?.tracks.push(track);
+            project.videos.push(asset.clone());
+            Ok(())
+        })?;
+        self.sources.insert(asset.id, source);
+        Ok(state)
+    }
+
+    /// Puts the video file at `file` (a converted copy, such as a HAP one) in place of the video
+    /// `asset`: it becomes a new asset, in the same place of the project's list and under the same
+    /// name, and every clip of every timeline that showed the old one shows the new one, keeping
+    /// its place, trim and settings. The old file stays known, so undo brings it back; a save
+    /// leaves it out once nothing uses it.
+    pub fn replace_video(&mut self, asset: &str, file: &Path) -> Result<ProjectState> {
+        let file = std::path::absolute(file)?;
+        if !fs::metadata(&file)?.is_file() {
+            return Err(ProjectError::Invalid(format!(
+                "not a file: {}",
+                file.display()
+            )));
+        }
+        let extension = file
+            .extension()
+            .and_then(|e| e.to_str())
+            .ok_or_else(|| ProjectError::Invalid("video file has no extension".into()))?;
+        let id = Uuid::new_v4().to_string();
+        let state = self.change(|project, _| {
+            let slot = project
+                .videos
+                .iter_mut()
+                .find(|video| video.id == asset)
+                .ok_or_else(|| ProjectError::MissingAsset(asset.to_owned()))?;
+            let stem: String = slot
+                .file
+                .strip_prefix(VIDEO_DIR)
+                .and_then(|name| name.split_once('_').map(|(_, rest)| rest))
+                .map(|name| {
+                    Path::new(name)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or(name)
+                })
+                .unwrap_or(&slot.name)
+                .to_owned();
+            *slot = VideoAsset {
+                id: id.clone(),
+                name: slot.name.clone(),
+                file: format!("{VIDEO_DIR}{id}_{stem}.{extension}"),
+            };
+            check_video_path(&slot.file)?;
+            for timeline in &mut project.timelines {
+                for track in &mut timeline.tracks {
+                    if let TrackKind::Video { clips } = &mut track.kind {
+                        for clip in clips.iter_mut().filter(|clip| clip.asset == asset) {
+                            clip.asset.clone_from(&id);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })?;
+        self.sources.insert(id, AssetSource::Disk(file));
+        Ok(state)
+    }
+
     /// Registers a durable speech job with a stable identity, so attaching it is idempotent.
     pub fn import_voice_job(&mut self, file: &Path, id: &str, name: &str) -> Result<AudioAsset> {
         if !id.starts_with("job-") || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
@@ -590,6 +800,77 @@ impl Session {
         }
     }
 
+    /// A file FFmpeg can open for a video: the imported file itself, or the entry of the archive it
+    /// lives in, copied once into `cache` (named by the asset's id, which never changes its bytes).
+    pub fn video_path(&self, asset: &VideoAsset, cache: &Path) -> Result<PathBuf> {
+        match self.sources.get(&asset.id) {
+            Some(AssetSource::Disk(path)) => Ok(path.clone()),
+            Some(AssetSource::Archive(path)) => {
+                let name = asset.file.strip_prefix(VIDEO_DIR).unwrap_or(&asset.file);
+                let target = cache.join(name);
+                if target.is_file() {
+                    return Ok(target);
+                }
+                fs::create_dir_all(cache)?;
+                let (_, mut archive) = archive::open(path)?;
+                // Written aside first, so a copy cut short is never taken for the video.
+                let partial = cache.join(format!("{name}.part"));
+                std::io::copy(
+                    &mut archive.video_reader(&asset.file)?,
+                    &mut fs::File::create(&partial)?,
+                )?;
+                fs::rename(&partial, &target)?;
+                Ok(target)
+            }
+            None => Err(ProjectError::MissingAsset(asset.id.clone())),
+        }
+    }
+
+    /// Like [`Self::video_path`], for a video of the document known by its id.
+    pub fn video_file(&self, id: &str, cache: &Path) -> Result<PathBuf> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let asset = document
+            .project
+            .videos
+            .iter()
+            .find(|video| video.id == id)
+            .ok_or_else(|| ProjectError::MissingAsset(id.to_owned()))?;
+        self.video_path(asset, cache)
+    }
+
+    /// Tells a reader whether the document changed: it changes whenever an edit is made.
+    pub fn revision(&self) -> (u64, &str) {
+        (
+            self.recovery_revision,
+            self.document.as_ref().map_or("", |d| d.active.as_str()),
+        )
+    }
+
+    /// The project's first video, which the mapping measures its picture in.
+    /// The composition size set in the project, if any.
+    pub fn composition(&self) -> Option<crate::mapping::Composition> {
+        self.document.as_ref()?.project.output.composition
+    }
+
+    pub fn first_video(&self) -> Option<crate::VideoAsset> {
+        self.document.as_ref()?.project.videos.first().cloned()
+    }
+
+    /// The screens of the video output, the main one first; only the main one with no project.
+    pub fn video_screens(&self) -> Vec<crate::mapping::VideoScreen> {
+        crate::mapping::screens(
+            self.document
+                .as_ref()
+                .map_or(&[], |document| &document.project.output.screens),
+        )
+    }
+
+    /// A copy of the timeline being edited and played.
+    pub fn active_timeline_copy(&self) -> Option<Timeline> {
+        let document = self.document.as_ref()?;
+        document.project.timeline(&document.active).cloned()
+    }
+
     /// The stored waveform of an asset, without decoding it: one generated in this session, or the one
     /// in the `.fxtc` the asset is read from if it was made from the same audio.
     pub fn preview(&self, asset: &AudioAsset) -> Result<Option<Preview>> {
@@ -619,8 +900,13 @@ impl Session {
         let used: HashSet<String> = saved.used_assets().into_iter().map(String::from).collect();
         saved.videos.retain(|video| used.contains(&video.id));
         archive::save(&path, &saved, &self.sources, &self.previews)?;
-        self.sources = archive_sources(&saved, &path);
+        let before = std::mem::replace(&mut self.sources, archive_sources(&saved, &path));
         self.sources.extend(self.voice_sources.clone());
+        // What the save left out stays known where it was, so an undo past the save finds it: a
+        // file on disk, or a video read from the archive it replaced, still in the video cache.
+        for (id, source) in before {
+            self.sources.entry(id).or_insert(source);
+        }
         // They are in the file now, which is where they are read from from here on.
         self.previews.clear();
         let mut document = Document::new(saved.clone(), Some(path.to_path_buf()));
@@ -989,6 +1275,129 @@ mod tests {
 
         assert_ne!(first.id, second.id);
         assert_ne!(first.file, second.file);
+    }
+
+    #[test]
+    fn import_video_should_add_a_track_with_a_clip_and_save_the_file() {
+        let dir = TempDir::new().unwrap();
+        let mp4 = dir.path().join("intro.mp4");
+        fs::write(&mp4, b"not decoded here").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+
+        let state = session.import_video(&mp4, 50).unwrap();
+
+        let asset = &state.project.videos[0];
+        assert_eq!(asset.name, "intro");
+        assert!(asset.file.starts_with("video/") && asset.file.ends_with("_intro.mp4"));
+        let track = state.project.timelines[0].tracks.last().unwrap();
+        let TrackKind::Video { clips } = &track.kind else {
+            panic!("not a video track: {track:?}");
+        };
+        assert_eq!(
+            (clips[0].asset.as_str(), clips[0].start),
+            (asset.id.as_str(), 50)
+        );
+
+        let path = dir.path().join("show.flx");
+        session.save(&state.project, &path).unwrap();
+        let (_, mut archive) = archive::open(&path).unwrap();
+        let mut bytes = Vec::new();
+        archive
+            .video_reader(&asset.file)
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"not decoded here");
+    }
+
+    #[test]
+    fn replace_video_should_move_every_clip_to_the_new_file_and_undo_should_bring_it_back() {
+        let dir = TempDir::new().unwrap();
+        let mp4 = dir.path().join("intro.mp4");
+        let mov = dir.path().join("converted.mov");
+        fs::write(&mp4, b"h264").unwrap();
+        fs::write(&mov, b"hap").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+        let before = session.import_video(&mp4, 10).unwrap();
+        let old = before.project.videos[0].clone();
+
+        let after = session.replace_video(&old.id, &mov).unwrap();
+
+        let new = &after.project.videos[0];
+        assert_eq!(after.project.videos.len(), 1);
+        assert_ne!(new.id, old.id);
+        assert_eq!(new.name, "intro");
+        assert!(
+            new.file.starts_with("video/") && new.file.ends_with("_intro.mov"),
+            "{}",
+            new.file
+        );
+        let TrackKind::Video { clips } = &after.project.timelines[0].tracks.last().unwrap().kind
+        else {
+            panic!("not a video track");
+        };
+        assert_eq!(
+            (clips[0].asset.as_str(), clips[0].start),
+            (new.id.as_str(), 10)
+        );
+        let cache = dir.path().join("cache");
+        assert_eq!(session.video_path(new, &cache).unwrap(), mov);
+
+        // Undo is the old project sent back: its file is still known.
+        session.update(before.project.clone());
+        assert_eq!(session.video_path(&old, &cache).unwrap(), mp4);
+        let path = dir.path().join("show.flx");
+        session.save(&after.project, &path).unwrap();
+        let (_, mut archive) = archive::open(&path).unwrap();
+        let mut bytes = Vec::new();
+        archive
+            .video_reader(&new.file)
+            .unwrap()
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert_eq!(bytes, b"hap");
+        assert!(archive.video_reader(&old.file).is_err());
+        // Undo past the save: the original is still read from where it was imported.
+        session.update(before.project);
+        assert_eq!(session.video_path(&old, &cache).unwrap(), mp4);
+    }
+
+    #[test]
+    fn replace_video_should_refuse_an_unknown_video() {
+        let dir = TempDir::new().unwrap();
+        let mov = dir.path().join("converted.mov");
+        fs::write(&mov, b"hap").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+
+        let result = session.replace_video("nope", &mov);
+
+        assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
+    }
+
+    #[test]
+    fn video_path_should_copy_a_saved_video_out_of_the_archive_once() {
+        let dir = TempDir::new().unwrap();
+        let mp4 = dir.path().join("intro.mp4");
+        fs::write(&mp4, b"frames").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+        let state = session.import_video(&mp4, 0).unwrap();
+        let asset = state.project.videos[0].clone();
+        let cache = dir.path().join("cache");
+        assert_eq!(session.video_path(&asset, &cache).unwrap(), mp4);
+
+        let path = dir.path().join("show.flx");
+        session.save(&state.project, &path).unwrap();
+        let mut reopened = Session::default();
+        reopened.open(&path).unwrap();
+        let copied = reopened.video_path(&asset, &cache).unwrap();
+
+        assert!(copied.starts_with(&cache));
+        assert_eq!(fs::read(&copied).unwrap(), b"frames");
+        assert_eq!(reopened.video_path(&asset, &cache).unwrap(), copied);
     }
 
     #[test]

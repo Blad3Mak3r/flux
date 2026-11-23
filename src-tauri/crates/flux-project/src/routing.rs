@@ -93,10 +93,11 @@ pub fn valid_id(id: &str) -> bool {
     uuid::Uuid::parse_str(id).is_ok()
 }
 
+/// Whether the track has sound to route: audio, the operator's voice, and the sound of a video.
 pub fn audible(track: &Track) -> bool {
     matches!(
         track.kind,
-        TrackKind::Audio { .. } | TrackKind::Operator { .. }
+        TrackKind::Audio { .. } | TrackKind::Operator { .. } | TrackKind::Video { .. }
     )
 }
 pub fn target(track: &Track) -> Option<&str> {

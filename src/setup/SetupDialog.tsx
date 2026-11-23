@@ -1,4 +1,5 @@
 import { VoicePage } from "../voice/VoicePanel";
+import { VideoPage } from "./VideoPage";
 import { usePreferences } from "../preferences/store";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
@@ -34,6 +35,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <MtcPage devices={devices} />;
     case "osc":
       return <OscPage />;
+    case "video":
+      return <VideoPage />;
     case "controlMidi":
       return <ControlPage part="midi" />;
     case "controlOsc":
@@ -117,7 +120,7 @@ const NAV_LABEL: Partial<Record<SetupSection, MessageKey>> = {
   http: "setup.nav.http",
 };
 
-const SOON_HINT: Partial<Record<SetupSection, MessageKey>> = { video: "setup.soon.video", http: "setup.soon.http" };
+const SOON_HINT: Partial<Record<SetupSection, MessageKey>> = { http: "setup.soon.http" };
 
 /**
  * The page list: groups that fold, each a header and its pages. Up and Down walk the focus over

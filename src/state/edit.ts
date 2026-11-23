@@ -207,7 +207,7 @@ const trackOf = (project: Project, timeline: string, trackId: string) =>
 /** Sets an audio track's fader. 0 dB is stored as no value, as in a file that never had one. */
 export function setTrackGain(project: Project, timeline: string, trackId: string, gainDb: number): Project {
   const target = trackOf(project, timeline, trackId);
-  if (!target || target.kind.type !== "audio" || (target.gainDb ?? 0) === gainDb) return project;
+  if (!target || (target.kind.type !== "audio" && target.kind.type !== "video") || (target.gainDb ?? 0) === gainDb) return project;
   return mapTracks(project, timeline, (track) => {
     if (track.id !== trackId) return track;
     const { gainDb: _previous, ...rest } = track;

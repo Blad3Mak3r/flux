@@ -45,6 +45,15 @@ impl VideoDeck {
         }
     }
 
+    /// Where the open clips are decoded: the GPU device when any of them decodes on one,
+    /// `Some(Software)` when they all decode on the CPU, and `None` with no clip open.
+    pub fn decoding(&self) -> Option<crate::Decoding> {
+        use crate::Decoding::Software;
+        let mut all = self.players.values().map(VideoPlayer::decoding).peekable();
+        all.peek()?;
+        Some(all.find(|d| *d != Software).unwrap_or(Software))
+    }
+
     /// The layers to draw for `cue`, topmost first. Call it for every picture the outputs draw.
     pub fn show(&mut self, timeline: &Timeline, cue: Cue) -> Vec<Shown> {
         if let Cue::At(position) = cue {

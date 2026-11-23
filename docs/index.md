@@ -17,6 +17,7 @@ describe what the app does today.
 | Guide | Covers |
 | --- | --- |
 | [Setlists and show operation](/setlists) | Preparing and running a setlist, GO and transitions. |
+| [Video and projection mapping](/video-output) | Video clips, output screens, slices, soft edges and masks. |
 | [Remote control](/remote-control) | MIDI controllers and OSC as a remote. |
 | [Per-track audio outputs](/audio-routing) | Per-track destinations and per-computer interfaces. |
 | [Voice operator](/voice-operator) | Spoken operator tracks. |

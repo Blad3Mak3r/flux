@@ -7,10 +7,10 @@ import { memo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
-import type { AudioClip, MidiEvent, Note, OscEvent, Track } from "../project/types";
+import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
-import { editClip } from "../state/clips";
+import { editClip, editVideoClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
 import { useDoc } from "../state/store";
@@ -18,7 +18,8 @@ import { menuAtPointer, rename, select, setSnapGuide, useUi } from "../state/ui"
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
-import { clipLength } from "../timeline/clip";
+import { clipLength, videoClipLength } from "../timeline/clip";
+import type { VideoStrip } from "../video/api";
 import { fadePoints } from "../audio/fade";
 import { traceStyle } from "../timeline/palette";
 import type { SnapTarget } from "../timeline/snap";
@@ -29,11 +30,12 @@ import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
 import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
+import { Marquee } from "./Marquee";
 import { ChevronRightIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, VideoIcon, WaveIcon, VoiceIcon } from "./icons";
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu, videoTrackMenu } from "./menus";
 
 export function laneHeight(track: Track): number {
-  return track.kind.type === "audio" || track.kind.type === "operator" ? AUDIO_LANE_H : NOTES_LANE_H;
+  return track.kind.type === "audio" || track.kind.type === "operator" || track.kind.type === "video" ? AUDIO_LANE_H : NOTES_LANE_H;
 }
 
 const KIND_ICONS = {
@@ -56,7 +58,7 @@ export const TrackHeader = memo(function TrackHeader({
   onGrab: (event: PointerEvent<HTMLElement>, id: string) => void;
 }) {
   const t = useT();
-  const audio = track.kind.type === "audio" || track.kind.type === "operator";
+  const audio = track.kind.type === "audio" || track.kind.type === "operator" || track.kind.type === "video";
   const outputName = useAudioOutputName();
   const output = usePreferences((p) => p.output.trackRoutes?.find((r) => r.trackId === track.id)?.output);
   const selected = useUi((ui) => ui.selection?.kind === "track" && ui.selection.id === track.id);
@@ -97,13 +99,13 @@ export const TrackHeader = memo(function TrackHeader({
             onDone={() => rename(null)}
           />
         ) : (
-          <span
+          <Marquee
             className="track-name"
             title={track.name}
             onDoubleClick={() => rename({ kind: "track", id: track.id })}
           >
             {track.name}
-          </span>
+          </Marquee>
         )}
         <button
           type="button"
@@ -155,7 +157,14 @@ export const TrackHeader = memo(function TrackHeader({
  */
 function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
-  const move = kind === "operator" ? (id: string, at: number) => operatorEdit({ op: "moveOrder", id, at }) : kind === "event" ? moveCueEvent : moveTo;
+  const move =
+    kind === "operator"
+      ? (id: string, at: number) => operatorEdit({ op: "moveOrder", id, at })
+      : kind === "event"
+        ? moveCueEvent
+        : kind === "video"
+          ? (id: string, at: number) => editVideoClip(id, "move", at)
+          : moveTo;
   const [delta, setDelta] = useState(0);
   const origin = useRef<{ x: number; position: number; targets: SnapTarget[] } | null>(null);
 
@@ -199,7 +208,9 @@ type HandleProps = ReturnType<typeof useHandle>["handlers"];
  * works out what it means (a trim, a fade) and its answer replaces the clip, so a drag is one step
  * of undo. The handle shows where it was dropped until the answer arrives.
  */
-function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
+function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number, video = false) {
+  const edit = (to: number) =>
+    video ? editVideoClip(id, op as "trimStart" | "trimEnd" | "fadeIn" | "fadeOut", to) : editClip(id, op, to);
   const [drag, setDrag] = useState<{ from: number; to: number } | null>(null);
   const originX = useRef<number | null>(null);
   const targets = useRef<SnapTarget[]>([]);
@@ -212,7 +223,7 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
       event.currentTarget.setPointerCapture(event.pointerId);
       originX.current = event.clientX;
       targets.current = snapTargets([id]);
-      select({ kind: "clip", id });
+      select({ kind: video ? "video" : "clip", id });
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       if (originX.current === null) return;
@@ -222,7 +233,7 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
     onPointerUp() {
       originX.current = null;
       setSnapGuide(null);
-      if (drag && drag.to !== frame) void editClip(id, op, drag.to).finally(() => setDrag(null));
+      if (drag && drag.to !== frame) void edit(drag.to).finally(() => setDrag(null));
       else setDrag(null);
     },
     onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -230,7 +241,7 @@ function useHandle(id: string, op: ClipOp, frame: number, pxPerFrame: number) {
       event.preventDefault();
       event.stopPropagation();
       const step = (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 25 : 1);
-      void editClip(id, op, Math.max(0, frame + step));
+      void edit(Math.max(0, frame + step));
     },
   };
   return { at, handlers };
@@ -432,6 +443,156 @@ function ClipBlock({
   );
 }
 
+/** A video clip: moved by dragging it, trimmed by its edges, faded by the squares at its top corners, cut with S at the playhead. The backend makes each edit. */
+function VideoBlock({
+  clip,
+  guessLength,
+  rowHeight,
+  fps,
+  pxPerFrame,
+}: {
+  clip: VideoClip;
+  guessLength: number;
+  rowHeight: number;
+  fps: number;
+  pxPerFrame: number;
+}) {
+  const t = useT();
+  const selected = useUi((ui) => ui.selection?.id === clip.id);
+  const probe = useDoc((doc) => doc.video[clip.asset]);
+  const name = useDoc((doc) => clip.name ?? doc.project.videos?.find((video) => video.id === clip.asset)?.name ?? clip.asset);
+  const length = videoClipLength(clip, probe, fps, guessLength);
+  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame);
+  const end = clip.start + length;
+  const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame, true);
+  const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame, true);
+  const fadeIn = useHandle(clip.id, "fadeIn", clip.start + (clip.fadeIn ?? 0), pxPerFrame, true);
+  const fadeOut = useHandle(clip.id, "fadeOut", end - (clip.fadeOut ?? 0), pxPerFrame, true);
+  const left = trimStart.at + (shown - clip.start);
+  const width = Math.max(24, (trimEnd.at - trimStart.at) * pxPerFrame);
+  const fadeInPx = Math.min(width, Math.max(0, (fadeIn.at - trimStart.at) * pxPerFrame));
+  const fadeOutPx = Math.min(width, Math.max(0, (trimEnd.at - fadeOut.at) * pxPerFrame));
+  const strip = useDoc((doc) => doc.thumbs[clip.asset]);
+  const sound = useDoc((doc) => doc.audio[clip.asset]);
+  const offset = (clip.offset ?? 0) + (trimStart.at - clip.start);
+  // With sound, the pictures take the top of the clip and the waveform the bottom.
+  const inner = rowHeight - 14;
+  const waveHeight = sound?.peaks ? Math.round(inner * 0.4) : 0;
+  return (
+    <div
+      className="clip clip-video"
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      data-selected={selected}
+      style={{ left: frameX(left, pxPerFrame), width, height: rowHeight - 12 }}
+      {...pointer}
+    >
+      {strip && (
+        <VideoThumbTiles
+          strip={strip}
+          offset={offset}
+          width={width}
+          height={inner - waveHeight}
+          fps={fps}
+          pxPerFrame={pxPerFrame}
+        />
+      )}
+      {sound?.peaks && (
+        <span className="clip-video-wave" style={{ height: waveHeight }}>
+          <ClipWave
+            seed={clip.asset}
+            width={width}
+            height={waveHeight}
+            origin={frameX(left, pxPerFrame)}
+            color="currentColor"
+            peaks={sound.peaks}
+            pxPerSecond={pxPerFrame * fps}
+            startSeconds={offset / fps}
+          />
+        </span>
+      )}
+      {(fadeInPx > 0 || fadeOutPx > 0) && (
+        <svg className="clip-fades" width={width} height={inner} aria-hidden="true">
+          {fadeInPx > 0 && <polyline points={fadePoints("linear", "in", fadeInPx, inner)} />}
+          {fadeOutPx > 0 && (
+            <polyline transform={`translate(${width - fadeOutPx} 0)`} points={fadePoints("linear", "out", fadeOutPx, inner)} />
+          )}
+        </svg>
+      )}
+      <span className="clip-label">
+        {name}
+        {sound?.bpm !== undefined && <span className="clip-bpm">{sound.bpm} BPM</span>}
+        {probe && (
+          <span className="clip-bpm">
+            {probe.width}×{probe.height} {probe.codec}
+          </span>
+        )}
+      </span>
+      <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
+      <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
+      <ClipHandle
+        edge="fadeIn"
+        label={t("clip.fadeIn", { name })}
+        style={{ left: fadeHandleLeft(fadeInPx, width) }}
+        handlers={fadeIn.handlers}
+      />
+      <ClipHandle
+        edge="fadeOut"
+        label={t("clip.fadeOut", { name })}
+        style={{ left: fadeHandleLeft(width - fadeOutPx, width) }}
+        handlers={fadeOut.handlers}
+      />
+    </div>
+  );
+}
+
+/** Most tiles a clip draws, so a long clip zoomed far in stays light. */
+const MAX_TILES = 400;
+
+/**
+ * The thumbnails along a video clip, each as tall as the clip and showing the video where it starts
+ * on the timeline. `offset` is the first frame of the video the clip shows, in timeline frames.
+ */
+function VideoThumbTiles({
+  strip,
+  offset,
+  width,
+  height,
+  fps,
+  pxPerFrame,
+}: {
+  strip: VideoStrip;
+  offset: number;
+  width: number;
+  height: number;
+  fps: number;
+  pxPerFrame: number;
+}) {
+  const tile = (strip.width * height) / strip.height;
+  const count = Math.min(MAX_TILES, Math.ceil(width / tile));
+  return (
+    <div className="clip-thumbs" aria-hidden="true">
+      {Array.from({ length: count }, (_, k) => {
+        const seconds = (offset + (k * tile) / pxPerFrame) / fps;
+        const index = Math.min(strip.count - 1, Math.max(0, Math.floor(seconds / strip.seconds)));
+        return (
+          <span
+            key={k}
+            style={{
+              width: tile,
+              height,
+              backgroundImage: `url(${strip.url})`,
+              backgroundSize: `${tile * strip.count}px ${height}px`,
+              backgroundPosition: `${-index * tile}px 0`,
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * A note on its lane: a line at its start with the text beside it. One with a length is drawn as a
  * box as long as it lasts, so what is on show at a point of the timeline can be read off the ruler.
@@ -599,7 +760,9 @@ export const TrackLane = memo(function TrackLane({
           : track.kind.type === "operator"
             ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} fps={fps} pxPerFrame={pxPerFrame} />)
           : track.kind.type === "video"
-            ? null
+            ? track.kind.clips.map((clip) => (
+                <VideoBlock key={clip.id} clip={clip} guessLength={guessLength} rowHeight={height} fps={fps} pxPerFrame={pxPerFrame} />
+              ))
           : track.kind.events.map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
             ))}
