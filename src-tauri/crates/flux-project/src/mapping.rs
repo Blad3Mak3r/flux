@@ -697,9 +697,66 @@ pub fn validate(slices: &[Slice]) -> Result<()> {
     Ok(())
 }
 
+/// The size of the composition, the picture every clip is sized into and the slices cut, in
+/// pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Composition {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Sides a composition may have, in pixels.
+pub const COMPOSITION_SIDES: std::ops::RangeInclusive<u32> = 16..=8192;
+
+impl Composition {
+    /// The size typed as two numbers of pixels.
+    pub fn parse(width: &str, height: &str) -> Result<Self> {
+        let side = |text: &str| {
+            text.trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|v| COMPOSITION_SIDES.contains(v))
+                .ok_or_else(|| {
+                    ProjectError::Invalid(format!(
+                        "the composition's sides are whole pixels from {} to {}",
+                        COMPOSITION_SIDES.start(),
+                        COMPOSITION_SIDES.end()
+                    ))
+                })
+        };
+        Ok(Self {
+            width: side(width)?,
+            height: side(height)?,
+        })
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        Self::parse(&self.width.to_string(), &self.height.to_string()).map(|_| ())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_composition_should_take_whole_pixels_within_its_range() {
+        assert_eq!(
+            Composition::parse(" 3840", "1080 ").unwrap(),
+            Composition {
+                width: 3840,
+                height: 1080
+            }
+        );
+        for (w, h) in [
+            ("15", "1080"),
+            ("1920", "8193"),
+            ("19.5", "1080"),
+            ("", "1080"),
+        ] {
+            assert!(Composition::parse(w, h).is_err(), "{w} x {h}");
+        }
+    }
 
     fn added() -> Vec<Slice> {
         let mut slices = Vec::new();

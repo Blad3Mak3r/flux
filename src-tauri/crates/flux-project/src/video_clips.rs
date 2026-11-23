@@ -5,7 +5,7 @@
 use serde::Deserialize;
 
 use super::error::{ProjectError, Result};
-use super::model::VideoClip;
+use super::model::{VideoClip, VideoFit};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +21,8 @@ pub enum VideoClipOp {
     Split,
     /// Takes the clip off its track.
     Remove,
+    /// Sizes the video into the composition this way; the frame is not used.
+    Fit(VideoFit),
 }
 
 fn refused(clip: &VideoClip, why: &str) -> ProjectError {
@@ -44,6 +46,7 @@ pub fn apply(
     match op {
         VideoClipOp::Move => edited.start = frame,
         VideoClipOp::Remove => return Ok(Vec::new()),
+        VideoClipOp::Fit(fit) => edited.fit = fit,
         VideoClipOp::TrimStart => {
             if length == 0 {
                 return Err(refused(clip, "there is no video left to trim"));
@@ -74,6 +77,7 @@ pub fn apply(
                 name: clip.name.clone(),
                 offset: clip.offset + frame - clip.start,
                 length: Some(end - frame),
+                fit: clip.fit,
             };
             return Ok(vec![edited, second]);
         }
@@ -95,7 +99,37 @@ mod tests {
             name: None,
             offset: 0,
             length: None,
+            fit: VideoFit::Fit,
         }
+    }
+
+    #[test]
+    fn fit_should_change_only_how_the_video_is_sized() {
+        let fitted = edit(&clip(), VideoClipOp::Fit(VideoFit::Fill), 0);
+        assert_eq!(fitted.fit, VideoFit::Fill);
+        assert_eq!((fitted.start, fitted.offset, fitted.length), (100, 0, None));
+    }
+
+    #[test]
+    fn a_split_should_keep_the_fit_on_both_halves() {
+        let mut filled = clip();
+        filled.fit = VideoFit::None;
+        let halves = apply(&filled, VideoClipOp::Split, 300, VIDEO, || "c2".into()).unwrap();
+        assert!(halves.iter().all(|half| half.fit == VideoFit::None));
+    }
+
+    #[test]
+    fn the_fit_should_be_written_only_when_it_is_not_fit() {
+        let json = serde_json::to_value(clip()).unwrap();
+        assert!(json.get("fit").is_none());
+        let mut stretched = clip();
+        stretched.fit = VideoFit::Stretch;
+        let json = serde_json::to_value(&stretched).unwrap();
+        assert_eq!(json["fit"], "stretch");
+        let op: VideoClipOp = serde_json::from_str(r#"{"fit":"none"}"#).unwrap();
+        assert_eq!(op, VideoClipOp::Fit(VideoFit::None));
+        let op: VideoClipOp = serde_json::from_str(r#""move""#).unwrap();
+        assert_eq!(op, VideoClipOp::Move);
     }
 
     fn edit(clip: &VideoClip, op: VideoClipOp, frame: u64) -> VideoClip {

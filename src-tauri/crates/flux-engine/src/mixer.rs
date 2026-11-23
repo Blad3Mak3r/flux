@@ -672,6 +672,7 @@ mod tests {
                     name: None,
                     offset: 1,
                     length: Some(1),
+                    fit: Default::default(),
                 }],
             },
         });

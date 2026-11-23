@@ -532,6 +532,20 @@ impl Session {
         })
     }
 
+    /// Sets the size of the video composition from two typed numbers of pixels.
+    /// Sets the size of the composition; both sides empty go back to the first video's size.
+    pub fn set_composition(&mut self, width: &str, height: &str) -> Result<ProjectState> {
+        let composition = if width.trim().is_empty() && height.trim().is_empty() {
+            None
+        } else {
+            Some(crate::mapping::Composition::parse(width, height)?)
+        };
+        self.change(|project, _| {
+            project.output.composition = composition;
+            Ok(())
+        })
+    }
+
     pub fn edit_signal(&mut self, op: crate::SignalOp) -> Result<ProjectState> {
         self.change(|project, _| project.output.edit(op))
     }
@@ -646,6 +660,7 @@ impl Session {
                     name: None,
                     offset: 0,
                     length: None,
+                    fit: Default::default(),
                 }],
             },
         };
@@ -773,6 +788,11 @@ impl Session {
     }
 
     /// The project's first video, which the mapping measures its picture in.
+    /// The composition size set in the project, if any.
+    pub fn composition(&self) -> Option<crate::mapping::Composition> {
+        self.document.as_ref()?.project.output.composition
+    }
+
     pub fn first_video(&self) -> Option<crate::VideoAsset> {
         self.document.as_ref()?.project.videos.first().cloned()
     }

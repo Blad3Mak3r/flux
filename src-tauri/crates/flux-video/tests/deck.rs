@@ -31,6 +31,7 @@ fn timeline(asset: &str) -> Timeline {
                 name: None,
                 offset: 4,
                 length: None,
+                fit: Default::default(),
             }],
         },
     });

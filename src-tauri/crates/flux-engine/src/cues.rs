@@ -808,6 +808,7 @@ mod tests {
                     name: None,
                     offset: 25,
                     length: None,
+                    fit: Default::default(),
                 }],
             },
         ));

@@ -20,6 +20,8 @@ pub struct Layer {
     /// Id of an entry in `Project::videos`.
     pub asset: String,
     pub frame: u64,
+    /// How the clip is sized into the composition.
+    pub fit: flux_project::VideoFit,
 }
 
 /// The rate and length of a video, which the mapping needs; `None` when it could not be read.
@@ -54,6 +56,7 @@ pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
                     clip: clip.id.clone(),
                     asset: clip.asset.clone(),
                     frame,
+                    fit: clip.fit,
                 })
         })
         .collect()
@@ -79,6 +82,7 @@ pub fn upcoming(timeline: &Timeline, position: u64, ahead: u64, probe: Probe<'_>
                 clip: clip.id.clone(),
                 asset: clip.asset.clone(),
                 frame: source_frame(clip, clip.start, rate, video, frames)?,
+                fit: clip.fit,
             })
         })
         .collect()
@@ -98,6 +102,7 @@ mod tests {
             name: None,
             offset: 0,
             length,
+            fit: Default::default(),
         }
     }
 
