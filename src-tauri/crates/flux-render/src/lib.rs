@@ -2,7 +2,8 @@
 //! [`Quad`]s: each takes a rectangle of the picture and stretches it between four corners of the
 //! window, with the perspective of a projector seen at an angle (a "corner pin"). With no quads the
 //! whole picture is fitted to the window keeping its shape, with black around it; the window is
-//! black when there is no picture. A quad can fade out towards its edges (a soft edge, to blend
+//! black when there is no picture. Several pictures are drawn one over another, each at its own
+//! place and opacity, which is how clips fade and cross-fade. A quad can fade out towards its edges (a soft edge, to blend
 //! two projectors where their pictures overlap), and [`Mask`]s black out parts of the window.
 
 pub mod pattern;
@@ -31,8 +32,10 @@ pub struct Picture<'a> {
     pub height: u32,
     pub rgba: &'a [u8],
     /// Where it sits in the composition, `[x, y, width, height]` as fractions of it (see
-    /// [`placement`]); the composition outside it is black.
+    /// [`placement`]); outside it, what is below shows.
     pub place: [f32; 4],
+    /// How much of it covers what is below, 0 to 1.
+    pub opacity: f32,
 }
 
 /// How a picture is sized into the composition.
@@ -80,6 +83,8 @@ pub struct Quad {
 
 /// Most quads drawn at once.
 pub const MAX_QUADS: usize = 64;
+/// Pictures drawn one over another at most; more are left out from the bottom.
+pub const MAX_LAYERS: usize = 4;
 
 /// A shape on the window, as `[x, y]` points from 0 to 1 of its width and height, that hides the
 /// picture inside it, or outside it when `invert`.
@@ -93,7 +98,7 @@ pub struct Mask {
 pub const MAX_MASKS: usize = 8;
 pub const MAX_MASK_POINTS: usize = 32;
 /// The masks' uniform: a header, one line of 4 numbers per mask and two points per line.
-const MASKS_SIZE: u64 = 32 + 16 * MAX_MASKS as u64 + 8 * (MAX_MASKS * MAX_MASK_POINTS) as u64;
+const MASKS_SIZE: u64 = 16 + 16 * MAX_MASKS as u64 + 8 * (MAX_MASKS * MAX_MASK_POINTS) as u64;
 
 /// A corner of a quad as the GPU reads it: its place in clip space and its texture coordinate,
 /// multiplied by a weight that undoes the perspective (see [`vertices`]).
@@ -106,6 +111,9 @@ pub struct Vertex {
     pub local: [f32; 2],
     pub soft: [f32; 4],
     pub gamma: f32,
+    /// Where the picture sits in the composition (see [`Picture::place`]).
+    pub place: [f32; 4],
+    pub opacity: f32,
 }
 
 const VERTEX_SIZE: u64 = size_of::<Vertex>() as u64;
@@ -136,7 +144,8 @@ pub struct Screen {
     masks_group: wgpu::BindGroup,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    picture: Option<Uploaded>,
+    /// The texture of each layer, from the bottom.
+    pictures: Vec<Option<Uploaded>>,
     errors: Errors,
 }
 
@@ -151,6 +160,8 @@ struct Out {
     @location(1) local: vec2f,
     @location(2) @interpolate(flat) soft: vec4f,
     @location(3) @interpolate(flat) gamma: f32,
+    @location(4) @interpolate(flat) place: vec4f,
+    @location(5) @interpolate(flat) opacity: f32,
 };
 
 @vertex
@@ -160,6 +171,8 @@ fn vs(
     @location(2) local: vec2f,
     @location(3) soft: vec4f,
     @location(4) gamma: f32,
+    @location(5) place: vec4f,
+    @location(6) opacity: f32,
 ) -> Out {
     var out: Out;
     out.pos = vec4f(pos, 0.0, 1.0);
@@ -167,6 +180,8 @@ fn vs(
     out.local = local;
     out.soft = soft;
     out.gamma = gamma;
+    out.place = place;
+    out.opacity = opacity;
     return out;
 }
 
@@ -177,7 +192,6 @@ fn vs(
 // and whether it is inverted; the points, two to a line.
 struct Masks {
     size: vec4f,
-    place: vec4f,
     info: array<vec4u, 8>,
     points: array<vec4f, 128>,
 };
@@ -222,7 +236,7 @@ fn ramp(t: f32, width: f32) -> f32 {
 @fragment
 fn fs(in: Out) -> @location(0) vec4f {
     // The slice's texture coordinate is in the composition; the picture sits at `place` in it.
-    let at = (in.uvq.xy / in.uvq.z - masks.place.xy) / masks.place.zw;
+    let at = (in.uvq.xy / in.uvq.z - in.place.xy) / in.place.zw;
     let colour = textureSample(picture, linear_sampler, at);
     let within = all(at >= vec2f(0.0)) && all(at <= vec2f(1.0));
     let l = in.local / in.uvq.z;
@@ -239,7 +253,13 @@ fn fs(in: Out) -> @location(0) vec4f {
             shown = 0.0;
         }
     }
-    return vec4f(colour.rgb * shown, colour.a);
+    // Outside its place the picture leaves what is below; inside, it covers it by its opacity,
+    // and a soft edge or a mask darkens both alike.
+    var cover = 0.0;
+    if within {
+        cover = colour.a * in.opacity;
+    }
+    return vec4f(colour.rgb * shown, cover);
 }
 ";
 
@@ -373,7 +393,9 @@ impl Screen {
                         1 => Float32x3,
                         2 => Float32x2,
                         3 => Float32x4,
-                        4 => Float32
+                        4 => Float32,
+                        5 => Float32x4,
+                        6 => Float32
                     ],
                 })],
             },
@@ -384,7 +406,11 @@ impl Screen {
                 module: &shader,
                 entry_point: Some("fs"),
                 compilation_options: Default::default(),
-                targets: &[Some(format.into())],
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
             }),
             multiview_mask: None,
             cache: None,
@@ -397,7 +423,7 @@ impl Screen {
         });
         let vertices = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quads"),
-            size: VERTEX_SIZE * 6 * MAX_QUADS as u64,
+            size: VERTEX_SIZE * 6 * (MAX_QUADS * MAX_LAYERS) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -412,7 +438,7 @@ impl Screen {
             masks_group,
             layout,
             sampler,
-            picture: None,
+            pictures: (0..MAX_LAYERS).map(|_| None).collect(),
             errors,
         })
     }
@@ -431,42 +457,53 @@ impl Screen {
         }
     }
 
-    /// Draws `picture`, placed in a composition of `composition` pixels, through `quads` (at most
+    /// Draws `pictures` one over another from the first (at most [`MAX_LAYERS`], the top ones
+    /// kept), each placed in a composition of `composition` pixels, through `quads` (at most
     /// [`MAX_QUADS`]) or with the composition fitted to the window when there are none, with
     /// `masks` hiding parts of it; black for no picture. Waits for the display's next refresh, so
     /// a loop calling it runs at the display's rate.
     pub fn draw(
         &mut self,
-        picture: Option<Picture<'_>>,
+        pictures: &[Picture<'_>],
         composition: (u32, u32),
         quads: &[Quad],
         masks: &[Mask],
     ) -> Result<(), RenderError> {
-        let place = picture.map_or([0.0, 0.0, 1.0, 1.0], |picture| picture.place);
         self.queue.write_buffer(
             &self.masks,
             0,
-            &mask_bytes(masks, (self.config.width, self.config.height), place),
+            &mask_bytes(masks, (self.config.width, self.config.height)),
         );
-        if let Some(picture) = picture {
-            self.upload(picture);
+        let pictures = &pictures[pictures.len().saturating_sub(MAX_LAYERS)..];
+        let fitted;
+        let quads = if quads.is_empty() {
+            fitted = [fitted_quad(
+                composition,
+                (self.config.width, self.config.height),
+            )];
+            &fitted[..]
+        } else {
+            &quads[..quads.len().min(MAX_QUADS)]
+        };
+        // Each layer's vertices, and the range of them it draws.
+        let mut data: Vec<Vertex> = Vec::new();
+        let mut layers = Vec::new();
+        for (slot, picture) in pictures.iter().enumerate() {
+            if picture.opacity <= 0.0 || !self.upload(slot, *picture) {
+                continue;
+            }
+            let first = data.len() as u32;
+            data.extend(quads.iter().flat_map(vertices).map(|vertex| Vertex {
+                place: picture.place,
+                opacity: picture.opacity.min(1.0),
+                ..vertex
+            }));
+            layers.push((slot, first..data.len() as u32));
         }
-        let shown = picture.and(self.picture.as_ref()).map(|_| {
-            let fitted;
-            let quads = if quads.is_empty() {
-                fitted = [fitted_quad(
-                    composition,
-                    (self.config.width, self.config.height),
-                )];
-                &fitted[..]
-            } else {
-                &quads[..quads.len().min(MAX_QUADS)]
-            };
-            let data: Vec<Vertex> = quads.iter().flat_map(vertices).collect();
+        if !data.is_empty() {
             self.queue
                 .write_buffer(&self.vertices, 0, &vertex_bytes(&data));
-            data.len() as u32
-        });
+        }
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame)
             | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
@@ -495,12 +532,14 @@ impl Screen {
                 })],
                 ..Default::default()
             });
-            if let (Some(count), Some(uploaded)) = (shown, self.picture.as_ref()) {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &uploaded.bind_group, &[]);
-                pass.set_bind_group(1, &self.masks_group, &[]);
-                pass.set_vertex_buffer(0, self.vertices.slice(..));
-                pass.draw(0..count, 0..1);
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(1, &self.masks_group, &[]);
+            pass.set_vertex_buffer(0, self.vertices.slice(..));
+            for (slot, range) in layers {
+                if let Some(uploaded) = &self.pictures[slot] {
+                    pass.set_bind_group(0, &uploaded.bind_group, &[]);
+                    pass.draw(range, 0..1);
+                }
             }
         }
         self.queue.submit([encoder.finish()]);
@@ -508,21 +547,24 @@ impl Screen {
         Ok(())
     }
 
-    fn upload(&mut self, picture: Picture<'_>) {
+    /// Puts `picture` in the texture of layer `slot`; `false` when it cannot be shown.
+    fn upload(&mut self, slot: usize, picture: Picture<'_>) -> bool {
         let expected = picture.width as usize * picture.height as usize * 4;
         if picture.width == 0 || picture.height == 0 || picture.rgba.len() != expected {
-            return;
+            return false;
         }
-        if self.picture.as_ref().is_some_and(|p| p.id == picture.id) {
-            return;
+        if self.pictures[slot]
+            .as_ref()
+            .is_some_and(|p| p.id == picture.id)
+        {
+            return true;
         }
         let size = wgpu::Extent3d {
             width: picture.width,
             height: picture.height,
             depth_or_array_layers: 1,
         };
-        let reuse = self
-            .picture
+        let reuse = self.pictures[slot]
             .take()
             .filter(|p| (p.width, p.height) == (picture.width, picture.height));
         let uploaded = reuse.unwrap_or_else(|| {
@@ -574,10 +616,11 @@ impl Screen {
             },
             size,
         );
-        self.picture = Some(Uploaded {
+        self.pictures[slot] = Some(Uploaded {
             id: picture.id,
             ..uploaded
         });
+        true
     }
 }
 
@@ -622,6 +665,8 @@ pub fn vertices(quad: &Quad) -> [Vertex; 6] {
         local: [local[i][0] * weights[i], local[i][1] * weights[i]],
         soft: quad.soft.map(|v| v.clamp(0.0, 1.0)),
         gamma: quad.gamma,
+        place: [0.0, 0.0, 1.0, 1.0],
+        opacity: 1.0,
     };
     [
         corner(0),
@@ -675,25 +720,23 @@ fn vertex_bytes(vertices: &[Vertex]) -> Vec<u8> {
                 .chain(&v.local)
                 .chain(&v.soft)
                 .chain([&v.gamma])
+                .chain(&v.place)
+                .chain([&v.opacity])
                 .flat_map(|f| f.to_ne_bytes())
         })
         .collect()
 }
 
-/// The masks' uniform for a window of `window` pixels, with where the picture sits in the
-/// composition: at most [`MAX_MASKS`] masks of 3 to
+/// The masks' uniform for a window of `window` pixels: at most [`MAX_MASKS`] masks of 3 to
 /// [`MAX_MASK_POINTS`] points; others are left out.
-fn mask_bytes(masks: &[Mask], window: (u32, u32), place: [f32; 4]) -> Vec<u8> {
+fn mask_bytes(masks: &[Mask], window: (u32, u32)) -> Vec<u8> {
     let shown: Vec<&Mask> = masks
         .iter()
         .filter(|m| (3..=MAX_MASK_POINTS).contains(&m.points.len()))
         .take(MAX_MASKS)
         .collect();
     let mut bytes = Vec::with_capacity(MASKS_SIZE as usize);
-    for f in [window.0 as f32, window.1 as f32, shown.len() as f32, 0.0]
-        .into_iter()
-        .chain(place)
-    {
+    for f in [window.0 as f32, window.1 as f32, shown.len() as f32, 0.0] {
         bytes.extend_from_slice(&f.to_ne_bytes());
     }
     let mut first = 0u32;
@@ -720,8 +763,8 @@ fn mask_bytes(masks: &[Mask], window: (u32, u32), place: [f32; 4]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MASKS_SIZE, Mask, Quad, SHADER, Sizing, fit, fitted_quad, mask_bytes, placement,
-        vertex_bytes, vertices,
+        MASKS_SIZE, Mask, Quad, SHADER, Sizing, VERTEX_SIZE, fit, fitted_quad, mask_bytes,
+        placement, vertex_bytes, vertices,
     };
 
     #[test]
@@ -798,15 +841,14 @@ mod tests {
             points: vec![[0.0, 0.0], [1.0, 1.0]],
             invert: false,
         };
-        let bytes = mask_bytes(&[line, square], (1920, 1080), [0.25, 0.0, 0.5, 1.0]);
+        let bytes = mask_bytes(&[line, square], (1920, 1080));
         assert_eq!(bytes.len() as u64, MASKS_SIZE);
         let float = |at: usize| f32::from_ne_bytes(bytes[at..at + 4].try_into().unwrap());
         let int = |at: usize| u32::from_ne_bytes(bytes[at..at + 4].try_into().unwrap());
         // A line is no shape: only the square is drawn, from the first point, inverted.
         assert_eq!((float(0), float(4), float(8)), (1920.0, 1080.0, 1.0));
-        assert_eq!((float(16), float(24)), (0.25, 0.5));
-        assert_eq!((int(32), int(36), int(40)), (0, 4, 1));
-        assert_eq!(float(32 + 16 * 8 + 8), 0.2);
+        assert_eq!((int(16), int(20), int(24)), (0, 4, 1));
+        assert_eq!(float(16 + 16 * 8 + 8), 0.2);
     }
 
     #[test]
@@ -823,6 +865,7 @@ mod tests {
         );
         // A fade past the whole quad is cut to it.
         assert_eq!((v[0].soft, v[0].gamma), ([0.25, 0.0, 0.0, 1.0], 2.2));
-        assert_eq!(vertex_bytes(&v).len(), 6 * 12 * 4);
+        assert_eq!(vertex_bytes(&v).len(), 6 * 17 * 4);
+        assert_eq!(VERTEX_SIZE, 17 * 4);
     }
 }

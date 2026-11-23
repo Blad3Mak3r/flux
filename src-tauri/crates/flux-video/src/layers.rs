@@ -1,7 +1,7 @@
 use flux_core::FrameRate;
 use flux_project::{Timeline, TrackKind};
 
-use crate::mapping::{Rate, source_frame};
+use crate::mapping::{Rate, source_frame, timeline_frames};
 
 /// What the transport asks the video to show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,7 +13,7 @@ pub enum Cue {
 }
 
 /// One picture to draw: a frame of a video, for one track.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
     pub track: String,
     pub clip: String,
@@ -22,6 +22,8 @@ pub struct Layer {
     pub frame: u64,
     /// How the clip is sized into the composition.
     pub fit: flux_project::VideoFit,
+    /// How much of it shows over what is below, 0 to 1: less while the clip fades in or out.
+    pub opacity: f32,
 }
 
 /// The rate and length of a video, which the mapping needs; `None` when it could not be read.
@@ -29,7 +31,8 @@ pub type Probe<'a> = &'a dyn Fn(&str) -> Option<(Rate, u64)>;
 
 /// What the video tracks of `timeline` show for `cue`, the topmost first: tracks higher in the
 /// timeline cover the ones below. A muted track shows nothing. Where clips of one track overlap,
-/// the one that starts later is on top, as when a clip is dropped over another.
+/// the one that starts later is on top, as when a clip is dropped over another; while it fades,
+/// the clip under it on the track shows through, which cross-fades the two.
 pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
     let Cue::At(position) = cue else {
         return Vec::new();
@@ -39,27 +42,56 @@ pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
         .tracks
         .iter()
         .filter(|track| !track.muted)
-        .filter_map(|track| {
+        .flat_map(|track| {
             let TrackKind::Video { clips } = &track.kind else {
-                return None;
+                return Vec::new();
             };
-            clips
+            // Reversed, so that of two clips starting together the later in the list stays on top.
+            let mut showing: Vec<(u64, Layer)> = clips
                 .iter()
+                .rev()
                 .filter_map(|clip| {
                     let (video, frames) = probe(&clip.asset)?;
                     let frame = source_frame(clip, position, rate, video, frames)?;
-                    Some((clip, frame))
+                    let rest = timeline_frames(frames, video, rate).saturating_sub(clip.offset);
+                    let length = clip.length.unwrap_or(rest).min(rest);
+                    Some((
+                        clip.start,
+                        Layer {
+                            track: track.id.clone(),
+                            clip: clip.id.clone(),
+                            asset: clip.asset.clone(),
+                            frame,
+                            fit: clip.fit,
+                            opacity: opacity(clip, position, length),
+                        },
+                    ))
                 })
-                .max_by_key(|(clip, _)| clip.start)
-                .map(|(clip, frame)| Layer {
-                    track: track.id.clone(),
-                    clip: clip.id.clone(),
-                    asset: clip.asset.clone(),
-                    frame,
-                    fit: clip.fit,
-                })
+                .collect();
+            showing.sort_by_key(|(start, _)| std::cmp::Reverse(*start));
+            // The latest clip, and the one under it while it fades.
+            let fading = showing.first().is_some_and(|(_, top)| top.opacity < 1.0);
+            showing.truncate(if fading { 2 } else { 1 });
+            showing
+                .into_iter()
+                .map(|(_, layer)| layer)
+                .collect::<Vec<_>>()
         })
         .collect()
+}
+
+/// How much of `clip`, which lasts `length` frames of the timeline, shows at `position`: it rises
+/// from 0 on its first frame over its fade in and falls to 0 on its last frame over its fade out.
+pub fn opacity(clip: &flux_project::VideoClip, position: u64, length: u64) -> f32 {
+    let into = position.saturating_sub(clip.start);
+    let ramp = |frames: u64, fade: u64| {
+        if fade == 0 {
+            1.0
+        } else {
+            (frames as f32 / fade as f32).min(1.0)
+        }
+    };
+    ramp(into, clip.fade_in) * ramp(length.saturating_sub(into + 1), clip.fade_out)
 }
 
 /// The clips of `timeline` that start within `ahead` frames after `position`, with the first frame
@@ -83,6 +115,7 @@ pub fn upcoming(timeline: &Timeline, position: u64, ahead: u64, probe: Probe<'_>
                 asset: clip.asset.clone(),
                 frame: source_frame(clip, clip.start, rate, video, frames)?,
                 fit: clip.fit,
+                opacity: 0.0,
             })
         })
         .collect()
@@ -103,6 +136,8 @@ mod tests {
             offset: 0,
             length,
             fit: Default::default(),
+            fade_in: 0,
+            fade_out: 0,
         }
     }
 
@@ -165,6 +200,31 @@ mod tests {
             [("early", 19)]
         );
         assert_eq!(ids(&layers(&timeline, Cue::At(20), &probe)), [("late", 0)]);
+    }
+
+    #[test]
+    fn a_fade_should_rise_from_nothing_and_fall_back_to_nothing() {
+        let mut faded = clip("c", 10, Some(20));
+        (faded.fade_in, faded.fade_out) = (4, 10);
+        let at = |position| opacity(&faded, position, 20);
+        assert_eq!(
+            [at(10), at(11), at(12), at(14), at(18)],
+            [0.0, 0.25, 0.5, 1.0, 1.0]
+        );
+        // The last frame (29) is black, five frames before it half way.
+        assert_eq!([at(29), at(24), at(19)], [0.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn a_fading_clip_should_show_the_clip_under_it_on_its_track() {
+        let mut late = clip("late", 10, Some(20));
+        late.fade_in = 10;
+        let timeline = timeline(vec![track("v", false, vec![clip("early", 0, None), late])]);
+        let shown = layers(&timeline, Cue::At(15), &probe);
+        assert_eq!(ids(&shown), [("late", 5), ("early", 15)]);
+        assert_eq!((shown[0].opacity, shown[1].opacity), (0.5, 1.0));
+        // Faded in, it covers the other alone.
+        assert_eq!(ids(&layers(&timeline, Cue::At(20), &probe)), [("late", 10)]);
     }
 
     #[test]

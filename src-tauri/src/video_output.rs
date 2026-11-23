@@ -580,38 +580,45 @@ impl Render {
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
         }
-        let top = shown
-            .iter()
-            .find_map(|shown| shown.frame.as_ref().map(|frame| (&shown.layer, frame)));
-        let picture = top.map(|(layer, frame)| {
+        // From the top down to the first picture that hides everything under it.
+        let mut pictures: Vec<Picture> = Vec::new();
+        for shown in &shown {
+            let Some(frame) = &shown.frame else { continue };
             let mut hash = DefaultHasher::new();
-            (&layer.clip, frame.index).hash(&mut hash);
-            Picture {
+            (&shown.layer.clip, frame.index).hash(&mut hash);
+            let place = flux_render::placement(
+                sizing(shown.layer.fit),
+                (frame.width, frame.height),
+                self.card_size,
+            );
+            pictures.push(Picture {
                 id: hash.finish(),
                 width: frame.width,
                 height: frame.height,
                 rgba: &frame.rgba,
-                place: flux_render::placement(
-                    sizing(layer.fit),
-                    (frame.width, frame.height),
-                    self.card_size,
-                ),
+                place,
+                opacity: shown.layer.opacity,
+            });
+            if shown.layer.opacity >= 1.0 && covers(place) {
+                break;
             }
-        });
-        let card = picture.is_none() && self.sweep_card();
-        let picture = picture.or_else(|| {
-            card.then(|| Picture {
+        }
+        pictures.reverse();
+        let card = pictures.is_empty() && self.sweep_card();
+        if card {
+            pictures.push(Picture {
                 id: self.card_id,
                 width: self.card_size.0,
                 height: self.card_size.1,
                 rgba: &self.card_frame,
                 place: [0.0, 0.0, 1.0, 1.0],
-            })
-        });
-        let drawn = picture.is_some();
+                opacity: 1.0,
+            });
+        }
+        let drawn = !pictures.is_empty();
         // A lost surface draws nothing and is tried again on the next refresh.
         self.screen
-            .draw(picture, self.card_size, &self.quads, &self.masks)
+            .draw(&pictures, self.card_size, &self.quads, &self.masks)
             .is_ok()
             && drawn
     }
@@ -721,6 +728,13 @@ fn decoding_name(decoding: flux_video::Decoding) -> String {
         flux_video::Decoding::Software => "cpu".to_owned(),
         flux_video::Decoding::Hardware(device) => device.to_owned(),
     }
+}
+
+/// Whether a picture at `place` fills the whole composition, hiding what is under it.
+fn covers(place: [f32; 4]) -> bool {
+    const SLACK: f32 = 1e-4;
+    let [x, y, w, h] = place;
+    x <= SLACK && y <= SLACK && x + w >= 1.0 - SLACK && y + h >= 1.0 - SLACK
 }
 
 /// The renderer's sizing for a clip's fit.
