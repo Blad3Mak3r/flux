@@ -2,7 +2,8 @@
 //! [`Quad`]s: each takes a rectangle of the picture and stretches it between four corners of the
 //! window, with the perspective of a projector seen at an angle (a "corner pin"). With no quads the
 //! whole picture is fitted to the window keeping its shape, with black around it; the window is
-//! black when there is no picture.
+//! black when there is no picture. A quad can fade out towards its edges (a soft edge, to blend
+//! two projectors where their pictures overlap), and [`Mask`]s black out parts of the window.
 
 pub mod pattern;
 
@@ -39,10 +40,29 @@ pub struct Quad {
     /// Where the rectangle's top left, top right, bottom right and bottom left corners go, as
     /// `[x, y]` from 0 to 1 of the window's width and height, from its top left corner.
     pub corners: [[f32; 2]; 4],
+    /// How far in from its left, right, top and bottom edges the quad fades to black, each a
+    /// fraction (0 to 1) of its width or height; 0 is a hard edge.
+    pub soft: [f32; 4],
+    /// The fade's curve: 1 fades the light evenly; more keeps it brighter longer, less darker.
+    pub gamma: f32,
 }
 
 /// Most quads drawn at once.
 pub const MAX_QUADS: usize = 64;
+
+/// A shape on the window, as `[x, y]` points from 0 to 1 of its width and height, that hides the
+/// picture inside it, or outside it when `invert`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mask {
+    pub points: Vec<[f32; 2]>,
+    pub invert: bool,
+}
+
+/// Most masks drawn at once, and most points of one.
+pub const MAX_MASKS: usize = 8;
+pub const MAX_MASK_POINTS: usize = 32;
+/// The masks' uniform: a header, one line of 4 numbers per mask and two points per line.
+const MASKS_SIZE: u64 = 16 + 16 * MAX_MASKS as u64 + 8 * (MAX_MASKS * MAX_MASK_POINTS) as u64;
 
 /// A corner of a quad as the GPU reads it: its place in clip space and its texture coordinate,
 /// multiplied by a weight that undoes the perspective (see [`vertices`]).
@@ -51,6 +71,10 @@ pub const MAX_QUADS: usize = 64;
 pub struct Vertex {
     pub pos: [f32; 2],
     pub uvq: [f32; 3],
+    /// Where in the quad it is (0 to 1 across, 0 to 1 down), weighted like `uvq`.
+    pub local: [f32; 2],
+    pub soft: [f32; 4],
+    pub gamma: f32,
 }
 
 const VERTEX_SIZE: u64 = size_of::<Vertex>() as u64;
@@ -77,6 +101,8 @@ pub struct Screen {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     vertices: wgpu::Buffer,
+    masks: wgpu::Buffer,
+    masks_group: wgpu::BindGroup,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     picture: Option<Uploaded>,
@@ -91,24 +117,94 @@ const SHADER: &str = r"
 struct Out {
     @builtin(position) pos: vec4f,
     @location(0) uvq: vec3f,
+    @location(1) local: vec2f,
+    @location(2) @interpolate(flat) soft: vec4f,
+    @location(3) @interpolate(flat) gamma: f32,
 };
 
 @vertex
-fn vs(@location(0) pos: vec2f, @location(1) uvq: vec3f) -> Out {
+fn vs(
+    @location(0) pos: vec2f,
+    @location(1) uvq: vec3f,
+    @location(2) local: vec2f,
+    @location(3) soft: vec4f,
+    @location(4) gamma: f32,
+) -> Out {
     var out: Out;
     out.pos = vec4f(pos, 0.0, 1.0);
     out.uvq = uvq;
+    out.local = local;
+    out.soft = soft;
+    out.gamma = gamma;
     return out;
 }
 
 @group(0) @binding(0) var picture: texture_2d<f32>;
 @group(0) @binding(1) var linear_sampler: sampler;
 
+// The window's size and how many masks there are; each mask's first point, its number of points
+// and whether it is inverted; the points, two to a line.
+struct Masks {
+    size: vec4f,
+    info: array<vec4u, 8>,
+    points: array<vec4f, 128>,
+};
+@group(1) @binding(0) var<uniform> masks: Masks;
+
+fn mask_point(i: u32) -> vec2f {
+    let pair = masks.points[i / 2u];
+    if (i % 2u) == 0u {
+        return pair.xy;
+    }
+    return pair.zw;
+}
+
+// Even-odd rule: a ray from `p` crosses the outline an odd number of times when `p` is inside.
+fn inside(m: u32, p: vec2f) -> bool {
+    let first = masks.info[m].x;
+    let count = masks.info[m].y;
+    var odd = false;
+    var j = count - 1u;
+    for (var i = 0u; i < count; i++) {
+        let a = mask_point(first + i);
+        let b = mask_point(first + j);
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            odd = !odd;
+        }
+        j = i;
+    }
+    return odd;
+}
+
+// 1 inside, falling smoothly to 0 at the edge, over `width` (0: no fade).
+fn ramp(t: f32, width: f32) -> f32 {
+    if width <= 0.0 {
+        return 1.0;
+    }
+    let s = clamp(t / width, 0.0, 1.0);
+    return s * s * (3.0 - 2.0 * s);
+}
+
 // Dividing by the weight here, after the interpolation, keeps straight lines of the picture
 // straight across a quad seen in perspective.
 @fragment
 fn fs(in: Out) -> @location(0) vec4f {
-    return textureSample(picture, linear_sampler, in.uvq.xy / in.uvq.z);
+    let colour = textureSample(picture, linear_sampler, in.uvq.xy / in.uvq.z);
+    let l = in.local / in.uvq.z;
+    let edge = ramp(l.x, in.soft.x) * ramp(1.0 - l.x, in.soft.y) * ramp(l.y, in.soft.z)
+        * ramp(1.0 - l.y, in.soft.w);
+    var shown = 0.0;
+    if edge > 0.0 {
+        shown = pow(edge, 1.0 / max(in.gamma, 0.01));
+    }
+    let p = in.pos.xy / masks.size.xy;
+    let count = u32(masks.size.z);
+    for (var m = 0u; m < count; m++) {
+        if inside(m, p) != (masks.info[m].z != 0u) {
+            shown = 0.0;
+        }
+    }
+    return vec4f(colour.rgb * shown, colour.a);
 }
 ";
 
@@ -195,9 +291,36 @@ impl Screen {
             label: Some("picture"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
+        let masks_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("masks"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let masks = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("masks"),
+            size: MASKS_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let masks_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("masks"),
+            layout: &masks_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: masks.as_entire_binding(),
+            }],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("picture"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &[Some(&layout), Some(&masks_layout)],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -210,7 +333,13 @@ impl Screen {
                 buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: VERTEX_SIZE,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3],
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x2,
+                        1 => Float32x3,
+                        2 => Float32x2,
+                        3 => Float32x4,
+                        4 => Float32
+                    ],
                 })],
             },
             primitive: wgpu::PrimitiveState::default(),
@@ -244,6 +373,8 @@ impl Screen {
             config,
             pipeline,
             vertices,
+            masks,
+            masks_group,
             layout,
             sampler,
             picture: None,
@@ -266,13 +397,19 @@ impl Screen {
     }
 
     /// Draws `picture` through `quads` (at most [`MAX_QUADS`]), or fitted to the window when there
-    /// are none; black for no picture. Waits for the display's next refresh, so a loop calling it
-    /// runs at the display's rate.
+    /// are none, with `masks` hiding parts of it; black for no picture. Waits for the display's
+    /// next refresh, so a loop calling it runs at the display's rate.
     pub fn draw(
         &mut self,
         picture: Option<Picture<'_>>,
         quads: &[Quad],
+        masks: &[Mask],
     ) -> Result<(), RenderError> {
+        self.queue.write_buffer(
+            &self.masks,
+            0,
+            &mask_bytes(masks, (self.config.width, self.config.height)),
+        );
         if let Some(picture) = picture {
             self.upload(picture);
         }
@@ -323,6 +460,7 @@ impl Screen {
             if let (Some(count), Some(uploaded)) = (shown, self.picture.as_ref()) {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &uploaded.bind_group, &[]);
+                pass.set_bind_group(1, &self.masks_group, &[]);
                 pass.set_vertex_buffer(0, self.vertices.slice(..));
                 pass.draw(0..count, 0..1);
             }
@@ -423,6 +561,8 @@ pub fn fitted_quad(picture: (u32, u32), window: (u32, u32)) -> Quad {
     Quad {
         input: [0.0, 0.0, 1.0, 1.0],
         corners: [[left, top], [right, top], [right, bottom], [left, bottom]],
+        soft: [0.0; 4],
+        gamma: 1.0,
     }
 }
 
@@ -433,6 +573,7 @@ pub fn fitted_quad(picture: (u32, u32), window: (u32, u32)) -> Quad {
 pub fn vertices(quad: &Quad) -> [Vertex; 6] {
     let [x, y, w, h] = quad.input;
     let uv = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+    let local = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
     let p = quad
         .corners
         .map(|[cx, cy]| [cx * 2.0 - 1.0, 1.0 - cy * 2.0]);
@@ -440,6 +581,9 @@ pub fn vertices(quad: &Quad) -> [Vertex; 6] {
     let corner = |i: usize| Vertex {
         pos: p[i],
         uvq: [uv[i][0] * weights[i], uv[i][1] * weights[i], weights[i]],
+        local: [local[i][0] * weights[i], local[i][1] * weights[i]],
+        soft: quad.soft.map(|v| v.clamp(0.0, 1.0)),
+        gamma: quad.gamma,
     };
     [
         corner(0),
@@ -486,13 +630,56 @@ fn diagonal_weights(p: &[[f32; 2]; 4]) -> [f32; 4] {
 fn vertex_bytes(vertices: &[Vertex]) -> Vec<u8> {
     vertices
         .iter()
-        .flat_map(|v| v.pos.iter().chain(&v.uvq).flat_map(|f| f.to_ne_bytes()))
+        .flat_map(|v| {
+            v.pos
+                .iter()
+                .chain(&v.uvq)
+                .chain(&v.local)
+                .chain(&v.soft)
+                .chain([&v.gamma])
+                .flat_map(|f| f.to_ne_bytes())
+        })
         .collect()
+}
+
+/// The masks' uniform for a window of `window` pixels: at most [`MAX_MASKS`] masks of 3 to
+/// [`MAX_MASK_POINTS`] points; others are left out.
+fn mask_bytes(masks: &[Mask], window: (u32, u32)) -> Vec<u8> {
+    let shown: Vec<&Mask> = masks
+        .iter()
+        .filter(|m| (3..=MAX_MASK_POINTS).contains(&m.points.len()))
+        .take(MAX_MASKS)
+        .collect();
+    let mut bytes = Vec::with_capacity(MASKS_SIZE as usize);
+    for f in [window.0 as f32, window.1 as f32, shown.len() as f32, 0.0] {
+        bytes.extend_from_slice(&f.to_ne_bytes());
+    }
+    let mut first = 0u32;
+    for index in 0..MAX_MASKS {
+        let (count, invert) = shown
+            .get(index)
+            .map_or((0, false), |m| (m.points.len() as u32, m.invert));
+        for u in [first, count, u32::from(invert), 0] {
+            bytes.extend_from_slice(&u.to_ne_bytes());
+        }
+        first += count;
+    }
+    let points = shown.iter().flat_map(|m| m.points.iter().flatten());
+    for f in points
+        .copied()
+        .chain(std::iter::repeat(0.0))
+        .take(2 * MAX_MASKS * MAX_MASK_POINTS)
+    {
+        bytes.extend_from_slice(&f.to_ne_bytes());
+    }
+    bytes
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Quad, SHADER, fit, fitted_quad, vertices};
+    use super::{
+        MASKS_SIZE, Mask, Quad, SHADER, fit, fitted_quad, mask_bytes, vertex_bytes, vertices,
+    };
 
     #[test]
     fn the_shader_should_parse_and_validate() {
@@ -530,6 +717,8 @@ mod tests {
         let quad = Quad {
             input: [0.0, 0.0, 1.0, 1.0],
             corners: [[0.25, 0.0], [0.75, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            soft: [0.0; 4],
+            gamma: 1.0,
         };
         let v = vertices(&quad);
         // The narrow top is far away: its corners (0, 1) weigh less than the bottom's (2, 3).
@@ -540,5 +729,42 @@ mod tests {
             (uv(0), uv(1), uv(2), uv(5)),
             ([0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0])
         );
+    }
+
+    #[test]
+    fn the_masks_should_fill_their_uniform_exactly() {
+        let square = Mask {
+            points: vec![[0.1, 0.1], [0.2, 0.1], [0.2, 0.2], [0.1, 0.2]],
+            invert: true,
+        };
+        let line = Mask {
+            points: vec![[0.0, 0.0], [1.0, 1.0]],
+            invert: false,
+        };
+        let bytes = mask_bytes(&[line, square], (1920, 1080));
+        assert_eq!(bytes.len() as u64, MASKS_SIZE);
+        let float = |at: usize| f32::from_ne_bytes(bytes[at..at + 4].try_into().unwrap());
+        let int = |at: usize| u32::from_ne_bytes(bytes[at..at + 4].try_into().unwrap());
+        // A line is no shape: only the square is drawn, from the first point, inverted.
+        assert_eq!((float(0), float(4), float(8)), (1920.0, 1080.0, 1.0));
+        assert_eq!((int(16), int(20), int(24)), (0, 4, 1));
+        assert_eq!(float(16 + 16 * 8 + 8), 0.2);
+    }
+
+    #[test]
+    fn a_vertex_should_carry_its_place_in_the_quad() {
+        let quad = Quad {
+            soft: [0.25, 0.0, 0.0, 2.0],
+            gamma: 2.2,
+            ..fitted_quad((1920, 1080), (1920, 1080))
+        };
+        let v = vertices(&quad);
+        assert_eq!(
+            [v[2].local[0] / v[2].uvq[2], v[2].local[1] / v[2].uvq[2]],
+            [1.0, 1.0]
+        );
+        // A fade past the whole quad is cut to it.
+        assert_eq!((v[0].soft, v[0].gamma), ([0.25, 0.0, 0.0, 1.0], 2.2));
+        assert_eq!(vertex_bytes(&v).len(), 6 * 12 * 4);
     }
 }
