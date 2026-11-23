@@ -142,7 +142,7 @@ covered; on any other display it fills the screen without decorations.
 renames or closes a window when a screen is added, renamed or removed or another project opens. Each window's surface is made on the main thread (macOS requires it), and a
 render thread (`flux-video-output`, one per window, all sharing one `VideoDeck`, so a clip is decoded once however many screens show it) starts the GPU device and then, once per display refresh, reads the transport
 (`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws them with
-`flux-render`, from the top one down to the first opaque one that fills the composition (at most `MAX_LAYERS`, 4), one
+`flux-render`, from the top one down to the first opaque one that fills the composition (at most `MAX_LAYERS`, 16), one
 over another with alpha blending. Each frame is placed in the composition (`output.composition`, else the first video's
 size) as its clip's `fit` says (`flux_render::placement`) and covers what is below by its layer's opacity, which the
 clip's `fadeIn` and `fadeOut` ramp from 0 on its first and last frame (`flux_video::opacity`); outside its place the
@@ -150,6 +150,26 @@ layers below show, and black under all of them. While the top clip of a track fa
 is drawn under it, which cross-fades them. With no slices the
 composition is fitted to the window keeping its shape, with black around it. It is black while the
 transport is stopped, before a clip and after it. A GPU error is kept for the setup page to show and never panics.
+
+## VJ grid
+
+A VJ project ([project format](fxtc-format.md#vj-grid-version-14)) shows its grid instead of a timeline. Its clips play
+on a clock of their own, not the transport's: `flux_video::GridPlay` holds which clip plays on each layer and when it was
+launched, and `grid_frame` maps the time since the launch to a frame of the video, looping, stopping after one pass or
+going back and forth (`playback`). The output's render threads ask `VideoDeck::show_grid` for the pictures on every
+refresh, so a launched clip has a player only while it plays. A layer's picture is its `opacity` times its crossfader
+side: each side shows fully from its end to the middle and fades out over the other half. Clip sound is not played yet.
+
+The app crate's `vj_commands.rs` holds what plays, which is never stored. Its commands answer with what plays now
+(`{ playing: [{ layer, clip, seconds }], crossfader }`):
+
+| Command | Arguments | Does |
+| --- | --- | --- |
+| `vj_launch` | `clip` | Plays the clip on its layer from its first frame, in place of what played there; a playing clip starts again. |
+| `vj_launch_column` | `column` | Launches every clip of the column at once; a layer without a clip in it stops. |
+| `vj_stop` | `layer?` | Stops the layer, or every layer. |
+| `vj_crossfader` | `position` | Moves the crossfader, 0 (side A) to 1 (side B). |
+| `vj_play_state` | | Reads what plays. |
 
 ## Mapping
 
