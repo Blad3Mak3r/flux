@@ -515,6 +515,14 @@ impl Session {
         })
     }
 
+    /// Edits the masks of one screen of the video output.
+    pub fn edit_masks(&mut self, screen: &str, op: crate::mapping::MaskOp) -> Result<ProjectState> {
+        self.change(|project, _| {
+            let screen = crate::mapping::screen_mut(&mut project.output.screens, screen)?;
+            crate::mapping::edit_masks(&mut screen.masks, op, || Uuid::new_v4().to_string())
+        })
+    }
+
     /// Adds, removes or renames a screen of the video output.
     pub fn edit_screens(&mut self, op: crate::mapping::ScreenOp) -> Result<ProjectState> {
         self.change(|project, _| {

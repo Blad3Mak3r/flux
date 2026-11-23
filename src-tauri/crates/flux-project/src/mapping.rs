@@ -3,6 +3,9 @@
 //! the output by its four corners, which can lean it to fit a surface seen at an angle. No slices
 //! is the plain output: the whole picture fitted to the screen.
 //!
+//! A slice can fade to black towards its edges (a soft edge), so two projectors whose pictures
+//! overlap blend into one; a screen's masks black out shapes of it, or everything but them.
+//!
 //! The output has one or more screens, each a window on a display of its own with its own slices.
 //! The main screen always exists, even when the project does not list it; which display each
 //! screen opens on is a preference of the computer, not of the project.
@@ -18,6 +21,9 @@ use crate::{ProjectError, Result};
 pub const MAX_SLICES: usize = 64;
 /// Most screens an output has.
 pub const MAX_SCREENS: usize = 8;
+/// Most masks a screen has, and most points of one.
+pub const MAX_MASKS: usize = 8;
+pub const MAX_MASK_POINTS: usize = 32;
 /// The id of the screen every project has.
 pub const MAIN_SCREEN: &str = "main";
 /// Longest slice name, in characters.
@@ -71,6 +77,195 @@ pub struct Slice {
     /// Left out of the output without losing its place.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "SoftEdge::is_hard")]
+    pub soft_edge: SoftEdge,
+}
+
+/// How far in from each edge a slice fades to black, each a fraction (0 to 1) of its width or
+/// height, and the fade's curve: 1 fades the light evenly, more keeps it brighter for longer.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SoftEdge {
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+    pub gamma: f32,
+}
+
+impl Default for SoftEdge {
+    fn default() -> Self {
+        Self {
+            left: 0.0,
+            right: 0.0,
+            top: 0.0,
+            bottom: 0.0,
+            gamma: 1.0,
+        }
+    }
+}
+
+impl SoftEdge {
+    pub fn is_hard(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// The curve's range: from a quick fade to a slow one.
+const GAMMA: std::ops::RangeInclusive<f32> = 0.2..=5.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EdgeField {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Gamma,
+}
+
+/// A shape on a screen that hides the picture inside it, or outside it when `invert`: a pillar,
+/// a door, or everything around an odd-shaped surface.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mask {
+    pub id: String,
+    pub name: String,
+    /// The outline, in order, as fractions of the screen from its top left corner.
+    pub points: Vec<Point>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub invert: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum MaskOp {
+    /// A square in the middle of the screen, named "Mask n".
+    Add,
+    Remove {
+        id: String,
+    },
+    Rename {
+        id: String,
+        name: String,
+    },
+    /// Moves the points; there must be as many as before.
+    SetPoints {
+        id: String,
+        points: Vec<Point>,
+    },
+    /// A point halfway between point `after` and the next one.
+    AddPoint {
+        id: String,
+        after: usize,
+    },
+    /// A mask keeps at least three points.
+    RemovePoint {
+        id: String,
+        index: usize,
+    },
+    SetInvert {
+        id: String,
+        invert: bool,
+    },
+    SetHidden {
+        id: String,
+        hidden: bool,
+    },
+}
+
+/// Applies `op` to a screen's `masks`; `new_id` names a new mask. The caller validates the result.
+pub fn edit_masks(
+    masks: &mut Vec<Mask>,
+    op: MaskOp,
+    new_id: impl FnOnce() -> String,
+) -> Result<()> {
+    let find = |masks: &mut Vec<Mask>, id: &str| -> Result<usize> {
+        masks
+            .iter()
+            .position(|mask| mask.id == id)
+            .ok_or_else(|| ProjectError::Invalid(format!("no mask {id}")))
+    };
+    let inside = |p: Point| Point {
+        x: finite_or(p.x, 0.5).clamp(0.0, 1.0),
+        y: finite_or(p.y, 0.5).clamp(0.0, 1.0),
+    };
+    match op {
+        MaskOp::Add => {
+            if masks.len() >= MAX_MASKS {
+                return Err(ProjectError::Invalid("too many masks".into()));
+            }
+            let number = (1..)
+                .find(|n| !masks.iter().any(|m| m.name == format!("Mask {n}")))
+                .unwrap_or(1);
+            let (a, b) = (0.4, 0.6);
+            masks.push(Mask {
+                id: new_id(),
+                name: format!("Mask {number}"),
+                points: vec![
+                    Point { x: a, y: a },
+                    Point { x: b, y: a },
+                    Point { x: b, y: b },
+                    Point { x: a, y: b },
+                ],
+                invert: false,
+                hidden: false,
+            });
+        }
+        MaskOp::Remove { id } => {
+            let at = find(masks, &id)?;
+            masks.remove(at);
+        }
+        MaskOp::Rename { id, name } => {
+            let at = find(masks, &id)?;
+            masks[at].name = name.trim().to_owned();
+        }
+        MaskOp::SetPoints { id, points } => {
+            let at = find(masks, &id)?;
+            if points.len() != masks[at].points.len() {
+                return Err(ProjectError::Invalid(
+                    "a mask's points cannot be counted anew".into(),
+                ));
+            }
+            masks[at].points = points.into_iter().map(inside).collect();
+        }
+        MaskOp::AddPoint { id, after } => {
+            let at = find(masks, &id)?;
+            let points = &mut masks[at].points;
+            if points.len() >= MAX_MASK_POINTS || after >= points.len() {
+                return Err(ProjectError::Invalid("no room for another point".into()));
+            }
+            let (a, b) = (points[after], points[(after + 1) % points.len()]);
+            let middle = Point {
+                x: (a.x + b.x) / 2.0,
+                y: (a.y + b.y) / 2.0,
+            };
+            points.insert(after + 1, middle);
+        }
+        MaskOp::RemovePoint { id, index } => {
+            let at = find(masks, &id)?;
+            let points = &mut masks[at].points;
+            if points.len() <= 3 || index >= points.len() {
+                return Err(ProjectError::Invalid("a mask keeps three points".into()));
+            }
+            points.remove(index);
+        }
+        MaskOp::SetInvert { id, invert } => {
+            let at = find(masks, &id)?;
+            masks[at].invert = invert;
+        }
+        MaskOp::SetHidden { id, hidden } => {
+            let at = find(masks, &id)?;
+            masks[at].hidden = hidden;
+        }
+    }
+    Ok(())
+}
+
+fn finite_or(v: f32, or: f32) -> f32 {
+    if v.is_finite() { v } else { or }
 }
 
 /// A window of the output, on a display of its own, and the slices drawn on it.
@@ -82,6 +277,9 @@ pub struct VideoScreen {
     /// None is the whole picture fitted to the screen.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slices: Vec<Slice>,
+    /// Drawn over the slices, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub masks: Vec<Mask>,
 }
 
 impl VideoScreen {
@@ -90,6 +288,7 @@ impl VideoScreen {
             id: MAIN_SCREEN.into(),
             name: "Screen 1".into(),
             slices: Vec::new(),
+            masks: Vec::new(),
         }
     }
 }
@@ -151,6 +350,7 @@ pub fn edit_screens(
                 id: new_id(),
                 name: format!("Screen {number}"),
                 slices: Vec::new(),
+                masks: Vec::new(),
             });
         }
         ScreenOp::Remove { id } => {
@@ -184,6 +384,7 @@ pub fn validate_screens(screens: &[VideoScreen]) -> Result<()> {
             return invalid("a screen name is empty or too long");
         }
         validate(&screen.slices)?;
+        validate_masks(&screen.masks)?;
     }
     Ok(())
 }
@@ -222,6 +423,12 @@ pub enum MappingOp {
         axis: Axis,
         text: String,
         size: Size,
+    },
+    /// Sets one side of the soft edge to a typed percentage of the slice, or its curve.
+    SetSoftEdge {
+        id: String,
+        field: EdgeField,
+        text: String,
     },
     /// Puts the slice's corners back on the corners of its rectangle, as the screen's.
     ResetCorners {
@@ -295,6 +502,7 @@ pub fn apply(
                 input: Rect::FULL,
                 corners: FULL_CORNERS,
                 hidden: false,
+                soft_edge: SoftEdge::default(),
             });
         }
         MappingOp::Remove { id } => {
@@ -360,6 +568,26 @@ pub fn apply(
                 }
             }
         }
+        MappingOp::SetSoftEdge { id, field, text } => {
+            let at = find(slices, &id)?;
+            let value = text
+                .trim()
+                .trim_end_matches('%')
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .filter(|v| v.is_finite())
+                .ok_or_else(|| ProjectError::Invalid("not a number".into()))?;
+            let percent = |v: f32| (v / 100.0).clamp(0.0, 1.0);
+            let edge = &mut slices[at].soft_edge;
+            match field {
+                EdgeField::Left => edge.left = percent(value),
+                EdgeField::Right => edge.right = percent(value),
+                EdgeField::Top => edge.top = percent(value),
+                EdgeField::Bottom => edge.bottom = percent(value),
+                EdgeField::Gamma => edge.gamma = value.clamp(*GAMMA.start(), *GAMMA.end()),
+            }
+        }
         MappingOp::ResetCorners { id } => {
             let at = find(slices, &id)?;
             let Rect {
@@ -400,6 +628,29 @@ fn clamp_rect(rect: Rect) -> Rect {
     }
 }
 
+fn validate_masks(masks: &[Mask]) -> Result<()> {
+    let invalid = |why: &str| Err(ProjectError::Invalid(format!("video masks: {why}")));
+    if masks.len() > MAX_MASKS {
+        return invalid("too many masks");
+    }
+    let mut ids = std::collections::HashSet::new();
+    for mask in masks {
+        if mask.id.is_empty() || !ids.insert(mask.id.as_str()) {
+            return invalid("a mask id is empty or repeated");
+        }
+        if mask.name.is_empty() || mask.name.chars().count() > MAX_NAME {
+            return invalid("a mask name is empty or too long");
+        }
+        let on_screen = |v: f32| (0.0..=1.0).contains(&v);
+        if !(3..=MAX_MASK_POINTS).contains(&mask.points.len())
+            || !mask.points.iter().all(|p| on_screen(p.x) && on_screen(p.y))
+        {
+            return invalid("a mask needs 3 to 32 points on the screen");
+        }
+    }
+    Ok(())
+}
+
 pub fn validate(slices: &[Slice]) -> Result<()> {
     let invalid = |why: &str| Err(ProjectError::Invalid(format!("video mapping: {why}")));
     if slices.len() > MAX_SLICES {
@@ -431,6 +682,16 @@ pub fn validate(slices: &[Slice]) -> Result<()> {
             .all(|p| reach.contains(&p.x) && reach.contains(&p.y))
         {
             return invalid("a slice's corner is too far off the screen");
+        }
+        let e = slice.soft_edge;
+        let fraction = |v: f32| (0.0..=1.0).contains(&v);
+        if !(fraction(e.left)
+            && fraction(e.right)
+            && fraction(e.top)
+            && fraction(e.bottom)
+            && GAMMA.contains(&e.gamma))
+        {
+            return invalid("a slice's soft edge is out of range");
         }
     }
     Ok(())
@@ -598,6 +859,70 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(screens(&[])[0].id, MAIN_SCREEN);
         assert!(screen_mut(&mut list, "gone").is_err());
+    }
+
+    #[test]
+    fn soft_edges_should_take_percentages_and_a_curve() {
+        let mut slices = added();
+        let edge = |field, text: &str| MappingOp::SetSoftEdge {
+            id: "s1".into(),
+            field,
+            text: text.into(),
+        };
+        apply(&mut slices, edge(EdgeField::Right, "15 %"), String::new).unwrap();
+        apply(&mut slices, edge(EdgeField::Left, "250"), String::new).unwrap();
+        apply(&mut slices, edge(EdgeField::Gamma, "9"), String::new).unwrap();
+        let e = slices[0].soft_edge;
+        assert_eq!((e.left, e.right, e.gamma), (1.0, 0.15, 5.0));
+        assert!(apply(&mut slices, edge(EdgeField::Top, "x"), String::new).is_err());
+        assert!(validate(&slices).is_ok());
+        let json = serde_json::to_value(&slices[0]).unwrap();
+        assert_eq!(json["softEdge"]["right"], 0.15f32 as f64);
+        let plain = serde_json::to_value(&added()[0]).unwrap();
+        assert!(plain.get("softEdge").is_none());
+    }
+
+    #[test]
+    fn masks_should_keep_three_points_on_the_screen() {
+        let mut masks = Vec::new();
+        edit_masks(&mut masks, MaskOp::Add, || "m".into()).unwrap();
+        assert_eq!(
+            (masks[0].name.as_str(), masks[0].points.len()),
+            ("Mask 1", 4)
+        );
+        let add = MaskOp::AddPoint {
+            id: "m".into(),
+            after: 3,
+        };
+        edit_masks(&mut masks, add, String::new).unwrap();
+        // Between the last point and the first: the middle of the left side.
+        assert_eq!(masks[0].points[4], Point { x: 0.4, y: 0.5 });
+        let mut far = masks[0].points.clone();
+        far[0] = Point { x: -3.0, y: 2.0 };
+        let set = MaskOp::SetPoints {
+            id: "m".into(),
+            points: far,
+        };
+        edit_masks(&mut masks, set, String::new).unwrap();
+        assert_eq!(masks[0].points[0], Point { x: 0.0, y: 1.0 });
+        let fewer = MaskOp::SetPoints {
+            id: "m".into(),
+            points: vec![Point { x: 0.0, y: 0.0 }; 3],
+        };
+        assert!(edit_masks(&mut masks, fewer, String::new).is_err());
+        for _ in 0..2 {
+            let remove = MaskOp::RemovePoint {
+                id: "m".into(),
+                index: 0,
+            };
+            edit_masks(&mut masks, remove, String::new).unwrap();
+        }
+        let last = MaskOp::RemovePoint {
+            id: "m".into(),
+            index: 0,
+        };
+        assert!(edit_masks(&mut masks, last, String::new).is_err());
+        assert!(validate_masks(&masks).is_ok());
     }
 
     #[test]
