@@ -3,11 +3,12 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::SharedSession;
 use flux_audio::{AudioError, Decoded, SharedAudio};
@@ -390,6 +391,152 @@ pub async fn video_screen_edit(
         let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
         s.update(project);
         s.edit_screens(op)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Whether this build of FFmpeg can write HAP, for the inspector to offer the conversion.
+#[tauri::command]
+pub fn video_hap_available() -> bool {
+    flux_video::hap_available()
+}
+
+/// How far a conversion has got, sent as [`CONVERT_PROGRESS`] about once a percent.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertProgress {
+    pub asset: String,
+    pub done: u64,
+    pub total: u64,
+}
+
+pub const CONVERT_PROGRESS: &str = "video-convert-progress";
+
+/// Set while a conversion runs: one at a time, as it already uses the whole CPU.
+static CONVERTING: AtomicBool = AtomicBool::new(false);
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// Writes a HAP copy of a video of the project and answers with where it is: beside the imported
+/// file (`<name> (HAP).mov`), or in the video cache for a video kept inside the project or a
+/// folder that cannot be written. The project does not change: [`project_replace_video`] puts the
+/// copy in, against the project as it is when the conversion ends.
+#[tauri::command]
+pub async fn video_convert_hap(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    asset: VideoAsset,
+) -> Result<PathBuf> {
+    if CONVERTING.swap(true, Ordering::SeqCst) {
+        return Err(ProjectError::Invalid("a video is being converted".into()));
+    }
+    CANCEL.store(false, Ordering::SeqCst);
+    let cache = video_cache(&app);
+    let session = Arc::clone(&session);
+    let name = asset.name.clone();
+    log::info!("converting video {name} to HAP");
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let cache = cache?;
+        let src = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .video_path(&asset, &cache)?;
+        let mut last = u64::MAX;
+        let mut progress = |done: u64, total: u64| {
+            let percent = done * 100 / total.max(1);
+            if percent != last {
+                last = percent;
+                let id = asset.id.clone();
+                let _ = app.emit(
+                    CONVERT_PROGRESS,
+                    ConvertProgress {
+                        asset: id,
+                        done,
+                        total,
+                    },
+                );
+            }
+        };
+        let dst = (!src.starts_with(&cache))
+            .then(|| src.parent())
+            .flatten()
+            .map(|dir| free_name(dir, &asset.name))
+            .filter(|dst| writable(dst))
+            .map_or_else(
+                || {
+                    let dir = cache.join("converted");
+                    std::fs::create_dir_all(&dir)?;
+                    Ok::<_, ProjectError>(free_name(&dir, &asset.name))
+                },
+                Ok,
+            )?;
+        flux_video::convert_to_hap(&src, &dst, &mut progress, &CANCEL)
+            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
+        Ok(dst)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))
+    .and_then(|result| result);
+    CONVERTING.store(false, Ordering::SeqCst);
+    match &result {
+        Ok(path) => log::info!("converted video {name} to {}", path.display()),
+        Err(err) => log::warn!("video {name} was not converted: {err}"),
+    }
+    result
+}
+
+/// `<name> (HAP).mov` in `dir`, or `<name> (HAP 2).mov` and on when that file exists.
+fn free_name(dir: &std::path::Path, name: &str) -> PathBuf {
+    let name: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || r#"/\:*?"<>|"#.contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    (1..)
+        .map(|n| match n {
+            1 => dir.join(format!("{name} (HAP).mov")),
+            n => dir.join(format!("{name} (HAP {n}).mov")),
+        })
+        .find(|path| !path.exists())
+        .unwrap_or_else(|| dir.join("video (HAP).mov"))
+}
+
+/// Whether a file can be made at `path`: the folder of an imported video may be read-only.
+fn writable(path: &std::path::Path) -> bool {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .is_ok_and(|_| std::fs::remove_file(path).is_ok())
+}
+
+/// Stops the conversion running, if any; its command answers with the error.
+#[tauri::command]
+pub fn video_convert_cancel() {
+    CANCEL.store(true, Ordering::SeqCst);
+}
+
+/// Puts the video file at `path` (the HAP copy [`video_convert_hap`] wrote) in place of the video
+/// `asset` in every clip that shows it. FFmpeg reads it first.
+#[tauri::command]
+pub async fn project_replace_video(
+    session: State<'_, SharedSession>,
+    project: Project,
+    asset: String,
+    path: PathBuf,
+) -> Result<ProjectState> {
+    let session = Arc::clone(&session);
+    tauri::async_runtime::spawn_blocking(move || {
+        flux_video::VideoFile::open(&path)
+            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
+        let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
+        s.update(project);
+        s.replace_video(&asset, &path)
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?

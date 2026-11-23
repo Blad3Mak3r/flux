@@ -2028,6 +2028,13 @@ input:disabled {
   color: var(--ink-dim);
 }
 
+.hap-convert progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  accent-color: var(--phosphor);
+}
+
 .field[data-invalid] .field-note {
   color: var(--signal);
   font-weight: 600;
