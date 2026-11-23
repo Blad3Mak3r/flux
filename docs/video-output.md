@@ -10,7 +10,9 @@ stage. How the decoding works and what building FLUX needs is in [Video decoding
 ![The Edit view playing a show with an audio track, a video track with its thumbnails, notes, MIDI and OSC](./screenshots/edit-1440.jpg)
 
 **File > Import > Video** adds a file on a new video track of the active timeline, with a clip at the playhead. FLUX
-reads MP4, M4V, MOV and WebM (VP8, VP9 or AV1). A file it cannot read is refused with the reason. The file is copied into
+reads MP4, M4V, MOV and WebM (VP8, VP9 or AV1). A file it cannot read is refused with the reason. Transparency is kept:
+a WebM with alpha, or a MOV in ProRes 4444, HAP Alpha or QuickTime Animation, shows the tracks below where it is
+transparent, and black where nothing is below. The file is copied into
 the project when it is saved, so the show stays self-contained.
 
 A video clip is edited like an audio clip: drag it to move it, drag its edges to trim it, split it at the playhead and

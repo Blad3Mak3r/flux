@@ -78,8 +78,12 @@ refused with the reason, and then adds it on a new video track of the active tim
 The file is copied into the project's `video/` folder when the project is saved, like audio.
 
 The dialog offers MP4, M4V, MOV and WebM. WebM (VP8, VP9 or AV1 in Matroska) uses FFmpeg's own VP8/VP9 decoders and
-dav1d for AV1. A WebM file has no frame count per stream, so the count comes from the container's duration. An alpha
-channel in VP8/VP9 WebM is not decoded yet: those frames show as opaque.
+dav1d for AV1. A WebM file has no frame count per stream, so the count comes from the container's duration. A VP8/VP9
+WebM with an alpha track (Matroska's `alpha_mode` tag) is decoded with libvpx (`libvpx`, `libvpx-vp9`) instead, the
+only decoder that reads that track; it decodes on the CPU. Formats with an alpha channel of their own (ProRes 4444, HAP
+Alpha, PNG, QuickTime Animation) keep it through the conversion to RGBA. `VideoInfo::alpha` and `Frame::alpha` say so:
+the output blends such a picture over the layers below by its alpha, never takes it as hiding them, and its thumbnails
+show it over black.
 
 ## Editing clips
 
@@ -206,3 +210,12 @@ python3 -c "import sys; [sys.stdout.buffer.write(bytes([20+4*i])*64*36) for i in
 
 For the WebM one, replace the encoder options with
 `-c:v libvpx-vp9 -lossless 1 -pix_fmt yuv420p -g 12 -map_metadata -1 -fflags +bitexact gray25.webm`.
+
+`alpha25.webm` (10 frames of 64x36, the left half opaque red and the right half transparent) checks that a WebM alpha
+track is kept:
+
+```bash
+python3 -c "import sys; r=bytes([255,0,0,255])*32+bytes([0,0,255,0])*32; sys.stdout.buffer.write(r*36*10)" \
+  | ffmpeg -f rawvideo -pix_fmt rgba -s 64x36 -r 25 -i - -c:v libvpx-vp9 -pix_fmt yuva420p -lossless 1 \
+      -auto-alt-ref 0 -map_metadata -1 -fflags +bitexact alpha25.webm
+```
