@@ -403,11 +403,9 @@ Adds `mode` and `vj`. Nothing is reshaped: an older project opens as a timeline 
 #### VJ grid (version 14)
 
 A grid of clips launched by hand, like a media server's clip deck, in a project whose `mode` is `vj`. A project cannot
-change its kind. A VJ project and a timeline (cue) project are two apps in one, so a VJ project holds none of a cue
-project's content: exactly one timeline with no `tracks` or `controls`, which only carries the `tempo` and `timecode` of
-the show's clock, no `setlists` or `voice`, and no `output.ltc`, `mtc`, `osc`, `audio` or `metronome`. A file that does
-is refused. Builds before this was enforced could leave such content in a VJ project (a video imported onto the
-timeline, which the clock then played); opening one drops it. A new VJ project starts with one deck of 8 columns and 3 layers. Which clip is playing is not stored: it belongs
+change its kind. Since version 15 a VJ show has a `project.json` of its own shape, described in
+[Version 15](#version-15-a-vj-show-s-own-file): its grid fields are at the top level, without `vj.`. A version 14 VJ show
+is read as below and saved in the new shape. A new VJ project starts with one deck of 8 columns and 3 layers. Which clip is playing is not stored: it belongs
 to the running show.
 
 | Field | Type | Notes |
@@ -428,3 +426,23 @@ Commands: `vj_edit` (`project`, `op`) edits the grid of a VJ project; `op` is ta
 `project_import_vj_video` (`project`, `path`, `layer`, `column?`) adds a video file from disk into a cell, or into the
 layer's first empty cell of the deck shown when `column` is absent. Both answer
 with `ProjectState`, and a refusal leaves the document as it was.
+
+### Version 15: a VJ show's own file
+
+A VJ show and a cue show are two apps in one, and their `project.json` files have nothing in common beyond the
+`formatVersion`, `mode`, `name`, `meta` and `autosave` every show has. A cue show's file is unchanged. A VJ show's
+(`mode: "vj"`) holds:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `videos` | as above | The videos and images the grid plays, bundled under `video/`. |
+| `tempo` | `{ bpm, beatsPerBar, click }` | The show's tempo. |
+| `timecode` | `{ frameRate, start }` | The timecode of the show's internal clock. |
+| `screens`, `composition` | as `output.screens` / `output.composition` | Where the picture goes (Advanced Output). |
+| `layers`, `decks`, `deck`, `clock` | as `vj.*` below | The grid. |
+
+It has no `timelines`, `tracks`, `assets`, `setlists`, `voice` or LTC/MTC/OSC/audio/metronome outputs, and the app
+refuses a VJ show that would hold any. In memory the app still keeps the clock's tempo and timecode as one empty
+timeline (id `clock`), which the file does not store. A version 14 VJ show (with `timelines` and `vj`) still opens:
+whatever cue content an older build left in it (such as a video imported onto its timeline, which the clock then
+played) is dropped, and saving writes version 15. Builds supporting version 14 or earlier reject version 15.

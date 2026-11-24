@@ -65,6 +65,7 @@ pub(crate) fn vj_without_cues(value: &mut Value) {
     }
     project.remove("setlists");
     project.remove("voice");
+    project.insert("assets".into(), json!([]));
     if let Some(timelines) = project.get_mut("timelines").and_then(Value::as_array_mut) {
         timelines.truncate(1);
         for timeline in timelines.iter_mut().filter_map(Value::as_object_mut) {

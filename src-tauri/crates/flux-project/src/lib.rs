@@ -22,6 +22,7 @@ mod session;
 pub mod show;
 mod video_clips;
 pub mod vj;
+mod vj_file;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};

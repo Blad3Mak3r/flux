@@ -20,7 +20,8 @@ pub use super::meta::Meta;
 /// Version 9 adds recording origin, pronunciation text and non-destructive speech trims.
 /// Version 13 adds `videos` and the `video` track kind.
 /// Version 14 adds `mode` and the VJ grid `vj`.
-pub const FORMAT_VERSION: u32 = 14;
+/// Version 15 gives a VJ show a file of its own shape (see `vj_file`); a cue show's is unchanged.
+pub const FORMAT_VERSION: u32 = 15;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -1103,7 +1104,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 14,
+        "formatVersion": 15,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {

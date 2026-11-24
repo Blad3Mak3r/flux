@@ -1009,6 +1009,7 @@ pub(crate) fn validate<'a>(
                     .iter()
                     .any(|t| !t.tracks.is_empty() || !t.controls.is_empty())
                 || !project.setlists.is_empty()
+                || !project.assets.is_empty()
                 || project.voice.is_some()
                 || !project.output.ltc.is_empty()
                 || !project.output.mtc.is_empty()
@@ -1017,7 +1018,7 @@ pub(crate) fn validate<'a>(
                 || project.output.metronome.is_some() =>
         {
             return Err(ProjectError::Invalid(
-                "a VJ show has no timeline tracks, setlists or timecode outputs".into(),
+                "a VJ show has no timeline tracks, audio, setlists or timecode outputs".into(),
             ));
         }
         ProjectMode::Timeline if !vj.is_empty() => {

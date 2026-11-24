@@ -80,8 +80,12 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
         });
     }
 
-    migrate::upgrade(&mut value, &file_date(path));
-    let project: Project = serde_json::from_value(value)?;
+    let project: Project = if crate::vj_file::is_vj_file(&value) {
+        serde_json::from_value::<crate::vj_file::VjFile>(value)?.into_project()
+    } else {
+        migrate::upgrade(&mut value, &file_date(path));
+        serde_json::from_value(value)?
+    };
     project.validate()?;
     for file in project
         .assets
@@ -137,6 +141,9 @@ pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
         mode: crate::ProjectMode,
         #[serde(default)]
         vj: RawGrid,
+        /// A VJ show in its own shape has its grid at the top level.
+        #[serde(flatten)]
+        grid: RawGrid,
     }
     #[derive(Deserialize, Default)]
     struct RawGrid {
@@ -179,14 +186,19 @@ pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
         (None, Some(timecode)) => (timecode.frame_rate, raw.tracks.len()),
         (None, None) => return Err(ProjectError::Invalid("project.json has no timeline".into())),
     };
+    let grid = if raw.vj.layers.is_empty() {
+        &raw.grid
+    } else {
+        &raw.vj
+    };
     Ok(ProjectMeta {
         name: raw.name,
         frame_rate,
         track_count,
         mode: raw.mode,
-        layer_count: raw.vj.layers.len(),
-        deck_count: raw.vj.decks.len(),
-        clip_count: raw.vj.layers.iter().map(|layer| layer.clips.len()).sum(),
+        layer_count: grid.layers.len(),
+        deck_count: grid.decks.len(),
+        clip_count: grid.layers.iter().map(|layer| layer.clips.len()).sum(),
     })
 }
 
@@ -253,7 +265,11 @@ fn write_archive(
         PROJECT_JSON,
         SimpleFileOptions::default().compression_method(CompressionMethod::Deflated),
     )?;
-    serde_json::to_writer_pretty(&mut zip, project)?;
+    if project.mode == crate::ProjectMode::Vj {
+        serde_json::to_writer_pretty(&mut zip, &crate::vj_file::VjFile::of(project))?;
+    } else {
+        serde_json::to_writer_pretty(&mut zip, project)?;
+    }
 
     // Audio is large and usually compressed already, so it is stored as is; previews are mostly noise.
     let stored = SimpleFileOptions::default()
@@ -553,6 +569,33 @@ mod tests {
         assert_eq!(meta.name, project.name);
         assert_eq!(meta.frame_rate, project.timelines[0].timecode.frame_rate);
         assert_eq!(meta.track_count, project.timelines[0].tracks.len());
+    }
+
+    #[test]
+    fn a_vj_show_should_be_saved_in_its_own_shape_and_open_again() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vj.flx");
+        let mut project = Project::new("Gira", FrameRate::Fps25);
+        project.mode = crate::ProjectMode::Vj;
+        let mut n = 0;
+        project.vj = crate::vj::Vj::starting(|| {
+            n += 1;
+            format!("g{n}")
+        });
+        project.timelines[0].tempo.bpm = 124.0;
+        save(&path, &project, &HashMap::new(), &HashMap::new()).unwrap();
+
+        let mut archive = open_archive(&path).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_reader(archive.by_name(PROJECT_JSON).unwrap()).unwrap();
+        assert!(json.get("timelines").is_none() && json.get("assets").is_none());
+        assert_eq!(json["tempo"]["bpm"], 124.0);
+        assert_eq!(json["layers"].as_array().unwrap().len(), 3);
+
+        let (opened, _) = open(&path).unwrap();
+        assert_eq!(opened.mode, crate::ProjectMode::Vj);
+        assert_eq!(opened.vj, project.vj);
+        assert_eq!(opened.timelines[0].tempo.bpm, 124.0);
     }
 
     #[test]
