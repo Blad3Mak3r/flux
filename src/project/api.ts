@@ -11,6 +11,7 @@ import type {
   MidiPortRef,
   OscArg,
   Project,
+  ProjectMode,
   ProjectState,
   VideoFit,
 } from "./types";
@@ -61,8 +62,9 @@ export const projectClose = () => invoke<void>("project_close");
 export const projectSetAutosave = (project: Project, enabled: boolean, intervalSeconds: string) =>
   invoke<ProjectState>("project_set_autosave", { project, enabled, intervalSeconds });
 
-export function newProject(name: string, frameRate: FrameRate): Promise<ProjectState> {
-  return invoke<ProjectState>("project_new", { name, frameRate });
+/** Starts a new project of the kind `mode`, which it keeps for good. */
+export function newProject(name: string, frameRate: FrameRate, mode: ProjectMode = "timeline"): Promise<ProjectState> {
+  return invoke<ProjectState>("project_new", { name, frameRate, mode });
 }
 
 /** Asks for a `.flx` or legacy `.fxtc`. Resolves to `null` when the dialog is cancelled. */

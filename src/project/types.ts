@@ -24,9 +24,22 @@ export interface Project {
 
 export type ProjectMode = "timeline" | "vj";
 
-/** The VJ grid (mirrors `flux-project/src/vj.rs`): layers bottom first, columns left first. */
+/**
+ * The VJ grid (mirrors `flux-project/src/vj.rs`): layers bottom first, the same in every deck; decks
+ * of columns, left first, one of them shown. A global layer keeps its clips in slots, the same in
+ * every deck.
+ */
 export interface VjGrid {
   layers: VjLayer[];
+  decks: VjDeck[];
+  /** Id of the deck shown. */
+  deck: string;
+}
+
+export interface VjDeck {
+  id: string;
+  /** Absent is the deck's number. */
+  name?: string;
   columns: VjColumn[];
 }
 
@@ -36,30 +49,51 @@ export interface VjColumn {
   name?: string;
 }
 
+export type VjBlend = "alpha" | "add" | "subtract" | "multiply" | "screen" | "lighten" | "darken";
+export type VjTransition = "alpha" | "add";
+export type VjSide = "a" | "b";
+
 export interface VjLayer {
   id: string;
   /** Absent is the layer's number. */
   name?: string;
+  global?: boolean;
+  /** 0 to 1; absent is 1. */
+  master?: number;
   /** 0 to 1; absent is 1. */
   opacity?: number;
-  /** Absent is 0 dB. */
-  gainDb?: number;
+  /** 0 to 1 as the fader stands; absent is 1. */
+  volume?: number;
+  /** Absent is `alpha`. */
+  blend?: VjBlend;
+  /** Seconds, 0 to 10; absent is 0, a cut. */
+  transition?: number;
+  /** Absent is `alpha`. */
+  transitionEffect?: VjTransition;
   /** The crossfader side; absent is neither. */
-  crossfade?: "a" | "b";
-  /** At most one per column. */
+  crossfade?: VjSide;
+  bypass?: boolean;
+  solo?: boolean;
+  /** At most one per column of each deck, or per slot on a global layer. */
   clips?: VjClip[];
 }
 
 /** What a launched clip does at the end of its video; absent is `loop`. */
 export type VjPlayback = "loop" | "once" | "pingPong";
+/** What a press on a clip does; absent is `normal`. */
+export type VjTrigger = "normal" | "piano";
 
 export interface VjClip {
   id: string;
-  column: string;
+  /** On a deck layer: the column it is in. */
+  column?: string;
+  /** On a global layer: its place from the left. */
+  slot?: number;
   /** Id of an entry in `Project.videos`. */
   asset: string;
   name?: string;
   playback?: VjPlayback;
+  trigger?: VjTrigger;
   fit?: VideoFit;
 }
 

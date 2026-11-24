@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
+import { useDoc } from "../state/store";
 import { BrandMark } from "./BrandMark";
 import { ViewSwitch } from "../live/ViewSwitch";
 import { closeMenu, openAbout, openMenu, useUi } from "../state/ui";
@@ -8,6 +9,8 @@ import { WindowControls, hasNativeWindow } from "./WindowControls";
 
 export function MenuBar() {
   const view = useUi((ui) => ui.view);
+  // A VJ show has no timeline, so nothing to switch between.
+  const vj = useDoc((doc) => doc.project.mode === "vj");
   // Only which title is open: the items themselves are built when it opens.
   const owner = useUi((ui) => ui.menu?.owner);
   const { t } = useI18n();
@@ -62,7 +65,7 @@ export function MenuBar() {
         </div>
       </div>
 
-      <ViewSwitch />
+      {vj ? <span /> : <ViewSwitch />}
 
       <div className="menubar-end" data-tauri-drag-region>
         {hasNativeWindow() ? <WindowControls /> : null}

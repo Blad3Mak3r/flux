@@ -201,3 +201,16 @@ export const ArrowUpIcon = () => <Icon><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" /><
 export const ArrowDownIcon = () => <Icon><path d="M8 3v10M3.5 8.5L8 13l4.5-4.5" /></Icon>;
 export const LoopIcon = () => <Icon><path d="M12.5 5H5a3 3 0 0 0 0 6h6a3 3 0 0 0 0-6M10 2.5 12.5 5 10 7.5" /></Icon>;
 export const ListIcon = () => <Icon><path d="M6 3.5h7M6 8h7M6 12.5h7M2.5 3.5h.5M2.5 8h.5M2.5 12.5h.5" /></Icon>;
+
+export const GlobeIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M2.5 8h11M8 2.5c-2 2.5-2 8.5 0 11M8 2.5c2 2.5 2 8.5 0 11" />
+  </Icon>
+);
+
+export const ImportIcon = () => (
+  <Icon>
+    <path d="M8 2.5v8M5 7.5l3 3 3-3M3 13.5h10" />
+  </Icon>
+);
