@@ -48,6 +48,7 @@ import {
 import type { MediaKind } from "./store";
 import { GENERATORS, swatch } from "./generators";
 import { AdvancedOutput } from "./AdvancedOutput";
+import { Tempo, TimecodeClock } from "./CompositionBar";
 import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
@@ -527,18 +528,22 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
             </div>
           ))}
         </div>
-        <div className="vj-decks" role="tablist" aria-label={t("vj.decks")}>
-          {grid.decks.map((d, at) => <DeckTab key={d.id} deck={d} at={at} shown={d.id === deck.id} only={grid.decks.length === 1} />)}
-          <button type="button" className="vj-deck add" title={t("vj.deck.add")} aria-label={t("vj.deck.add")}
-            onClick={() => void edit({ op: "addDeck" })}><PlusIcon /></button>
+        <div className="vj-decks">
+          <div className="vj-xf" title={t("vj.crossfader.sides", { a: sideNames("a") || "—", b: sideNames("b") || "—" })}>
+            <b>A</b>
+            <Crossfader />
+            <b>B</b>
+          </div>
+          <div className="vj-deck-tabs" role="tablist" aria-label={t("vj.decks")}>
+            {grid.decks.map((d, at) => <DeckTab key={d.id} deck={d} at={at} shown={d.id === deck.id} only={grid.decks.length === 1} />)}
+            <button type="button" className="vj-deck add" title={t("vj.deck.add")} aria-label={t("vj.deck.add")}
+              onClick={() => void edit({ op: "addDeck" })}><PlusIcon /></button>
+          </div>
         </div>
         <div className="vj-comp">
           <div className="vj-cl"><strong>{t("vj.composition")}</strong></div>
-          <div className="vj-xf">
-            <div className="vj-xs"><b>A</b><span>{sideNames("a")}</span></div>
-            <Crossfader />
-            <div className="vj-xs end"><span>{sideNames("b")}</span><b>B</b></div>
-          </div>
+          <Tempo />
+          <TimecodeClock grid={grid} />
           <button type="button" className="button" onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
         </div>
       </div>

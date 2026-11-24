@@ -379,7 +379,8 @@
 .vj-clip .vj-bar { height: 3px; }
 
 /* Decks */
-.vj-decks { display: flex; flex: none; align-items: center; gap: 2px; height: 34px; padding: 4px 6px 0 0; }
+.vj-decks { display: flex; flex: none; align-items: center; gap: 3px; height: 36px; padding: 4px 6px 0 0; }
+.vj-deck-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; }
 
 .vj-deck {
   display: inline-flex;
@@ -408,20 +409,23 @@
 .vj-comp {
   display: grid;
   flex: none;
-  grid-template-columns: var(--vj-header, 276px) minmax(0, 1fr) auto;
+  grid-template-columns: var(--vj-header, 276px) auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 24px;
-  height: 56px;
+  gap: 20px;
+  height: 52px;
   padding-right: 8px;
   border-top: 1px solid var(--vj-ground);
 }
 
 .vj-cl { padding-left: 12px; }
-.vj-xf { display: grid; grid-template-columns: minmax(0, 160px) minmax(120px, 1fr) minmax(0, 160px); align-items: center; gap: 16px; }
+
+/* The crossfader, under the layer headers and beside the deck tabs, as in Resolume. */
+.vj-xf { display: flex; flex: none; align-items: center; gap: 10px; width: var(--vj-header, 276px); padding: 0 6px 0 8px; }
+.vj-xf .vj-xt { flex: 1; }
 .vj-xs { display: flex; align-items: center; gap: 10px; min-width: 0; overflow: hidden; color: var(--ink-faint); font-size: 12px; white-space: nowrap; }
 .vj-xs span { overflow: hidden; text-overflow: ellipsis; }
 .vj-xs.end { justify-content: flex-end; }
-.vj-xs b { display: grid; flex: none; place-items: center; width: 24px; height: 22px; color: var(--ink); font-size: 11.5px; background: var(--vj-ctl); border-radius: 2px; }
+.vj-xf b, .vj-xs b { display: grid; flex: none; place-items: center; width: 24px; height: 22px; color: var(--ink); font-size: 11.5px; background: var(--vj-ctl); border-radius: 2px; }
 
 .vj-xt {
   position: relative;
@@ -788,3 +792,53 @@
 .vj-fold:hover { color: var(--ink); background: var(--vj-ctl); }
 .vj-fold .icon { width: 12px; height: 12px; }
 .vj-row.folded .vj-shade { background: linear-gradient(90deg, oklch(0 0 0 / 0.65), oklch(0 0 0 / 0.15)); }
+
+/* Tempo: the BPM typed or nudged, halved, doubled and tapped. */
+.vj-bpm { display: flex; align-items: center; gap: 6px; }
+.vj-lbl { color: var(--ink-faint); font: 600 11px var(--font-ui); letter-spacing: 0.08em; }
+
+.vj-bpm-v, .vj-tc-v {
+  height: 30px;
+  padding: 0 8px;
+  color: var(--vj-master);
+  font: 600 16px var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  background: var(--vj-well);
+  border: 1px solid var(--vj-line);
+  border-radius: 2px;
+}
+
+.vj-bpm-v { width: 76px; text-align: right; }
+.vj-bpm-v:focus, input.vj-tc-v:focus { outline: none; border-color: var(--phosphor); }
+.vj-bpm-k { display: flex; gap: 2px; }
+
+.vj-bpm-k button, .vj-tap, .vj-tc-keys button {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  color: var(--ink-dim);
+  font: 600 12px var(--font-ui);
+  background: var(--vj-ctl);
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.vj-bpm-k button:hover, .vj-tap:hover, .vj-tc-keys button:hover { color: var(--ink); background: var(--vj-ctl-hi); }
+.vj-tap { min-width: 44px; color: var(--vj-master); letter-spacing: 0.06em; text-transform: uppercase; }
+.vj-tap:active { color: oklch(0.2 0.03 78); background: var(--vj-master); }
+
+/* Timecode: its source, the clock, and the transport keys of the internal one. */
+.vj-tc { display: flex; align-items: center; gap: 8px; min-width: 0; justify-self: center; }
+.vj-tc .vj-tc-src { flex: none; }
+.vj-tc .vj-tc-src button { flex: none; height: 22px; padding: 0 8px; font-size: 11px; font-weight: 600; }
+.vj-tc-v { display: inline-grid; align-items: center; width: 134px; color: var(--ink); text-align: center; }
+output.vj-tc-v { color: var(--ink-faint); }
+.vj-tc[data-state="playing"] .vj-tc-v { color: var(--signal); }
+.vj-tc-v[aria-invalid="true"] { border-color: var(--signal); }
+.vj-tc-rate { color: var(--ink-faint); font-size: 11px; white-space: nowrap; }
+.vj-tc-keys { display: flex; gap: 2px; }
+.vj-tc-keys button { display: grid; place-items: center; width: 30px; }
+.vj-tc-keys button .icon { width: 14px; height: 14px; }
+.vj-tc-keys button.on { color: oklch(0.16 0.03 32); background: var(--signal); }
+.vj-tc-in { padding: 0 8px; color: var(--vj-video); font: 600 11px var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid oklch(0.78 0.11 210 / 0.4); border-radius: 2px; line-height: 22px; }

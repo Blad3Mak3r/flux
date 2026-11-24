@@ -34,7 +34,12 @@ export interface VjGrid {
   decks: VjDeck[];
   /** Id of the deck shown. */
   deck: string;
+  /** Where the timecode clock comes from; absent is `internal`. */
+  clock?: VjClockSource;
 }
+
+/** Flux's own transport, or timecode coming in by LTC or MTC. */
+export type VjClockSource = "internal" | "ltc" | "mtc";
 
 export interface VjDeck {
   id: string;

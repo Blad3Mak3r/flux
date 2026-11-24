@@ -440,6 +440,7 @@ mod tests {
                 columns: vec![column("c1"), column("c2")],
             }],
             deck: "d1".into(),
+            clock: Default::default(),
         }
     }
 

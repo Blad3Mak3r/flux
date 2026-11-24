@@ -186,8 +186,17 @@ clips play):
 A VJ show has a menu bar and keys of its own (`src/vj/menus.ts`): File, Edit, Composition, Deck, Layer, Clip, Output,
 View and Help, with no tracks, timelines or transport. Its keys: 1 to 9 launch a column of the deck shown, Enter the
 selected clip, Ctrl+PgUp/PgDn change deck, Ctrl+. stops everything, B, S and X bypass, solo and stop the selected layer,
-Del removes the selected clip, Ctrl+I imports media and Ctrl+Shift+A opens the output. The timeline's keys (Space, Home,
-the arrows, N, S, G, F2, Ctrl+1/2) do nothing in a VJ show. A layer folds to a thin row with the arrow beside its number, its right-click menu or Layer > Collapse layer, as in
+Del removes the selected clip, Ctrl+I imports media, Ctrl+Shift+A opens the output and Space plays or pauses the
+timecode on the internal clock. The timeline's other keys (Home, the arrows, N, S, G, F2, Ctrl+1/2) do nothing in a VJ
+show.
+
+The Composition bar under the grid holds the show's tempo and its timecode clock, as in Resolume, and the crossfader
+sits under the layer headers beside the deck tabs. The tempo is the BPM of the show's one timeline, so the metronome and
+the engine follow it: typed, nudged a BPM, halved, doubled or tapped (`setBpm`, `nudgeBpm`, `scaleBpm`, `tapBpm`; the
+backend reads the tempo from the last run of taps, `flux_project::vj::tapped_bpm`). The clock's source is `vj.clock`:
+on `internal` it is Flux's transport, played, paused, stopped back to the start and typed while it does not run (a seek);
+on `ltc` or `mtc` it is meant to follow timecode coming in, its keys are gone and it cannot be typed. Reading timecode
+in is not built yet, so an external clock shows no time. A layer folds to a thin row with the arrow beside its number, its right-click menu or Layer > Collapse layer, as in
 Resolume; it keeps playing, and the fold is saved with the show (`collapsed`).
 
 Output > Advanced output (Ctrl+Shift+A) opens the VJ show's video output over the whole window, as on a media server

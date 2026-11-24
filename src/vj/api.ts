@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   Project,
+  VjClockSource,
   ProjectState,
   VideoFit,
   VjBlend,
@@ -38,6 +39,11 @@ export type VjOp =
   | { op: "clipGenerator"; clip: string; generator: VjGenerator }
   | { op: "moveClip"; clip: string; layer: string; column: string }
   | { op: "removeClip"; clip: string }
+  | { op: "setBpm"; bpm: number }
+  | { op: "nudgeBpm"; by: number }
+  | { op: "scaleBpm"; factor: number }
+  | { op: "tapBpm"; taps: number[] }
+  | { op: "setClock"; source: VjClockSource }
   | { op: "renameClip"; clip: string; name: string }
   | { op: "clipPlayback"; clip: string; playback: VjPlayback }
   | { op: "clipTrigger"; clip: string; trigger: VjTrigger }

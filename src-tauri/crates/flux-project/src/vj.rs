@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 pub use crate::generator::Generator;
-use crate::model::{MAX_CLIP_NAME, Project, VideoFit};
+use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit};
 use crate::{ProjectError, Result};
 
 /// Most layers a grid has.
@@ -60,6 +60,64 @@ pub struct Vj {
     /// Id of the deck the grid shows.
     #[serde(default)]
     pub deck: String,
+    /// Where the show's timecode clock comes from; absent is [`ClockSource::Internal`].
+    #[serde(default, skip_serializing_if = "ClockSource::is_internal")]
+    pub clock: ClockSource,
+}
+
+/// Where the timecode clock of a VJ show comes from: Flux's own transport, or timecode coming in
+/// by LTC or MTC, which the clock follows and the operator cannot move.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClockSource {
+    #[default]
+    Internal,
+    Ltc,
+    Mtc,
+}
+
+impl ClockSource {
+    fn is_internal(&self) -> bool {
+        *self == Self::Internal
+    }
+}
+
+/// Taps further apart than this start a new count.
+const TAP_GAP_MS: f64 = 2000.0;
+/// How many of the last taps make the tempo.
+const TAP_COUNT: usize = 8;
+
+/// The tempo of `taps` (milliseconds, oldest first): the mean time between the last run of taps
+/// that are closer than [`TAP_GAP_MS`], at most [`TAP_COUNT`] of them. `None` before two taps.
+pub fn tapped_bpm(taps: &[f64]) -> Option<f64> {
+    let mut run = taps.len().checked_sub(1)?;
+    while run > 0 && taps.len() - run < TAP_COUNT {
+        let gap = taps[run] - taps[run - 1];
+        if !(gap > 0.0 && gap <= TAP_GAP_MS) {
+            break;
+        }
+        run -= 1;
+    }
+    let taps = &taps[run..];
+    if taps.len() < 2 {
+        return None;
+    }
+    let mean = (taps[taps.len() - 1] - taps[0]) / (taps.len() - 1) as f64;
+    (mean > 0.0).then(|| 60_000.0 / mean)
+}
+
+/// Sets the tempo of the show to `change` of the one it has. It is kept in the show's timeline, so
+/// the metronome and the engine follow it, brought into range and to two decimals.
+fn set_bpm(timelines: &mut [Timeline], change: impl FnOnce(f64) -> f64) -> Result<()> {
+    let timeline = timelines
+        .first_mut()
+        .ok_or_else(|| ProjectError::Invalid("a VJ project keeps one timeline".into()))?;
+    let bpm = change(timeline.tempo.bpm);
+    if !bpm.is_finite() {
+        return Err(ProjectError::Invalid("a tempo is a number".into()));
+    }
+    timeline.tempo.bpm = (bpm.clamp(MIN_BPM, MAX_BPM) * 100.0).round() / 100.0;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -401,6 +459,26 @@ pub enum VjOp {
         layer: String,
         on: bool,
     },
+    /// The tempo of the show, in beats a minute.
+    SetBpm {
+        bpm: f64,
+    },
+    /// The tempo moved by `by` beats a minute.
+    NudgeBpm {
+        by: f64,
+    },
+    /// The tempo times `factor`, as the ×2 and ÷2 buttons.
+    ScaleBpm {
+        factor: f64,
+    },
+    /// The tempo of the taps on the tap button, in milliseconds (see [`tapped_bpm`]).
+    TapBpm {
+        taps: Vec<f64>,
+    },
+    /// Where the timecode clock comes from.
+    SetClock {
+        source: ClockSource,
+    },
     /// A new deck with [`DEFAULT_COLUMNS`] empty columns, after the others, which the grid shows.
     AddDeck,
     /// Takes the deck, its columns and their clips away; the last deck stays.
@@ -508,6 +586,7 @@ impl Vj {
             layers,
             deck: deck.id.clone(),
             decks: vec![deck],
+            clock: ClockSource::Internal,
         }
     }
 
@@ -688,6 +767,15 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::LayerBypass { layer, on } => vj.layer_mut(&layer)?.bypass = on,
         VjOp::LayerSolo { layer, on } => vj.layer_mut(&layer)?.solo = on,
         VjOp::LayerCollapse { layer, on } => vj.layer_mut(&layer)?.collapsed = on,
+        VjOp::SetClock { source } => vj.clock = source,
+        VjOp::SetBpm { bpm } => set_bpm(&mut project.timelines, |_| bpm)?,
+        VjOp::NudgeBpm { by } => set_bpm(&mut project.timelines, |now| now + by)?,
+        VjOp::ScaleBpm { factor } => set_bpm(&mut project.timelines, |now| now * factor)?,
+        VjOp::TapBpm { taps } => {
+            let tapped = tapped_bpm(&taps)
+                .ok_or_else(|| ProjectError::Invalid("tap at least twice".into()))?;
+            set_bpm(&mut project.timelines, |_| tapped)?;
+        }
         VjOp::AddDeck => {
             if vj.decks.len() >= MAX_DECKS {
                 return Err(ProjectError::Invalid(format!(
@@ -1309,6 +1397,52 @@ mod tests {
         run(&mut project, collapse(false), &mut new_id);
         let json = serde_json::to_string(&project.vj.layers[0]).unwrap();
         assert!(!json.contains("collapsed"), "absent when unfolded: {json}");
+    }
+
+    #[test]
+    fn the_tempo_should_be_set_nudged_scaled_and_kept_in_range() {
+        let (mut project, mut new_id) = vj_project();
+        let bpm = |p: &Project| p.timelines[0].tempo.bpm;
+        run(&mut project, VjOp::SetBpm { bpm: 128.456 }, &mut new_id);
+        assert_eq!(bpm(&project), 128.46);
+        run(&mut project, VjOp::NudgeBpm { by: -1.0 }, &mut new_id);
+        assert_eq!(bpm(&project), 127.46);
+        run(&mut project, VjOp::ScaleBpm { factor: 0.5 }, &mut new_id);
+        assert_eq!(bpm(&project), 63.73);
+        run(&mut project, VjOp::ScaleBpm { factor: 100.0 }, &mut new_id);
+        assert_eq!(bpm(&project), MAX_BPM);
+        let nan = VjOp::SetBpm { bpm: f64::NAN };
+        assert!(apply(&mut project, nan, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn tapping_should_give_the_tempo_of_the_last_run_of_taps() {
+        assert_eq!(tapped_bpm(&[]), None);
+        assert_eq!(tapped_bpm(&[1000.0]), None);
+        // Half a second apart is 120 BPM; the tap long before starts no run with them.
+        assert_eq!(
+            tapped_bpm(&[0.0, 5000.0, 5500.0, 6000.0, 6500.0]),
+            Some(120.0)
+        );
+        let (mut project, mut new_id) = vj_project();
+        let taps = VjOp::TapBpm {
+            taps: vec![0.0, 400.0, 800.0],
+        };
+        run(&mut project, taps, &mut new_id);
+        assert_eq!(project.timelines[0].tempo.bpm, 150.0);
+    }
+
+    #[test]
+    fn the_clock_source_should_be_kept_in_the_file() {
+        let (mut project, mut new_id) = vj_project();
+        let json = serde_json::to_string(&project.vj).unwrap();
+        assert!(!json.contains("clock"), "internal is absent: {json}");
+        let ltc = VjOp::SetClock {
+            source: ClockSource::Ltc,
+        };
+        run(&mut project, ltc, &mut new_id);
+        let json = serde_json::to_string(&project.vj).unwrap();
+        assert!(json.contains(r#""clock":"ltc""#), "{json}");
     }
 
     #[test]
