@@ -37,7 +37,7 @@ pub struct Input {
     pub channels: Vec<u16>,
 }
 
-fn host(driver: Option<&str>) -> Result<cpal::Host, Error> {
+pub(crate) fn host(driver: Option<&str>) -> Result<cpal::Host, Error> {
     match driver {
         None => Ok(cpal::default_host()),
         Some(name) => cpal::available_hosts()
