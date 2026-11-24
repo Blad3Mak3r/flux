@@ -153,3 +153,14 @@ fn thumbnails_should_give_one_picture_a_second_side_by_side() {
         assert_eq!(&thumbs.jpeg[..2], &[0xFF, 0xD8], "{name}");
     }
 }
+
+#[test]
+fn poster_should_give_only_the_first_frame() {
+    for name in FIXTURES {
+        let poster = flux_video::poster(&fixture(name)).unwrap();
+        // 64x36 at the poster height.
+        assert_eq!((poster.width, poster.height), (320, 180), "{name}");
+        assert_eq!(poster.count, 1, "{name}");
+        assert_eq!(&poster.jpeg[..2], &[0xFF, 0xD8], "{name}");
+    }
+}

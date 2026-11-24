@@ -927,6 +927,13 @@ impl Session {
         )
     }
 
+    /// Whether the project open is a VJ project.
+    pub fn is_vj(&self) -> bool {
+        self.document
+            .as_ref()
+            .is_some_and(|document| document.project.mode == crate::ProjectMode::Vj)
+    }
+
     /// A copy of the VJ grid, `None` unless the project is a VJ project.
     pub fn grid_copy(&self) -> Option<crate::vj::Vj> {
         let project = &self.document.as_ref()?.project;

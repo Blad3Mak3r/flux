@@ -255,10 +255,20 @@ fn thumbs(
     asset: &VideoAsset,
     cache: &std::path::Path,
 ) -> Result<VideoThumbs> {
+    // A VJ clip shows only the first frame, which is much quicker to decode than a strip.
+    let vj = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_vj();
+    let name = if vj {
+        format!("{}.first", asset.id)
+    } else {
+        asset.id.clone()
+    };
     let dir = cache.join("thumbs");
     let (jpeg_path, meta_path) = (
-        dir.join(format!("{}.jpg", asset.id)),
-        dir.join(format!("{}.json", asset.id)),
+        dir.join(format!("{name}.jpg")),
+        dir.join(format!("{name}.json")),
     );
     let cached = std::fs::read(&jpeg_path).ok().zip(
         std::fs::read(&meta_path)
@@ -272,8 +282,12 @@ fn thumbs(
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .video_path(asset, cache)?;
-            let made = flux_video::thumbnails(&path)
-                .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
+            let made = if vj {
+                flux_video::poster(&path)
+            } else {
+                flux_video::thumbnails(&path)
+            }
+            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
             let meta = VideoThumbs {
                 width: made.width,
                 height: made.height,
