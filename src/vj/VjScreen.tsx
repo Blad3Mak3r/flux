@@ -41,6 +41,9 @@ import {
 } from "./store";
 import "./vj.css";
 
+/** One empty list for a project without videos, so a store selector answers the same value each time. */
+const NO_VIDEOS: VideoAsset[] = [];
+
 const BLENDS: VjBlend[] = ["alpha", "add", "subtract", "multiply", "screen", "lighten", "darken"];
 const TRANSITIONS: VjTransition[] = ["alpha", "add"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
@@ -152,7 +155,7 @@ function Fader({ letter, label, value, off, onMove, onSet }: {
 
 function LayerHeader({ grid, layer, playing }: { grid: VjGrid; layer: VjLayer; playing: PlayingClip | undefined }) {
   const t = useT();
-  const videos = useDoc((doc) => doc.project.videos ?? []);
+  const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const thumbs = useDoc((doc) => doc.thumbs);
   const [renaming, setRenaming] = useState(false);
   const name = layerName(t, grid, layer);
@@ -235,7 +238,7 @@ function LayerHeader({ grid, layer, playing }: { grid: VjGrid; layer: VjLayer; p
 
 function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn; at: number; playing: PlayingClip | undefined }) {
   const t = useT();
-  const videos = useDoc((doc) => doc.project.videos ?? []);
+  const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const thumbs = useDoc((doc) => doc.thumbs);
   const selected = useVj((vj) => vj.clip);
   const [over, setOver] = useState(false);
@@ -496,7 +499,7 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
   const selected = useVj((vj) => vj.clip);
   const thumbs = useDoc((doc) => doc.thumbs);
-  const videos = useDoc((doc) => doc.project.videos ?? []);
+  const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const found = grid.layers.flatMap((layer) => (layer.clips ?? []).map((clip) => ({ layer, clip }))).find((x) => x.clip.id === selected);
   const strip = found && thumbs[found.clip.asset];
   const [frame, setFrame] = useState(0);
@@ -561,7 +564,7 @@ function NameField({ value, placeholder, label, onCommit }: { value: string; pla
 function Inspector({ grid }: { grid: VjGrid }) {
   const t = useT();
   const { clip: clipId, layer: layerId, tab } = useVj();
-  const videos = useDoc((doc) => doc.project.videos ?? []);
+  const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const probes = useDoc((doc) => doc.video);
   const thumbs = useDoc((doc) => doc.thumbs);
   const found = grid.layers.flatMap((layer) => (layer.clips ?? []).map((clip) => ({ layer, clip }))).find((x) => x.clip.id === clipId);
@@ -649,7 +652,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
 
 function MediaPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
-  const videos = useDoc((doc) => doc.project.videos ?? []);
+  const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const probes = useDoc((doc) => doc.video);
   const thumbs = useDoc((doc) => doc.thumbs);
   const layerId = useVj((vj) => vj.layer);
