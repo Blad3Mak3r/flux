@@ -25,7 +25,6 @@ import { useDoc } from "../state/store";
 import { openMenu, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import type { VideoStrip } from "../video/api";
-import type { PlayingClip } from "./api";
 import {
   bindOutput,
   bindPlayState,
@@ -182,8 +181,13 @@ function Fader({ letter, label, value, off, progress, onMove, onSet }: {
   );
 }
 
-function LayerHeader({ grid, layer, playing }: { grid: VjGrid; layer: VjLayer; playing: PlayingClip | undefined }) {
+/** What `layer` plays, read on its own so only the parts showing it draw again as it plays. */
+const usePlaying = (layer: string, clip?: string) =>
+  useVj((vj) => vj.play.playing.find((p) => p.layer === layer && (clip === undefined || p.clip === clip)));
+
+function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   const t = useT();
+  const playing = usePlaying(layer.id);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const thumbs = useDoc((doc) => doc.thumbs);
   const [renaming, setRenaming] = useState(false);
@@ -267,14 +271,16 @@ function LayerHeader({ grid, layer, playing }: { grid: VjGrid; layer: VjLayer; p
   );
 }
 
-function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn; at: number; playing: PlayingClip | undefined }) {
+function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: number }) {
   const t = useT();
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const thumbs = useDoc((doc) => doc.thumbs);
-  const selected = useVj((vj) => vj.clip);
   const [over, setOver] = useState(false);
   const clip = clipAt(layer, column, at);
-  const live = clip && playing?.clip === clip.id;
+  // Only the cell whose clip plays, or is selected, draws again when that changes.
+  const selected = useVj((vj) => clip !== undefined && vj.clip === clip.id);
+  const playing = usePlaying(layer.id, clip?.id ?? "");
+  const live = playing !== undefined;
   const state = useVideoState(clip?.asset ?? "");
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -308,7 +314,7 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
   const piano = clip.trigger === "piano";
   return (
     <div
-      className={`vj-clip${live ? " on-air" : ""}${selected === clip.id ? " sel" : ""}${over ? " over" : ""}`}
+      className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${over ? " over" : ""}`}
       draggable
       onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ clip: clip.id } satisfies Dragged))}
       onPointerDown={(event) => {
@@ -402,7 +408,8 @@ function DeckTab({ deck, at, shown, only }: { deck: VjDeck; at: number; shown: b
   );
 }
 
-function Crossfader({ position }: { position: number }) {
+function Crossfader() {
+  const position = useVj((vj) => vj.play.crossfader);
   const [held, setHeld] = useState<number | null>(null);
   const shown = held ?? position;
   const at = (event: PointerEvent<HTMLDivElement>) => {
@@ -438,11 +445,8 @@ function Crossfader({ position }: { position: number }) {
 
 function DeckPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
-  const playing = useVj((vj) => vj.play.playing);
-  const crossfader = useVj((vj) => vj.play.crossfader);
   const deck = grid.decks.find((d) => d.id === grid.deck) ?? grid.decks[0];
   const layers = [...grid.layers].reverse();
-  const onLayer = (layer: VjLayer) => playing.find((p) => p.layer === layer.id);
   const lit = useVj((vj) => vj.play.column);
   const liveColumn = deck.columns.findIndex((column) => column.id === lit);
   const sideNames = (side: VjSide) => grid.layers.filter((l) => l.crossfade === side).map((l) => layerName(t, grid, l)).join(", ");
@@ -465,9 +469,9 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
           </div>
           {layers.map((layer, i) => (
             <div key={layer.id} className={`vj-row${layer.global ? " global" : ""}${i > 0 && layers[i - 1].global && !layer.global ? " split" : ""}`}>
-              <LayerHeader grid={grid} layer={layer} playing={onLayer(layer)} />
+              <LayerHeader grid={grid} layer={layer} />
               {deck.columns.map((column, at) => (
-                <Cell key={column.id} layer={layer} column={column} at={at} playing={onLayer(layer)} />
+                <Cell key={column.id} layer={layer} column={column} at={at} />
               ))}
             </div>
           ))}
@@ -481,7 +485,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
           <div className="vj-cl"><strong>{t("vj.composition")}</strong></div>
           <div className="vj-xf">
             <div className="vj-xs"><b>A</b><span>{sideNames("a")}</span></div>
-            <Crossfader position={crossfader} />
+            <Crossfader />
             <div className="vj-xs end"><span>{sideNames("b")}</span><b>B</b></div>
           </div>
           <button type="button" className="button" onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
@@ -780,13 +784,11 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
   const probes = useDoc((doc) => doc.video);
   const thumbs = useDoc((doc) => doc.thumbs);
   const layerId = useVj((vj) => vj.layer);
-  const playing = useVj((vj) => vj.play.playing);
+  // The clips playing as one string, so the panel draws again only when they change, not on every poll.
+  const playingClips = useVj((vj) => vj.play.playing.map((p) => p.clip).join(" "));
   const target = grid.layers.find((l) => l.id === layerId) ?? grid.layers.find((l) => !l.global) ?? grid.layers[0];
-  const onAir = new Set(grid.layers.flatMap((l) => {
-    const p = playing.find((x) => x.layer === l.id);
-    const clip = p && l.clips?.find((c) => c.id === p.clip);
-    return clip ? [clip.asset] : [];
-  }));
+  const onAir = new Set(grid.layers.flatMap((l) =>
+    (l.clips ?? []).filter((c) => playingClips.split(" ").includes(c.id)).map((c) => c.asset)));
   const importing = useVj((vj) => vj.importing);
   const kind = useVj((vj) => vj.media);
   // A video still being read is listed under "All" only, until the backend says what it is.
