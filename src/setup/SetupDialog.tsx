@@ -10,7 +10,8 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import { closeSetup, openSetup, useUi } from "../state/ui";
 import { useTransport } from "../transport/store";
-import { SETUP_GROUPS, groupOf, isAvailable } from "./outputs";
+import { SETUP_GROUPS, groupOf, isAvailable, isListed } from "./outputs";
+import { useDoc } from "../state/store";
 import type { SetupGroup, SetupSection } from "./outputs";
 import { ControlPage } from "./ControlPage";
 import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
@@ -131,6 +132,7 @@ function SetupNav({ section }: { section: SetupSection }) {
   const t = useT();
   const [folded, setFolded] = useState(readFolded);
   const current = groupOf(section);
+  const vj = useDoc((doc) => doc.project.mode === "vj");
 
   const setGroup = (id: SetupGroup, open: boolean) =>
     setFolded((was) => {
@@ -167,6 +169,8 @@ function SetupNav({ section }: { section: SetupSection }) {
   return (
     <nav className="setup-nav" aria-label={t("setup.sections")} onKeyDown={onKeyDown}>
       {SETUP_GROUPS.map((group) => {
+        const sections = group.sections.filter((id) => isListed(id, vj));
+        if (sections.length === 0) return null;
         const open = !folded.includes(group.id);
         const holdsPage = group.id === current;
         return (
@@ -186,7 +190,7 @@ function SetupNav({ section }: { section: SetupSection }) {
               {holdsPage && !open && <span className="setup-group-lamp" aria-hidden="true" />}
             </button>
             <ul id={`setup-group-${group.id}`} className="setup-group-pages" hidden={!open}>
-              {group.sections.map((id) => {
+              {sections.map((id) => {
                 const available = isAvailable(id);
                 const selected = section === id;
                 const hint = SOON_HINT[id];

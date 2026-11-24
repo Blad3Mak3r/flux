@@ -20,6 +20,15 @@ export type SetupSection = (typeof SETUP_GROUPS)[number]["sections"][number];
 /** Every page, in the order they are listed. */
 export const SETUP_SECTIONS: readonly SetupSection[] = SETUP_GROUPS.flatMap((group) => group.sections);
 
+/**
+ * The pages a VJ show leaves out: it has no timeline, timecode, click or voice operator, and its video
+ * output is set up in its own Advanced Output.
+ */
+const NOT_VJ: readonly SetupSection[] = ["timeline", "metronome", "operator", "ltc", "mtc", "osc", "video"];
+
+/** Whether a page is listed for a show of this kind. */
+export const isListed = (section: SetupSection, vj: boolean): boolean => !vj || !NOT_VJ.includes(section);
+
 /** HTTP is listed so the user can see it is planned, but has no page yet. */
 export const isAvailable = (section: SetupSection): boolean => section !== "http";
 
