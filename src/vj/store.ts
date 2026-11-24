@@ -134,11 +134,16 @@ export const selectLayer = (layer: string) => useVj.setState({ layer, tab: "laye
 export const showTab = (tab: VjState["tab"]) => useVj.setState({ tab });
 export const showMedia = (media: MediaKind) => useVj.setState({ media });
 
-/** Asks the backend what plays, ten times a second, while the VJ screen is open. */
+/** Asks the backend what plays, ten times a second, while the VJ screen is open and in sight. */
 export function bindPlayState(): () => void {
   let stopped = false;
   const tick = () => {
     if (stopped) return;
+    // A minimized window shows nothing: the screens play on without it.
+    if (document.hidden) {
+      window.setTimeout(tick, 100);
+      return;
+    }
     vjPlayState()
       .then((play) => {
         if (!stopped) useVj.setState({ play });
@@ -169,7 +174,7 @@ const OUTPUT_EVERY = 1000 / 30;
 /**
  * Asks the backend for the picture the screens show {@link OUTPUT_EVERY}, with up to two asks on the
  * way so one's trip does not hold the next, and hands the newest to `draw` (`null` when there is
- * none), while the VJ screen is open.
+ * none), while the VJ screen is open and in sight.
  */
 export function bindOutput(draw: (picture: ImageData | null) => void): () => void {
   let stopped = false;
@@ -177,7 +182,7 @@ export function bindOutput(draw: (picture: ImageData | null) => void): () => voi
   let asked = 0;
   let drawn = 0;
   const ask = () => {
-    if (stopped || pending >= 2) return;
+    if (stopped || pending >= 2 || document.hidden) return;
     pending += 1;
     const number = ++asked;
     vjOutputFrame()
