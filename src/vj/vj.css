@@ -70,7 +70,6 @@
 .vj-dim { color: var(--ink-faint); }
 .vj-mono, .vj-num, .vj-time, .vj-count, .vj-d, .vj-c { font-family: var(--font-measure); font-variant-numeric: tabular-nums; }
 .vj-empty { margin: 0; padding: 16px; color: var(--ink-faint); }
-.vj-note { margin: 0; color: var(--ink-faint); font-size: 11.5px; }
 
 .vj-tb {
   display: inline-flex;
@@ -384,7 +383,8 @@
 .vj-deck.add { padding: 0 8px; color: var(--ink-faint); }
 .vj-deck .icon { width: 12px; height: 12px; }
 .vj-count { color: var(--ink-faint); font-size: 10.5px; font-weight: 400; }
-.vj-hint { display: flex; align-items: center; gap: 7px; margin-left: auto; color: var(--ink-faint); font-size: 12px; }
+.vj-tips { display: flex; align-items: center; gap: 18px; color: var(--ink-faint); }
+.vj-hint { display: flex; align-items: center; gap: 7px; }
 .vj-hint .icon { width: 12px; height: 12px; color: var(--vj-global-ink); }
 
 /* Composition */

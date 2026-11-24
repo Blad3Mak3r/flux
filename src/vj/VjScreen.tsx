@@ -447,7 +447,6 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
           {grid.decks.map((d, at) => <DeckTab key={d.id} deck={d} at={at} shown={d.id === deck.id} only={grid.decks.length === 1} />)}
           <button type="button" className="vj-deck add" title={t("vj.deck.add")} aria-label={t("vj.deck.add")}
             onClick={() => void edit({ op: "addDeck" })}><PlusIcon /></button>
-          {grid.layers.some((l) => l.global) && <span className="vj-hint"><GlobeIcon />{t("vj.globalHint")}</span>}
         </div>
         <div className="vj-comp">
           <div className="vj-cl"><strong>{t("vj.composition")}</strong></div>
@@ -488,7 +487,6 @@ function OutputPanel({ grid }: { grid: VjGrid }) {
             );
           })}
         </div>
-        <p className="vj-note">{t("vj.outputNote")}</p>
       </div>
     </section>
   );
@@ -720,5 +718,17 @@ export function VjScreen() {
       <Inspector grid={grid} />
       <MediaPanel grid={grid} />
     </div>
+  );
+}
+
+/** The VJ screen's tips, shown at the right of the status bar. */
+export function VjTips() {
+  const t = useT();
+  const global = useDoc((doc) => doc.project.vj?.layers.some((layer) => layer.global) ?? false);
+  return (
+    <span className="vj-tips">
+      {global && <span className="vj-hint"><GlobeIcon />{t("vj.globalHint")}</span>}
+      <span>{t("vj.outputNote")}</span>
+    </span>
   );
 }
