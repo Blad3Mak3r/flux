@@ -591,8 +591,10 @@ impl Render {
                 rgba: &frame.rgba,
                 place,
                 opacity: shown.layer.opacity,
+                blend: blend(shown.layer.blend),
             });
-            if shown.layer.opacity >= 1.0 && !frame.alpha && covers(place) {
+            let alpha = shown.layer.blend == flux_project::vj::Blend::Alpha;
+            if alpha && shown.layer.opacity >= 1.0 && !frame.alpha && covers(place) {
                 break;
             }
         }
@@ -606,6 +608,7 @@ impl Render {
                 rgba: &self.card_frame,
                 place: [0.0, 0.0, 1.0, 1.0],
                 opacity: 1.0,
+                blend: flux_render::Blend::Alpha,
             });
         }
         let drawn = !pictures.is_empty();
@@ -845,4 +848,18 @@ pub async fn video_output_choose(
 #[tauri::command]
 pub fn video_output_pattern(output: State<'_, SharedVideoOutput>, on: bool) {
     output.pattern.store(on, Ordering::Relaxed);
+}
+
+/// The render's blend for a layer's.
+fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
+    use flux_project::vj::Blend as B;
+    match blend {
+        B::Alpha => flux_render::Blend::Alpha,
+        B::Add => flux_render::Blend::Add,
+        B::Subtract => flux_render::Blend::Subtract,
+        B::Multiply => flux_render::Blend::Multiply,
+        B::Screen => flux_render::Blend::Screen,
+        B::Lighten => flux_render::Blend::Lighten,
+        B::Darken => flux_render::Blend::Darken,
+    }
 }

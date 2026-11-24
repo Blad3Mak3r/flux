@@ -3,7 +3,8 @@
 //! window, with the perspective of a projector seen at an angle (a "corner pin"). With no quads the
 //! whole picture is fitted to the window keeping its shape, with black around it; the window is
 //! black when there is no picture. Several pictures are drawn one over another, each at its own
-//! place and opacity, which is how clips fade and cross-fade. A quad can fade out towards its edges (a soft edge, to blend
+//! place and opacity, which is how clips fade and cross-fade, and mixed with what is below by its
+//! [`Blend`]. A quad can fade out towards its edges (a soft edge, to blend
 //! two projectors where their pictures overlap), and [`Mask`]s black out parts of the window.
 
 pub mod pattern;
@@ -36,6 +37,75 @@ pub struct Picture<'a> {
     pub place: [f32; 4],
     /// How much of it covers what is below, 0 to 1.
     pub opacity: f32,
+    /// How it mixes with what is below, at its opacity.
+    pub blend: Blend,
+}
+
+/// How a picture mixes with what is drawn below it; the light is mixed as the GPU blends, in linear
+/// light.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Blend {
+    /// Covers what is below.
+    #[default]
+    Alpha,
+    /// Adds its light to what is below.
+    Add,
+    /// Takes its light from what is below.
+    Subtract,
+    /// Darkens what is below by its colour.
+    Multiply,
+    /// Lightens what is below, softer than adding.
+    Screen,
+    /// Keeps the lighter of the two.
+    Lighten,
+    /// Keeps the darker of the two.
+    Darken,
+}
+
+impl Blend {
+    const ALL: [Self; 7] = [
+        Self::Alpha,
+        Self::Add,
+        Self::Subtract,
+        Self::Multiply,
+        Self::Screen,
+        Self::Lighten,
+        Self::Darken,
+    ];
+
+    /// What the shader gives for it: the colour and its cover (0), the colour scaled by its cover
+    /// over black (1), or the colour scaled by its cover over white (2). Each is what leaves the
+    /// picture below as it is where nothing covers it.
+    fn shading(self) -> f32 {
+        match self {
+            Self::Alpha => 0.0,
+            Self::Add | Self::Subtract | Self::Screen | Self::Lighten => 1.0,
+            Self::Multiply | Self::Darken => 2.0,
+        }
+    }
+
+    fn state(self) -> wgpu::BlendState {
+        use wgpu::{BlendComponent, BlendFactor as F, BlendOperation as O};
+        let colour = |src_factor, dst_factor, operation| BlendComponent {
+            src_factor,
+            dst_factor,
+            operation,
+        };
+        let color = match self {
+            Self::Alpha => return wgpu::BlendState::ALPHA_BLENDING,
+            Self::Add => colour(F::One, F::One, O::Add),
+            Self::Subtract => colour(F::One, F::One, O::ReverseSubtract),
+            Self::Multiply => colour(F::Dst, F::Zero, O::Add),
+            Self::Screen => colour(F::OneMinusDst, F::One, O::Add),
+            Self::Lighten => colour(F::One, F::One, O::Max),
+            Self::Darken => colour(F::One, F::One, O::Min),
+        };
+        wgpu::BlendState {
+            color,
+            // The window's alpha stays as the first picture left it.
+            alpha: colour(F::Zero, F::One, O::Add),
+        }
+    }
 }
 
 /// How a picture is sized into the composition.
@@ -114,6 +184,8 @@ pub struct Vertex {
     /// Where the picture sits in the composition (see [`Picture::place`]).
     pub place: [f32; 4],
     pub opacity: f32,
+    /// [`Blend::shading`].
+    pub shading: f32,
 }
 
 const VERTEX_SIZE: u64 = size_of::<Vertex>() as u64;
@@ -138,7 +210,8 @@ pub struct Screen {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    pipeline: wgpu::RenderPipeline,
+    /// One per blend, in the order of [`Blend::ALL`].
+    pipelines: Vec<wgpu::RenderPipeline>,
     vertices: wgpu::Buffer,
     masks: wgpu::Buffer,
     masks_group: wgpu::BindGroup,
@@ -162,6 +235,7 @@ struct Out {
     @location(3) @interpolate(flat) gamma: f32,
     @location(4) @interpolate(flat) place: vec4f,
     @location(5) @interpolate(flat) opacity: f32,
+    @location(6) @interpolate(flat) shading: f32,
 };
 
 @vertex
@@ -173,6 +247,7 @@ fn vs(
     @location(4) gamma: f32,
     @location(5) place: vec4f,
     @location(6) opacity: f32,
+    @location(7) shading: f32,
 ) -> Out {
     var out: Out;
     out.pos = vec4f(pos, 0.0, 1.0);
@@ -182,6 +257,7 @@ fn vs(
     out.gamma = gamma;
     out.place = place;
     out.opacity = opacity;
+    out.shading = shading;
     return out;
 }
 
@@ -259,7 +335,14 @@ fn fs(in: Out) -> @location(0) vec4f {
     if within {
         cover = colour.a * in.opacity;
     }
-    return vec4f(colour.rgb * shown, cover);
+    let rgb = colour.rgb * shown;
+    if in.shading < 0.5 {
+        return vec4f(rgb, cover);
+    }
+    if in.shading < 1.5 {
+        return vec4f(rgb * cover, 1.0);
+    }
+    return vec4f(mix(vec3f(1.0), rgb, cover), 1.0);
 }
 ";
 
@@ -378,43 +461,47 @@ impl Screen {
             bind_group_layouts: &[Some(&layout), Some(&masks_layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("picture"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: VERTEX_SIZE,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x2,
-                        1 => Float32x3,
-                        2 => Float32x2,
-                        3 => Float32x4,
-                        4 => Float32,
-                        5 => Float32x4,
-                        6 => Float32
-                    ],
-                })],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipeline = |blend: Blend| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("picture"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: VERTEX_SIZE,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![
+                            0 => Float32x2,
+                            1 => Float32x3,
+                            2 => Float32x2,
+                            3 => Float32x4,
+                            4 => Float32,
+                            5 => Float32x4,
+                            6 => Float32,
+                            7 => Float32
+                        ],
+                    })],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(blend.state()),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipelines = Blend::ALL.into_iter().map(pipeline).collect();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("picture"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -432,7 +519,7 @@ impl Screen {
             device,
             queue,
             config,
-            pipeline,
+            pipelines,
             vertices,
             masks,
             masks_group,
@@ -496,9 +583,10 @@ impl Screen {
             data.extend(quads.iter().flat_map(vertices).map(|vertex| Vertex {
                 place: picture.place,
                 opacity: picture.opacity.min(1.0),
+                shading: picture.blend.shading(),
                 ..vertex
             }));
-            layers.push((slot, first..data.len() as u32));
+            layers.push((slot, picture.blend, first..data.len() as u32));
         }
         if !data.is_empty() {
             self.queue
@@ -532,10 +620,11 @@ impl Screen {
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(1, &self.masks_group, &[]);
             pass.set_vertex_buffer(0, self.vertices.slice(..));
-            for (slot, range) in layers {
+            for (slot, blend, range) in layers {
+                let index = Blend::ALL.iter().position(|b| *b == blend).unwrap_or(0);
+                pass.set_pipeline(&self.pipelines[index]);
                 if let Some(uploaded) = &self.pictures[slot] {
                     pass.set_bind_group(0, &uploaded.bind_group, &[]);
                     pass.draw(range, 0..1);
@@ -667,6 +756,7 @@ pub fn vertices(quad: &Quad) -> [Vertex; 6] {
         gamma: quad.gamma,
         place: [0.0, 0.0, 1.0, 1.0],
         opacity: 1.0,
+        shading: 0.0,
     };
     [
         corner(0),
@@ -721,7 +811,7 @@ fn vertex_bytes(vertices: &[Vertex]) -> Vec<u8> {
                 .chain(&v.soft)
                 .chain([&v.gamma])
                 .chain(&v.place)
-                .chain([&v.opacity])
+                .chain([&v.opacity, &v.shading])
                 .flat_map(|f| f.to_ne_bytes())
         })
         .collect()
@@ -865,7 +955,7 @@ mod tests {
         );
         // A fade past the whole quad is cut to it.
         assert_eq!((v[0].soft, v[0].gamma), ([0.25, 0.0, 0.0, 1.0], 2.2));
-        assert_eq!(vertex_bytes(&v).len(), 6 * 17 * 4);
-        assert_eq!(VERTEX_SIZE, 17 * 4);
+        assert_eq!(vertex_bytes(&v).len(), 6 * 18 * 4);
+        assert_eq!(VERTEX_SIZE, 18 * 4);
     }
 }

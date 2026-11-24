@@ -24,6 +24,8 @@ pub struct Layer {
     pub fit: flux_project::VideoFit,
     /// How much of it shows over what is below, 0 to 1: less while the clip fades in or out.
     pub opacity: f32,
+    /// How it mixes with what is below; a timeline's clips cover it.
+    pub blend: flux_project::vj::Blend,
 }
 
 /// The rate and length of a video, which the mapping needs; `None` when it could not be read.
@@ -64,6 +66,7 @@ pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
                             frame,
                             fit: clip.fit,
                             opacity: opacity(clip, position, length),
+                            blend: Default::default(),
                         },
                     ))
                 })
@@ -116,6 +119,7 @@ pub fn upcoming(timeline: &Timeline, position: u64, ahead: u64, probe: Probe<'_>
                 frame: source_frame(clip, clip.start, rate, video, frames)?,
                 fit: clip.fit,
                 opacity: 0.0,
+                blend: Default::default(),
             })
         })
         .collect()
