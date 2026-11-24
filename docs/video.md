@@ -157,19 +157,34 @@ A VJ project ([project format](fxtc-format.md#vj-grid-version-14)) shows its gri
 on a clock of their own, not the transport's: `flux_video::GridPlay` holds which clip plays on each layer and when it was
 launched, and `grid_frame` maps the time since the launch to a frame of the video, looping, stopping after one pass or
 going back and forth (`playback`). The output's render threads ask `VideoDeck::show_grid` for the pictures on every
-refresh, so a launched clip has a player only while it plays. A layer's picture is its `opacity` times its crossfader
-side: each side shows fully from its end to the middle and fades out over the other half. Clip sound is not played yet.
+refresh, so a launched clip has a player only while it plays. A layer's picture is its `master` times its `opacity`
+times its crossfader side: each side shows fully from its end to the middle and fades out over the other half. `bypass`
+hides a layer and a `solo` layer hides every layer that is not soloed. Clip sound is not played yet, so `volume` does
+nothing for now.
+
+A layer with a `transition` time keeps drawing the clip it replaces until the new one has faded in: with the `alpha`
+effect the new clip fades in over the old one, with `add` the old one fades out while the new one fades in. Launching the
+clip that already plays restarts it at once. Each layer is drawn with its `blend` through a fixed GPU blend state
+(`flux_render::Blend`): `add`, `subtract`, `multiply`, `screen`, `lighten` and `darken` combine the layer with what is
+already drawn, and a layer that is not `alpha` never hides the ones below it.
 
 The app crate's `vj_commands.rs` holds what plays, which is never stored. Its commands answer with what plays now
-(`{ playing: [{ layer, clip, seconds }], crossfader }`):
+(`{ playing: [{ layer, clip, seconds, progress, remaining, level }], column, crossfader }`: `progress` is where each
+clip is in its video, `level` how much of its layer reaches the output, and `column` the column launched last while its
+clips play):
 
 | Command | Arguments | Does |
 | --- | --- | --- |
-| `vj_launch` | `clip` | Plays the clip on its layer from its first frame, in place of what played there; a playing clip starts again. |
-| `vj_launch_column` | `column` | Launches every clip of the column at once; a layer without a clip in it stops. |
+| `vj_launch` | `clip` | Plays the clip on its layer from its first frame, in place of what played there, over the layer's transition; a playing clip starts again. |
+| `vj_release` | `clip` | Stops a `piano` clip when it is let go; a `normal` clip keeps playing. |
+| `vj_launch_column` | `column` | Launches every clip of the column at once; a deck layer without a clip in it stops and global layers are left as they are. |
 | `vj_stop` | `layer?` | Stops the layer, or every layer. |
 | `vj_crossfader` | `position` | Moves the crossfader, 0 (side A) to 1 (side B). |
 | `vj_play_state` | | Reads what plays. |
+
+The VJ screen (`src/vj/`) shows the layers as strips with a fader each for master (M), audio (A), video (V) and
+transition time (T), the deck's tabs under the grid and the crossfader. Its Output panel approximates the mix from each
+playing clip's thumbnail at its position; the screens show the video itself.
 
 ## Mapping
 
