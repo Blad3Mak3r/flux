@@ -2919,6 +2919,11 @@ input:disabled {
   align-self: stretch;
 }
 
+/* The menu bar's last column is as wide as its first: the window buttons go to its far end. */
+.welcome .menubar .window-controls {
+  justify-self: end;
+}
+
 .project-badge {
   grid-area: badge;
   display: grid;
