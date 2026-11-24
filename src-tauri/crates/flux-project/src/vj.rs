@@ -254,11 +254,35 @@ pub struct Clip {
     /// How the video is sized into the composition; absent is [`VideoFit::Fit`].
     #[serde(default, skip_serializing_if = "is_fit")]
     pub fit: VideoFit,
+    /// How much larger than its fit the clip is drawn, about its centre: 1 is 100%. Absent is 1.
+    #[serde(default = "full_scale", skip_serializing_if = "is_full_scale")]
+    pub scale: f32,
+    /// How far its centre is moved from where its fit puts it, as fractions of the composition's
+    /// width and height, right and down. Absent is not moved.
+    #[serde(default, skip_serializing_if = "is_centred")]
+    pub position: [f32; 2],
 }
 
 fn is_fit(fit: &VideoFit) -> bool {
     *fit == VideoFit::Fit
 }
+
+fn full_scale() -> f32 {
+    1.0
+}
+
+fn is_full_scale(scale: &f32) -> bool {
+    *scale == 1.0
+}
+
+fn is_centred(position: &[f32; 2]) -> bool {
+    *position == [0.0, 0.0]
+}
+
+/// Largest scale of a clip: 1000%.
+pub const MAX_SCALE: f32 = 10.0;
+/// Farthest a clip's centre moves from its place, in compositions.
+pub const MAX_OFFSET: f32 = 2.0;
 
 /// What a launched clip does when it reaches the end of its video.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -429,6 +453,18 @@ pub enum VjOp {
         clip: String,
         fit: VideoFit,
     },
+    /// Draws the clip `value` times its fitted size (1 is 100%), up to [`MAX_SCALE`].
+    ClipScale {
+        clip: String,
+        value: f32,
+    },
+    /// Moves the clip's centre from where its fit puts it, in fractions of the composition, up to
+    /// [`MAX_OFFSET`] either way.
+    ClipPosition {
+        clip: String,
+        x: f32,
+        y: f32,
+    },
 }
 
 impl Vj {
@@ -574,8 +610,12 @@ fn new_deck(new_id: &mut impl FnMut() -> String) -> Deck {
 
 /// A level as a fader stands, 0 to 1.
 fn level(value: f32) -> Result<f32> {
+    within(value, 0.0, 1.0)
+}
+
+fn within(value: f32, min: f32, max: f32) -> Result<f32> {
     if value.is_finite() {
-        Ok(value.clamp(0.0, 1.0))
+        Ok(value.clamp(min, max))
     } else {
         Err(ProjectError::Invalid("a level is a number".into()))
     }
@@ -718,6 +758,8 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                 playback: Playback::Loop,
                 trigger: Trigger::Normal,
                 fit: VideoFit::Fit,
+                scale: 1.0,
+                position: [0.0, 0.0],
             };
             clip.put(cell);
             layer.clips.push(clip);
@@ -757,6 +799,13 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::ClipPlayback { clip, playback } => vj.clip_mut(&clip)?.playback = playback,
         VjOp::ClipTrigger { clip, trigger } => vj.clip_mut(&clip)?.trigger = trigger,
         VjOp::ClipFit { clip, fit } => vj.clip_mut(&clip)?.fit = fit,
+        VjOp::ClipScale { clip, value } => {
+            vj.clip_mut(&clip)?.scale = within(value, 0.0, MAX_SCALE)?;
+        }
+        VjOp::ClipPosition { clip, x, y } => {
+            let offset = |v| within(v, -MAX_OFFSET, MAX_OFFSET);
+            vj.clip_mut(&clip)?.position = [offset(x)?, offset(y)?];
+        }
     }
     Ok(())
 }
@@ -998,6 +1047,40 @@ mod tests {
         place(&mut project, "g13", "g18", &mut new_id); // slot 2 again, from the other deck
         assert_eq!(project.vj.layers[3].clips.len(), 1);
         assert_eq!(project.vj.column_clips("g18").count(), DEFAULT_LAYERS);
+    }
+
+    #[test]
+    fn a_clip_should_scale_and_move_within_its_limits_and_keep_them_in_the_file() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let clip = |project: &Project| project.vj.layers[0].clips[0].clone();
+        assert_eq!(
+            (clip(&project).scale, clip(&project).position),
+            (1.0, [0.0, 0.0])
+        );
+        let scale = |value| VjOp::ClipScale {
+            clip: "g13".into(),
+            value,
+        };
+        run(&mut project, scale(50.0), &mut new_id);
+        assert_eq!(clip(&project).scale, MAX_SCALE);
+        run(&mut project, scale(0.5), &mut new_id);
+        let op = VjOp::ClipPosition {
+            clip: "g13".into(),
+            x: 0.25,
+            y: -9.0,
+        };
+        run(&mut project, op, &mut new_id);
+        assert_eq!(clip(&project).position, [0.25, -MAX_OFFSET]);
+        assert!(apply(&mut project, scale(f32::NAN), &mut new_id).is_err());
+
+        let json = serde_json::to_value(clip(&project)).unwrap();
+        assert_eq!(
+            (json["scale"].as_f64(), json["position"][0].as_f64()),
+            (Some(0.5), Some(0.25))
+        );
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(back, clip(&project));
     }
 
     #[test]

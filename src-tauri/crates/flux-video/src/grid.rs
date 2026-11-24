@@ -294,6 +294,8 @@ impl GridPlay {
                     fit: clip.fit,
                     opacity,
                     blend: layer.blend,
+                    scale: clip.scale,
+                    position: clip.position,
                 })
             };
             let fading = launched.fading(now);
@@ -379,6 +381,8 @@ mod tests {
             playback,
             trigger: Trigger::Normal,
             fit: Default::default(),
+            scale: 1.0,
+            position: [0.0, 0.0],
         }
     }
 
