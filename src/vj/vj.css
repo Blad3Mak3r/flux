@@ -291,10 +291,10 @@
 
 .vj-lname { display: flex; grid-column: 1 / 5; align-items: center; gap: 6px; min-width: 0; padding-left: 2px; }
 .vj-lname .vj-num { color: var(--ink-faint); font-size: 10.5px; }
-.vj-nm { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.vj-nm { flex: 0 1 auto; font-size: 12.5px; font-weight: 600; }
 .vj-global { display: flex; color: var(--vj-global-ink); }
 .vj-global .icon { width: 12px; height: 12px; }
-.vj-clipname { min-width: 0; overflow: hidden; color: var(--ink-dim); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.vj-clipname { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--ink-dim); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .vj-clipname::before { content: "·"; margin-right: 6px; color: var(--ink-faint); }
 .vj-clipname.idle { color: var(--ink-faint); }
 .vj-ab { display: flex; flex: none; margin-left: auto; overflow: hidden; background: var(--vj-well); border-radius: 2px; }
@@ -520,10 +520,11 @@
 
 .vj-segs button.on { color: var(--ink); background: var(--vj-ctl-hi); }
 
-.vj-meta { display: grid; grid-column: 1 / -1; grid-template-columns: 1fr 1fr; gap: 0 18px; margin: 0; padding-top: 4px; border-top: 1px solid var(--vj-line); }
-.vj-meta div { display: flex; justify-content: space-between; align-items: center; gap: 12px; height: 30px; font-size: 12px; border-bottom: 1px solid oklch(0.29 0.014 250 / 0.6); }
-.vj-meta dt { color: var(--ink-faint); }
-.vj-meta dd { margin: 0; overflow: hidden; color: var(--ink-dim); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.vj-meta { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; margin: 0; padding-top: 4px; border-top: 1px solid var(--vj-line); }
+.vj-meta div { display: flex; min-width: 0; justify-content: space-between; align-items: center; gap: 12px; height: 30px; font-size: 12px; border-bottom: 1px solid oklch(0.29 0.014 250 / 0.6); }
+.vj-meta dt { flex: none; color: var(--ink-faint); }
+.vj-meta dd { min-width: 0; margin: 0; color: var(--ink-dim); text-align: right; }
+.vj-meta dd .marquee, .vj-m figcaption .marquee, .vj-dim.marquee { display: block; }
 
 /* Media */
 .vj-mg { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); align-content: start; gap: 14px 10px; height: 100%; padding: 12px; overflow: auto; }
@@ -566,3 +567,8 @@
 }
 @keyframes vj-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .vj-spin { animation: none; } }
+
+/* Long names end in an ellipsis and slide under the pointer (the shared Marquee). */
+.vj-deck { max-width: 200px; min-width: 0; }
+.vj-dname { min-width: 0; }
+.vj-ph .vj-tools { min-width: 0; }

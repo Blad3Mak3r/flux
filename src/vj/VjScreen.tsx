@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
+import { Marquee } from "../components/Marquee";
 import { CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
 import type { Translate } from "../i18n";
@@ -247,10 +248,10 @@ function LayerHeader({ grid, layer, playing }: { grid: VjGrid; layer: VjLayer; p
           <InlineName value={layer.name ?? ""} label={t("vj.layer.rename")} onDone={() => setRenaming(false)}
             onCommit={(text) => void edit({ op: "renameLayer", layer: layer.id, name: text })} />
         ) : (
-          <span className="vj-nm" onDoubleClick={() => setRenaming(true)}>{name}</span>
+          <Marquee className="vj-nm" title={name} onDoubleClick={() => setRenaming(true)}>{name}</Marquee>
         )}
         {layer.global && <span className="vj-global" title={t("vj.layer.global")}><GlobeIcon /></span>}
-        <span className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(clip, videos) : t("vj.layer.noClip")}</span>
+        <Marquee className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(clip, videos) : t("vj.layer.noClip")}</Marquee>
         <span className="vj-ab" role="group" aria-label={t("vj.layer.side")}>
           {(["a", "b"] as VjSide[]).map((s) => (
             <button key={s} type="button" className={layer.crossfade === s ? "on" : ""} aria-pressed={layer.crossfade === s}
@@ -304,7 +305,7 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
     if (importing) {
       return (
         <div className="vj-slot busy" title={importing.name}>
-          <span className="vj-cn">{importing.name}</span>
+          <Marquee className="vj-cn">{importing.name}</Marquee>
           <VideoState state="importing" />
         </div>
       );
@@ -321,7 +322,6 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
     <div
       className={`vj-clip${live ? " on-air" : ""}${selected === clip.id ? " sel" : ""}${over ? " over" : ""}`}
       draggable
-      title={name}
       onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ clip: clip.id } satisfies Dragged))}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
@@ -344,7 +344,7 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
         <span className="vj-air"><PlayIcon />{playing?.remaining != null ? clock(playing.remaining) : ""}</span>
       )}
       {state && <VideoState state={state} asset={clip.asset} />}
-      <span className="vj-cn">{name}</span>
+      <Marquee className="vj-cn">{name}</Marquee>
       <span className="vj-cm">{t(`vj.trigger.short.${clip.trigger ?? "normal"}`)}{clip.playback && clip.playback !== "loop" ? ` · ${t(`vj.playback.short.${clip.playback}`)}` : ""}</span>
       {live && playing?.progress != null && <span className="vj-bar"><i style={{ width: `${playing.progress * 100}%` }} /></span>}
     </div>
@@ -374,7 +374,7 @@ function ColumnHead({ column, at, live }: { column: VjColumn; at: number; live: 
         <InlineName value={column.name ?? ""} label={t("vj.column.rename")} onDone={() => setRenaming(false)}
           onCommit={(text) => void edit({ op: "renameColumn", column: column.id, name: text })} />
       ) : (
-        <span>{column.name ?? ""}</span>
+        <Marquee>{column.name ?? ""}</Marquee>
       )}
     </button>
   );
@@ -403,7 +403,7 @@ function DeckTab({ deck, at, shown, only }: { deck: VjDeck; at: number; shown: b
       {renaming ? (
         <InlineName value={deck.name ?? ""} label={t("vj.deck.rename")} onDone={() => setRenaming(false)}
           onCommit={(text) => void edit({ op: "renameDeck", deck: deck.id, name: text })} />
-      ) : name}
+      ) : <Marquee className="vj-dname">{name}</Marquee>}
       <span className="vj-count">{deck.columns.length}</span>
     </button>
   );
@@ -545,7 +545,7 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
     <section className="vj-panel" aria-label={t("vj.preview")}>
       <header className="vj-ph">
         <h2>{t("vj.preview")}</h2>
-        <div className="vj-tools">{found && <span className="vj-dim">{clipName(found.clip, videos)}</span>}</div>
+        <div className="vj-tools">{found && <Marquee className="vj-dim">{clipName(found.clip, videos)}</Marquee>}</div>
       </header>
       <div className="vj-pb vj-mon-wrap">
         <div className="vj-mon">
@@ -640,10 +640,10 @@ function Inspector({ grid }: { grid: VjGrid }) {
           </div>
         </div>
         <dl className="vj-meta">
-          <div><dt>{t("vj.clip.file")}</dt><dd>{video?.name ?? ""}</dd></div>
+          <div><dt>{t("vj.clip.file")}</dt><dd><Marquee>{video?.name ?? ""}</Marquee></dd></div>
           <div><dt>{t("vj.clip.length")}</dt><dd className="vj-mono">{probe ? clock(probe.frames * probe.rateDen / probe.rateNum) : "—"}</dd></div>
           <div><dt>{t("vj.clip.video")}</dt><dd className="vj-mono">{probe ? `${probe.codec} · ${probe.width}×${probe.height} · ${Math.round((probe.rateNum / probe.rateDen) * 100) / 100}` : "—"}</dd></div>
-          <div><dt>{t("vj.clip.cell")}</dt><dd>{layerName(t, grid, found.layer)} · {columnAt + 1}</dd></div>
+          <div><dt>{t("vj.clip.cell")}</dt><dd><Marquee>{layerName(t, grid, found.layer)} · {columnAt + 1}</Marquee></dd></div>
         </dl>
       </div>
     );
@@ -732,14 +732,14 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
                     {probe && <span className="vj-d">{clock(probe.frames * probe.rateDen / probe.rateNum)}</span>}
                     <MediaState asset={video.id} />
                   </Thumb>
-                  <figcaption><span>{video.name}</span><span className="vj-c">{probe?.codec ?? ""}</span></figcaption>
+                  <figcaption><Marquee>{video.name}</Marquee><span className="vj-c">{probe?.codec ?? ""}</span></figcaption>
                 </figure>
               );
             })}
             {importing.map((item) => (
               <figure key={item.key} className="vj-m busy">
                 <Thumb strip={undefined}><VideoState state="importing" /></Thumb>
-                <figcaption><span>{item.name}</span></figcaption>
+                <figcaption><Marquee>{item.name}</Marquee></figcaption>
               </figure>
             ))}
           </div>
