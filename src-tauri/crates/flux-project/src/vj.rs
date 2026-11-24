@@ -924,6 +924,17 @@ pub(crate) fn validate<'a>(
                 return Err(ProjectError::MissingAsset(clip.asset.clone()));
             }
             check_name(clip.name.as_deref())?;
+            if !(0.0..=MAX_SCALE).contains(&clip.scale)
+                || clip
+                    .position
+                    .iter()
+                    .any(|v| !(-MAX_OFFSET..=MAX_OFFSET).contains(v))
+            {
+                return Err(ProjectError::Invalid(format!(
+                    "clip {} needs a scale of 0 to {MAX_SCALE} and a position of -{MAX_OFFSET} to {MAX_OFFSET}",
+                    clip.id
+                )));
+            }
         }
     }
     Ok(())
@@ -1073,6 +1084,9 @@ mod tests {
         run(&mut project, op, &mut new_id);
         assert_eq!(clip(&project).position, [0.25, -MAX_OFFSET]);
         assert!(apply(&mut project, scale(f32::NAN), &mut new_id).is_err());
+        project.vj.layers[0].clips[0].position[1] = f32::NAN;
+        assert!(project.validate().is_err(), "a file can carry anything");
+        project.vj.layers[0].clips[0].position[1] = -MAX_OFFSET;
 
         let json = serde_json::to_value(clip(&project)).unwrap();
         assert_eq!(
