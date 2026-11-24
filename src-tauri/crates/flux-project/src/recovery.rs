@@ -148,6 +148,9 @@ pub fn read(dir: &Path, id: &str) -> Result<Recovery> {
         {
             crate::migrate::upgrade(project, &created);
         }
+        if let Some(project) = value.pointer_mut(pointer) {
+            crate::migrate::vj_without_cues(project);
+        }
     }
     let recovery: Recovery = serde_json::from_value(value)?;
     recovery.validate()?;

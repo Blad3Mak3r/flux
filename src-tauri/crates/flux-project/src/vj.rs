@@ -1,8 +1,9 @@
 //! The VJ grid of a project, played like a media server's clip deck: layers stacked one over the
 //! other, columns across them, and in each cell at most one clip, a video the user launches by hand.
-//! A project is of one kind for good, chosen when it is created: a timeline project has no grid, and
-//! a VJ project plays its grid. A VJ project still holds a timeline, so that one day its grid can
-//! follow the clock.
+//! A project is of one kind for good, chosen when it is created: a timeline (cue) project has no
+//! grid, and a VJ project plays its grid. The two are apps of their own in one: a VJ project holds
+//! none of a cue project's content (no tracks, setlists or timecode outputs), only one timeline that
+//! carries the tempo and timecode of its clock.
 //!
 //! The columns come in decks: sets of columns of their own, one of which the grid shows. The layers
 //! are the same in every deck, and a deck holds the clips its columns have on each layer. A global
@@ -999,6 +1000,26 @@ pub(crate) fn validate<'a>(
         ProjectMode::Vj if vj.shown_deck().is_none() => {
             return Err(ProjectError::Invalid(format!("no deck {}", vj.deck)));
         }
+        // A VJ show is an app of its own: none of a cue show's content, so its clock plays nothing
+        // but the grid. Its one timeline only carries the clock's tempo and timecode.
+        ProjectMode::Vj
+            if project.timelines.len() != 1
+                || project
+                    .timelines
+                    .iter()
+                    .any(|t| !t.tracks.is_empty() || !t.controls.is_empty())
+                || !project.setlists.is_empty()
+                || project.voice.is_some()
+                || !project.output.ltc.is_empty()
+                || !project.output.mtc.is_empty()
+                || !project.output.osc.is_empty()
+                || !project.output.audio.is_empty()
+                || project.output.metronome.is_some() =>
+        {
+            return Err(ProjectError::Invalid(
+                "a VJ show has no timeline tracks, setlists or timecode outputs".into(),
+            ));
+        }
         ProjectMode::Timeline if !vj.is_empty() => {
             return Err(ProjectError::Invalid(
                 "a timeline project has no VJ grid".into(),
@@ -1126,7 +1147,8 @@ mod tests {
 
     /// A VJ project with the starting grid (layers g1 to g3, deck g4 with columns g5 to g12).
     fn vj_project() -> (Project, impl FnMut() -> String) {
-        let mut project = video_project();
+        let mut project = Project::new("Show", crate::FrameRate::Fps25);
+        project.videos = video_project().videos;
         let mut new_id = ids();
         project.mode = ProjectMode::Vj;
         project.vj = Vj::starting(&mut new_id);
@@ -1499,11 +1521,15 @@ mod tests {
     }
 
     #[test]
-    fn validate_should_refuse_a_clip_id_used_by_a_timeline_clip() {
-        let (mut project, mut new_id) = vj_project();
-        place(&mut project, "g1", "g5", &mut new_id);
-        project.vj.layers[0].clips[0].id = "cv".into();
-        assert!(project.validate().is_err());
+    fn validate_should_refuse_cue_content_in_a_vj_show() {
+        let (project, _) = vj_project();
+        let mut with_track = project.clone();
+        with_track.timelines[0].tracks = video_project().timelines[0].tracks.clone();
+        assert!(with_track.validate().is_err());
+        let mut two = project.clone();
+        two.timelines
+            .push(Timeline::new("Other", crate::FrameRate::Fps25));
+        assert!(two.validate().is_err());
     }
 
     #[test]
@@ -1533,7 +1559,6 @@ mod tests {
     #[test]
     fn used_assets_should_count_the_clips_of_the_grid() {
         let (mut project, mut new_id) = vj_project();
-        project.timelines[0].tracks.clear();
         place(&mut project, "g1", "g5", &mut new_id);
         assert!(project.used_assets().contains("v1"));
     }

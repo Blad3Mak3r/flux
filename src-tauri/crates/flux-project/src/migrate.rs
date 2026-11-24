@@ -46,8 +46,38 @@ pub(super) fn upgrade(value: &mut Value, created: &str) {
             }
         }
     }
+    vj_without_cues(value);
     if let Some(version) = value.get_mut("formatVersion") {
         *version = json!(FORMAT_VERSION);
+    }
+}
+
+/// A VJ show and a cue show are two apps in one: a VJ show has none of a cue show's content. Builds
+/// before this was enforced could leave some in a VJ show (a video imported onto its hidden
+/// timeline, which the clock then played): it is dropped. What is left of the timeline is the
+/// clock's tempo and timecode.
+pub(crate) fn vj_without_cues(value: &mut Value) {
+    let Some(project) = value.as_object_mut() else {
+        return;
+    };
+    if project.get("mode").and_then(Value::as_str) != Some("vj") {
+        return;
+    }
+    project.remove("setlists");
+    project.remove("voice");
+    if let Some(timelines) = project.get_mut("timelines").and_then(Value::as_array_mut) {
+        timelines.truncate(1);
+        for timeline in timelines.iter_mut().filter_map(Value::as_object_mut) {
+            timeline.insert("tracks".into(), json!([]));
+            timeline.remove("controls");
+        }
+    }
+    if let Some(output) = project.get_mut("output").and_then(Value::as_object_mut) {
+        for list in ["ltc", "mtc", "osc", "audio"] {
+            output.insert(list.into(), json!([]));
+        }
+        output.remove("metronome");
+        output.remove("legacyRoutes");
     }
 }
 
@@ -182,6 +212,31 @@ mod tests {
         let before = value.clone();
         upgrade(&mut value, DATE);
         assert_eq!(value, before);
+    }
+
+    #[test]
+    fn a_vj_show_should_lose_the_cue_content_an_older_build_left_in_it() {
+        let mut value = json!({
+            "mode": "vj",
+            "setlists": [{ "id": "s" }],
+            "timelines": [
+                { "id": "t1", "tracks": [{ "id": "v" }], "controls": [{ "id": "c" }] },
+                { "id": "t2", "tracks": [] }
+            ],
+            "output": { "ltc": [{ "slot": 1 }], "mtc": [], "osc": [], "metronome": {}, "screens": [1] }
+        });
+        vj_without_cues(&mut value);
+        assert_eq!(value["timelines"], json!([{ "id": "t1", "tracks": [] }]));
+        assert!(value.get("setlists").is_none());
+        assert_eq!(
+            value["output"],
+            json!({ "ltc": [], "mtc": [], "osc": [], "audio": [], "screens": [1] })
+        );
+
+        let mut cue = json!({ "timelines": [{ "id": "t1", "tracks": [{ "id": "v" }] }] });
+        let before = cue.clone();
+        vj_without_cues(&mut cue);
+        assert_eq!(cue, before);
     }
 
     #[test]

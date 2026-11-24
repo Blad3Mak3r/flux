@@ -403,8 +403,11 @@ Adds `mode` and `vj`. Nothing is reshaped: an older project opens as a timeline 
 #### VJ grid (version 14)
 
 A grid of clips launched by hand, like a media server's clip deck, in a project whose `mode` is `vj`. A project cannot
-change its kind. A VJ project still holds a timeline (the list is never empty), so a later version can let the grid
-follow the clock. A new VJ project starts with one deck of 8 columns and 3 layers. Which clip is playing is not stored: it belongs
+change its kind. A VJ project and a timeline (cue) project are two apps in one, so a VJ project holds none of a cue
+project's content: exactly one timeline with no `tracks` or `controls`, which only carries the `tempo` and `timecode` of
+the show's clock, no `setlists` or `voice`, and no `output.ltc`, `mtc`, `osc`, `audio` or `metronome`. A file that does
+is refused. Builds before this was enforced could leave such content in a VJ project (a video imported onto the
+timeline, which the clock then played); opening one drops it. A new VJ project starts with one deck of 8 columns and 3 layers. Which clip is playing is not stored: it belongs
 to the running show.
 
 | Field | Type | Notes |
