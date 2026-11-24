@@ -758,3 +758,33 @@
 .vj-ao-props { padding: 14px; }
 .vj-ao-props .mapping-slice { max-width: none; }
 .vj-ao-props .mapping-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+/* A collapsed layer: one thin row, as in Resolume. Its clips keep a strip of their picture and name. */
+.vj-row.folded { height: 28px; }
+.vj-lh.folded { grid-template-columns: 22px 46px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: center; padding: 2px 4px 2px 6px; }
+.vj-lh.folded .vj-eject { height: 22px; }
+.vj-lh.folded .vj-eject .icon { width: 12px; height: 12px; }
+.vj-lh.folded .vj-bs button { height: 20px; }
+.vj-lh.folded .vj-lname { grid-column: auto; }
+.vj-row.folded .vj-cm { display: none; }
+.vj-row.folded .vj-air { left: auto; right: 4px; top: 50%; height: 16px; transform: translateY(-50%); }
+.vj-row.folded .vj-cn { bottom: 50%; transform: translateY(50%); }
+
+.vj-fold {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: -4px;
+  padding: 0;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.vj-fold:hover { color: var(--ink); background: var(--vj-ctl); }
+.vj-fold .icon { width: 12px; height: 12px; }
+.vj-row.folded .vj-shade { background: linear-gradient(90deg, oklch(0 0 0 / 0.65), oklch(0 0 0 / 0.15)); }

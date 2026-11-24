@@ -1221,6 +1221,8 @@ export const en = {
   "vj.menu.sideB": "Side B",
   "vj.menu.launchClip": "Launch clip",
   "vj.menu.advancedOutput": "Advanced output…",
+  "vj.layer.collapse": "Collapse layer",
+  "vj.layer.expand": "Expand layer",
   "vj.ao.title": "Advanced Output",
   "vj.ao.stage": "What the middle shows",
   "vj.ao.input": "Input selection",

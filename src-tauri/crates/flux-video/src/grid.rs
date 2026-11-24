@@ -411,6 +411,7 @@ mod tests {
             crossfade,
             bypass: false,
             solo: false,
+            collapsed: false,
             clips,
         }
     }

@@ -1225,6 +1225,8 @@ export const es: Record<MessageKey, string> = {
   "vj.menu.sideB": "Lado B",
   "vj.menu.launchClip": "Lanzar clip",
   "vj.menu.advancedOutput": "Salida avanzada…",
+  "vj.layer.collapse": "Plegar capa",
+  "vj.layer.expand": "Desplegar capa",
   "vj.ao.title": "Salida avanzada",
   "vj.ao.stage": "Qué muestra el centro",
   "vj.ao.input": "Selección de entrada",
