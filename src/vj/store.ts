@@ -39,8 +39,6 @@ interface VjState {
   tab: "clip" | "layer";
   /** Which media the browser lists. */
   media: MediaKind;
-  /** What the screens show, drawn by the backend, as a picture URL. */
-  output: string | null;
 }
 
 export type MediaKind = "all" | "video" | "image";
@@ -52,7 +50,6 @@ export const useVj = create<VjState>()(() => ({
   layer: null,
   tab: "clip",
   media: "all",
-  output: null,
 }));
 
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -143,22 +140,46 @@ export function bindPlayState(): () => void {
   };
 }
 
-/** Asks the backend for the picture the screens show, about twelve times a second, while the VJ screen is open. */
-export function bindOutput(): () => void {
+/** The backend's picture: its width and height as two little-endian u16, then its RGBA pixels. */
+function picture(bytes: ArrayBuffer): ImageData | null {
+  if (bytes.byteLength < 4) return null;
+  const size = new DataView(bytes);
+  const width = size.getUint16(0, true);
+  const height = size.getUint16(2, true);
+  return new ImageData(new Uint8ClampedArray(bytes, 4, width * height * 4), width, height);
+}
+
+/** How often the output monitor asks for a picture: thirty times a second. */
+const OUTPUT_EVERY = 1000 / 30;
+
+/**
+ * Asks the backend for the picture the screens show {@link OUTPUT_EVERY}, with up to two asks on the
+ * way so one's trip does not hold the next, and hands the newest to `draw` (`null` when there is
+ * none), while the VJ screen is open.
+ */
+export function bindOutput(draw: (picture: ImageData | null) => void): () => void {
   let stopped = false;
-  const tick = () => {
-    if (stopped) return;
+  let pending = 0;
+  let asked = 0;
+  let drawn = 0;
+  const ask = () => {
+    if (stopped || pending >= 2) return;
+    pending += 1;
+    const number = ++asked;
     vjOutputFrame()
-      .then((output) => {
-        if (!stopped) useVj.setState({ output });
+      .then((bytes) => {
+        if (stopped || number < drawn) return;
+        drawn = number;
+        draw(picture(bytes));
       })
       .catch(() => undefined)
       .finally(() => {
-        if (!stopped) window.setTimeout(tick, 80);
+        pending -= 1;
       });
   };
-  tick();
+  const timer = window.setInterval(ask, OUTPUT_EVERY);
   return () => {
     stopped = true;
+    window.clearInterval(timer);
   };
 }

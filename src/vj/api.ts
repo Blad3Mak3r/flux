@@ -81,5 +81,5 @@ export const vjLaunchColumn = (column: string) => invoke<GridState>("vj_launch_c
 export const vjStop = (layer: string | null) => invoke<GridState>("vj_stop", { layer });
 export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfader", { position });
 export const vjPlayState = () => invoke<GridState>("vj_play_state");
-/** What the grid sends to the screens now, as a small picture (`data:` URL); `null` outside a VJ project. */
-export const vjOutputFrame = () => invoke<string | null>("vj_output_frame");
+/** What the grid sends to the screens now, as a small picture (see `bindOutput`); empty outside a VJ project. */
+export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");

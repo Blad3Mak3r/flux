@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
@@ -495,7 +495,19 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
 function OutputPanel() {
   const t = useT();
   const live = useVj((vj) => vj.play.playing.some((p) => p.level > 0));
-  const output = useVj((vj) => vj.output);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => bindOutput((picture) => {
+    const target = canvas.current;
+    const context = target?.getContext("2d");
+    if (target && context) {
+      if (picture && (target.width !== picture.width || target.height !== picture.height)) {
+        target.width = picture.width;
+        target.height = picture.height;
+      }
+      if (picture) context.putImageData(picture, 0, 0);
+      else context.clearRect(0, 0, target.width, target.height);
+    }
+  }), []);
   return (
     <section className="vj-panel" aria-label={t("vj.output")}>
       <header className="vj-ph">
@@ -503,7 +515,7 @@ function OutputPanel() {
         <div className="vj-tools">{live && <span className="vj-pill"><i />{t("vj.onAir")}</span>}</div>
       </header>
       <div className="vj-pb vj-mon-wrap">
-        <div className="vj-mon">{output && <img className="vj-out" src={output} alt="" />}</div>
+        <div className="vj-mon"><canvas ref={canvas} className="vj-out" /></div>
       </div>
     </section>
   );
@@ -828,7 +840,6 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
 export function VjScreen() {
   const grid = useDoc((doc) => doc.project.vj);
   useEffect(bindPlayState, []);
-  useEffect(bindOutput, []);
   if (!grid) return null;
   return (
     <div className="vj-app">

@@ -55,3 +55,11 @@ strip = true
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# The output monitor draws and encodes a picture many times a second: unoptimized, that alone
+# takes most of a frame in `tauri dev`.
+[profile.dev.package.flux-render]
+opt-level = 3
+
+[profile.dev.package.jpeg-encoder]
+opt-level = 3

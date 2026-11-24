@@ -772,7 +772,8 @@ fn ensure_deck(deck: &SharedDeck, app: &AppHandle) -> Result<(), String> {
 
 impl VideoOutputs {
     /// What a VJ project's grid sends to the screens now, before their mapping, drawn small on
-    /// the CPU as a JPEG; `None` for a project that is not VJ. It decodes the playing clips itself,
+    /// the CPU: its width and height as two little-endian u16, then its RGBA pixels. `None` for a
+    /// project that is not VJ. It decodes the playing clips itself,
     /// so it shows them with no screen open too.
     pub fn composition(&self, app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
         let session = Arc::clone(&app.state::<SharedSession>());
@@ -801,10 +802,17 @@ impl VideoOutputs {
             MONITOR_WIDTH,
             (MONITOR_WIDTH * size.1 / size.0.max(1)).max(1),
         );
-        let rgba = flux_render::composite(&pictures(&shown, size), width, height);
-        flux_video::jpeg(&rgba, width as u16, height as u16)
-            .map(Some)
-            .map_err(|err| err.to_string())
+        // Its width and height as two little-endian u16, then its RGBA pixels: no encoding to
+        // wait for on either side.
+        let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
+        picture.extend_from_slice(&(width as u16).to_le_bytes());
+        picture.extend_from_slice(&(height as u16).to_le_bytes());
+        picture.extend(flux_render::composite(
+            &pictures(&shown, size),
+            width,
+            height,
+        ));
+        Ok(Some(picture))
     }
 }
 

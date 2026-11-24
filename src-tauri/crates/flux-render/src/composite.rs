@@ -14,50 +14,52 @@ pub fn composite(pictures: &[Picture], width: u32, height: u32) -> Vec<u8> {
     let mut light = vec![[0.0f32; 3]; w * h];
     for picture in pictures {
         let [px, py, pw, ph] = picture.place;
-        if pw <= 0.0 || ph <= 0.0 || picture.opacity <= 0.0 {
-            continue;
-        }
         let (sw, sh) = (picture.width as usize, picture.height as usize);
-        if picture.rgba.len() < sw * sh * 4 {
+        if pw <= 0.0 || ph <= 0.0 || picture.opacity <= 0.0 || picture.rgba.len() < sw * sh * 4 {
             continue;
         }
-        // The rows and columns of the output the picture covers.
-        let span = |start: f32, size: f32, pixels: usize| {
-            let from = ((start * pixels as f32).floor().max(0.0) as usize).min(pixels);
-            let to = (((start + size) * pixels as f32).ceil().max(0.0) as usize).min(pixels);
-            from..to
+        // For each column and row of the output, the picture's nearest column or row, if any.
+        let nearest = |out: usize, start: f32, size: f32, pixels: usize| -> Vec<Option<usize>> {
+            (0..out)
+                .map(|i| {
+                    let at = ((i as f32 + 0.5) / out as f32 - start) / size;
+                    (0.0..1.0)
+                        .contains(&at)
+                        .then(|| ((at * pixels as f32) as usize).min(pixels - 1))
+                })
+                .collect()
         };
-        for y in span(py, ph, h) {
-            let v = ((y as f32 + 0.5) / h as f32 - py) / ph;
-            if !(0.0..1.0).contains(&v) {
-                continue;
-            }
-            let row = ((v * sh as f32) as usize).min(sh - 1) * sw;
-            for x in span(px, pw, w) {
-                let u = ((x as f32 + 0.5) / w as f32 - px) / pw;
-                if !(0.0..1.0).contains(&u) {
-                    continue;
-                }
-                let at = (row + ((u * sw as f32) as usize).min(sw - 1)) * 4;
-                let src = &picture.rgba[at..at + 4];
-                let cover = f32::from(src[3]) / 255.0 * picture.opacity.min(1.0);
-                let colour = [
-                    linear[usize::from(src[0])],
-                    linear[usize::from(src[1])],
-                    linear[usize::from(src[2])],
-                ];
-                let dst = &mut light[y * w + x];
+        let columns = nearest(w, px, pw, sw);
+        let opacity = picture.opacity.min(1.0) / 255.0;
+        for (y, row) in nearest(h, py, ph, sh).into_iter().enumerate() {
+            let Some(row) = row else { continue };
+            let source = &picture.rgba[row * sw * 4..(row + 1) * sw * 4];
+            let out = &mut light[y * w..(y + 1) * w];
+            for (dst, column) in out.iter_mut().zip(&columns) {
+                let Some(column) = column else { continue };
+                let src = &source[column * 4..column * 4 + 4];
+                let cover = f32::from(src[3]) * opacity;
                 for c in 0..3 {
-                    dst[c] = mix(picture.blend, colour[c], cover, dst[c]).clamp(0.0, 1.0);
+                    let colour = linear[usize::from(src[c])];
+                    dst[c] = mix(picture.blend, colour, cover, dst[c]).clamp(0.0, 1.0);
                 }
             }
         }
     }
-    light
-        .iter()
-        .flat_map(|[r, g, b]| [to_srgb(*r), to_srgb(*g), to_srgb(*b), 255])
-        .collect()
+    // Linear light back to sRGB through a table, finer in the dark where sRGB is.
+    let srgb: Vec<u8> = (0..=SRGB_STEPS)
+        .map(|i| to_srgb((i as f32 / SRGB_STEPS as f32).powi(2)))
+        .collect();
+    let encode = |v: f32| srgb[(v.sqrt() * SRGB_STEPS as f32 + 0.5) as usize];
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for [r, g, b] in light {
+        rgba.extend_from_slice(&[encode(r), encode(g), encode(b), 255]);
+    }
+    rgba
 }
+
+/// Entries of the table that turns linear light back into sRGB.
+const SRGB_STEPS: usize = 4096;
 
 /// One channel of `src`, covering `cover` of the pixel, mixed into `dst`.
 fn mix(blend: Blend, src: f32, cover: f32, dst: f32) -> f32 {
