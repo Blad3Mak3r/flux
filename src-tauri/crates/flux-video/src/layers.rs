@@ -17,9 +17,12 @@ pub enum Cue {
 pub struct Layer {
     pub track: String,
     pub clip: String,
-    /// Id of an entry in `Project::videos`.
+    /// Id of an entry in `Project::videos`; empty for a generator.
     pub asset: String,
+    /// The video frame to show; for a generator, the milliseconds since it was launched.
     pub frame: u64,
+    /// What makes the picture when it is not a video.
+    pub generator: Option<flux_project::generator::Generator>,
     /// How the clip is sized into the composition.
     pub fit: flux_project::VideoFit,
     /// How much of it shows over what is below, 0 to 1: less while the clip fades in or out.
@@ -68,6 +71,7 @@ pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
                             clip: clip.id.clone(),
                             asset: clip.asset.clone(),
                             frame,
+                            generator: None,
                             fit: clip.fit,
                             opacity: opacity(clip, position, length),
                             blend: Default::default(),
@@ -123,6 +127,7 @@ pub fn upcoming(timeline: &Timeline, position: u64, ahead: u64, probe: Probe<'_>
                 clip: clip.id.clone(),
                 asset: clip.asset.clone(),
                 frame: source_frame(clip, clip.start, rate, video, frames)?,
+                generator: None,
                 fit: clip.fit,
                 opacity: 0.0,
                 blend: Default::default(),

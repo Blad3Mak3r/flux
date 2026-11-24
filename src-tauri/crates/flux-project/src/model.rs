@@ -568,7 +568,10 @@ impl Project {
             }
         }
         let grid = self.vj.layers.iter().flat_map(|layer| &layer.clips);
-        used.extend(grid.map(|clip| clip.asset.as_str()));
+        used.extend(
+            grid.map(|clip| clip.asset.as_str())
+                .filter(|asset| !asset.is_empty()),
+        );
         used
     }
 

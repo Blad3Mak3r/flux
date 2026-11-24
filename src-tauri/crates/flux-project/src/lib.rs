@@ -5,6 +5,7 @@ mod clips;
 mod cue_ops;
 mod error;
 mod events;
+pub mod generator;
 mod item_ops;
 pub(crate) mod meta;
 mod migrate;

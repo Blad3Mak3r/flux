@@ -743,11 +743,15 @@ impl Session {
                 | Op::LayerTransition { .. }
                 | Op::ClipScale { .. }
                 | Op::ClipPosition { .. }
+                | Op::ClipGenerator { .. }
         );
         if !level {
             return Err(ProjectError::Invalid(
-                "only a level or a transform is previewed".into(),
+                "only a level, a transform or a generator is previewed".into(),
             ));
+        }
+        if let Op::ClipGenerator { generator, .. } = &op {
+            generator.clone().tidy().validate()?;
         }
         self.ensure_editable()?;
         let document = self.document.as_mut().ok_or_else(no_project)?;

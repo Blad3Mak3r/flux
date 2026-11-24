@@ -6,6 +6,7 @@
 mod audio;
 mod deck;
 mod decode;
+mod generate;
 mod grid;
 mod hap;
 mod layers;
