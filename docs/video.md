@@ -164,13 +164,14 @@ nothing for now.
 
 A layer with a `transition` time keeps drawing the clip it replaces until the new one has faded in: with the `alpha`
 effect the new clip fades in over the old one, with `add` the old one fades out while the new one fades in. Launching the
-clip that already plays restarts it at once. Each layer is drawn with its `blend` through a fixed GPU blend state
+clip that already plays restarts it at once. A clip launched on a layer that plays nothing fades in, and a stopped layer (by hand, by a column without a clip on it, or a piano clip let go) fades out, over the same time. Changing the transition time while a transition runs makes it go on from where it is at the new speed (`GridPlay::retime`, on every command and read of the play state). Each layer is drawn with its `blend` through a fixed GPU blend state
 (`flux_render::Blend`): `add`, `subtract`, `multiply`, `screen`, `lighten` and `darken` combine the layer with what is
 already drawn, and a layer that is not `alpha` never hides the ones below it.
 
 The app crate's `vj_commands.rs` holds what plays, which is never stored. Its commands answer with what plays now
-(`{ playing: [{ layer, clip, seconds, progress, remaining, level }], column, crossfader }`: `progress` is where each
-clip is in its video, `level` how much of its layer reaches the output, and `column` the column launched last while its
+(`{ playing: [{ layer, clip, seconds, progress, remaining, level, transition, stopping }], column, crossfader }`:
+`progress` is where each clip is in its video, `level` how much of it reaches the output, `transition` how far its
+layer's transition is while one runs, `stopping` whether the layer is fading out, and `column` the column launched last while its
 clips play):
 
 | Command | Arguments | Does |

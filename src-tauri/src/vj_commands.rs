@@ -59,8 +59,13 @@ pub struct PlayingClip {
     /// `None` until the video's length is known, or once a clip played once has ended.
     pub progress: Option<f64>,
     pub remaining: Option<f64>,
-    /// How much of the layer shows, 0 to 1 (see [`GridPlay::level`]).
+    /// How much of the clip shows, 0 to 1: its layer's level (see [`GridPlay::level`]) and where
+    /// the layer's transition is.
     pub level: f32,
+    /// How far the layer's transition is, 0 to 1, while one runs.
+    pub transition: Option<f32>,
+    /// Whether the layer is fading out to nothing, showing the clip that played.
+    pub stopping: bool,
 }
 
 fn grid_of(session: &SharedSession) -> Result<Vj> {
@@ -82,6 +87,7 @@ fn play(
     let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
     let now = grid.now();
     grid.play.retain(&vj);
+    grid.play.retime(&vj, now);
     change(&mut grid.play, &vj, now)?;
     Ok(state(session, &vj, &grid))
 }
@@ -96,10 +102,11 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
         .play
         .playing()
         .iter()
-        .map(|(layer, launched)| {
-            let elapsed = now.saturating_sub(launched.at);
+        .filter_map(|(layer, launched)| {
+            let (shown, at) = launched.shown(now)?;
+            let elapsed = now.saturating_sub(at);
             let place = vj
-                .find_clip(&launched.clip)
+                .find_clip(shown)
                 .and_then(|(_, clip)| {
                     let asset = videos.iter().find(|v| v.id == clip.asset)?;
                     Some((clip, known_probe(session, asset)?))
@@ -111,19 +118,24 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
                     let frames = probe.frames.max(1) as f64;
                     Some((frame as f64 / frames, (frames - frame as f64) * per_frame))
                 });
+            let transition = launched.fading(now).map(|fade| fade.progress(now));
+            let stopping = launched.clip.is_none();
+            let fade = transition.map_or(1.0, |t| if stopping { 1.0 - t } else { t });
             let level = vj
                 .layers
                 .iter()
                 .find(|l| &l.id == layer)
                 .map_or(0.0, |l| grid.play.level(vj, l));
-            PlayingClip {
-                level,
+            Some(PlayingClip {
+                level: level * fade,
                 layer: layer.clone(),
-                clip: launched.clip.clone(),
+                clip: shown.to_owned(),
                 seconds: elapsed.as_secs_f64(),
                 progress: place.map(|p| p.0),
                 remaining: place.map(|p| p.1),
-            }
+                transition,
+                stopping,
+            })
         })
         .collect();
     playing.sort_by(|a, b| a.layer.cmp(&b.layer));
@@ -157,8 +169,8 @@ pub fn vj_release(
     grid: State<'_, SharedGrid>,
     clip: String,
 ) -> Result<GridState> {
-    play(&session, &grid, |play, vj, _| {
-        if play.release(vj, &clip) {
+    play(&session, &grid, |play, vj, now| {
+        if play.release(vj, &clip, now) {
             Ok(())
         } else {
             Err(ProjectError::Invalid(format!("no clip {clip}")))
@@ -189,8 +201,8 @@ pub fn vj_stop(
     grid: State<'_, SharedGrid>,
     layer: Option<String>,
 ) -> Result<GridState> {
-    play(&session, &grid, |play, _, _| {
-        play.stop(layer.as_deref());
+    play(&session, &grid, |play, vj, now| {
+        play.stop(vj, layer.as_deref(), now);
         Ok(())
     })
 }

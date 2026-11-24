@@ -13,24 +13,59 @@ use flux_project::vj::{Playback, Side, Transition, Trigger, Vj};
 use crate::layers::{Layer, Probe};
 use crate::mapping::Rate;
 
-/// A clip launched on a layer, and when.
+/// What a layer plays: the clip launched last, and the transition into it while it runs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Launched {
-    pub clip: String,
-    /// On the grid's clock.
+    /// `None` while the layer fades out to nothing after it was stopped.
+    pub clip: Option<String>,
+    /// When the clip was launched, on the grid's clock.
     pub at: Duration,
-    /// The clip it replaced, while the layer's transition from it runs.
-    pub leaving: Option<Leaving>,
+    /// The layer's transition into `clip`, until it ends.
+    pub fade: Option<Fade>,
 }
 
-/// The clip a layer played before the one launched, which shows until the transition ends.
+/// A transition running on a layer: from the clip it played, or from nothing, to the one launched
+/// (or to nothing). It moves at the speed of the layer's transition time, which can change while
+/// it runs.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Leaving {
-    pub clip: String,
-    /// When it was launched, on the grid's clock.
-    pub at: Duration,
-    /// How long the transition takes from the launch of the new clip.
+pub struct Fade {
+    /// The clip leaving and when it was launched; `None` when the layer fades in from nothing.
+    pub from: Option<(String, Duration)>,
+    /// When the fade started or last changed speed, and how far it was then, 0 to 1.
+    pub since: Duration,
+    pub done: f32,
+    /// How long the whole fade takes at its present speed.
     pub over: Duration,
+}
+
+impl Fade {
+    /// How far the fade is `now`, 0 to 1.
+    pub fn progress(&self, now: Duration) -> f32 {
+        if self.over.is_zero() {
+            return 1.0;
+        }
+        let moved = now.saturating_sub(self.since).as_secs_f32() / self.over.as_secs_f32();
+        (self.done + moved).min(1.0)
+    }
+}
+
+impl Launched {
+    /// The transition, while it runs `now`.
+    pub fn fading(&self, now: Duration) -> Option<&Fade> {
+        self.fade.as_ref().filter(|fade| fade.progress(now) < 1.0)
+    }
+
+    /// The clip the layer shows `now` most, and when it was launched: the one launched, or the one
+    /// leaving while the layer fades out.
+    pub fn shown(&self, now: Duration) -> Option<(&str, Duration)> {
+        match &self.clip {
+            Some(clip) => Some((clip.as_str(), self.at)),
+            None => self
+                .fading(now)
+                .and_then(|fade| fade.from.as_ref())
+                .map(|(clip, at)| (clip.as_str(), *at)),
+        }
+    }
 }
 
 /// What the grid is playing: at most one clip per layer, and where the crossfader is.
@@ -54,6 +89,13 @@ impl Default for GridPlay {
     }
 }
 
+fn transition(vj: &Vj, layer: &str) -> Duration {
+    vj.layers
+        .iter()
+        .find(|l| l.id == layer)
+        .map_or(Duration::ZERO, |l| Duration::from_secs_f32(l.transition))
+}
+
 impl GridPlay {
     /// Plays `clip` on its layer from its first frame, in place of what the layer played, over
     /// the layer's transition. A clip that is already playing starts again, at once. `false` when
@@ -62,40 +104,61 @@ impl GridPlay {
         let Some((layer, _)) = vj.find_clip(clip) else {
             return false;
         };
-        let over = Duration::from_secs_f32(layer.transition);
-        self.start(&layer.id, clip, over, now);
+        self.start(vj, &layer.id, Some(clip), now);
         self.column = None;
         true
     }
 
-    fn start(&mut self, layer: &str, clip: &str, over: Duration, now: Duration) {
-        let leaving = self
-            .playing
-            .get(layer)
-            .filter(|before| before.clip != clip && !over.is_zero())
-            .map(|before| Leaving {
-                clip: before.clip.clone(),
-                at: before.at,
-                over,
-            });
+    /// Moves `layer` to `clip`, or to nothing, over the layer's transition: what it shows now
+    /// leaves as the new clip comes in.
+    fn start(&mut self, vj: &Vj, layer: &str, clip: Option<&str>, now: Duration) {
+        let over = transition(vj, layer);
+        let before = self.playing.get(layer);
+        if clip.is_some() && before.and_then(|b| b.clip.as_deref()) == clip {
+            self.playing.insert(
+                layer.to_owned(),
+                Launched {
+                    clip: clip.map(str::to_owned),
+                    at: now,
+                    fade: None,
+                },
+            );
+            return;
+        }
+        let from = before
+            .and_then(|before| before.shown(now))
+            .map(|(clip, at)| (clip.to_owned(), at));
+        if clip.is_none() && (from.is_none() || over.is_zero()) {
+            self.playing.remove(layer);
+            return;
+        }
+        let fade = (!over.is_zero()).then_some(Fade {
+            from,
+            since: now,
+            done: 0.0,
+            over,
+        });
         let launched = Launched {
-            clip: clip.to_owned(),
+            clip: clip.map(str::to_owned),
             at: now,
-            leaving,
+            fade,
         };
         self.playing.insert(layer.to_owned(), launched);
     }
 
-    /// Lets go of `clip`: a clip triggered as a piano key stops when it is let go, if it still
-    /// plays. `false` when the grid has no such clip.
-    pub fn release(&mut self, vj: &Vj, clip: &str) -> bool {
+    /// Lets go of `clip`: a clip triggered as a piano key stops, over the layer's transition, when
+    /// it is let go, if it still plays. `false` when the grid has no such clip.
+    pub fn release(&mut self, vj: &Vj, clip: &str, now: Duration) -> bool {
         let Some((layer, found)) = vj.find_clip(clip) else {
             return false;
         };
         if found.trigger == Trigger::Piano
-            && self.playing.get(&layer.id).is_some_and(|l| l.clip == clip)
+            && self
+                .playing
+                .get(&layer.id)
+                .is_some_and(|l| l.clip.as_deref() == Some(clip))
         {
-            self.playing.remove(&layer.id);
+            self.start(vj, &layer.id, None, now);
         }
         true
     }
@@ -109,28 +172,42 @@ impl GridPlay {
         }
         self.column = Some(column.to_owned());
         for (layer, clip) in vj.column_clips(column) {
-            match clip {
-                Some(clip) => {
-                    let over = Duration::from_secs_f32(layer.transition);
-                    self.start(&layer.id, &clip.id, over, now);
-                }
-                None => {
-                    self.playing.remove(&layer.id);
-                }
-            }
+            self.start(vj, &layer.id, clip.map(|clip| clip.id.as_str()), now);
         }
         true
     }
 
-    /// Stops the layer, or every layer with `None`.
-    pub fn stop(&mut self, layer: Option<&str>) {
+    /// Stops the layer, or every layer with `None`, each over its transition.
+    pub fn stop(&mut self, vj: &Vj, layer: Option<&str>, now: Duration) {
         self.column = None;
-        match layer {
-            Some(layer) => {
-                self.playing.remove(layer);
+        let layers: Vec<String> = match layer {
+            Some(layer) => vec![layer.to_owned()],
+            None => self.playing.keys().cloned().collect(),
+        };
+        for layer in layers {
+            if self.playing.get(&layer).is_some_and(|l| l.clip.is_some()) {
+                self.start(vj, &layer, None, now);
             }
-            None => self.playing.clear(),
         }
+    }
+
+    /// Follows a layer's transition time changed while a transition runs, so it goes on from where
+    /// it is at the new speed, and forgets the transitions that ended.
+    pub fn retime(&mut self, vj: &Vj, now: Duration) {
+        self.playing.retain(|layer, launched| {
+            if let Some(fade) = &mut launched.fade {
+                let over = transition(vj, layer);
+                if over != fade.over {
+                    fade.done = fade.progress(now);
+                    fade.since = now;
+                    fade.over = over;
+                }
+                if fade.progress(now) >= 1.0 {
+                    launched.fade = None;
+                }
+            }
+            launched.clip.is_some() || launched.fade.is_some()
+        });
     }
 
     /// Moves the crossfader, kept between 0 and 1.
@@ -149,7 +226,7 @@ impl GridPlay {
         self.column.as_deref()
     }
 
-    /// The clip playing on each layer, by layer id.
+    /// What each layer plays, by layer id.
     pub fn playing(&self) -> &HashMap<String, Launched> {
         &self.playing
     }
@@ -161,11 +238,8 @@ impl GridPlay {
             let Some(launched) = self.playing.get(&layer.id) else {
                 continue;
             };
-            let leaving = launched
-                .leaving
-                .as_ref()
-                .filter(|leaving| now.saturating_sub(launched.at) < leaving.over);
-            for id in std::iter::once(&launched.clip).chain(leaving.map(|l| &l.clip)) {
+            let leaving = launched.fading(now).and_then(|fade| fade.from.as_ref());
+            for id in launched.clip.iter().chain(leaving.map(|(clip, _)| clip)) {
                 if let Some(clip) = layer.clips.iter().find(|c| &c.id == id) {
                     clips.push((clip.id.as_str(), clip.asset.as_str()));
                 }
@@ -181,17 +255,23 @@ impl GridPlay {
                 return false;
             };
             let has = |clip: &str| layer.clips.iter().any(|c| c.id == clip);
-            if launched.leaving.as_ref().is_some_and(|l| !has(&l.clip)) {
-                launched.leaving = None;
+            if let Some(fade) = &mut launched.fade
+                && fade.from.as_ref().is_some_and(|(clip, _)| !has(clip))
+            {
+                fade.from = None;
             }
-            has(&launched.clip)
+            match &launched.clip {
+                Some(clip) => has(clip),
+                None => launched.fade.as_ref().is_some_and(|f| f.from.is_some()),
+            }
         });
     }
 
     /// What the grid shows `now`, the topmost first. A layer shows nothing when it plays nothing,
     /// is bypassed, another layer is soloed and it is not, its video is not open yet, a clip played
     /// once has ended, or it is faded out. While a transition runs, a layer shows its new clip over
-    /// the one leaving it.
+    /// the one leaving it: with the `Alpha` effect the new one fades in over the old, with `Add`
+    /// one fades out as the other fades in. A layer stopped or started from nothing fades.
     pub fn layers(&self, vj: &Vj, now: Duration, probe: Probe<'_>) -> Vec<Layer> {
         let mut shown = Vec::new();
         for layer in vj.layers.iter().rev() {
@@ -216,18 +296,17 @@ impl GridPlay {
                     blend: layer.blend,
                 })
             };
-            let elapsed = now.saturating_sub(launched.at);
-            match launched.leaving.as_ref().filter(|l| elapsed < l.over) {
-                Some(leaving) => {
-                    let t = elapsed.as_secs_f32() / leaving.over.as_secs_f32();
-                    let old = match layer.transition_effect {
-                        Transition::Alpha => opacity,
-                        Transition::Add => opacity * (1.0 - t),
-                    };
-                    shown.extend(picture(&launched.clip, launched.at, opacity * t));
-                    shown.extend(picture(&leaving.clip, leaving.at, old));
-                }
-                None => shown.extend(picture(&launched.clip, launched.at, opacity)),
+            let fading = launched.fading(now);
+            let t = fading.map_or(1.0, |fade| fade.progress(now));
+            if let Some(clip) = &launched.clip {
+                shown.extend(picture(clip, launched.at, opacity * t));
+            }
+            if let Some((clip, at)) = fading.and_then(|fade| fade.from.as_ref()) {
+                let old = match layer.transition_effect {
+                    Transition::Alpha if launched.clip.is_some() => opacity,
+                    _ => opacity * (1.0 - t),
+                };
+                shown.extend(picture(clip, *at, old));
             }
         }
         shown
@@ -375,7 +454,7 @@ mod tests {
         assert!(play.launch(&vj, "a", secs(1.0)));
         assert!(play.launch(&vj, "b", secs(2.0)));
         assert_eq!(play.playing().len(), 1);
-        assert_eq!(play.playing()["l1"].clip, "b");
+        assert_eq!(play.playing()["l1"].clip.as_deref(), Some("b"));
         play.launch(&vj, "b", secs(3.0));
         assert_eq!(play.playing()["l1"].at, secs(3.0));
         assert!(!play.launch(&vj, "nope", secs(3.0)));
@@ -460,16 +539,56 @@ mod tests {
     }
 
     #[test]
+    fn launch_and_stop_should_fade_from_and_to_nothing() {
+        let mut vj = grid();
+        vj.layers[0].transition = 2.0;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        let opacity = |play: &GridPlay, at| -> Vec<(String, f32)> {
+            play.layers(&vj, secs(at), &probe)
+                .into_iter()
+                .map(|l| (l.clip, l.opacity))
+                .collect()
+        };
+        assert_eq!(opacity(&play, 0.5), [("a".to_owned(), 0.25)]);
+        assert_eq!(opacity(&play, 2.0), [("a".to_owned(), 1.0)]);
+        play.stop(&vj, Some("l1"), secs(10.0));
+        assert_eq!(opacity(&play, 11.5), [("a".to_owned(), 0.25)]);
+        assert_eq!(
+            play.playing()["l1"].shown(secs(11.5)),
+            Some(("a", secs(0.0)))
+        );
+        play.retime(&vj, secs(12.0));
+        assert!(play.playing().is_empty());
+    }
+
+    #[test]
+    fn retime_should_go_on_from_where_the_fade_is_at_the_new_speed() {
+        let mut vj = grid();
+        vj.layers[0].transition = 4.0;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        play.launch(&vj, "b", secs(10.0));
+        vj.layers[0].transition = 1.0;
+        play.retime(&vj, secs(11.0));
+        let fade = play.playing()["l1"].fading(secs(11.0)).unwrap();
+        assert_eq!(fade.progress(secs(11.0)), 0.25);
+        assert_eq!(fade.progress(secs(11.5)), 0.75);
+        play.retime(&vj, secs(11.75));
+        assert!(play.playing()["l1"].fade.is_none());
+    }
+
+    #[test]
     fn release_should_stop_only_a_piano_clip_still_playing() {
         let mut vj = grid();
         let mut play = GridPlay::default();
         play.launch(&vj, "a", secs(0.0));
-        play.release(&vj, "a");
+        play.release(&vj, "a", secs(0.0));
         assert_eq!(play.playing().len(), 1);
         vj.layers[0].clips[0].trigger = Trigger::Piano;
-        play.release(&vj, "a");
+        play.release(&vj, "a", secs(0.0));
         assert!(play.playing().is_empty());
-        assert!(!play.release(&vj, "nope"));
+        assert!(!play.release(&vj, "nope", secs(0.0)));
     }
 
     #[test]
@@ -501,7 +620,7 @@ mod tests {
         let mut play = GridPlay::default();
         play.launch(&vj, "logo", secs(0.0));
         play.launch_column(&vj, "c2", secs(1.0));
-        assert_eq!(play.playing()["g"].clip, "logo");
+        assert_eq!(play.playing()["g"].clip.as_deref(), Some("logo"));
         assert!(!play.playing().contains_key("l2"));
     }
 }
