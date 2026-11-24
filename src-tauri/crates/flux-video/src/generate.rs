@@ -76,8 +76,10 @@ pub fn picture(generator: &Generator, index: u64) -> Frame {
         }
     };
     let rgba = rgb
-        .chunks_exact(3)
-        .flat_map(|p| [p[0], p[1], p[2], 255])
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .flat_map(|&[r, g, b]| [r, g, b, 255])
         .collect();
     Frame {
         index,
