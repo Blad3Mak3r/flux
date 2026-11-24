@@ -111,8 +111,12 @@ fn probe(
     Ok(probe)
 }
 
-/// What FFmpeg read of `asset` if it was read already; otherwise `None`, and it is read on a
-/// thread of its own so a later call has it. Never blocks on FFmpeg.
+/// The videos [`known_probe`] has started reading, so each is read once however often it is asked
+/// for, and one FFmpeg cannot read is not tried again on every call.
+static ASKED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+
+/// What FFmpeg read of `asset` if it was read already; otherwise `None`, and it is read once, on a
+/// thread of its own, so a later call has it. Never blocks on FFmpeg.
 pub fn known_probe(session: &SharedSession, asset: &VideoAsset) -> Option<VideoProbe> {
     let probes = shared_probes();
     if let Some(known) = probes
@@ -124,6 +128,14 @@ pub fn known_probe(session: &SharedSession, asset: &VideoAsset) -> Option<VideoP
         return Some(known.clone());
     }
     let cache = CACHE.get()?.clone();
+    let first = ASKED
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(asset.id.clone());
+    if !first {
+        return None;
+    }
     let (session, asset) = (Arc::clone(session), asset.clone());
     std::thread::spawn(move || {
         if let Err(err) = probe(&session, &probes, &asset, &cache) {

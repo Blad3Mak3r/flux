@@ -231,10 +231,10 @@ pub async fn vj_output_frame(
     output: State<'_, crate::video_output::SharedVideoOutput>,
 ) -> std::result::Result<tauri::ipc::Response, String> {
     let output = std::sync::Arc::clone(&output);
-    let jpeg = tauri::async_runtime::spawn_blocking(move || output.composition(&app))
+    let picture = tauri::async_runtime::spawn_blocking(move || output.composition(&app))
         .await
         .map_err(|err| err.to_string())??;
-    Ok(tauri::ipc::Response::new(jpeg.unwrap_or_default()))
+    Ok(tauri::ipc::Response::new(picture.unwrap_or_default()))
 }
 
 /// What the grid plays now.
