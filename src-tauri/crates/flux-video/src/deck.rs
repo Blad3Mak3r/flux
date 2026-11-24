@@ -98,15 +98,7 @@ impl VideoDeck {
     /// The layers of the VJ grid to draw `now` on the grid's clock, topmost first: it keeps a player
     /// for each clip playing and closes the rest.
     pub fn show_grid(&mut self, vj: &Vj, play: &GridPlay, now: Duration) -> Vec<Shown> {
-        let playing: Vec<(&str, &str)> = vj
-            .layers
-            .iter()
-            .filter_map(|layer| {
-                let launched = play.playing().get(&layer.id)?;
-                let clip = layer.clips.iter().find(|c| c.id == launched.clip)?;
-                Some((clip.id.as_str(), clip.asset.as_str()))
-            })
-            .collect();
+        let playing = play.clips(vj, now);
         self.keep_players(&playing);
         let players = &self.players;
         let probe = |asset: &str| {
