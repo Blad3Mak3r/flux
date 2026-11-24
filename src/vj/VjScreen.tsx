@@ -5,7 +5,7 @@ import { Marquee } from "../components/Marquee";
 import { CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
 import type { Translate } from "../i18n";
-import { errorMessage, pickVideoPaths } from "../project/api";
+import { errorMessage, pickMediaPaths } from "../project/api";
 import { useVideoErrors } from "../state/video";
 import type {
   VideoAsset,
@@ -37,10 +37,12 @@ import {
   release,
   selectClip,
   selectLayer,
+  showMedia,
   showTab,
   stopLayer,
   useVj,
 } from "./store";
+import type { MediaKind } from "./store";
 import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
@@ -69,6 +71,7 @@ function VideoState({ state, asset }: { state: "importing" | "processing" | "fai
 const BLENDS: VjBlend[] = ["alpha", "add", "subtract", "multiply", "screen", "lighten", "darken"];
 const TRANSITIONS: VjTransition[] = ["alpha", "add"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
+const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
 const TRIGGERS: VjTrigger[] = ["normal", "piano"];
 const FITS: VideoFit[] = ["fit", "fill", "stretch", "none"];
 /** The longest transition, in seconds, as the backend keeps it. */
@@ -619,10 +622,12 @@ function Inspector({ grid }: { grid: VjGrid }) {
             <Segments options={TRIGGERS} value={clip.trigger ?? "normal"} label={(o) => t(`vj.trigger.${o}`)}
               onPick={(trigger) => void edit({ op: "clipTrigger", clip: clip.id, trigger })} />
           </div>
-          <div className="vj-f"><span>{t("vj.clip.playback")}</span>
-            <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}
-              onPick={(playback) => void edit({ op: "clipPlayback", clip: clip.id, playback })} />
-          </div>
+          {!probe?.still && (
+            <div className="vj-f"><span>{t("vj.clip.playback")}</span>
+              <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}
+                onPick={(playback) => void edit({ op: "clipPlayback", clip: clip.id, playback })} />
+            </div>
+          )}
           <div className="vj-f"><span>{t("vj.clip.fit")}</span>
             <Segments options={FITS} value={clip.fit ?? "fit"} label={(o) => t(`vj.fit.${o}`)}
               onPick={(fit) => void edit({ op: "clipFit", clip: clip.id, fit })} />
@@ -630,8 +635,8 @@ function Inspector({ grid }: { grid: VjGrid }) {
         </div>
         <dl className="vj-meta">
           <div><dt>{t("vj.clip.file")}</dt><dd><Marquee>{video?.name ?? ""}</Marquee></dd></div>
-          <div><dt>{t("vj.clip.length")}</dt><dd className="vj-mono">{probe ? clock(probe.frames * probe.rateDen / probe.rateNum) : "—"}</dd></div>
-          <div><dt>{t("vj.clip.video")}</dt><dd className="vj-mono">{probe ? `${probe.codec} · ${probe.width}×${probe.height} · ${Math.round((probe.rateNum / probe.rateDen) * 100) / 100}` : "—"}</dd></div>
+          <div><dt>{t("vj.clip.length")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? t("vj.media.still") : clock(probe.frames * probe.rateDen / probe.rateNum)}</dd></div>
+          <div><dt>{t("vj.clip.video")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? `${probe.codec} · ${probe.width}×${probe.height}` : `${probe.codec} · ${probe.width}×${probe.height} · ${Math.round((probe.rateNum / probe.rateDen) * 100) / 100}`}</dd></div>
           <div><dt>{t("vj.clip.cell")}</dt><dd><Marquee>{layerName(t, grid, found.layer)} · {columnAt + 1}</Marquee></dd></div>
         </dl>
       </div>
@@ -691,9 +696,15 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
     return clip ? [clip.asset] : [];
   }));
   const importing = useVj((vj) => vj.importing);
+  const kind = useVj((vj) => vj.media);
+  // A video still being read is listed under "All" only, until the backend says what it is.
+  const shown = kind === "all" ? videos : videos.filter((video) => {
+    const still = probes[video.id]?.still;
+    return still !== undefined && still === (kind === "image");
+  });
   const importFiles = async () => {
     try {
-      await importVideos(await pickVideoPaths(), target.id, null);
+      await importVideos(await pickMediaPaths(), target.id, null);
     } catch (err) {
       fail(err);
     }
@@ -703,6 +714,7 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
       <header className="vj-ph">
         <h2>{t("vj.media")}</h2>
         <div className="vj-tools">
+          <Segments options={MEDIA_KINDS} value={kind} label={(o) => t(`vj.media.kind.${o}`)} onPick={showMedia} />
           <button type="button" className="vj-tb" title={t("vj.media.importNote", { layer: layerName(t, grid, target) })}
             onClick={() => void importFiles()}><ImportIcon />{t("vj.media.import")}</button>
         </div>
@@ -712,13 +724,14 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
           <p className="vj-empty">{t("vj.media.empty")}</p>
         ) : (
           <div className="vj-mg">
-            {videos.map((video) => {
+            {shown.length === 0 && importing.length === 0 && <p className="vj-empty">{t("vj.media.none")}</p>}
+            {shown.map((video) => {
               const probe = probes[video.id];
               return (
                 <figure key={video.id} className={`vj-m${onAir.has(video.id) ? " using" : ""}`} draggable
                   onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ asset: video.id } satisfies Dragged))}>
                   <Thumb strip={thumbs[video.id]}>
-                    {probe && <span className="vj-d">{clock(probe.frames * probe.rateDen / probe.rateNum)}</span>}
+                    {probe && <span className="vj-d">{probe.still ? t("vj.media.still") : clock(probe.frames * probe.rateDen / probe.rateNum)}</span>}
                     <MediaState asset={video.id} />
                   </Thumb>
                   <figcaption><Marquee>{video.name}</Marquee><span className="vj-c">{probe?.codec ?? ""}</span></figcaption>

@@ -36,7 +36,11 @@ interface VjState {
   /** The layer the inspector shows. */
   layer: string | null;
   tab: "clip" | "layer";
+  /** Which media the browser lists. */
+  media: MediaKind;
 }
+
+export type MediaKind = "all" | "video" | "image";
 
 export const useVj = create<VjState>()(() => ({
   play: { playing: [], column: null, crossfader: 0.5 },
@@ -44,6 +48,7 @@ export const useVj = create<VjState>()(() => ({
   clip: null,
   layer: null,
   tab: "clip",
+  media: "all",
 }));
 
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -112,6 +117,7 @@ export const moveCrossfader = (position: number) => played(() => vjCrossfader(po
 export const selectClip = (clip: string, layer: string) => useVj.setState({ clip, layer, tab: "clip" });
 export const selectLayer = (layer: string) => useVj.setState({ layer, tab: "layer" });
 export const showTab = (tab: VjState["tab"]) => useVj.setState({ tab });
+export const showMedia = (media: MediaKind) => useVj.setState({ media });
 
 /** Asks the backend what plays, ten times a second, while the VJ screen is open. */
 export function bindPlayState(): () => void {

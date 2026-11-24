@@ -187,6 +187,12 @@ The VJ screen (`src/vj/`) shows the layers as strips with a fader each for maste
 transition time (T), the deck's tabs under the grid and the crossfader. Its Output panel approximates the mix from each
 playing clip's thumbnail at its position; the screens show the video itself. In a VJ project `video_thumbnails` decodes only the first frame of a video (`flux_video::poster`), and the waveform and tempo of its sound are not read, so an imported clip is ready sooner; each clip shows while it is importing, being read, or unreadable.
 
+A VJ project also takes still images (PNG, JPEG, WebP, BMP, TIFF, GIF), imported like videos. FFmpeg reads one as a
+video of one frame (`VideoFile` opens a file that has no length as one frame, and does not seek a file still at its
+start), `video_probe` answers `still: true` for it, and `grid_frame` keeps showing it until it is stopped, whatever its
+playback; the play state gives it no `progress` or `remaining`. The media browser filters its items by kind: all, video
+or image.
+
 ## Mapping
 
 Below the display, **Mapping** cuts the picture into slices for the selected screen, as the advanced output of a media server does. Each slice

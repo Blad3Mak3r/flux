@@ -523,6 +523,10 @@
 
 .vj-segs button.on { color: var(--ink); background: var(--vj-ctl-hi); }
 
+/* In a panel header the segments take the width of their words, like the buttons beside them. */
+.vj-ph .vj-segs { flex: none; margin-right: 4px; }
+.vj-ph .vj-segs button { flex: none; height: 20px; padding: 0 8px; }
+
 .vj-meta { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; margin: 0; padding-top: 4px; border-top: 1px solid var(--vj-line); }
 .vj-meta div { display: flex; min-width: 0; justify-content: space-between; align-items: center; gap: 12px; height: 30px; font-size: 12px; border-bottom: 1px solid oklch(0.29 0.014 250 / 0.6); }
 .vj-meta dt { flex: none; color: var(--ink-faint); }
