@@ -114,11 +114,13 @@ function Thumb({ strip, position = 0.3, children, className }: {
 }
 
 /** A vertical fader: its letter is the handle, its colour says what it moves. */
-function Fader({ letter, label, value, off, onMove, onSet }: {
+function Fader({ letter, label, value, off, progress, onMove, onSet }: {
   letter: string;
   label: string;
   value: number;
   off?: boolean;
+  /** How far what the fader times is, 0 to 1, while it runs: the transition of the T fader. */
+  progress?: number | null;
   onMove: (value: number) => void;
   onSet: (value: number) => void;
 }) {
@@ -169,6 +171,7 @@ function Fader({ letter, label, value, off, onMove, onSet }: {
       onPointerCancel={() => setHeld(null)}
     >
       <i />
+      {progress != null && <u style={{ height: `${progress * 100}%` }} />}
       <b>{letter}</b>
     </div>
   );
@@ -227,9 +230,11 @@ function LayerHeader({ grid, layer, playing }: { grid: VjGrid; layer: VjLayer; p
       <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={clip && thumbs[clip.asset]} position={playing?.progress ?? 0.3}>
         {playing?.remaining != null && <span className="vj-time">-{clock(playing.remaining)}</span>}
         {playing?.progress != null && <span className="vj-bar"><i style={{ width: `${playing.progress * 100}%` }} /></span>}
+        {playing?.transition != null && <span className="vj-tbar"><i style={{ width: `${playing.transition * 100}%` }} /></span>}
       </Thumb>
       <div className="vj-tcol">
-        <Fader letter="T" label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION} {...level("layerTransition", MAX_TRANSITION)} />
+        <Fader letter="T" label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION}
+          progress={playing?.transition} {...level("layerTransition", MAX_TRANSITION)} />
         <select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
           onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjTransition })}>

@@ -56,8 +56,12 @@ export interface PlayingClip {
   progress: number | null;
   /** Seconds until the end of its video. */
   remaining: number | null;
-  /** How much of the layer shows on the output, 0 to 1. */
+  /** How much of the clip shows on the output, 0 to 1. */
   level: number;
+  /** How far the layer's transition is, 0 to 1, while one runs. */
+  transition: number | null;
+  /** Whether the layer is fading out to nothing, showing the clip that played. */
+  stopping: boolean;
 }
 
 export interface GridState {

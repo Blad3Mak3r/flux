@@ -236,6 +236,18 @@
   background: color-mix(in oklch, var(--c) 32%, transparent);
 }
 
+/* Where the transition is while it runs: a solid strip up the middle of the T fader. */
+.vj-fader u {
+  position: absolute;
+  bottom: 0;
+  left: calc(50% - 2px);
+  width: 4px;
+  background: var(--c);
+  border-radius: 1px;
+  box-shadow: 0 0 6px var(--c);
+  pointer-events: none;
+}
+
 .vj-fader b {
   position: absolute;
   left: 1px;
@@ -274,6 +286,8 @@
 
 .vj-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: oklch(0 0 0 / 0.5); }
 .vj-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--signal); }
+.vj-tbar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: oklch(0 0 0 / 0.5); }
+.vj-tbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--vj-transition); }
 
 .vj-lname { display: flex; grid-column: 1 / 5; align-items: center; gap: 6px; min-width: 0; padding-left: 2px; }
 .vj-lname .vj-num { color: var(--ink-faint); font-size: 10.5px; }
