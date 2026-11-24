@@ -4,7 +4,8 @@
 import { create } from "zustand";
 import { errorMessage } from "../project/api";
 import { dispatch, useDoc } from "../state/store";
-import { sayError } from "../state/ui";
+import { say, sayError } from "../state/ui";
+import { probeVideos } from "../state/video";
 import {
   vjCrossfader,
   vjEdit,
@@ -12,12 +13,24 @@ import {
   vjLaunchColumn,
   vjPlayState,
   vjRelease,
+  vjImport,
   vjStop,
 } from "./api";
 import type { GridState, VjOp } from "./api";
 
+/** A video file being copied into the project, shown where it will land until it is there. */
+export interface Importing {
+  key: number;
+  /** The file's name. */
+  name: string;
+  layer: string;
+  /** The cell's column, or `null` for the layer's first empty cell. */
+  column: string | null;
+}
+
 interface VjState {
   play: GridState;
+  importing: Importing[];
   /** The clip the inspector shows. */
   clip: string | null;
   /** The layer the inspector shows. */
@@ -27,6 +40,7 @@ interface VjState {
 
 export const useVj = create<VjState>()(() => ({
   play: { playing: [], column: null, crossfader: 0.5 },
+  importing: [],
   clip: null,
   layer: null,
   tab: "clip",
@@ -41,6 +55,34 @@ export async function edit(op: VjOp): Promise<void> {
     dispatch({ type: "apply", project, active });
   } catch (err) {
     fail(err);
+  }
+}
+
+let imports = 0;
+const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+
+/**
+ * Adds video files to `layer`, the first in the cell of `column` (or each in the layer's first empty
+ * cell with `null`), then reads them: the clips show their state meanwhile.
+ */
+export async function importVideos(paths: string[], layer: string, column: string | null): Promise<void> {
+  for (const [at, path] of paths.entries()) {
+    const key = ++imports;
+    const name = fileName(path);
+    const cell = at === 0 ? column : null;
+    useVj.setState((vj) => ({ importing: [...vj.importing, { key, name, layer, column: cell }] }));
+    try {
+      const before = useDoc.getState().project.videos ?? [];
+      const { project, active } = await vjImport(useDoc.getState().project, path, layer, cell);
+      dispatch({ type: "apply", project, active });
+      const added = (project.videos ?? []).filter((video) => !before.some((old) => old.id === video.id));
+      say("status.imported", { name });
+      void probeVideos(added);
+    } catch (err) {
+      fail(err);
+    } finally {
+      useVj.setState((vj) => ({ importing: vj.importing.filter((item) => item.key !== key) }));
+    }
   }
 }
 

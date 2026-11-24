@@ -184,7 +184,7 @@ clips play):
 
 The VJ screen (`src/vj/`) shows the layers as strips with a fader each for master (M), audio (A), video (V) and
 transition time (T), the deck's tabs under the grid and the crossfader. Its Output panel approximates the mix from each
-playing clip's thumbnail at its position; the screens show the video itself.
+playing clip's thumbnail at its position; the screens show the video itself. In a VJ project `video_thumbnails` decodes only the first frame of a video (`flux_video::poster`), and the waveform and tempo of its sound are not read, so an imported clip is ready sooner; each clip shows while it is importing, being read, or unreadable.
 
 ## Mapping
 

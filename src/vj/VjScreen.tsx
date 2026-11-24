@@ -5,6 +5,7 @@ import { CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "
 import { useT } from "../i18n";
 import type { Translate } from "../i18n";
 import { errorMessage, pickVideoPaths } from "../project/api";
+import { useVideoErrors } from "../state/video";
 import type {
   VideoAsset,
   VideoFit,
@@ -19,15 +20,15 @@ import type {
   VjTransition,
   VjTrigger,
 } from "../project/types";
-import { dispatch, useDoc } from "../state/store";
+import { useDoc } from "../state/store";
 import { openMenu, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import type { VideoStrip } from "../video/api";
-import { vjImport } from "./api";
 import type { PlayingClip } from "./api";
 import {
   bindPlayState,
   edit,
+  importVideos,
   launch,
   launchColumn,
   moveCrossfader,
@@ -43,6 +44,26 @@ import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
 const NO_VIDEOS: VideoAsset[] = [];
+
+/** Whether a video can be shown yet: `failed` when the backend cannot read it, `processing` while it reads it. */
+function useVideoState(asset: string): "failed" | "processing" | null {
+  const error = useVideoErrors((errors) => errors[asset]);
+  const ready = useDoc((doc) => asset in doc.video && asset in doc.thumbs);
+  if (error) return "failed";
+  return ready ? null : "processing";
+}
+
+/** The state of a clip's video over its picture: importing, processing or unreadable. */
+function VideoState({ state, asset }: { state: "importing" | "processing" | "failed"; asset?: string }) {
+  const t = useT();
+  const error = useVideoErrors((errors) => (asset === undefined ? undefined : errors[asset]));
+  return (
+    <span className={`vj-state ${state}`} title={error}>
+      {state !== "failed" && <i className="vj-spin" aria-hidden="true" />}
+      {t(`vj.state.${state}`)}
+    </span>
+  );
+}
 
 const BLENDS: VjBlend[] = ["alpha", "add", "subtract", "multiply", "screen", "lighten", "darken"];
 const TRANSITIONS: VjTransition[] = ["alpha", "add"];
@@ -244,6 +265,8 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
   const [over, setOver] = useState(false);
   const clip = clipAt(layer, column, at);
   const live = clip && playing?.clip === clip.id;
+  const importing = useVj((vj) => vj.importing.find((item) => item.layer === layer.id && item.column === column.id));
+  const state = useVideoState(clip?.asset ?? "");
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -268,15 +291,19 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
   if (!clip) {
     const importHere = async () => {
       try {
-        for (const path of await pickVideoPaths()) {
-          const { project, active } = await vjImport(useDoc.getState().project, path, layer.id, column.id);
-          dispatch({ type: "apply", project, active });
-          break;
-        }
+        await importVideos(await pickVideoPaths(), layer.id, column.id);
       } catch (err) {
         fail(err);
       }
     };
+    if (importing) {
+      return (
+        <div className="vj-slot busy" title={importing.name}>
+          <span className="vj-cn">{importing.name}</span>
+          <VideoState state="importing" />
+        </div>
+      );
+    }
     return (
       <div className={`vj-slot${over ? " over" : ""}`} title={t("vj.cell.empty")} onDoubleClick={() => void importHere()} {...dropping}>
         <PlusIcon />
@@ -311,6 +338,7 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
       {live && (
         <span className="vj-air"><PlayIcon />{playing?.remaining != null ? clock(playing.remaining) : ""}</span>
       )}
+      {state && <VideoState state={state} asset={clip.asset} />}
       <span className="vj-cn">{name}</span>
       <span className="vj-cm">{t(`vj.trigger.short.${clip.trigger ?? "normal"}`)}{clip.playback && clip.playback !== "loop" ? ` · ${t(`vj.playback.short.${clip.playback}`)}` : ""}</span>
       {live && playing?.progress != null && <span className="vj-bar"><i style={{ width: `${playing.progress * 100}%` }} /></span>}
@@ -650,6 +678,11 @@ function Inspector({ grid }: { grid: VjGrid }) {
   );
 }
 
+function MediaState({ asset }: { asset: string }) {
+  const state = useVideoState(asset);
+  return state && <VideoState state={state} asset={asset} />;
+}
+
 function MediaPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
@@ -663,12 +696,10 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
     const clip = p && l.clips?.find((c) => c.id === p.clip);
     return clip ? [clip.asset] : [];
   }));
+  const importing = useVj((vj) => vj.importing);
   const importFiles = async () => {
     try {
-      for (const path of await pickVideoPaths()) {
-        const { project, active } = await vjImport(useDoc.getState().project, path, target.id, null);
-        dispatch({ type: "apply", project, active });
-      }
+      await importVideos(await pickVideoPaths(), target.id, null);
     } catch (err) {
       fail(err);
     }
@@ -683,7 +714,7 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
         </div>
       </header>
       <div className="vj-pb">
-        {videos.length === 0 ? (
+        {videos.length === 0 && importing.length === 0 ? (
           <p className="vj-empty">{t("vj.media.empty")}</p>
         ) : (
           <div className="vj-mg">
@@ -694,11 +725,18 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
                   onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ asset: video.id } satisfies Dragged))}>
                   <Thumb strip={thumbs[video.id]}>
                     {probe && <span className="vj-d">{clock(probe.frames * probe.rateDen / probe.rateNum)}</span>}
+                    <MediaState asset={video.id} />
                   </Thumb>
                   <figcaption><span>{video.name}</span><span className="vj-c">{probe?.codec ?? ""}</span></figcaption>
                 </figure>
               );
             })}
+            {importing.map((item) => (
+              <figure key={item.key} className="vj-m busy">
+                <Thumb strip={undefined}><VideoState state="importing" /></Thumb>
+                <figcaption><span>{item.name}</span></figcaption>
+              </figure>
+            ))}
           </div>
         )}
       </div>

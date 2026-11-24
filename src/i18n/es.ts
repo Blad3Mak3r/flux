@@ -1175,4 +1175,7 @@ export const es: Record<MessageKey, string> = {
   "vj.media.import": "Importar",
   "vj.media.importNote": "Añade vídeos en las celdas vacías de {layer}",
   "vj.media.empty": "Aún no hay vídeos. Importa alguno o haz doble clic en una celda vacía.",
+  "vj.state.importing": "Importando…",
+  "vj.state.processing": "Procesando…",
+  "vj.state.failed": "No se puede leer",
 };

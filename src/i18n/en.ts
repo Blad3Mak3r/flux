@@ -1171,6 +1171,9 @@ export const en = {
   "vj.media.import": "Import",
   "vj.media.importNote": "Adds videos to the empty cells of {layer}",
   "vj.media.empty": "No videos yet. Import some, or double-click an empty cell.",
+  "vj.state.importing": "Importing…",
+  "vj.state.processing": "Processing…",
+  "vj.state.failed": "Can't read",
 } as const;
 
 export type MessageKey = keyof typeof en;
