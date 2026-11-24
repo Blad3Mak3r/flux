@@ -4,6 +4,7 @@ import type {
   ProjectState,
   VideoFit,
   VjBlend,
+  VjGenerator,
   VjPlayback,
   VjSide,
   VjTransition,
@@ -33,6 +34,8 @@ export type VjOp =
   | { op: "moveColumn"; column: string; to: number }
   | { op: "renameColumn"; column: string; name: string }
   | { op: "placeVideo"; asset: string; layer: string; column: string }
+  | { op: "placeGenerator"; generator: VjGenerator; layer: string; column: string }
+  | { op: "clipGenerator"; clip: string; generator: VjGenerator }
   | { op: "moveClip"; clip: string; layer: string; column: string }
   | { op: "removeClip"; clip: string }
   | { op: "renameClip"; clip: string; name: string }
