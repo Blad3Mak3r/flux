@@ -72,15 +72,11 @@ fn strip(path: &Path, height: u32, max: u64) -> Result<Thumbs, VideoError> {
             }
         }
     }
-    let mut jpeg = Vec::new();
-    jpeg_encoder::Encoder::new(&mut jpeg, 70)
-        .encode(
-            &strip,
-            u16::try_from(width as u64 * count).unwrap_or(u16::MAX),
-            height as u16,
-            jpeg_encoder::ColorType::Rgba,
-        )
-        .map_err(|err| VideoError::Encode(err.to_string()))?;
+    let jpeg = jpeg(
+        &strip,
+        u16::try_from(width as u64 * count).unwrap_or(u16::MAX),
+        height as u16,
+    )?;
     Ok(Thumbs {
         width,
         height,
@@ -89,4 +85,13 @@ fn strip(path: &Path, height: u32, max: u64) -> Result<Thumbs, VideoError> {
         seconds: every as f64 * f64::from(info.rate.den) / f64::from(info.rate.num.max(1)),
         jpeg,
     })
+}
+
+/// `width` x `height` pixels of RGBA as a JPEG, its alpha left out.
+pub fn jpeg(rgba: &[u8], width: u16, height: u16) -> Result<Vec<u8>, VideoError> {
+    let mut jpeg = Vec::new();
+    jpeg_encoder::Encoder::new(&mut jpeg, 70)
+        .encode(rgba, width, height, jpeg_encoder::ColorType::Rgba)
+        .map_err(|err| VideoError::Encode(err.to_string()))?;
+    Ok(jpeg)
 }

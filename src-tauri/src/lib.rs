@@ -133,6 +133,7 @@ pub fn run() {
             vj_commands::vj_stop,
             vj_commands::vj_crossfader,
             vj_commands::vj_play_state,
+            vj_commands::vj_output_frame,
             video_commands::video_probe,
             video_commands::video_clip_edit,
             video_commands::video_thumbnails,

@@ -27,6 +27,7 @@ import type { MenuItem } from "../state/ui";
 import type { VideoStrip } from "../video/api";
 import type { PlayingClip } from "./api";
 import {
+  bindOutput,
   bindPlayState,
   edit,
   importVideos,
@@ -491,11 +492,10 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
 }
 
 /** The output as the thumbnails of what plays, layer over layer, at the position of each clip. */
-function OutputPanel({ grid }: { grid: VjGrid }) {
+function OutputPanel() {
   const t = useT();
-  const playing = useVj((vj) => vj.play.playing);
-  const thumbs = useDoc((doc) => doc.thumbs);
-  const live = playing.some((p) => p.level > 0);
+  const live = useVj((vj) => vj.play.playing.some((p) => p.level > 0));
+  const output = useVj((vj) => vj.output);
   return (
     <section className="vj-panel" aria-label={t("vj.output")}>
       <header className="vj-ph">
@@ -503,18 +503,7 @@ function OutputPanel({ grid }: { grid: VjGrid }) {
         <div className="vj-tools">{live && <span className="vj-pill"><i />{t("vj.onAir")}</span>}</div>
       </header>
       <div className="vj-pb vj-mon-wrap">
-        <div className="vj-mon">
-          {grid.layers.map((layer) => {
-            const p = playing.find((x) => x.layer === layer.id);
-            const clip = p && layer.clips?.find((c) => c.id === p.clip);
-            if (!p || !clip || p.level <= 0) return null;
-            return (
-              <div key={layer.id} className="vj-mon-layer" data-blend={layer.blend ?? "alpha"} style={{ opacity: p.level }}>
-                <Thumb strip={thumbs[clip.asset]} position={p.progress ?? 0} />
-              </div>
-            );
-          })}
-        </div>
+        <div className="vj-mon">{output && <img className="vj-out" src={output} alt="" />}</div>
       </div>
     </section>
   );
@@ -552,6 +541,71 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * A number set by dragging its label sideways, as in Resolume, or by typing it; a double click on the
+ * label puts it back to `reset`. `value` and what it sends are in the backend's units, shown times
+ * `shown` (e.g. 100 for a percent).
+ */
+function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
+  /** The handle's short tag. */
+  label: string;
+  /** What the number is, for a screen reader. */
+  name: string;
+  value: number;
+  shown: number;
+  reset: number;
+  onMove: (value: number) => void;
+  onSet: (value: number) => void;
+}) {
+  const t = useT();
+  const [held, setHeld] = useState<{ x: number; from: number; v: number } | null>(null);
+  const [text, setText] = useState<string | null>(null);
+  const current = held?.v ?? value;
+  const display = String(Math.round(current * shown));
+  // One pixel is one shown unit; with Shift a tenth of one.
+  const dragged = (event: PointerEvent<HTMLElement>, from: { x: number; from: number }) =>
+    from.from + ((event.clientX - from.x) * (event.shiftKey ? 0.1 : 1)) / shown;
+  const commit = () => {
+    if (text !== null && text.trim() !== "" && Number.isFinite(Number(text))) onSet(Number(text) / shown);
+    setText(null);
+  };
+  return (
+    <span className="vj-scrub">
+      <span
+        className="vj-scrub-l"
+        title={t("vj.clip.scrub")}
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setHeld({ x: event.clientX, from: value, v: value });
+        }}
+        onPointerMove={(event) => {
+          if (!held) return;
+          const v = dragged(event, held);
+          setHeld({ ...held, v });
+          onMove(v);
+        }}
+        onPointerUp={(event) => {
+          if (!held) return;
+          const v = dragged(event, held);
+          setHeld(null);
+          if (v !== value) onSet(v);
+        }}
+        onPointerCancel={() => setHeld(null)}
+        onDoubleClick={() => onSet(reset)}
+      >{label}</span>
+      <input className="vj-input vj-mono" inputMode="decimal" aria-label={name} value={text ?? display}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") { setText(null); event.currentTarget.blur(); }
+        }} />
+      <span className="vj-scrub-u">%</span>
+    </span>
   );
 }
 
@@ -609,6 +663,8 @@ function Inspector({ grid }: { grid: VjGrid }) {
     const video = videos.find((v) => v.id === clip.asset);
     const probe = probes[clip.asset];
     const deck = grid.decks.find((d) => d.id === grid.deck);
+    const scale = clip.scale ?? 1;
+    const [x, y] = clip.position ?? [0, 0];
     const columnAt = found.layer.global ? clip.slot ?? 0 : deck?.columns.findIndex((c) => c.id === clip.column) ?? -1;
     body = (
       <div className="vj-insp">
@@ -631,6 +687,23 @@ function Inspector({ grid }: { grid: VjGrid }) {
           <div className="vj-f"><span>{t("vj.clip.fit")}</span>
             <Segments options={FITS} value={clip.fit ?? "fit"} label={(o) => t(`vj.fit.${o}`)}
               onPick={(fit) => void edit({ op: "clipFit", clip: clip.id, fit })} />
+          </div>
+          <div className="vj-f"><span>{t("vj.clip.scale")}</span>
+            <div className="vj-scrubs">
+              <Scrub label="↔" name={t("vj.clip.scale")} value={scale} shown={100} reset={1}
+                onMove={(value) => preview({ op: "clipScale", clip: clip.id, value })}
+                onSet={(value) => void edit({ op: "clipScale", clip: clip.id, value })} />
+            </div>
+          </div>
+          <div className="vj-f"><span>{t("vj.clip.position")}</span>
+            <div className="vj-scrubs">
+              <Scrub label="X" name={t("vj.clip.x")} value={x} shown={100} reset={0}
+                onMove={(v) => preview({ op: "clipPosition", clip: clip.id, x: v, y })}
+                onSet={(v) => void edit({ op: "clipPosition", clip: clip.id, x: v, y })} />
+              <Scrub label="Y" name={t("vj.clip.y")} value={y} shown={100} reset={0}
+                onMove={(v) => preview({ op: "clipPosition", clip: clip.id, x, y: v })}
+                onSet={(v) => void edit({ op: "clipPosition", clip: clip.id, x, y: v })} />
+            </div>
           </div>
         </div>
         <dl className="vj-meta">
@@ -755,12 +828,13 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
 export function VjScreen() {
   const grid = useDoc((doc) => doc.project.vj);
   useEffect(bindPlayState, []);
+  useEffect(bindOutput, []);
   if (!grid) return null;
   return (
     <div className="vj-app">
       <DeckPanel grid={grid} />
       <div className="vj-right">
-        <OutputPanel grid={grid} />
+        <OutputPanel />
         <PreviewPanel grid={grid} />
       </div>
       <Inspector grid={grid} />

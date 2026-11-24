@@ -7,7 +7,10 @@
 //! [`Blend`]. A quad can fade out towards its edges (a soft edge, to blend
 //! two projectors where their pictures overlap), and [`Mask`]s black out parts of the window.
 
+mod composite;
 pub mod pattern;
+
+pub use composite::composite;
 
 use thiserror::Error;
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
@@ -134,6 +137,15 @@ pub fn placement(sizing: Sizing, picture: (u32, u32), composition: (u32, u32)) -
     };
     let (w, h) = (pw * scale / cw, ph * scale / ch);
     [(1.0 - w) / 2.0, (1.0 - h) / 2.0, w, h]
+}
+
+/// `place` (see [`placement`]) drawn `scale` times as large about its centre, and that centre
+/// moved by `position`, as fractions of the composition's width and height.
+pub fn transformed(place: [f32; 4], scale: f32, position: [f32; 2]) -> [f32; 4] {
+    let [x, y, w, h] = place;
+    let (cx, cy) = (x + w / 2.0 + position[0], y + h / 2.0 + position[1]);
+    let (w, h) = (w * scale, h * scale);
+    [cx - w / 2.0, cy - h / 2.0, w, h]
 }
 
 /// A rectangle of the picture shown between four points of the window: the slice of a mapping.
@@ -854,7 +866,7 @@ fn mask_bytes(masks: &[Mask], window: (u32, u32)) -> Vec<u8> {
 mod tests {
     use super::{
         MASKS_SIZE, Mask, Quad, SHADER, Sizing, VERTEX_SIZE, fit, fitted_quad, mask_bytes,
-        placement, vertex_bytes, vertices,
+        placement, transformed, vertex_bytes, vertices,
     };
 
     #[test]
@@ -869,6 +881,17 @@ mod tests {
         let fill = placement(Sizing::Fill, wide, full);
         assert_eq!((fill[0], fill[2]), (0.0, 1.0));
         assert!((fill[3] - 2.0).abs() < 1e-6 && (fill[1] + 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn transformed_should_scale_about_the_centre_and_move_it() {
+        let place = [0.25, 0.0, 0.5, 1.0];
+        assert_eq!(transformed(place, 1.0, [0.0, 0.0]), place);
+        assert_eq!(transformed(place, 2.0, [0.0, 0.0]), [0.0, -0.5, 1.0, 2.0]);
+        assert_eq!(
+            transformed(place, 0.5, [0.25, -0.25]),
+            [0.625, 0.0, 0.25, 0.5]
+        );
     }
 
     #[test]

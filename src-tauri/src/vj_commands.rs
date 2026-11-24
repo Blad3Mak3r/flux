@@ -222,6 +222,21 @@ pub fn vj_crossfader(
     })
 }
 
+/// What the grid sends to the screens now, before their mapping, as a small JPEG `data:` URL for
+/// the editor's output monitor; `None` outside a VJ project.
+#[tauri::command]
+pub async fn vj_output_frame(
+    app: tauri::AppHandle,
+    output: State<'_, crate::video_output::SharedVideoOutput>,
+) -> std::result::Result<Option<String>, String> {
+    use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
+    let output = std::sync::Arc::clone(&output);
+    let jpeg = tauri::async_runtime::spawn_blocking(move || output.composition(&app))
+        .await
+        .map_err(|err| err.to_string())??;
+    Ok(jpeg.map(|jpeg| format!("data:image/jpeg;base64,{}", BASE64.encode(jpeg))))
+}
+
 /// What the grid plays now.
 #[tauri::command]
 pub fn vj_play_state(

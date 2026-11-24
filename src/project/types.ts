@@ -95,6 +95,11 @@ export interface VjClip {
   playback?: VjPlayback;
   trigger?: VjTrigger;
   fit?: VideoFit;
+  /** How much larger than its fit it is drawn, about its centre; absent is 1 (100%). */
+  scale?: number;
+  /** How far its centre moves from where its fit puts it, as fractions of the composition, right
+   * and down; absent is not moved. */
+  position?: [number, number];
 }
 
 export interface Autosave {

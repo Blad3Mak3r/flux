@@ -11,6 +11,7 @@ import {
   vjEdit,
   vjLaunch,
   vjLaunchColumn,
+  vjOutputFrame,
   vjPlayState,
   vjRelease,
   vjImport,
@@ -38,6 +39,8 @@ interface VjState {
   tab: "clip" | "layer";
   /** Which media the browser lists. */
   media: MediaKind;
+  /** What the screens show, drawn by the backend, as a picture URL. */
+  output: string | null;
 }
 
 export type MediaKind = "all" | "video" | "image";
@@ -49,6 +52,7 @@ export const useVj = create<VjState>()(() => ({
   layer: null,
   tab: "clip",
   media: "all",
+  output: null,
 }));
 
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -131,6 +135,26 @@ export function bindPlayState(): () => void {
       .catch(() => undefined)
       .finally(() => {
         if (!stopped) window.setTimeout(tick, 100);
+      });
+  };
+  tick();
+  return () => {
+    stopped = true;
+  };
+}
+
+/** Asks the backend for the picture the screens show, about twelve times a second, while the VJ screen is open. */
+export function bindOutput(): () => void {
+  let stopped = false;
+  const tick = () => {
+    if (stopped) return;
+    vjOutputFrame()
+      .then((output) => {
+        if (!stopped) useVj.setState({ output });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!stopped) window.setTimeout(tick, 80);
       });
   };
   tick();

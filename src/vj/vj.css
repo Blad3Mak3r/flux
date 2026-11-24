@@ -452,14 +452,9 @@
 /* Output and preview */
 .vj-mon-wrap { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
 .vj-mon { position: relative; flex: 1; min-height: 0; overflow: hidden; background: #000; border-radius: 1px; }
-.vj-mon > .vj-thumb, .vj-mon-layer, .vj-mon-layer .vj-thumb { position: absolute; inset: 0; }
+.vj-mon > .vj-thumb { position: absolute; inset: 0; }
+.vj-out { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .vj-mon > .vj-empty { position: absolute; inset: 0; display: grid; place-items: center; }
-.vj-mon-layer[data-blend="add"] { mix-blend-mode: plus-lighter; }
-.vj-mon-layer[data-blend="subtract"] { mix-blend-mode: difference; }
-.vj-mon-layer[data-blend="multiply"] { mix-blend-mode: multiply; }
-.vj-mon-layer[data-blend="screen"] { mix-blend-mode: screen; }
-.vj-mon-layer[data-blend="lighten"] { mix-blend-mode: lighten; }
-.vj-mon-layer[data-blend="darken"] { mix-blend-mode: darken; }
 
 .vj-pill { display: flex; align-items: center; gap: 6px; height: 20px; padding: 0 7px; color: var(--signal); font-size: 11.5px; font-weight: 600; background: oklch(0.7 0.2 32 / 0.16); border-radius: 2px; }
 .vj-pill i { width: 6px; height: 6px; background: var(--signal); border-radius: 50%; }
@@ -579,3 +574,21 @@
 .vj-deck { max-width: 200px; min-width: 0; }
 .vj-dname { min-width: 0; }
 .vj-ph .vj-tools { min-width: 0; }
+
+/* Transform: three numbers set by dragging their label, as in Resolume. */
+.vj-scrubs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.vj-scrub { display: flex; align-items: center; min-width: 0; background: var(--vj-well); border-radius: 2px; }
+.vj-scrub-l {
+  flex: none;
+  padding: 0 6px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 24px;
+  white-space: nowrap;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+.vj-scrub-l:hover { color: var(--ink); }
+.vj-scrub .vj-input { min-width: 0; width: 100%; padding: 0 2px; text-align: right; background: none; }
+.vj-scrub-u { flex: none; padding-right: 8px; color: var(--ink-faint); font-size: 11px; }

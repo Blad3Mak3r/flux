@@ -38,7 +38,9 @@ export type VjOp =
   | { op: "renameClip"; clip: string; name: string }
   | { op: "clipPlayback"; clip: string; playback: VjPlayback }
   | { op: "clipTrigger"; clip: string; trigger: VjTrigger }
-  | { op: "clipFit"; clip: string; fit: VideoFit };
+  | { op: "clipFit"; clip: string; fit: VideoFit }
+  | { op: "clipScale"; clip: string; value: number }
+  | { op: "clipPosition"; clip: string; x: number; y: number };
 
 export const vjEdit = (project: Project, op: VjOp) => invoke<ProjectState>("vj_edit", { project, op });
 
@@ -79,3 +81,5 @@ export const vjLaunchColumn = (column: string) => invoke<GridState>("vj_launch_c
 export const vjStop = (layer: string | null) => invoke<GridState>("vj_stop", { layer });
 export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfader", { position });
 export const vjPlayState = () => invoke<GridState>("vj_play_state");
+/** What the grid sends to the screens now, as a small picture (`data:` URL); `null` outside a VJ project. */
+export const vjOutputFrame = () => invoke<string | null>("vj_output_frame");

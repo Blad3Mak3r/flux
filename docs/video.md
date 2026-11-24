@@ -184,8 +184,7 @@ clips play):
 | `vj_play_state` | | Reads what plays. |
 
 The VJ screen (`src/vj/`) shows the layers as strips with a fader each for master (M), audio (A), video (V) and
-transition time (T), the deck's tabs under the grid and the crossfader. Its Output panel approximates the mix from each
-playing clip's thumbnail at its position; the screens show the video itself. In a VJ project `video_thumbnails` decodes only the first frame of a video (`flux_video::poster`), and the waveform and tempo of its sound are not read, so an imported clip is ready sooner; each clip shows while it is importing, being read, or unreadable.
+transition time (T), the deck's tabs under the grid and the crossfader. Its Output panel shows what goes to the screens before their mapping: `vj_output_frame` decodes the playing clips through the same deck as the screens, places them as the screens do (`video_output::pictures`) and draws them small on the CPU (`flux_render::composite`, in linear light with the same blends) as a JPEG, about twelve times a second. A clip's `scale` and `position` (set in the inspector by dragging the number's handle, as in Resolume) move it after its fit (`flux_render::transformed`), on the screens and the monitor alike. In a VJ project `video_thumbnails` decodes only the first frame of a video (`flux_video::poster`), and the waveform and tempo of its sound are not read, so an imported clip is ready sooner; each clip shows while it is importing, being read, or unreadable.
 
 A VJ project also takes still images (PNG, JPEG, WebP, BMP, TIFF, GIF), imported like videos. FFmpeg reads one as a
 video of one frame (`VideoFile` opens a file that has no length as one frame, and does not seek a file still at its
