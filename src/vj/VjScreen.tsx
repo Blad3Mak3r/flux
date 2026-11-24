@@ -491,7 +491,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
   );
 }
 
-/** The output as the thumbnails of what plays, layer over layer, at the position of each clip. */
+/** What the screens show, as the backend draws it (see `bindOutput`). */
 function OutputPanel() {
   const t = useT();
   const live = useVj((vj) => vj.play.playing.some((p) => p.level > 0));
@@ -573,7 +573,7 @@ function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
   onSet: (value: number) => void;
 }) {
   const t = useT();
-  const [held, setHeld] = useState<{ x: number; from: number; v: number } | null>(null);
+  const [held, setHeld] = useState<{ x: number; from: number; v: number; moved: boolean } | null>(null);
   const [text, setText] = useState<string | null>(null);
   const current = held?.v ?? value;
   const display = String(Math.round(current * shown));
@@ -591,19 +591,20 @@ function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
         title={t("vj.clip.scrub")}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId);
-          setHeld({ x: event.clientX, from: value, v: value });
+          setHeld({ x: event.clientX, from: value, v: value, moved: false });
         }}
         onPointerMove={(event) => {
           if (!held) return;
           const v = dragged(event, held);
-          setHeld({ ...held, v });
+          setHeld({ ...held, v, moved: true });
           onMove(v);
         }}
         onPointerUp={(event) => {
           if (!held) return;
           const v = dragged(event, held);
           setHeld(null);
-          if (v !== value) onSet(v);
+          // Even back where it started: the previews moved the output, and this puts it back.
+          if (held.moved) onSet(v);
         }}
         onPointerCancel={() => setHeld(null)}
         onDoubleClick={() => onSet(reset)}
@@ -637,13 +638,16 @@ function Segments<T extends string>({ options, value, label, onPick }: {
   );
 }
 
-function NameField({ value, placeholder, label, onCommit }: { value: string; placeholder: string; label: string; onCommit: (name: string) => void }) {
+/** A name typed in place; one the backend refuses goes back to the name it had. */
+function NameField({ value, placeholder, label, onCommit }: { value: string; placeholder: string; label: string; onCommit: (name: string) => Promise<boolean> }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
     <input className="vj-input" value={text} placeholder={placeholder} aria-label={label}
       onChange={(event) => setText(event.target.value)}
-      onBlur={() => { if (text !== value) onCommit(text); }}
+      onBlur={() => {
+        if (text !== value) void onCommit(text).then((done) => { if (!done) setText(value); });
+      }}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Enter") event.currentTarget.blur();
@@ -654,7 +658,10 @@ function NameField({ value, placeholder, label, onCommit }: { value: string; pla
 
 function Inspector({ grid }: { grid: VjGrid }) {
   const t = useT();
-  const { clip: clipId, layer: layerId, tab } = useVj();
+  // One value each, so the play state polled ten times a second does not draw the inspector again.
+  const clipId = useVj((vj) => vj.clip);
+  const layerId = useVj((vj) => vj.layer);
+  const tab = useVj((vj) => vj.tab);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const probes = useDoc((doc) => doc.video);
   const thumbs = useDoc((doc) => doc.thumbs);
@@ -684,7 +691,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
         <div className="vj-fields">
           <label className="vj-f"><span>{t("vj.clip.name")}</span>
             <NameField value={clip.name ?? ""} placeholder={video?.name ?? ""} label={t("vj.clip.name")}
-              onCommit={(name) => void edit({ op: "renameClip", clip: clip.id, name })} />
+              onCommit={(name) => edit({ op: "renameClip", clip: clip.id, name })} />
           </label>
           <div className="vj-f"><span>{t("vj.clip.trigger")}</span>
             <Segments options={TRIGGERS} value={clip.trigger ?? "normal"} label={(o) => t(`vj.trigger.${o}`)}
@@ -732,7 +739,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
         <div className="vj-fields">
           <label className="vj-f"><span>{t("vj.layer.name")}</span>
             <NameField value={layer.name ?? ""} placeholder={layerName(t, grid, { ...layer, name: undefined })} label={t("vj.layer.name")}
-              onCommit={(name) => void edit({ op: "renameLayer", layer: layer.id, name })} />
+              onCommit={(name) => edit({ op: "renameLayer", layer: layer.id, name })} />
           </label>
           <label className="vj-f"><span>{t("vj.layer.blend")}</span>
             <select className="vj-select wide" value={layer.blend ?? "alpha"}

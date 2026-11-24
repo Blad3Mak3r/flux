@@ -54,13 +54,15 @@ export const useVj = create<VjState>()(() => ({
 
 const fail = (err: unknown) => sayError(errorMessage(err));
 
-/** Applies an edit of the grid in the backend; the answer enters the undo history. */
-export async function edit(op: VjOp): Promise<void> {
+/** Applies an edit of the grid in the backend; the answer enters the undo history. `false` when the backend refused it. */
+export async function edit(op: VjOp): Promise<boolean> {
   try {
     const { project, active } = await vjEdit(useDoc.getState().project, op);
     dispatch({ type: "apply", project, active });
+    return true;
   } catch (err) {
     fail(err);
+    return false;
   }
 }
 
