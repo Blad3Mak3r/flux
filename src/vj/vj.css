@@ -236,15 +236,15 @@
   background: color-mix(in oklch, var(--c) 32%, transparent);
 }
 
-/* Where the transition is while it runs: a solid strip up the middle of the T fader. */
+/* Where the transition is while it runs: a line rising through the filled part of the T fader. */
 .vj-fader u {
   position: absolute;
-  bottom: 0;
-  left: calc(50% - 2px);
-  width: 4px;
-  background: var(--c);
-  border-radius: 1px;
-  box-shadow: 0 0 6px var(--c);
+  left: 0;
+  right: 0;
+  bottom: calc(((100% - 14px) * var(--v) + 7px) * var(--p, 0));
+  height: 2px;
+  background: oklch(0.97 0.02 300);
+  box-shadow: 0 0 4px var(--c);
   pointer-events: none;
 }
 
@@ -314,6 +314,7 @@
 
 /* Cells */
 .vj-slot {
+  cursor: pointer;
   display: grid;
   place-items: center;
   color: transparent;
@@ -335,6 +336,8 @@
 .vj-clip .vj-thumb { position: absolute; inset: 0; filter: saturate(0.92) brightness(0.9); }
 .vj-clip.on-air .vj-thumb { filter: none; }
 .vj-shade { position: absolute; inset: 0; background: linear-gradient(to top, oklch(0.1 0.01 250 / 0.85), transparent 46%); }
+.vj-pick { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; cursor: default; }
+.vj-pick:hover { background: oklch(0.1 0.01 250 / 0.55); box-shadow: inset 0 1px 0 var(--phosphor); }
 
 .vj-cn {
   position: absolute;

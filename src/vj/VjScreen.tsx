@@ -172,7 +172,7 @@ function Fader({ letter, label, value, off, progress, onMove, onSet }: {
       onPointerCancel={() => setHeld(null)}
     >
       <i />
-      {progress != null && <u style={{ height: `${progress * 100}%` }} />}
+      {progress != null && <u style={{ "--p": progress } as CSSProperties} />}
       <b>{letter}</b>
     </div>
   );
@@ -271,7 +271,6 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
   const [over, setOver] = useState(false);
   const clip = clipAt(layer, column, at);
   const live = clip && playing?.clip === clip.id;
-  const importing = useVj((vj) => vj.importing.find((item) => item.layer === layer.id && item.column === column.id));
   const state = useVideoState(clip?.asset ?? "");
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -295,25 +294,10 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
   };
 
   if (!clip) {
-    const importHere = async () => {
-      try {
-        await importVideos(await pickVideoPaths(), layer.id, column.id);
-      } catch (err) {
-        fail(err);
-      }
-    };
-    if (importing) {
-      return (
-        <div className="vj-slot busy" title={importing.name}>
-          <Marquee className="vj-cn">{importing.name}</Marquee>
-          <VideoState state="importing" />
-        </div>
-      );
-    }
+    // As on a media server, an empty cell stops its layer, over the layer's transition.
     return (
-      <div className={`vj-slot${over ? " over" : ""}`} title={t("vj.cell.empty")} onDoubleClick={() => void importHere()} {...dropping}>
-        <PlusIcon />
-      </div>
+      <div className={`vj-slot${over ? " over" : ""}`} title={t("vj.cell.empty")}
+        onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} {...dropping} />
     );
   }
   const name = clipName(clip, videos);
@@ -344,8 +328,13 @@ function Cell({ layer, column, at, playing }: { layer: VjLayer; column: VjColumn
         <span className="vj-air"><PlayIcon />{playing?.remaining != null ? clock(playing.remaining) : ""}</span>
       )}
       {state && <VideoState state={state} asset={clip.asset} />}
-      <Marquee className="vj-cn">{name}</Marquee>
-      <span className="vj-cm">{t(`vj.trigger.short.${clip.trigger ?? "normal"}`)}{clip.playback && clip.playback !== "loop" ? ` · ${t(`vj.playback.short.${clip.playback}`)}` : ""}</span>
+      {/* The name strip selects the clip without launching it. */}
+      <div className="vj-pick" aria-label={t("vj.clip.select")}
+        onPointerDown={(event) => { event.stopPropagation(); if (event.button === 0) selectClip(clip.id, layer.id); }}
+        onPointerUp={(event) => event.stopPropagation()}>
+        <Marquee className="vj-cn">{name}</Marquee>
+        <span className="vj-cm">{t(`vj.trigger.short.${clip.trigger ?? "normal"}`)}{clip.playback && clip.playback !== "loop" ? ` · ${t(`vj.playback.short.${clip.playback}`)}` : ""}</span>
+      </div>
       {live && playing?.progress != null && <span className="vj-bar"><i style={{ width: `${playing.progress * 100}%` }} /></span>}
     </div>
   );
