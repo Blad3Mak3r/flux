@@ -697,20 +697,27 @@ impl Session {
     }
 
     /// Adds a video file from disk to the project, in the cell of the VJ grid at `layer` and
-    /// `column`, in place of the clip that was there. The caller has checked that it is a video.
+    /// `column`, in place of the clip that was there; with no `column`, in the first empty cell of
+    /// the layer in the deck shown. The caller has checked that it is a video.
     pub fn import_vj_video(
         &mut self,
         file: &Path,
         layer: &str,
-        column: &str,
+        column: Option<&str>,
     ) -> Result<ProjectState> {
         let (asset, source) = video_asset(file)?;
         let state = self.change(|project, _| {
+            let column = match column {
+                Some(column) => column.to_owned(),
+                None => project.vj.empty_column(layer).ok_or_else(|| {
+                    ProjectError::Invalid("the layer has no empty cell in this deck".into())
+                })?,
+            };
             project.videos.push(asset.clone());
             let op = crate::VjOp::PlaceVideo {
                 asset: asset.id.clone(),
                 layer: layer.to_owned(),
-                column: column.to_owned(),
+                column,
             };
             crate::vj::apply(project, op, || Uuid::new_v4().to_string())
         })?;
@@ -924,6 +931,14 @@ impl Session {
     pub fn grid_copy(&self) -> Option<crate::vj::Vj> {
         let project = &self.document.as_ref()?.project;
         (project.mode == crate::ProjectMode::Vj).then(|| project.vj.clone())
+    }
+
+    /// A copy of the project's videos.
+    pub fn videos_copy(&self) -> Vec<crate::VideoAsset> {
+        self.document
+            .as_ref()
+            .map(|document| document.project.videos.clone())
+            .unwrap_or_default()
     }
 
     /// A copy of the timeline being edited and played.
@@ -1436,13 +1451,16 @@ mod tests {
         let grid = session
             .new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj)
             .vj;
-        let (layer, column) = (&grid.layers[1].id, &grid.columns[2].id);
+        let (layer, column) = (&grid.layers[1].id, &grid.decks[0].columns[2].id);
 
-        let state = session.import_vj_video(&mp4, layer, column).unwrap();
+        let state = session.import_vj_video(&mp4, layer, Some(column)).unwrap();
 
         let asset = state.project.videos[0].clone();
         let clip = &state.project.vj.layers[1].clips[0];
-        assert_eq!((&clip.asset, &clip.column), (&asset.id, column));
+        assert_eq!(
+            (&clip.asset, clip.column.as_ref()),
+            (&asset.id, Some(column))
+        );
         let path = dir.path().join("show.flx");
         session.save(&state.project, &path).unwrap();
         let (saved, _) = archive::open(&path).unwrap();
