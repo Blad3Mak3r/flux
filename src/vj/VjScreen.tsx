@@ -181,18 +181,32 @@ function Fader({ letter, label, value, off, progress, onMove, onSet }: {
   );
 }
 
-/** What `layer` plays, read on its own so only the parts showing it draw again as it plays. */
-const usePlaying = (layer: string, clip?: string) =>
-  useVj((vj) => vj.play.playing.find((p) => p.layer === layer && (clip === undefined || p.clip === clip)));
+/** The countdown and progress of what `layer` plays (its `clip` only, when given): the one part
+ * that changes on every poll, so the cell or header around it does not draw again. */
+function PlayTime({ layer, clip, countdown }: { layer: string; clip?: string; countdown: "header" | "cell" }) {
+  const shown = (vj: ReturnType<typeof useVj.getState>) =>
+    vj.play.playing.find((p) => p.layer === layer && (clip === undefined || p.clip === clip));
+  const progress = useVj((vj) => shown(vj)?.progress);
+  const remaining = useVj((vj) => shown(vj)?.remaining);
+  const left = remaining == null ? null : clock(remaining);
+  return (
+    <>
+      {countdown === "header" && left !== null && <span className="vj-time">-{left}</span>}
+      {countdown === "cell" && <span className="vj-air"><PlayIcon />{left ?? ""}</span>}
+      {progress != null && <span className="vj-bar"><i style={{ width: `${progress * 100}%` }} /></span>}
+    </>
+  );
+}
 
 function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   const t = useT();
-  const playing = usePlaying(layer.id);
+  const playingClip = useVj((vj) => vj.play.playing.find((p) => p.layer === layer.id)?.clip);
+  const transition = useVj((vj) => vj.play.playing.find((p) => p.layer === layer.id)?.transition);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const thumbs = useDoc((doc) => doc.thumbs);
   const [renaming, setRenaming] = useState(false);
   const name = layerName(t, grid, layer);
-  const clip = playing && layer.clips?.find((c) => c.id === playing.clip);
+  const clip = playingClip === undefined ? undefined : layer.clips?.find((c) => c.id === playingClip);
   const level = (op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition", scale = 1) => ({
     onMove: (value: number) => preview({ op, layer: layer.id, value: value * scale }),
     onSet: (value: number) => void edit({ op, layer: layer.id, value: value * scale }),
@@ -208,7 +222,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   ];
   return (
     <div
-      className={`vj-lh${playing ? " playing" : ""}${layer.global ? " global" : ""}`}
+      className={`vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}`}
       onClick={() => selectLayer(layer.id)}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -236,14 +250,13 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         <Fader letter="A" label={t("vj.fader.audio")} value={layer.volume ?? 1} {...level("layerVolume")} />
         <Fader letter="V" label={t("vj.fader.video")} value={layer.opacity ?? 1} {...level("layerOpacity")} />
       </div>
-      <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={clip && thumbs[clip.asset]} position={playing?.progress ?? 0.3}>
-        {playing?.remaining != null && <span className="vj-time">-{clock(playing.remaining)}</span>}
-        {playing?.progress != null && <span className="vj-bar"><i style={{ width: `${playing.progress * 100}%` }} /></span>}
-        {playing?.transition != null && <span className="vj-tbar"><i style={{ width: `${playing.transition * 100}%` }} /></span>}
+      <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={clip && thumbs[clip.asset]}>
+        {clip && <PlayTime layer={layer.id} countdown="header" />}
+        {transition != null && <span className="vj-tbar"><i style={{ width: `${transition * 100}%` }} /></span>}
       </Thumb>
       <div className="vj-tcol">
         <Fader letter="T" label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION}
-          progress={playing?.transition} {...level("layerTransition", MAX_TRANSITION)} />
+          progress={transition} {...level("layerTransition", MAX_TRANSITION)} />
         <select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
           onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjTransition })}>
@@ -279,8 +292,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   const clip = clipAt(layer, column, at);
   // Only the cell whose clip plays, or is selected, draws again when that changes.
   const selected = useVj((vj) => clip !== undefined && vj.clip === clip.id);
-  const playing = usePlaying(layer.id, clip?.id ?? "");
-  const live = playing !== undefined;
+  const live = useVj((vj) => clip !== undefined && vj.play.playing.some((p) => p.layer === layer.id && p.clip === clip.id));
   const state = useVideoState(clip?.asset ?? "");
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -332,11 +344,9 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
       }}
       {...dropping}
     >
-      <Thumb strip={thumbs[clip.asset]} position={live ? playing?.progress ?? 0.3 : 0.3} />
+      <Thumb strip={thumbs[clip.asset]} />
       <span className="vj-shade" />
-      {live && (
-        <span className="vj-air"><PlayIcon />{playing?.remaining != null ? clock(playing.remaining) : ""}</span>
-      )}
+      {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
       {state && <VideoState state={state} asset={clip.asset} />}
       {/* The name strip selects the clip without launching it. */}
       <div className="vj-pick" aria-label={t("vj.clip.select")}
@@ -345,7 +355,6 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
         <Marquee className="vj-cn">{name}</Marquee>
         <span className="vj-cm">{t(`vj.trigger.short.${clip.trigger ?? "normal"}`)}{clip.playback && clip.playback !== "loop" ? ` · ${t(`vj.playback.short.${clip.playback}`)}` : ""}</span>
       </div>
-      {live && playing?.progress != null && <span className="vj-bar"><i style={{ width: `${playing.progress * 100}%` }} /></span>}
     </div>
   );
 }
@@ -561,8 +570,8 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
 }
 
 /**
- * A number set by dragging its label sideways, as in Resolume, or by typing it; a double click on the
- * label puts it back to `reset`. `value` and what it sends are in the backend's units, shown times
+ * A number set by dragging its label sideways, as in Resolume, by typing it or with the arrow keys; a
+ * double click on the label puts it back to `reset`. `value` and what it sends are in the backend's units, shown times
  * `shown` (e.g. 100 for a percent).
  */
 function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
@@ -620,6 +629,13 @@ function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
           if (event.key === "Escape") { setText(null); event.currentTarget.blur(); }
+          // Arrows step one unit, ten with Shift.
+          const step = event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
+          if (step) {
+            event.preventDefault();
+            setText(null);
+            onSet(value + (step * (event.shiftKey ? 10 : 1)) / shown);
+          }
         }} />
       <span className="vj-scrub-u">%</span>
     </span>
