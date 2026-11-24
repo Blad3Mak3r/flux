@@ -42,6 +42,8 @@ interface VjState {
   media: MediaKind;
   /** What the browser shows: the project's media or the generators. */
   browser: "media" | "generators";
+  /** Whether the Advanced Output is open. */
+  output: boolean;
 }
 
 export type MediaKind = "all" | "video" | "image";
@@ -54,6 +56,7 @@ export const useVj = create<VjState>()(() => ({
   tab: "clip",
   media: "all",
   browser: "media",
+  output: false,
 }));
 
 const fail = (err: unknown) => sayError(errorMessage(err));

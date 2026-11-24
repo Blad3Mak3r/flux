@@ -214,3 +214,38 @@ export const ImportIcon = () => (
     <path d="M8 2.5v8M5 7.5l3 3 3-3M3 13.5h10" />
   </Icon>
 );
+
+export const EyeIcon = () => (
+  <Icon>
+    <path d="M1.5 8 Q8 1.5 14.5 8 Q8 14.5 1.5 8 Z" />
+    <circle cx="8" cy="8" r="2" />
+  </Icon>
+);
+
+export const EyeOffIcon = () => (
+  <Icon>
+    <path d="M1.5 8 Q8 1.5 14.5 8 Q8 14.5 1.5 8 Z" opacity="0.45" />
+    <path d="M2.5 13.5 L13.5 2.5" />
+  </Icon>
+);
+
+/** A slice: a rectangle cut out of the picture. */
+export const SliceIcon = () => (
+  <Icon>
+    <path d="M3.5 4.5 H12.5 V11.5 H3.5 Z" />
+  </Icon>
+);
+
+/** A mask: a free shape. */
+export const MaskIcon = () => (
+  <Icon>
+    <path d="M3 11.5 L5.5 3.5 L12.5 5.5 L11 12.5 Z" strokeDasharray="2 1.5" />
+  </Icon>
+);
+
+/** A screen: a display on a stand. */
+export const ScreenIcon = () => (
+  <Icon>
+    <path d="M2.5 3.5 H13.5 V10.5 H2.5 Z M6 13.5 H10 M8 10.5 V13.5" />
+  </Icon>
+);

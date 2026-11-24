@@ -47,6 +47,7 @@ import {
 } from "./store";
 import type { MediaKind } from "./store";
 import { GENERATORS, swatch } from "./generators";
+import { AdvancedOutput } from "./AdvancedOutput";
 import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
@@ -990,6 +991,7 @@ export function VjScreen() {
       </div>
       <Inspector grid={grid} />
       <MediaPanel grid={grid} />
+      <AdvancedOutput />
     </div>
   );
 }

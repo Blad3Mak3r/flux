@@ -88,7 +88,8 @@ function toggleLayer(op: "layerBypass" | "layerSolo"): void {
 }
 
 /** The Advanced Output: the screens, their slices and masks. */
-export const openOutput = () => openSetup("video");
+export const openOutput = () => useVj.setState({ output: true });
+export const closeOutput = () => useVj.setState({ output: false });
 
 // ---- Menu bar ----
 
