@@ -841,4 +841,9 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-tc-keys button { display: grid; place-items: center; width: 30px; }
 .vj-tc-keys button .icon { width: 14px; height: 14px; }
 .vj-tc-keys button.on { color: oklch(0.16 0.03 32); background: var(--signal); }
-.vj-tc-in { padding: 0 8px; color: var(--vj-video); font: 600 11px var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid oklch(0.78 0.11 210 / 0.4); border-radius: 2px; line-height: 22px; }
+.vj-tc-in { display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--vj-video); font: 600 11px var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; background: none; border: 1px solid oklch(0.78 0.11 210 / 0.4); border-radius: 2px; line-height: 22px; cursor: pointer; }
+.vj-tc-in:hover { background: var(--vj-ctl); }
+.vj-tc-in[data-signal="missing"], .vj-tc-in[data-signal="error"], .vj-tc-in[data-signal="unset"] { color: var(--ink-dim); border-color: var(--rule); }
+/* Incoming timecode: bright while it runs, dim while it is parked. */
+.vj-tc[data-signal="running"] output.vj-tc-v { color: var(--vj-video); }
+.vj-tc[data-signal="stopped"] output.vj-tc-v { color: var(--ink); }

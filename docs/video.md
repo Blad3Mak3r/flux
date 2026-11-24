@@ -195,8 +195,14 @@ sits under the layer headers beside the deck tabs. The tempo is the BPM of the s
 the engine follow it: typed, nudged a BPM, halved, doubled or tapped (`setBpm`, `nudgeBpm`, `scaleBpm`, `tapBpm`; the
 backend reads the tempo from the last run of taps, `flux_project::vj::tapped_bpm`). The clock's source is `vj.clock`:
 on `internal` it is Flux's transport, played, paused, stopped back to the start and typed while it does not run (a seek);
-on `ltc` or `mtc` it is meant to follow timecode coming in, its keys are gone and it cannot be typed. Reading timecode
-in is not built yet, so an external clock shows no time. A layer folds to a thin row with the arrow beside its number, its right-click menu or Layer > Collapse layer, as in
+on `ltc` or `mtc` it shows the timecode another machine sends, its keys are gone and it cannot be typed. Where that
+timecode comes in is the machine's, chosen in Preferences > Remote control > Timecode input (listed only for a VJ show):
+an audio input and channel for LTC, a MIDI input for MTC (`ltcIn`, `mtcIn` in the preferences). The backend opens the
+input when the clock first asks (`timecode_in_status`) and closes it when the clock goes back to `internal` or the
+screen closes (`timecode_in_close`). `flux_engine::chase` decodes it: LTC from the edges of its biphase signal, its rate
+from the drop-frame flag and the length of a word; MTC from eight quarter frames (two frames on) or a full-frame SysEx.
+The clock shows the incoming time and rate, carried on between readings while it runs, and the tag beside it lights while
+the timecode runs; a click on the tag opens the page. Flux's own transport does not chase it. A layer folds to a thin row with the arrow beside its number, its right-click menu or Layer > Collapse layer, as in
 Resolume; it keeps playing, and the fold is saved with the show (`collapsed`).
 
 Output > Advanced output (Ctrl+Shift+A) opens the VJ show's video output over the whole window, as on a media server

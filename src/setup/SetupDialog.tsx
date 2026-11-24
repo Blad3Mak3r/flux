@@ -14,6 +14,7 @@ import { SETUP_GROUPS, groupOf, isAvailable, isListed } from "./outputs";
 import { useDoc } from "../state/store";
 import type { SetupGroup, SetupSection } from "./outputs";
 import { ControlPage } from "./ControlPage";
+import { TimecodeInPage } from "./TimecodeInPage";
 import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
@@ -38,6 +39,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <OscPage />;
     case "video":
       return <VideoPage />;
+    case "timecodeIn":
+      return <TimecodeInPage />;
     case "controlMidi":
       return <ControlPage part="midi" />;
     case "controlOsc":

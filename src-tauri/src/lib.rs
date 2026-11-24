@@ -12,6 +12,7 @@ mod recents;
 mod recovery;
 mod show_commands;
 mod startup;
+mod timecode_in;
 mod transport_commands;
 mod update_commands;
 mod video_commands;
@@ -54,6 +55,7 @@ pub fn run() {
         .manage(vj_commands::SharedGrid::default())
         .manage(video_commands::shared_probes())
         .manage(control::SharedControl::default())
+        .manage(timecode_in::SharedTimecodeIn::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
             recovery::start(app.handle())?;
@@ -173,6 +175,9 @@ pub fn run() {
             device_commands::devices_find_audio,
             device_commands::devices_find_midi,
             control::control_get,
+            timecode_in::timecode_in_status,
+            timecode_in::timecode_in_close,
+            timecode_in::timecode_midi_inputs,
             control::control_set,
             control::control_learn,
             graphics::graphics_get,

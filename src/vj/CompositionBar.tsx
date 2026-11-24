@@ -1,7 +1,7 @@
 // The composition bar of the VJ screen, as in Resolume: the show's tempo and its timecode clock.
 // The backend keeps the tempo and the clock's source; the transport runs the clock.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { PauseIcon, PlayIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
@@ -9,10 +9,13 @@ import type { MessageKey } from "../i18n";
 import type { VjClockSource, VjGrid } from "../project/types";
 import { activeTimeline } from "../state/doc";
 import { useDoc } from "../state/store";
+import { openSetup } from "../state/ui";
 import { formatFrames, parseTimecode } from "../timecode";
 import { pause, play, seek, stop } from "../transport/playback";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
 import { edit } from "./store";
+import { closeTimecodeIn, useTimecodeIn } from "./timecodeIn";
+import type { TimecodeInStatus } from "./timecodeIn";
 
 /** Selects a field's text once the click that focused it is over, so typing replaces it. */
 const selectAll = (event: FocusEvent<HTMLInputElement>) => {
@@ -72,8 +75,8 @@ export function Tempo() {
 
 /**
  * The show's timecode. On the internal clock it is Flux's transport: played, paused and taken back
- * to the start here, and typed while it does not run. From LTC or MTC it follows what comes in, and
- * nothing here moves it.
+ * to the start here, and typed while it does not run. From LTC or MTC it shows what comes in, which
+ * the backend reads from the input chosen in Preferences, and nothing here moves it.
  */
 export function TimecodeClock({ grid }: { grid: VjGrid }) {
   const t = useT();
@@ -83,6 +86,12 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
   const frame = useTransport(selectFrame);
   const state = useTransport(selectMode);
   const [draft, setDraft] = useState<string | null>(null);
+  const incoming = useTimecodeIn(internal ? null : source);
+  const reading = incoming?.reading ?? null;
+  // The input stays open while the clock shows it, and closes when it goes back to Flux's own.
+  useEffect(() => {
+    if (!internal) return () => void closeTimecodeIn();
+  }, [internal]);
   const playing = state === "playing";
   const editable = internal && !playing;
   const bad = draft !== null && parseTimecode(draft, frameRate) === null;
@@ -91,9 +100,11 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
     if (target !== null) seek(target);
     setDraft(null);
   };
-  const shown = internal ? formatFrames(frame, frameRate) : "--:--:--:--";
+  const shown = internal ? formatFrames(frame, frameRate) : reading ? formatFrames(reading.frame, reading.rate) : "--:--:--:--";
+  const signal = signalOf(incoming);
+  const sourceName = t(`vj.clock.short.${source}` as MessageKey);
   return (
-    <div className="vj-tc" role="group" aria-label={t("vj.clock.label")} data-state={internal ? state : "external"}>
+    <div className="vj-tc" role="group" aria-label={t("vj.clock.label")} data-state={internal ? state : "external"} data-signal={internal ? undefined : signal}>
       <div className="vj-segs vj-tc-src" role="radiogroup" aria-label={t("vj.clock.source")}>
         {SOURCES.map((s) => (
           <button
@@ -129,11 +140,11 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
           }}
         />
       ) : (
-        <output className="vj-tc-v" title={internal ? undefined : t("vj.clock.externalNote", { source: t(`vj.clock.short.${source}` as MessageKey) })}>
+        <output className="vj-tc-v" title={internal ? undefined : t("vj.clock.externalNote", { source: sourceName })}>
           {shown}
         </output>
       )}
-      <span className="vj-tc-rate">{t(`frameRate.${frameRate}` as MessageKey)}</span>
+      <span className="vj-tc-rate">{t(`frameRate.${reading?.rate ?? frameRate}` as MessageKey)}</span>
       {internal ? (
         <div className="vj-tc-keys">
           <button type="button" className={playing ? "on" : undefined} title={t(playing ? "vj.clock.pause" : "vj.clock.play")}
@@ -145,8 +156,27 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
           </button>
         </div>
       ) : (
-        <span className="vj-tc-in">{t("vj.clock.in", { source: t(`vj.clock.short.${source}` as MessageKey) })}</span>
+        <button
+          type="button"
+          className="vj-tc-in"
+          data-signal={signal}
+          title={`${t(`vj.clock.signal.${signal}` as MessageKey, { source: sourceName })}\n${t("vj.clock.chooseInput")}`}
+          onClick={() => openSetup("timecodeIn")}
+        >
+          <span className="lamp" data-state={signal === "running" ? "on" : signal === "missing" || signal === "error" ? "fault" : "off"} aria-hidden="true" />
+          {t("vj.clock.in", { source: sourceName })}
+        </button>
       )}
     </div>
   );
+}
+
+/** How the incoming timecode is doing, in one word for the lamp and its title. */
+type Signal = "unset" | "missing" | "error" | "waiting" | "stopped" | "running";
+
+function signalOf(status: TimecodeInStatus | null): Signal {
+  if (!status) return "waiting";
+  if (status.state !== "listening") return status.state;
+  if (!status.reading) return "waiting";
+  return status.reading.running ? "running" : "stopped";
 }

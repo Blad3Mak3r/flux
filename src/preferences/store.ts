@@ -14,6 +14,9 @@ export interface Preferences {
   audioRoutes: Record<string, OutputConfig["audio"]>;
   voice: string | null;
   microphone: { driver: string | null; device: string; channel: number } | null;
+  /** The audio input and channel external LTC comes in on, and the MIDI input of MTC. */
+  ltcIn: { driver: string | null; device: string; channel: number } | null;
+  mtcIn: string | null;
   operator: OutputConfig["audio"];
   locale: Locale | null;
   driver: string | null;
@@ -29,6 +32,8 @@ const defaults: Preferences = {
   audioRoutes: {},
   voice: null,
   microphone: null,
+  ltcIn: null,
+  mtcIn: null,
   operator: null,
   locale: null,
   driver: null,
