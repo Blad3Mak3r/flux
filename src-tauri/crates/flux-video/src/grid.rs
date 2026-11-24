@@ -334,17 +334,20 @@ impl GridPlay {
 }
 
 /// Which frame of a video of `frames` at `rate` a clip shows `elapsed` after it was launched, or
-/// `None` once a clip played once has ended. On integers, so it never drifts.
+/// `None` once a clip played once has ended. On integers, so it never drifts. A still image (one
+/// frame) never ends: it shows until it is stopped, whatever its playback.
 pub fn grid_frame(elapsed: Duration, rate: Rate, frames: u64, playback: Playback) -> Option<u64> {
     if frames == 0 || rate.num == 0 || rate.den == 0 {
         return None;
+    }
+    if frames == 1 {
+        return Some(0);
     }
     let played = elapsed.as_nanos() * u128::from(rate.num) / (u128::from(rate.den) * 1_000_000_000);
     let frames = u128::from(frames);
     let index = match playback {
         Playback::Once => (played < frames).then_some(played)?,
         Playback::Loop => played % frames,
-        Playback::PingPong if frames == 1 => 0,
         Playback::PingPong => {
             // Forwards over frames 0 to last, then back over last - 1 to 1.
             let period = 2 * (frames - 1);
@@ -438,6 +441,10 @@ mod tests {
         assert_eq!(at(4.0, Playback::PingPong), Some(98));
         assert_eq!(at(7.92, Playback::PingPong), Some(0));
         assert_eq!(at(8.0, Playback::PingPong), Some(2));
+        for playback in [Playback::Once, Playback::Loop, Playback::PingPong] {
+            let still = grid_frame(Duration::from_secs(60), Rate::new(25, 1), 1, playback);
+            assert_eq!(still, Some(0), "a still image shows until it is stopped");
+        }
     }
 
     #[test]

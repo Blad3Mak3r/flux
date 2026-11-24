@@ -25,6 +25,8 @@ pub struct VideoProbe {
     pub width: u32,
     pub height: u32,
     pub codec: String,
+    /// A still image (PNG, JPEG...): one frame, shown until it is stopped.
+    pub still: bool,
 }
 
 /// What FFmpeg read from each video, by asset id: a video's bytes never change under its id.
@@ -99,6 +101,7 @@ fn probe(
         width: info.width,
         height: info.height,
         codec: info.codec.clone(),
+        still: info.frames == 1,
     };
     probes
         .0

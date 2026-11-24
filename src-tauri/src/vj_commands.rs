@@ -111,6 +111,8 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
                     let asset = videos.iter().find(|v| v.id == clip.asset)?;
                     Some((clip, known_probe(session, asset)?))
                 })
+                // A still image has no length: nothing to count down.
+                .filter(|(_, probe)| !probe.still)
                 .and_then(|(clip, probe)| {
                     let rate = Rate::new(probe.rate_num, probe.rate_den);
                     let frame = grid_frame(elapsed, rate, probe.frames, clip.playback)?;

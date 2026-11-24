@@ -1,6 +1,7 @@
 //! Decodes the fixtures: 50 frames of 64x36, each a flat grey a little lighter than the one before,
 //! encoded losslessly with a keyframe every 12 frames, as H.264 in MP4 and VP9 in WebM. No display
-//! is needed; a GPU decoder is used only where the computer has one.
+//! is needed; a GPU decoder is used only where the computer has one. `still.png` and `still.jpg` are
+//! one flat grey picture of the same size.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -162,5 +163,22 @@ fn poster_should_give_only_the_first_frame() {
         assert_eq!((poster.width, poster.height), (320, 180), "{name}");
         assert_eq!(poster.count, 1, "{name}");
         assert_eq!(&poster.jpeg[..2], &[0xFF, 0xD8], "{name}");
+    }
+}
+
+#[test]
+fn a_still_image_should_open_as_one_frame() {
+    // A flat grey 64x36 picture, as PNG and as JPEG.
+    for name in ["still.png", "still.jpg"] {
+        let mut file = VideoFile::open(&fixture(name)).unwrap();
+        assert_eq!(file.info().frames, 1, "{name}");
+        let grey = level(&mut file, 0);
+        assert!(grey.abs_diff(0x80) <= 2, "{name}: {grey}");
+        assert!(
+            matches!(file.frame(1), Err(VideoError::PastEnd { .. })),
+            "{name}"
+        );
+        let poster = flux_video::poster(&fixture(name)).unwrap();
+        assert_eq!(poster.count, 1, "{name}");
     }
 }
