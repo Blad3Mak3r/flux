@@ -3,9 +3,38 @@
 
 use crate::{Blend, Picture};
 
+/// Where an output column or row samples a picture: between its pixels `a` and `b`, `t` of the
+/// way to `b`.
+#[derive(Clone, Copy)]
+struct Tap {
+    a: usize,
+    b: usize,
+    t: f32,
+}
+
+/// For each of `out` output pixels along one side, where it samples a picture of `pixels` pixels
+/// placed from `start` over `size` of the output, or `None` outside it.
+fn taps(out: usize, start: f32, size: f32, pixels: usize) -> Vec<Option<Tap>> {
+    (0..out)
+        .map(|i| {
+            let at = ((i as f32 + 0.5) / out as f32 - start) / size;
+            if !(0.0..1.0).contains(&at) {
+                return None;
+            }
+            let p = (at * pixels as f32 - 0.5).max(0.0);
+            let a = (p as usize).min(pixels - 1);
+            Some(Tap {
+                a,
+                b: (a + 1).min(pixels - 1),
+                t: (p - a as f32).min(1.0),
+            })
+        })
+        .collect()
+}
+
 /// Draws `pictures`, the first at the bottom, over black into `width` x `height` pixels of 8-bit
-/// sRGB RGBA. Each output pixel takes the nearest pixel of each picture, and the light is mixed in
-/// linear light as the GPU mixes it.
+/// sRGB RGBA. Each output pixel blends the four pixels of each picture around it (bilinear), and
+/// the light is mixed in linear light as the GPU mixes it.
 pub fn composite(pictures: &[Picture], width: u32, height: u32) -> Vec<u8> {
     let linear: Vec<f32> = (0..=255u8)
         .map(|v| to_linear(f32::from(v) / 255.0))
@@ -15,33 +44,46 @@ pub fn composite(pictures: &[Picture], width: u32, height: u32) -> Vec<u8> {
     for picture in pictures {
         let [px, py, pw, ph] = picture.place;
         let (sw, sh) = (picture.width as usize, picture.height as usize);
-        if pw <= 0.0 || ph <= 0.0 || picture.opacity <= 0.0 || picture.rgba.len() < sw * sh * 4 {
+        if pw <= 0.0
+            || ph <= 0.0
+            || sw == 0
+            || sh == 0
+            || picture.opacity <= 0.0
+            || picture.rgba.len() < sw * sh * 4
+        {
             continue;
         }
-        // For each column and row of the output, the picture's nearest column or row, if any.
-        let nearest = |out: usize, start: f32, size: f32, pixels: usize| -> Vec<Option<usize>> {
-            (0..out)
-                .map(|i| {
-                    let at = ((i as f32 + 0.5) / out as f32 - start) / size;
-                    (0.0..1.0)
-                        .contains(&at)
-                        .then(|| ((at * pixels as f32) as usize).min(pixels - 1))
-                })
-                .collect()
+        let columns = taps(w, px, pw, sw);
+        let opacity = picture.opacity.min(1.0);
+        // One source pixel: its light times its cover (premultiplied), and its cover.
+        let pixel = |row: usize, column: usize| {
+            let at = (row * sw + column) * 4;
+            let p = &picture.rgba[at..at + 4];
+            let cover = f32::from(p[3]) / 255.0;
+            [
+                linear[usize::from(p[0])] * cover,
+                linear[usize::from(p[1])] * cover,
+                linear[usize::from(p[2])] * cover,
+                cover,
+            ]
         };
-        let columns = nearest(w, px, pw, sw);
-        let opacity = picture.opacity.min(1.0) / 255.0;
-        for (y, row) in nearest(h, py, ph, sh).into_iter().enumerate() {
+        let lerp = |x: [f32; 4], y: [f32; 4], t: f32| {
+            std::array::from_fn::<f32, 4, _>(|i| x[i] + (y[i] - x[i]) * t)
+        };
+        for (y, row) in taps(h, py, ph, sh).into_iter().enumerate() {
             let Some(row) = row else { continue };
-            let source = &picture.rgba[row * sw * 4..(row + 1) * sw * 4];
             let out = &mut light[y * w..(y + 1) * w];
             for (dst, column) in out.iter_mut().zip(&columns) {
                 let Some(column) = column else { continue };
-                let src = &source[column * 4..column * 4 + 4];
-                let cover = f32::from(src[3]) * opacity;
-                for c in 0..3 {
-                    let colour = linear[usize::from(src[c])];
-                    dst[c] = mix(picture.blend, colour, cover, dst[c]).clamp(0.0, 1.0);
+                let top = lerp(pixel(row.a, column.a), pixel(row.a, column.b), column.t);
+                let bottom = lerp(pixel(row.b, column.a), pixel(row.b, column.b), column.t);
+                let [r, g, b, cover] = lerp(top, bottom, row.t);
+                if cover <= 0.0 {
+                    continue;
+                }
+                for (c, premultiplied) in [r, g, b].into_iter().enumerate() {
+                    let colour = premultiplied / cover;
+                    dst[c] = mix(picture.blend, colour, cover * opacity, dst[c]).clamp(0.0, 1.0);
                 }
             }
         }
@@ -124,6 +166,23 @@ mod tests {
         );
         assert_eq!(pixel(&out, 4, 0, 0), [0, 0, 0, 255]);
         assert_eq!(pixel(&out, 4, 3, 1), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_picture_drawn_larger_should_blend_between_its_pixels() {
+        // Black and white side by side, over four output pixels: the middle two are in between.
+        let rgba = [0, 0, 0, 255, 255, 255, 255, 255];
+        let wide = Picture {
+            width: 2,
+            ..picture(&rgba, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha)
+        };
+        let out = composite(&[wide], 4, 1);
+        let reds: Vec<u8> = out.chunks(4).map(|p| p[0]).collect();
+        assert_eq!((reds[0], reds[3]), (0, 255));
+        assert!(
+            reds[1] > 0 && reds[1] < reds[2] && reds[2] < 255,
+            "{reds:?}"
+        );
     }
 
     #[test]

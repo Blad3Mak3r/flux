@@ -94,10 +94,6 @@ fn play(
 
 fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
     let now = grid.now();
-    let videos = session
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .videos_copy();
     let mut playing: Vec<PlayingClip> = grid
         .play
         .playing()
@@ -108,8 +104,12 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
             let place = vj
                 .find_clip(shown)
                 .and_then(|(_, clip)| {
-                    let asset = videos.iter().find(|v| v.id == clip.asset)?;
-                    Some((clip, known_probe(session, asset)?))
+                    // Only the videos playing are copied, not the whole list on every poll.
+                    let asset = session
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .video_copy(&clip.asset)?;
+                    Some((clip, known_probe(session, &asset)?))
                 })
                 // A still image has no length: nothing to count down.
                 .filter(|(_, probe)| !probe.still)

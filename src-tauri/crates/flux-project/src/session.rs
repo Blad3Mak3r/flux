@@ -967,12 +967,10 @@ impl Session {
         (project.mode == crate::ProjectMode::Vj).then(|| project.vj.clone())
     }
 
-    /// A copy of the project's videos.
-    pub fn videos_copy(&self) -> Vec<crate::VideoAsset> {
-        self.document
-            .as_ref()
-            .map(|document| document.project.videos.clone())
-            .unwrap_or_default()
+    /// A copy of the project's video `id`.
+    pub fn video_copy(&self, id: &str) -> Option<crate::VideoAsset> {
+        let document = self.document.as_ref()?;
+        document.project.videos.iter().find(|v| v.id == id).cloned()
     }
 
     /// A copy of the timeline being edited and played.
