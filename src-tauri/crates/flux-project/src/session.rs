@@ -730,6 +730,33 @@ impl Session {
         self.change(|project, _| crate::vj::apply(project, op, || Uuid::new_v4().to_string()))
     }
 
+    /// Moves a layer's level or a clip's transform while a fader or a drag goes, on the project
+    /// held, without the copy and full check of an edit: what the screens show follows, and the
+    /// edit sent when the hand lets go is the one kept. Any other op is refused.
+    pub fn preview_vj(&mut self, op: crate::VjOp) -> Result<()> {
+        use crate::VjOp as Op;
+        let level = matches!(
+            op,
+            Op::LayerMaster { .. }
+                | Op::LayerOpacity { .. }
+                | Op::LayerVolume { .. }
+                | Op::LayerTransition { .. }
+                | Op::ClipScale { .. }
+                | Op::ClipPosition { .. }
+        );
+        if !level {
+            return Err(ProjectError::Invalid(
+                "only a level or a transform is previewed".into(),
+            ));
+        }
+        self.ensure_editable()?;
+        let document = self.document.as_mut().ok_or_else(no_project)?;
+        crate::vj::apply(&mut document.project, op, String::new)?;
+        // The screens copy the grid again when this moves.
+        self.recovery_revision += 1;
+        Ok(())
+    }
+
     /// Puts the video file at `file` (a converted copy, such as a HAP one) in place of the video
     /// `asset`: it becomes a new asset, in the same place of the project's list and under the same
     /// name, and every clip of every timeline that showed the old one shows the new one, keeping
@@ -1445,6 +1472,29 @@ mod tests {
         // Undo past the save: the original is still read from where it was imported.
         session.update(before.project);
         assert_eq!(session.video_path(&old, &cache).unwrap(), mp4);
+    }
+
+    #[test]
+    fn preview_vj_should_move_a_level_in_place_and_refuse_other_edits() {
+        let mut session = Session::default();
+        let layer = session
+            .new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj)
+            .vj
+            .layers[0]
+            .id
+            .clone();
+        let (before, _) = session.revision();
+        let op = crate::VjOp::LayerMaster {
+            layer: layer.clone(),
+            value: 0.25,
+        };
+        session.preview_vj(op).unwrap();
+        let grid = session.grid_copy().unwrap();
+        assert_eq!(grid.layers[0].master, 0.25);
+        assert!(session.revision().0 > before, "the screens see it");
+        let add = crate::VjOp::AddLayer { global: false };
+        assert!(session.preview_vj(add).is_err());
+        assert_eq!(session.grid_copy().unwrap().layers.len(), grid.layers.len());
     }
 
     #[test]

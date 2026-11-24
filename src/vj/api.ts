@@ -43,6 +43,8 @@ export type VjOp =
   | { op: "clipPosition"; clip: string; x: number; y: number };
 
 export const vjEdit = (project: Project, op: VjOp) => invoke<ProjectState>("vj_edit", { project, op });
+/** Moves a level or a clip's transform in the backend while the hand moves it, without the project going back and forth. */
+export const vjPreview = (op: VjOp) => invoke<void>("vj_preview", { op });
 
 /** Adds the video at `path` to the cell of `layer` in `column`, or to its first empty cell in the deck shown. */
 export const vjImport = (project: Project, path: string, layer: string, column: string | null) =>

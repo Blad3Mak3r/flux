@@ -127,6 +127,7 @@ pub fn run() {
             commands::project_import_video,
             commands::project_import_vj_video,
             commands::vj_edit,
+            commands::vj_preview,
             vj_commands::vj_launch,
             vj_commands::vj_launch_column,
             vj_commands::vj_release,

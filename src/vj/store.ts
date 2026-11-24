@@ -12,6 +12,7 @@ import {
   vjLaunch,
   vjLaunchColumn,
   vjOutputFrame,
+  vjPreview,
   vjPlayState,
   vjRelease,
   vjImport,
@@ -56,6 +57,8 @@ const fail = (err: unknown) => sayError(errorMessage(err));
 
 /** Applies an edit of the grid in the backend; the answer enters the undo history. `false` when the backend refused it. */
 export async function edit(op: VjOp): Promise<boolean> {
+  // A move still on its way must not land after the value kept.
+  await moving;
   try {
     const { project, active } = await vjEdit(useDoc.getState().project, op);
     dispatch({ type: "apply", project, active });
@@ -97,10 +100,19 @@ export async function importVideos(paths: string[], layer: string, column: strin
 /**
  * Sends a level while its fader moves, so the output follows the hand: the backend takes it at
  * once, and only the last one, sent with {@link edit} when the fader is let go, enters the history.
+ * One goes at a time; moves made meanwhile are folded into the newest.
  */
-let moving: Promise<unknown> = Promise.resolve();
+let next: VjOp | null = null;
+let moving: Promise<void> = Promise.resolve();
 export function preview(op: VjOp): void {
-  moving = moving.then(() => vjEdit(useDoc.getState().project, op)).catch(() => undefined);
+  const idle = next === null;
+  next = op;
+  if (!idle) return;
+  moving = moving.then(async () => {
+    const op = next;
+    next = null;
+    if (op) await vjPreview(op).catch(() => undefined);
+  });
 }
 
 const played = (run: () => Promise<GridState>) =>

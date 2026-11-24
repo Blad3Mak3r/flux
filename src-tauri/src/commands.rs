@@ -425,6 +425,16 @@ pub async fn vj_edit(
     .await
 }
 
+/// Moves a level or a clip's transform as a fader or a drag goes, without the project going back
+/// and forth; `vj_edit` keeps the value when the hand lets go.
+#[tauri::command]
+pub fn vj_preview(session: State<'_, SharedSession>, op: flux_project::VjOp) -> Result<()> {
+    session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .preview_vj(op)
+}
+
 #[tauri::command]
 pub async fn project_save(
     app: AppHandle,
