@@ -4213,3 +4213,70 @@ input:disabled {
     animation: none;
   }
 }
+
+/* ---- Welcome: the two kinds of show ---- */
+.welcome {
+  --mode-timeline: var(--phosphor);
+  --mode-timeline-dim: var(--phosphor-dim);
+  --mode-vj: oklch(0.78 0.11 210);
+  --mode-vj-dim: oklch(0.52 0.08 210);
+}
+.welcome-head { display: flex; align-items: center; gap: 16px; }
+.welcome-head .legend { flex: 1 1 auto; }
+.welcome-head .button { flex: none; }
+
+.start-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.start-mode {
+  --accent: var(--mode-timeline);
+  --accent-dim: var(--mode-timeline-dim);
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  grid-template-areas: "sketch text" "sketch go";
+  gap: 6px 20px;
+  padding: 16px;
+  background: var(--panel-hi);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent-dim);
+  border-radius: 2px;
+  color: var(--ink);
+  text-align: left;
+  transition: background-color 120ms var(--ease), border-color 120ms var(--ease);
+}
+.start-mode[data-mode="vj"] { --accent: var(--mode-vj); --accent-dim: var(--mode-vj-dim); }
+.start-mode:hover:not(:disabled) { background: oklch(0.35 0.016 250); border-color: var(--rule-strong); border-left-color: var(--accent); }
+.start-mode:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.start-mode-text { grid-area: text; display: grid; align-content: start; gap: 4px; min-width: 0; }
+.start-mode-text strong { font-size: 16px; }
+.start-mode-text span:last-child { color: var(--ink-dim); font-size: 12.5px; line-height: 1.5; }
+.start-mode-tag, .mode-tag {
+  justify-self: start;
+  padding: 1px 6px;
+  color: var(--accent, var(--mode-timeline));
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+}
+.mode-tag[data-mode="timeline"] { color: var(--mode-timeline); }
+.mode-tag[data-mode="vj"] { color: var(--mode-vj); }
+.start-mode-go { grid-area: go; align-self: end; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12.5px; font-weight: 600; }
+.start-mode-go .icon { width: 12px; }
+
+/* A drawing of the show: a timeline with its playhead, or a grid of clips. */
+.mode-sketch { grid-area: sketch; position: relative; height: 84px; background: var(--screen); border: 1px solid var(--rule); border-radius: 2px; overflow: hidden; }
+.mode-sketch.timeline i { position: absolute; height: 20%; background: var(--accent-dim); border-radius: 1px; }
+.mode-sketch.timeline i.cue { width: 6px; background: var(--accent); }
+.mode-sketch.timeline b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--signal); }
+.mode-sketch.grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; padding: 5px; }
+.mode-sketch.grid i { background: oklch(0.26 0.02 250); border-radius: 1px; }
+.mode-sketch.grid i.full { background: var(--accent-dim); }
+.mode-sketch.grid i.on { background: var(--accent); }
+
+.project-badge[data-mode="vj"] { background: linear-gradient(135deg, var(--mode-vj-dim), var(--graticule-major)); }
+
+.recent-filter { display: flex; gap: 2px; padding: 2px; background: var(--panel-lo); border: 1px solid var(--rule); border-radius: 2px; }
+.recent-filter button { height: 22px; padding: 0 10px; color: var(--ink-dim); font-size: 12px; background: none; border: 0; border-radius: 1px; }
+.recent-filter button:hover { color: var(--ink); }
+.recent-filter button.on { color: var(--ink); background: var(--panel-hi); }
