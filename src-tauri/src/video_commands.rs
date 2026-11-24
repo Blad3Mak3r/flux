@@ -108,6 +108,28 @@ fn probe(
     Ok(probe)
 }
 
+/// What FFmpeg read of `asset` if it was read already; otherwise `None`, and it is read on a
+/// thread of its own so a later call has it. Never blocks on FFmpeg.
+pub fn known_probe(session: &SharedSession, asset: &VideoAsset) -> Option<VideoProbe> {
+    let probes = shared_probes();
+    if let Some(known) = probes
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&asset.id)
+    {
+        return Some(known.clone());
+    }
+    let cache = CACHE.get()?.clone();
+    let (session, asset) = (Arc::clone(session), asset.clone());
+    std::thread::spawn(move || {
+        if let Err(err) = probe(&session, &probes, &asset, &cache) {
+            log::warn!("could not read video {}: {err}", asset.name);
+        }
+    });
+    None
+}
+
 /// The video cache folder, once the app has said where it is.
 static CACHE: OnceLock<PathBuf> = OnceLock::new();
 

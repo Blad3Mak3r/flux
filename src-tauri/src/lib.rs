@@ -129,6 +129,7 @@ pub fn run() {
             commands::vj_edit,
             vj_commands::vj_launch,
             vj_commands::vj_launch_column,
+            vj_commands::vj_release,
             vj_commands::vj_stop,
             vj_commands::vj_crossfader,
             vj_commands::vj_play_state,

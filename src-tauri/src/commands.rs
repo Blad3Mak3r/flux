@@ -373,21 +373,22 @@ pub async fn project_import_video(
     .await
 }
 
-/// Adds a video file to the cell of the VJ grid at `layer` and `column`, in place of its clip.
-/// FFmpeg reads it first, like [`project_import_video`].
+/// Adds a video file to the cell of the VJ grid at `layer` and `column`, in place of its clip, or
+/// to the layer's first empty cell in the deck shown with no `column`. FFmpeg reads it first, like
+/// [`project_import_video`].
 #[tauri::command]
 pub async fn project_import_vj_video(
     session: State<'_, SharedSession>,
     project: Project,
     path: PathBuf,
     layer: String,
-    column: String,
+    column: Option<String>,
 ) -> Result<ProjectState> {
     log::info!("importing video {} into the grid", path.display());
     run(&session, move |s| {
         check_video(&path)?;
         s.update(project);
-        s.import_vj_video(&path, &layer, &column)
+        s.import_vj_video(&path, &layer, column.as_deref())
     })
     .await
 }

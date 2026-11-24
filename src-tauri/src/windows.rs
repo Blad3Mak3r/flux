@@ -95,10 +95,11 @@ fn project_arg(args: impl IntoIterator<Item = OsString>) -> Option<PathBuf> {
         .find(|path| flux_project::is_project_path(path) && path.is_file())
 }
 
-fn editor_url(path: Option<&Path>) -> String {
-    match path {
-        Some(path) => format!("index.html?open={}", encode_component(path)),
-        None => "index.html".to_owned(),
+fn editor_url(path: Option<&Path>, mode: flux_project::ProjectMode) -> String {
+    match (path, mode) {
+        (Some(path), _) => format!("index.html?open={}", encode_component(path)),
+        (None, flux_project::ProjectMode::Vj) => "index.html?new=vj".to_owned(),
+        (None, flux_project::ProjectMode::Timeline) => "index.html".to_owned(),
     }
 }
 
@@ -122,7 +123,7 @@ pub async fn window_show_welcome(
         return Ok(());
     }
     match pending.path() {
-        Some(path) => build(&app, EDITOR, &editor_url(Some(&path)))?,
+        Some(path) => build(&app, EDITOR, &editor_url(Some(&path), Default::default()))?,
         None => build(&app, WELCOME, "index.html?view=welcome")?,
     };
     pending.take();
@@ -130,7 +131,12 @@ pub async fn window_show_welcome(
     Ok(())
 }
 
-/// Replaces the welcome window with the editor, which opens `path` or starts a new show.
+/// Replaces the welcome window with the editor, which opens `path` or starts a new show of the
+/// kind `mode` (a timeline show when absent).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "injected state and arguments of a command"
+)]
 #[tauri::command]
 pub async fn window_open_editor(
     app: AppHandle,
@@ -140,6 +146,7 @@ pub async fn window_open_editor(
     store: State<'_, SharedRecoveries>,
     path: Option<PathBuf>,
     use_pending: Option<bool>,
+    mode: Option<flux_project::ProjectMode>,
 ) -> Result<(), String> {
     if app.get_webview_window(EDITOR).is_some() {
         return Err("the editor is already open".into());
@@ -158,7 +165,11 @@ pub async fn window_open_editor(
     } else {
         path
     };
-    build(&app, EDITOR, &editor_url(path.as_deref()))?;
+    build(
+        &app,
+        EDITOR,
+        &editor_url(path.as_deref(), mode.unwrap_or_default()),
+    )?;
     pending.take();
     close(&app, WELCOME);
     Ok(())
@@ -198,7 +209,7 @@ pub async fn window_restore_recovery(
     recovery::restore(&session, &store, id)
         .await
         .map_err(|err| err.to_string())?;
-    if let Err(err) = build(&app, EDITOR, &editor_url(None)) {
+    if let Err(err) = build(&app, EDITOR, &editor_url(None, Default::default())) {
         recovery::abandon(&session, &store)
             .await
             .map_err(|error| error.to_string())?;
@@ -239,7 +250,7 @@ pub async fn window_open_original(
     recovery::transition(&session, &store, move |s| s.open(&original))
         .await
         .map_err(|err| err.to_string())?;
-    build(&app, EDITOR, &editor_url(None))?;
+    build(&app, EDITOR, &editor_url(None, Default::default()))?;
     crate::recents::remember(&app, &recent);
     let dir = store.dir.clone();
     tauri::async_runtime::spawn_blocking(move || flux_project::recovery::remove(&dir, &id))
