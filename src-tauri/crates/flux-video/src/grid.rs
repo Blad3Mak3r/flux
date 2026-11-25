@@ -334,6 +334,16 @@ impl GridPlay {
         layer.master * layer.opacity * self.side_level(layer.crossfade)
     }
 
+    /// How loud the sound of `layer` is, 0 to 1: its volume, master and crossfader side, or nothing
+    /// when it is bypassed or another layer is soloed and it is not. The opacity is the picture's.
+    pub fn sound_level(&self, vj: &Vj, layer: &flux_project::vj::Layer) -> f32 {
+        let solo = vj.layers.iter().any(|layer| layer.solo);
+        if layer.bypass || (solo && !layer.solo) {
+            return 0.0;
+        }
+        layer.volume * layer.master * self.side_level(layer.crossfade)
+    }
+
     /// How much the crossfader lets a layer on `side` through: each side is full from its end to
     /// the middle and fades out over the other half.
     fn side_level(&self, side: Option<Side>) -> f32 {
@@ -446,6 +456,36 @@ mod tests {
 
     fn probe(_: &str) -> Option<(Rate, u64)> {
         Some((RATE, 100))
+    }
+
+    #[test]
+    fn sound_level_should_follow_volume_master_sides_bypass_and_solo() {
+        let mut vj = grid();
+        let mut play = GridPlay::default();
+        play.set_crossfader(0.5);
+        vj.layers[0].volume = 0.5;
+        vj.layers[0].master = 0.5;
+        vj.layers[0].opacity = 0.1;
+        assert_eq!(
+            play.sound_level(&vj, &vj.layers[0]),
+            0.25,
+            "not the opacity"
+        );
+        play.set_crossfader(1.0);
+        assert_eq!(play.sound_level(&vj, &vj.layers[0]), 0.0, "side A is out");
+        assert_eq!(play.sound_level(&vj, &vj.layers[1]), 1.0);
+        play.set_crossfader(0.75);
+        assert_eq!(play.sound_level(&vj, &vj.layers[0]), 0.125);
+        vj.layers[1].bypass = true;
+        assert_eq!(play.sound_level(&vj, &vj.layers[1]), 0.0);
+        vj.layers[1].bypass = false;
+        vj.layers[1].solo = true;
+        assert_eq!(
+            play.sound_level(&vj, &vj.layers[0]),
+            0.0,
+            "another is soloed"
+        );
+        assert_eq!(play.sound_level(&vj, &vj.layers[1]), 1.0);
     }
 
     #[test]
