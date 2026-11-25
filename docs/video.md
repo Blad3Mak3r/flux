@@ -291,6 +291,51 @@ each stretched when drawn. The picture's index changes with its parameters and i
 only then. Between a strobe's flashes the layer shows nothing. The screens and the output monitor draw them as any other
 picture.
 
+### Modulation
+
+A numeric setting of a clip, a layer or an effect can be driven by itself, as in Resolume: each has a "~" button in the
+inspector that opens a sub-row to choose the source and the minimum and maximum it moves between. The stored form is in
+the [project format](fxtc-format.md#vj-modulation). Everything is worked out by the backend; the interface only draws the
+sub-row, and marks on the control where the backend says the value is now (`vj_modulation_values`, asked for thirty times a
+second only while the inspector shows something modulated).
+
+**LFO.** The shapes are the sine, triangle, saw up, saw down, square, random steps and smooth random. A cycle goes from 0 to
+1: the sine and the triangle start at 0 and peak half way, the saw up rises and drops, the saw down falls and jumps back,
+the square is 1 for the first half. The random shapes draw a level for each cycle from a hash of the modulation's key and
+the cycle's number, never from a generator, so a stop and a start repeat them; the smooth one reaches the next cycle's
+level along a half cosine. The pace is `free` (cycles a second, 0 to 30) or `beats` (one cycle every 1/4 to 16 beats of the
+tempo), and the phase shifts where the cycle starts.
+
+**Timebase.** An LFO runs on the composition's clock, the grid's own: seconds since it started for a free pace and the beats
+`Grid::beats` has counted for a synced one (which keeps its phase when the tempo changes), never on a clip's time since
+its launch. Every LFO of the grid stays in phase whatever clips are launched when, and two of them with the same pace and
+phase move together.
+
+**Audio.** A source follows the low (below 250 Hz), mid (250 Hz to 4 kHz) or high (above 4 kHz) band of the sound, or its
+level, 0 to 1, times a gain and cut at 1. Each band is scaled by a slow peak follower of its own (ten seconds), so typical
+music sits near 0 to 1 whatever its loudness, and a sound below a floor reads 0. `attack` and `release` smooth what the
+modulation follows, in seconds, and are applied where it is evaluated (`Modulator`), so every screen that asks sees the same
+answer.
+
+**Analysis.** `flux_engine::analysis` reads mono samples in windows of 2048 with a Hann window and a real FFT every 512
+samples, and leaves the four readings in atomics that the video frame step reads without a lock. What it listens to is
+chosen in Preferences, on the VJ-only page *Audio analysis*, and belongs to the machine: the grid's own sound (the default),
+one channel of an audio input (opened with cpal as the LTC input is, and tried again every two seconds if it fails) or
+nothing. For the grid's sound the output's audio callback copies the grid's own mix, apart from what it is added to, into a
+lock-free single producer ring buffer of 65536 samples (no allocation, no lock, and a full ring drops the chunk); a thread
+of the app drains it and analyses it, and feeds silence when nothing arrives so the bands fall away. The composition bar
+has a small meter of the four readings (`vj_analysis_levels`) that opens the page.
+
+**Drawing.** Each frame step of the screens and of the monitor asks `modulation.rs` for the grid with its modulated values
+in place of the stored ones (`flux_project::vj_modulation::modulate`: effect settings, layer `master` and `opacity`, clip
+`scale` and `position`), and draws that. The stored project is never changed, a whole-number setting is rounded and every
+value is cut to its range. A grid with no modulation is not copied.
+
+**Sound.** A layer's `volume` and `master` reach the grid's sound, which is built ahead of the audio callback as a
+`GridMix`. While any of them is modulated, a timer rebuilds the mix from the modulated grid thirty times a second (`vj_audio::refresh`),
+and the callback smooths each voice's gain from where it was to the new one across a chunk. Nothing is evaluated in the
+callback, which would have to share the clock and the analysis with it; the price is a gain that moves in 33 ms steps.
+
 ## Mapping
 
 Below the display, **Mapping** cuts the picture into slices for the selected screen, as the advanced output of a media server does. Each slice
