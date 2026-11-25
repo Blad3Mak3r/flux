@@ -744,10 +744,11 @@ impl Session {
                 | Op::ClipScale { .. }
                 | Op::ClipPosition { .. }
                 | Op::ClipGenerator { .. }
+                | Op::EffectParams { .. }
         );
         if !level {
             return Err(ProjectError::Invalid(
-                "only a level, a transform or a generator is previewed".into(),
+                "only a level, a transform, a generator or an effect is previewed".into(),
             ));
         }
         if let Op::ClipGenerator { generator, .. } = &op {
@@ -1496,6 +1497,31 @@ mod tests {
         assert!(session.revision().0 > before, "the screens see it");
         let add = crate::VjOp::AddLayer { global: false };
         assert!(session.preview_vj(add).is_err());
+        let effect = session
+            .edit_vj(crate::VjOp::AddEffect {
+                target: crate::vj::EffectTarget::Layer(layer.clone()),
+                kind: "blur".into(),
+            })
+            .unwrap()
+            .project
+            .vj
+            .layers[0]
+            .effects[0]
+            .id
+            .clone();
+        let params = crate::VjOp::EffectParams {
+            effect,
+            kind: crate::vj::EffectKind::Blur { radius: 0.7 },
+        };
+        session.preview_vj(params).unwrap();
+        assert_eq!(
+            session.grid_copy().unwrap().layers[0].effects[0].kind,
+            crate::vj::EffectKind::Blur { radius: 0.7 }
+        );
+        let remove = crate::VjOp::RemoveEffect {
+            effect: session.grid_copy().unwrap().layers[0].effects[0].id.clone(),
+        };
+        assert!(session.preview_vj(remove).is_err());
         assert_eq!(session.grid_copy().unwrap().layers.len(), grid.layers.len());
     }
 

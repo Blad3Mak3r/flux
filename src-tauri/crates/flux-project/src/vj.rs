@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::generator::Generator;
 use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit};
+pub use crate::vj_effects::{Effect, EffectKind, EffectTarget, MAX_EFFECTS, MirrorAxis};
 use crate::{ProjectError, Result};
 
 /// Most layers a grid has.
@@ -183,6 +184,10 @@ pub struct Layer {
     /// Folded to a thin row on the grid, as in Resolume; it plays as before.
     #[serde(default, skip_serializing_if = "is_false")]
     pub collapsed: bool,
+    /// The layer's effects, drawn on each of its clips' pictures after the clip's own; the first
+    /// is applied first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
     /// At most one per column of each deck (per slot on a global layer), in no particular order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<Clip>,
@@ -220,6 +225,7 @@ impl Layer {
             bypass: false,
             solo: false,
             collapsed: false,
+            effects: Vec::new(),
             clips: Vec::new(),
         }
     }
@@ -329,6 +335,9 @@ pub struct Clip {
     /// width and height, right and down. Absent is not moved.
     #[serde(default, skip_serializing_if = "is_centred")]
     pub position: [f32; 2],
+    /// The clip's effects, first applied first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
 }
 
 fn is_fit(fit: &VideoFit) -> bool {
@@ -569,6 +578,30 @@ pub enum VjOp {
         x: f32,
         y: f32,
     },
+    /// Puts a new effect of the kind called `kind` (see [`EffectKind::NAMES`]), with the settings
+    /// it starts with, at the end of the stack of a clip or of a layer; a stack holds at most
+    /// [`MAX_EFFECTS`].
+    AddEffect {
+        target: EffectTarget,
+        kind: String,
+    },
+    RemoveEffect {
+        effect: String,
+    },
+    /// Puts the effect at `index` of its stack, 0 being the first applied.
+    MoveEffect {
+        effect: String,
+        index: usize,
+    },
+    /// Sets the effect's settings; `kind` is the kind it already is.
+    EffectParams {
+        effect: String,
+        kind: EffectKind,
+    },
+    EffectBypass {
+        effect: String,
+        bypass: bool,
+    },
 }
 
 impl Vj {
@@ -665,6 +698,21 @@ impl Vj {
             .flat_map(|layer| &mut layer.clips)
             .find(|clip| clip.id == id)
             .ok_or_else(|| ProjectError::Invalid(format!("no clip {id}")))
+    }
+
+    /// The stack holding the effect `id` (of a layer or of a clip), and the effect's place in it.
+    fn effect_mut(&mut self, id: &str) -> Result<(&mut Vec<Effect>, usize)> {
+        self.layers
+            .iter_mut()
+            .flat_map(|layer| {
+                std::iter::once(&mut layer.effects)
+                    .chain(layer.clips.iter_mut().map(|clip| &mut clip.effects))
+            })
+            .find_map(|stack| {
+                let at = stack.iter().position(|effect| effect.id == id)?;
+                Some((stack, at))
+            })
+            .ok_or_else(|| ProjectError::Invalid(format!("no effect {id}")))
     }
 
     fn deck_index(&self, id: &str) -> Result<usize> {
@@ -921,6 +969,47 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             let offset = |v| within(v, -MAX_OFFSET, MAX_OFFSET);
             vj.clip_mut(&clip)?.position = [offset(x)?, offset(y)?];
         }
+        VjOp::AddEffect { target, kind } => {
+            let kind = EffectKind::default_of(&kind)?;
+            let stack = match target {
+                EffectTarget::Clip(clip) => &mut vj.clip_mut(&clip)?.effects,
+                EffectTarget::Layer(layer) => &mut vj.layer_mut(&layer)?.effects,
+            };
+            if stack.len() >= MAX_EFFECTS {
+                return Err(ProjectError::Invalid(format!(
+                    "a stack has at most {MAX_EFFECTS} effects"
+                )));
+            }
+            stack.push(Effect {
+                id: new_id(),
+                bypass: false,
+                kind,
+            });
+        }
+        VjOp::RemoveEffect { effect } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            stack.remove(at);
+        }
+        VjOp::MoveEffect { effect, index } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            let moved = stack.remove(at);
+            stack.insert(index.min(stack.len()), moved);
+        }
+        VjOp::EffectParams { effect, kind } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            if !stack[at].kind.same_kind(&kind) {
+                return Err(ProjectError::Invalid(format!(
+                    "effect {effect} is a {}, not a {}",
+                    stack[at].kind.name(),
+                    kind.name()
+                )));
+            }
+            stack[at].kind = kind.tidy()?;
+        }
+        VjOp::EffectBypass { effect, bypass } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            stack[at].bypass = bypass;
+        }
     }
     Ok(())
 }
@@ -938,6 +1027,7 @@ fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
         fit: VideoFit::Fit,
         scale: 1.0,
         position: [0.0, 0.0],
+        effects: Vec::new(),
     }
 }
 
@@ -1059,6 +1149,7 @@ pub(crate) fn validate<'a>(
                 layer.id
             )));
         }
+        crate::vj_effects::validate_stack(&layer.effects, item_ids)?;
         let mut cells = HashSet::new();
         for clip in &layer.clips {
             if !item_ids.insert(&clip.id) {
@@ -1098,6 +1189,7 @@ pub(crate) fn validate<'a>(
                 None => {}
             }
             check_name(clip.name.as_deref())?;
+            crate::vj_effects::validate_stack(&clip.effects, item_ids)?;
             if !(0.0..=MAX_SCALE).contains(&clip.scale)
                 || clip
                     .position
@@ -1562,5 +1654,217 @@ mod tests {
         let (mut project, mut new_id) = vj_project();
         place(&mut project, "g1", "g5", &mut new_id);
         assert!(project.used_assets().contains("v1"));
+    }
+
+    fn add_effect(
+        project: &mut Project,
+        target: EffectTarget,
+        kind: &str,
+        new_id: impl FnMut() -> String,
+    ) {
+        let op = VjOp::AddEffect {
+            target,
+            kind: kind.into(),
+        };
+        run(project, op, new_id);
+    }
+
+    #[test]
+    fn effects_should_be_added_moved_bypassed_and_removed_on_clips_and_layers() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let clip = || EffectTarget::Clip("g13".into());
+        add_effect(&mut project, clip(), "brightness", &mut new_id); // g14
+        add_effect(&mut project, clip(), "mirror", &mut new_id); // g15
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "blur",
+            &mut new_id,
+        ); // g16
+        let names = |project: &Project| -> Vec<&'static str> {
+            project.vj.layers[0].clips[0]
+                .effects
+                .iter()
+                .map(|e| e.kind.name())
+                .collect()
+        };
+        assert_eq!(names(&project), ["brightness", "mirror"]);
+        assert_eq!(project.vj.layers[0].effects[0].id, "g16");
+
+        let move_to = |effect: &str, index| VjOp::MoveEffect {
+            effect: effect.into(),
+            index,
+        };
+        run(&mut project, move_to("g15", 0), &mut new_id);
+        assert_eq!(names(&project), ["mirror", "brightness"]);
+        run(&mut project, move_to("g15", 99), &mut new_id);
+        assert_eq!(names(&project), ["brightness", "mirror"]);
+
+        let bypass = VjOp::EffectBypass {
+            effect: "g14".into(),
+            bypass: true,
+        };
+        run(&mut project, bypass, &mut new_id);
+        assert!(project.vj.layers[0].clips[0].effects[0].bypass);
+
+        let remove = |effect: &str| VjOp::RemoveEffect {
+            effect: effect.into(),
+        };
+        run(&mut project, remove("g14"), &mut new_id);
+        run(&mut project, remove("g16"), &mut new_id);
+        assert_eq!(names(&project), ["mirror"]);
+        assert!(project.vj.layers[0].effects.is_empty());
+        assert!(apply(&mut project, remove("g14"), &mut new_id).is_err());
+    }
+
+    #[test]
+    fn an_effect_should_take_its_settings_in_range_and_keep_its_kind() {
+        let (mut project, mut new_id) = vj_project();
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "zoom",
+            &mut new_id,
+        ); // g13
+        let params = |kind| VjOp::EffectParams {
+            effect: "g13".into(),
+            kind,
+        };
+        run(
+            &mut project,
+            params(EffectKind::Zoom { amount: 50.0 }),
+            &mut new_id,
+        );
+        assert_eq!(
+            project.vj.layers[0].effects[0].kind,
+            EffectKind::Zoom {
+                amount: crate::vj_effects::MAX_ZOOM
+            }
+        );
+        let other = params(EffectKind::Hue { degrees: 10.0 });
+        assert!(apply(&mut project, other, &mut new_id).is_err());
+        let nan = params(EffectKind::Zoom { amount: f32::NAN });
+        assert!(apply(&mut project, nan, &mut new_id).is_err());
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "tint",
+            &mut new_id,
+        ); // g14
+        let bad = VjOp::EffectParams {
+            effect: "g14".into(),
+            kind: EffectKind::Tint {
+                colour: "orange".into(),
+                amount: 0.5,
+            },
+        };
+        assert!(apply(&mut project, bad, &mut new_id).is_err());
+        let unknown = VjOp::AddEffect {
+            target: EffectTarget::Layer("g1".into()),
+            kind: "sparkle".into(),
+        };
+        assert!(apply(&mut project, unknown, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn a_stack_should_hold_at_most_eight_effects() {
+        let (mut project, mut new_id) = vj_project();
+        for _ in 0..MAX_EFFECTS {
+            add_effect(
+                &mut project,
+                EffectTarget::Layer("g1".into()),
+                "invert",
+                &mut new_id,
+            );
+        }
+        let ninth = VjOp::AddEffect {
+            target: EffectTarget::Layer("g1".into()),
+            kind: "invert".into(),
+        };
+        assert!(apply(&mut project, ninth, &mut new_id).is_err());
+        // Another stack is its own.
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g2".into()),
+            "invert",
+            &mut new_id,
+        );
+        let repeated = project.vj.layers[0].effects[0].clone();
+        project.vj.layers[0].effects.push(repeated);
+        assert!(project.validate().is_err(), "nine, and a repeated id");
+    }
+
+    #[test]
+    fn validate_should_refuse_a_repeated_effect_id_and_a_setting_out_of_range() {
+        let (mut project, mut new_id) = vj_project();
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "blur",
+            &mut new_id,
+        ); // g13
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g2".into()),
+            "blur",
+            &mut new_id,
+        ); // g14
+        project.vj.layers[1].effects[0].id = "g13".into();
+        assert!(project.validate().is_err());
+        project.vj.layers[1].effects[0].id = "g14".into();
+        project.validate().unwrap();
+        project.vj.layers[1].effects[0].kind = EffectKind::Blur { radius: 2.0 };
+        assert!(project.validate().is_err());
+        project.vj.layers[1].effects[0].kind = EffectKind::Blur { radius: f32::NAN };
+        assert!(project.validate().is_err());
+    }
+
+    #[test]
+    fn effects_should_round_trip_in_the_file_and_be_absent_when_there_are_none() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(!json.contains("effects"), "{json}");
+        let clip = || EffectTarget::Clip("g13".into());
+        // Ten kinds do not fit one stack: five go on the clip, five on its layer.
+        for (at, kind) in EffectKind::NAMES.into_iter().enumerate() {
+            let target = if at < 5 {
+                clip()
+            } else {
+                EffectTarget::Layer("g1".into())
+            };
+            add_effect(&mut project, target, kind, &mut new_id);
+        }
+        let tint = VjOp::EffectParams {
+            effect: "g18".into(),
+            kind: EffectKind::Tint {
+                colour: "#102030".into(),
+                amount: 0.25,
+            },
+        };
+        run(&mut project, tint, &mut new_id);
+        let bypass = VjOp::EffectBypass {
+            effect: "g14".into(),
+            bypass: true,
+        };
+        run(&mut project, bypass, &mut new_id);
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(
+            json.contains(r##"{"id":"g18","effect":"tint","colour":"#102030","amount":0.25}"##),
+            "{json}"
+        );
+        assert!(
+            json.contains(r#"{"id":"g14","bypass":true,"effect":"brightness","amount":0.0}"#),
+            "{json}"
+        );
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.vj, project.vj);
+        back.validate().unwrap();
+        let (on_clip, on_layer) = (&back.vj.layers[0].clips[0], &back.vj.layers[0]);
+        assert_eq!(
+            on_clip.effects.len() + on_layer.effects.len(),
+            EffectKind::NAMES.len()
+        );
     }
 }

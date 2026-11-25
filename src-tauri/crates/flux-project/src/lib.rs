@@ -22,6 +22,7 @@ mod session;
 pub mod show;
 mod video_clips;
 pub mod vj;
+pub mod vj_effects;
 mod vj_file;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 
