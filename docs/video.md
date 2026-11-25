@@ -225,6 +225,19 @@ start), `video_probe` answers `still: true` for it, and `grid_frame` keeps showi
 playback; the play state gives it no `progress` or `remaining`. The media browser filters its items by kind: all, video
 or image.
 
+Effects work as in Resolume: an ordered stack on each clip and on each layer, listed in the inspector's Clip and Layer
+tabs under **Effects** (up to 8 per stack; **Add effect** picks one of brightness, contrast, saturation, hue, tint, invert,
+blur, mirror, zoom and shift). Each effect has a bypass, arrows to move it in the stack and a button to remove it, and its
+numbers are scrubbed like the clip's scale; dragging one moves the output live (`effectParams` through `vj_preview`). A
+clip's stack applies first, from the top down, then its layer's, so a layer's effects also reach both clips while a
+transition runs. The model is `flux_project::vj_effects`; the backend turns the stack into one `flux_render::Effects` per
+picture (`video_output::effects`) and draws it in the same single pass as the rest, on the screens and in the monitor
+(`flux_render::composite`, the same taps). The colour effects (brightness, contrast, saturation, hue, tint, invert) are
+affine on linear light and compose into one 3x4 matrix; mirror, zoom and shift are steps the shader walks back from each
+output pixel to the pixel it reads (a zoom out leaves the edge transparent, a shift wraps around); blurs add in
+quadrature and sample 32 points of a disc, whose full radius is 5% of the picture's short side. A picture with no
+effects is drawn exactly as before; one with effects never hides what is below it.
+
 Generators are clips whose picture Flux makes itself: a solid colour, a strobe, a gradient, colour bars and noise
 (`flux_project::generator`). The media browser lists them under its Generators tab and they are dragged onto the grid
 like media; the inspector edits their colours and numbers (`clipGenerator`, previewed live through `vj_preview` while a
