@@ -1,23 +1,32 @@
 //! The effects of a VJ grid: an ordered stack on each clip and on each layer, applied to the
 //! clip's picture. A clip's stack goes first and then its layer's, each from the top down; a
 //! bypassed effect is skipped. The screens and the editor's monitor draw them (`flux-render`).
+//!
+//! Every kind is described once, in [`catalog`]: its category, and each setting with its range and
+//! its default. The ops take their defaults and ranges from it, and the inspector draws its
+//! controls from it, so no range lives in the interface.
+
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::generator::rgb;
 use crate::{ProjectError, Result};
 
 /// Most effects one stack holds.
-pub const MAX_EFFECTS: usize = 8;
+pub const MAX_EFFECTS: usize = 16;
 /// The most and the least a zoom draws the picture larger.
 pub const MAX_ZOOM: f32 = 8.0;
 pub const MIN_ZOOM: f32 = 0.25;
+/// The lengths, in beats, an effect synced to the tempo can take for one cycle.
+pub const BEAT_CYCLES: [f32; 7] = [0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0];
 
 /// One effect of a stack.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Effect {
-    /// Unique among every effect of the project.
+    /// Unique among every effect of the project; it also seeds the effect's randomness.
     pub id: String,
     /// Skipped while drawing; the effect keeps its place and settings.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -30,7 +39,7 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-/// Which side of the picture an effect mirrors onto the other.
+/// Which side of the picture an effect mirrors onto the other, or which way it waves.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum MirrorAxis {
@@ -43,8 +52,53 @@ pub enum MirrorAxis {
     Both,
 }
 
-/// What an effect does, with its parameters. Colour effects work on the light of the picture (see
-/// `flux-render`); mirror, zoom and shift move it; blur softens it.
+/// What an animated effect's rate is counted in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Sync {
+    /// Cycles a second (`rate`).
+    #[default]
+    Free,
+    /// One cycle every `beats` beats of the show's tempo.
+    Beats,
+}
+
+/// How fast an animated effect runs: `rate` cycles a second when free, or one cycle every `beats`
+/// beats of the tempo when synced. What a cycle is depends on the effect (a turn of a spin, a
+/// period of a wave, a step of a glitch).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Pace {
+    pub sync: Sync,
+    /// Cycles a second, 0 to 30; 0 stands still.
+    pub rate: f32,
+    /// Beats a cycle: one of [`BEAT_CYCLES`].
+    pub beats: f32,
+}
+
+/// What a strobe shows while it is on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StrobeMode {
+    /// The strobe's colour over the picture.
+    #[default]
+    Flash,
+    /// Black.
+    Blackout,
+}
+
+/// What an edge detect shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EdgeMode {
+    /// Only the edges, light on black.
+    #[default]
+    Edges,
+    /// The edges added to the picture.
+    Glow,
+}
+
+/// What an effect does, with its settings. Colour effects work on the light of the picture (see
+/// `flux-render`); the distortions move it; the blurs and the split soften or separate it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "effect", rename_all = "camelCase")]
 pub enum EffectKind {
@@ -60,8 +114,54 @@ pub enum EffectKind {
     Tint { colour: String, amount: f32 },
     /// Mixes the colours with their negative, `amount` 0 to 1 of the way.
     Invert { amount: f32 },
+    /// Moves the black and the white point of the picture and bends its mid tones by `gamma`.
+    Levels { black: f32, white: f32, gamma: f32 },
+    /// Paints the picture's grey from `dark` to `light`, `amount` 0 to 1 of the way (a gradient
+    /// map).
+    Colorize {
+        dark: String,
+        light: String,
+        amount: f32,
+    },
+    /// Turns the colours above `threshold` into their negative.
+    Solarize { threshold: f32 },
+    /// Cuts each colour to `levels` steps.
+    Posterize { levels: f32 },
+    /// Turns the picture into `dark` and `light` where its grey is below or above `level`, over a
+    /// `softness` wide transition.
+    Threshold {
+        level: f32,
+        softness: f32,
+        dark: String,
+        light: String,
+    },
+    /// Finds the edges of the picture and shows them, or adds them to it.
+    EdgeDetect { strength: f32, mode: EdgeMode },
+    /// Darkens the corners; `roundness` 0 follows the frame and 1 is an ellipse.
+    Vignette {
+        amount: f32,
+        softness: f32,
+        roundness: f32,
+    },
+    /// Film grain; `size` 0 to 1 is how coarse, and it moves when `animated`.
+    Noise {
+        amount: f32,
+        size: f32,
+        animated: bool,
+    },
+    /// Dark lines across the picture, `count` of them, that scroll `rate` lines a cycle.
+    Scanlines {
+        count: f32,
+        intensity: f32,
+        #[serde(flatten)]
+        pace: Pace,
+    },
     /// Softens the picture over a radius of `radius` 0 to 1 of the largest blur.
     Blur { radius: f32 },
+    /// Smears the picture round the point `x`, `y` (0 to 1 across and down).
+    RadialBlur { amount: f32, x: f32, y: f32 },
+    /// Smears the picture along rays from the point `x`, `y`.
+    ZoomBlur { amount: f32, x: f32, y: f32 },
     /// Folds the picture onto itself.
     Mirror { axis: MirrorAxis },
     /// Draws the picture `amount` times larger about its centre, 0.25 to 8; outside it is
@@ -70,102 +170,691 @@ pub enum EffectKind {
     /// Moves the picture by `x` and `y` of its size, right and down, -1 to 1; what leaves one side
     /// comes back on the other.
     Shift { x: f32, y: f32 },
+    /// Turns the picture by `angle` degrees and `spin` turns every cycle; the corners it leaves
+    /// are transparent.
+    Rotate {
+        angle: f32,
+        spin: f32,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Repeats a wedge of the picture round the point `x`, `y`: `segments` of them, turned by
+    /// `rotation` degrees and `spin` turns every cycle.
+    Kaleidoscope {
+        segments: f32,
+        rotation: f32,
+        spin: f32,
+        x: f32,
+        y: f32,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Bends the picture from a rectangle into a disc, `amount` 0 to 1 of the way.
+    Polar { amount: f32 },
+    /// Ripples the picture: `amplitude` of its size, `frequency` waves across it, travelling one
+    /// wave every cycle.
+    Wave {
+        amplitude: f32,
+        frequency: f32,
+        direction: MirrorAxis,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Spins the picture about the point `x`, `y`, most at the centre and not at all `radius`
+    /// (in picture heights) away.
+    Twirl {
+        angle: f32,
+        radius: f32,
+        x: f32,
+        y: f32,
+    },
+    /// Swells (positive) or pinches (negative) the picture round the point `x`, `y`.
+    Bulge {
+        amount: f32,
+        radius: f32,
+        x: f32,
+        y: f32,
+    },
+    /// Repeats the picture `columns` by `rows` times; alternate tiles are turned over when
+    /// `mirror`.
+    Tile {
+        columns: f32,
+        rows: f32,
+        mirror: bool,
+    },
+    /// Breaks the picture into square cells of `size` of its height.
+    Pixelate { size: f32 },
+    /// Pushes the picture about with a drifting noise, `amplitude` of its size, in blobs of
+    /// `scale` across it.
+    Displace {
+        amplitude: f32,
+        scale: f32,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Scrolls the picture `x` and `y` of its size every cycle, round or leaving transparent.
+    Slide {
+        x: f32,
+        y: f32,
+        wrap: bool,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Shifts random bands of the picture sideways, now and then splitting their colours; the
+    /// bands change every cycle.
+    ShiftGlitch {
+        amount: f32,
+        block: f32,
+        probability: f32,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Every cycle, with a `probability`, jumps the picture's position, size and light at random.
+    Twitch {
+        amount: f32,
+        probability: f32,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Rolls the picture up like a TV out of vertical hold, with `jitter` shaking its lines.
+    Roll {
+        jitter: f32,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Pulls the red and the blue of the picture apart, along `angle`.
+    RgbSplit {
+        amount: f32,
+        angle: f32,
+        animate: bool,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+    /// Flashes the picture on a `duty` of each cycle.
+    Strobe {
+        colour: String,
+        duty: f32,
+        mode: StrobeMode,
+        #[serde(flatten)]
+        pace: Pace,
+    },
+}
+
+/// A setting of an effect: its key in the file, and what it takes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ParamSpec {
+    /// A number from `min` to `max`. With `snap`, only those values are taken (the nearest).
+    Number {
+        key: &'static str,
+        min: f32,
+        max: f32,
+        step: f32,
+        default: f32,
+        /// Only whole numbers are taken.
+        whole: bool,
+        /// What it is counted in: `%` (the number times 100), `°`, `Hz`, or nothing.
+        unit: &'static str,
+        snap: Vec<f32>,
+    },
+    /// One of `options`.
+    Choice {
+        key: &'static str,
+        options: Vec<&'static str>,
+        default: &'static str,
+    },
+    /// `#rrggbb`.
+    Colour {
+        key: &'static str,
+        default: &'static str,
+    },
+    /// On or off.
+    Flag { key: &'static str, default: bool },
+}
+
+impl ParamSpec {
+    fn key(&self) -> &'static str {
+        match self {
+            Self::Number { key, .. }
+            | Self::Choice { key, .. }
+            | Self::Colour { key, .. }
+            | Self::Flag { key, .. } => key,
+        }
+    }
+
+    fn default_value(&self) -> Value {
+        match self {
+            Self::Number { default, .. } => Value::from(f64::from(*default)),
+            Self::Choice { default, .. } | Self::Colour { default, .. } => Value::from(*default),
+            Self::Flag { default, .. } => Value::from(*default),
+        }
+    }
+
+    /// Brings `value` into range in place; a wrong type or a bad colour is refused.
+    fn tidy(&self, value: &mut Value) -> Result<()> {
+        let bad = |what: &str| {
+            Err(ProjectError::Invalid(format!(
+                "the effect setting {} {what}",
+                self.key()
+            )))
+        };
+        match self {
+            Self::Number {
+                min,
+                max,
+                whole,
+                snap,
+                ..
+            } => {
+                let Some(number) = value.as_f64().filter(|n| n.is_finite()) else {
+                    return bad("is a number");
+                };
+                let mut number = (number as f32).clamp(*min, *max);
+                if *whole {
+                    number = number.round();
+                }
+                if let Some(nearest) = snap
+                    .iter()
+                    .copied()
+                    .min_by(|a, b| (a - number).abs().total_cmp(&(b - number).abs()))
+                {
+                    number = nearest;
+                }
+                *value = Value::from(f64::from(number));
+            }
+            Self::Choice { options, .. } => {
+                if !value.as_str().is_some_and(|v| options.contains(&v)) {
+                    return bad("is not one of its options");
+                }
+            }
+            Self::Colour { .. } => {
+                if !value.as_str().is_some_and(|v| rgb(v).is_some()) {
+                    return bad("must look like #rrggbb");
+                }
+            }
+            Self::Flag { .. } => {
+                if !value.is_boolean() {
+                    return bad("is on or off");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The groups the inspector lists effects in, in order.
+pub const CATEGORIES: [&str; 6] = ["colour", "distort", "blur", "glitch", "stylise", "time"];
+
+/// What one kind of effect is: its name, its category and its settings.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectSpec {
+    pub name: &'static str,
+    pub category: &'static str,
+    /// Whether it moves with time, and so has a sync, a rate and a beat length.
+    pub animated: bool,
+    pub params: Vec<ParamSpec>,
+}
+
+fn num(key: &'static str, min: f32, max: f32, step: f32, default: f32) -> ParamSpec {
+    let unit = match key {
+        "degrees" | "angle" | "rotation" => "°",
+        "rate" => "Hz",
+        "gamma" | "spin" | "frequency" | "scale" | "strength" => "",
+        _ => "%",
+    };
+    ParamSpec::Number {
+        key,
+        min,
+        max,
+        step,
+        default,
+        whole: false,
+        unit,
+        snap: Vec::new(),
+    }
+}
+
+fn whole(key: &'static str, min: f32, max: f32, default: f32) -> ParamSpec {
+    ParamSpec::Number {
+        key,
+        min,
+        max,
+        step: 1.0,
+        default,
+        whole: true,
+        unit: "",
+        snap: Vec::new(),
+    }
+}
+
+fn choice(key: &'static str, options: &[&'static str], default: &'static str) -> ParamSpec {
+    ParamSpec::Choice {
+        key,
+        options: options.to_vec(),
+        default,
+    }
+}
+
+fn colour(key: &'static str, default: &'static str) -> ParamSpec {
+    ParamSpec::Colour { key, default }
+}
+
+fn flag(key: &'static str, default: bool) -> ParamSpec {
+    ParamSpec::Flag { key, default }
+}
+
+/// The three settings of a [`Pace`], starting at `rate` cycles a second or a cycle of `beats`.
+fn pace(rate: f32, beats: f32) -> [ParamSpec; 3] {
+    [
+        choice("sync", &["free", "beats"], "free"),
+        num("rate", 0.0, 30.0, 0.01, rate),
+        ParamSpec::Number {
+            key: "beats",
+            min: BEAT_CYCLES[0],
+            max: BEAT_CYCLES[BEAT_CYCLES.len() - 1],
+            step: 0.0,
+            default: beats,
+            whole: false,
+            unit: "",
+            snap: BEAT_CYCLES.to_vec(),
+        },
+    ]
+}
+
+fn kind(
+    name: &'static str,
+    category: &'static str,
+    mut params: Vec<ParamSpec>,
+    paced: Option<(f32, f32)>,
+) -> EffectSpec {
+    if let Some((rate, beats)) = paced {
+        params.extend(pace(rate, beats));
+    }
+    EffectSpec {
+        name,
+        category,
+        animated: paced.is_some(),
+        params,
+    }
+}
+
+/// Every kind of effect, in the order the user is offered them within their category.
+pub fn catalog() -> &'static [EffectSpec] {
+    static CATALOG: OnceLock<Vec<EffectSpec>> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let axes = ["horizontal", "vertical", "both"];
+        let x = |default| num("x", 0.0, 1.0, 0.01, default);
+        let y = |default| num("y", 0.0, 1.0, 0.01, default);
+        vec![
+            kind(
+                "brightness",
+                "colour",
+                vec![num("amount", -1.0, 1.0, 0.01, 0.0)],
+                None,
+            ),
+            kind(
+                "contrast",
+                "colour",
+                vec![num("amount", 0.0, 4.0, 0.01, 1.0)],
+                None,
+            ),
+            kind(
+                "saturation",
+                "colour",
+                vec![num("amount", 0.0, 4.0, 0.01, 1.0)],
+                None,
+            ),
+            kind(
+                "hue",
+                "colour",
+                vec![num("degrees", -180.0, 180.0, 1.0, 0.0)],
+                None,
+            ),
+            kind(
+                "tint",
+                "colour",
+                vec![
+                    colour("colour", "#ff8800"),
+                    num("amount", 0.0, 1.0, 0.01, 0.5),
+                ],
+                None,
+            ),
+            kind(
+                "invert",
+                "colour",
+                vec![num("amount", 0.0, 1.0, 0.01, 1.0)],
+                None,
+            ),
+            kind(
+                "levels",
+                "colour",
+                vec![
+                    num("black", 0.0, 1.0, 0.01, 0.0),
+                    num("white", 0.0, 1.0, 0.01, 1.0),
+                    num("gamma", 0.1, 4.0, 0.01, 1.0),
+                ],
+                None,
+            ),
+            kind(
+                "colorize",
+                "colour",
+                vec![
+                    colour("dark", "#1a0b3d"),
+                    colour("light", "#ffb347"),
+                    num("amount", 0.0, 1.0, 0.01, 1.0),
+                ],
+                None,
+            ),
+            kind(
+                "solarize",
+                "colour",
+                vec![num("threshold", 0.0, 1.0, 0.01, 0.5)],
+                None,
+            ),
+            kind(
+                "mirror",
+                "distort",
+                vec![choice("axis", &axes, "horizontal")],
+                None,
+            ),
+            kind(
+                "zoom",
+                "distort",
+                vec![num("amount", MIN_ZOOM, MAX_ZOOM, 0.01, 1.0)],
+                None,
+            ),
+            kind(
+                "shift",
+                "distort",
+                vec![
+                    num("x", -1.0, 1.0, 0.01, 0.0),
+                    num("y", -1.0, 1.0, 0.01, 0.0),
+                ],
+                None,
+            ),
+            kind(
+                "rotate",
+                "distort",
+                vec![
+                    num("angle", -180.0, 180.0, 1.0, 0.0),
+                    num("spin", -4.0, 4.0, 0.01, 0.0),
+                ],
+                Some((0.25, 4.0)),
+            ),
+            kind(
+                "kaleidoscope",
+                "distort",
+                vec![
+                    whole("segments", 2.0, 32.0, 6.0),
+                    num("rotation", -180.0, 180.0, 1.0, 0.0),
+                    num("spin", -4.0, 4.0, 0.01, 0.25),
+                    x(0.5),
+                    y(0.5),
+                ],
+                Some((0.5, 4.0)),
+            ),
+            kind(
+                "polar",
+                "distort",
+                vec![num("amount", 0.0, 1.0, 0.01, 1.0)],
+                None,
+            ),
+            kind(
+                "wave",
+                "distort",
+                vec![
+                    num("amplitude", 0.0, 0.25, 0.001, 0.03),
+                    num("frequency", 0.0, 32.0, 0.1, 4.0),
+                    choice("direction", &axes, "horizontal"),
+                ],
+                Some((0.5, 1.0)),
+            ),
+            kind(
+                "twirl",
+                "distort",
+                vec![
+                    num("angle", -1440.0, 1440.0, 1.0, 180.0),
+                    num("radius", 0.0, 2.0, 0.01, 0.5),
+                    x(0.5),
+                    y(0.5),
+                ],
+                None,
+            ),
+            kind(
+                "bulge",
+                "distort",
+                vec![
+                    num("amount", -1.0, 1.0, 0.01, 0.5),
+                    num("radius", 0.05, 2.0, 0.01, 0.6),
+                    x(0.5),
+                    y(0.5),
+                ],
+                None,
+            ),
+            kind(
+                "tile",
+                "distort",
+                vec![
+                    whole("columns", 1.0, 16.0, 2.0),
+                    whole("rows", 1.0, 16.0, 2.0),
+                    flag("mirror", true),
+                ],
+                None,
+            ),
+            kind(
+                "pixelate",
+                "distort",
+                vec![num("size", 0.0, 0.25, 0.001, 0.02)],
+                None,
+            ),
+            kind(
+                "displace",
+                "distort",
+                vec![
+                    num("amplitude", 0.0, 0.25, 0.001, 0.03),
+                    num("scale", 0.5, 32.0, 0.1, 6.0),
+                ],
+                Some((0.5, 2.0)),
+            ),
+            kind(
+                "blur",
+                "blur",
+                vec![num("radius", 0.0, 1.0, 0.01, 0.1)],
+                None,
+            ),
+            kind(
+                "radialBlur",
+                "blur",
+                vec![num("amount", 0.0, 1.0, 0.01, 0.3), x(0.5), y(0.5)],
+                None,
+            ),
+            kind(
+                "zoomBlur",
+                "blur",
+                vec![num("amount", 0.0, 1.0, 0.01, 0.3), x(0.5), y(0.5)],
+                None,
+            ),
+            kind(
+                "shiftGlitch",
+                "glitch",
+                vec![
+                    num("amount", 0.0, 1.0, 0.01, 0.15),
+                    num("block", 0.005, 0.5, 0.001, 0.06),
+                    num("probability", 0.0, 1.0, 0.01, 0.35),
+                ],
+                Some((8.0, 0.5)),
+            ),
+            kind(
+                "twitch",
+                "glitch",
+                vec![
+                    num("amount", 0.0, 1.0, 0.01, 0.5),
+                    num("probability", 0.0, 1.0, 0.01, 0.5),
+                ],
+                Some((4.0, 0.5)),
+            ),
+            kind(
+                "rgbSplit",
+                "glitch",
+                vec![
+                    num("amount", 0.0, 1.0, 0.01, 0.3),
+                    num("angle", -180.0, 180.0, 1.0, 0.0),
+                    flag("animate", false),
+                ],
+                Some((0.5, 4.0)),
+            ),
+            kind(
+                "posterize",
+                "stylise",
+                vec![whole("levels", 2.0, 32.0, 4.0)],
+                None,
+            ),
+            kind(
+                "threshold",
+                "stylise",
+                vec![
+                    num("level", 0.0, 1.0, 0.01, 0.5),
+                    num("softness", 0.0, 1.0, 0.01, 0.05),
+                    colour("dark", "#000000"),
+                    colour("light", "#ffffff"),
+                ],
+                None,
+            ),
+            kind(
+                "edgeDetect",
+                "stylise",
+                vec![
+                    num("strength", 0.0, 8.0, 0.01, 1.0),
+                    choice("mode", &["edges", "glow"], "edges"),
+                ],
+                None,
+            ),
+            kind(
+                "vignette",
+                "stylise",
+                vec![
+                    num("amount", 0.0, 1.0, 0.01, 0.6),
+                    num("softness", 0.0, 1.0, 0.01, 0.5),
+                    num("roundness", 0.0, 1.0, 0.01, 0.5),
+                ],
+                None,
+            ),
+            kind(
+                "noise",
+                "stylise",
+                vec![
+                    num("amount", 0.0, 1.0, 0.01, 0.25),
+                    num("size", 0.0, 1.0, 0.01, 0.1),
+                    flag("animated", true),
+                ],
+                None,
+            ),
+            kind(
+                "scanlines",
+                "stylise",
+                vec![
+                    whole("count", 2.0, 540.0, 120.0),
+                    num("intensity", 0.0, 1.0, 0.01, 0.5),
+                ],
+                Some((0.0, 4.0)),
+            ),
+            kind(
+                "strobe",
+                "time",
+                vec![
+                    colour("colour", "#ffffff"),
+                    num("duty", 0.02, 1.0, 0.01, 0.25),
+                    choice("mode", &["flash", "blackout"], "flash"),
+                ],
+                Some((4.0, 0.5)),
+            ),
+            kind(
+                "slide",
+                "time",
+                vec![
+                    num("x", -4.0, 4.0, 0.01, 0.25),
+                    num("y", -4.0, 4.0, 0.01, 0.0),
+                    flag("wrap", true),
+                ],
+                Some((1.0, 4.0)),
+            ),
+            kind(
+                "roll",
+                "time",
+                vec![num("jitter", 0.0, 1.0, 0.01, 0.2)],
+                Some((0.3, 4.0)),
+            ),
+        ]
+    })
+}
+
+/// The description of the kind called `name`.
+pub fn spec_of(name: &str) -> Result<&'static EffectSpec> {
+    catalog()
+        .iter()
+        .find(|spec| spec.name == name)
+        .ok_or_else(|| ProjectError::Invalid(format!("no effect called {name}")))
 }
 
 impl EffectKind {
-    /// The names of the kinds, in the order the user is offered them.
-    pub const NAMES: [&'static str; 10] = [
-        "brightness",
-        "contrast",
-        "saturation",
-        "hue",
-        "tint",
-        "invert",
-        "blur",
-        "mirror",
-        "zoom",
-        "shift",
-    ];
+    /// The names of the kinds, in the order of the [`catalog`].
+    pub fn names() -> impl Iterator<Item = &'static str> {
+        catalog().iter().map(|spec| spec.name)
+    }
 
     /// The kind named `name` with the settings it starts with, which change nothing of the picture
     /// where they can (a tint starts half way to orange, a blur at a tenth).
     pub fn default_of(name: &str) -> Result<Self> {
-        Ok(match name {
-            "brightness" => Self::Brightness { amount: 0.0 },
-            "contrast" => Self::Contrast { amount: 1.0 },
-            "saturation" => Self::Saturation { amount: 1.0 },
-            "hue" => Self::Hue { degrees: 0.0 },
-            "tint" => Self::Tint {
-                colour: "#ff8800".into(),
-                amount: 0.5,
-            },
-            "invert" => Self::Invert { amount: 1.0 },
-            "blur" => Self::Blur { radius: 0.1 },
-            "mirror" => Self::Mirror {
-                axis: MirrorAxis::Horizontal,
-            },
-            "zoom" => Self::Zoom { amount: 1.0 },
-            "shift" => Self::Shift { x: 0.0, y: 0.0 },
-            _ => {
-                return Err(ProjectError::Invalid(format!("no effect called {name}")));
-            }
-        })
+        let spec = spec_of(name)?;
+        let mut map = Map::new();
+        map.insert("effect".into(), Value::from(name));
+        for param in &spec.params {
+            map.insert(param.key().into(), param.default_value());
+        }
+        Self::from_map(map)
     }
 
-    /// Its name, as in [`Self::NAMES`].
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::Brightness { .. } => "brightness",
-            Self::Contrast { .. } => "contrast",
-            Self::Saturation { .. } => "saturation",
-            Self::Hue { .. } => "hue",
-            Self::Tint { .. } => "tint",
-            Self::Invert { .. } => "invert",
-            Self::Blur { .. } => "blur",
-            Self::Mirror { .. } => "mirror",
-            Self::Zoom { .. } => "zoom",
-            Self::Shift { .. } => "shift",
+    fn from_map(map: Map<String, Value>) -> Result<Self> {
+        serde_json::from_value(Value::Object(map))
+            .map_err(|err| ProjectError::Invalid(format!("an effect is not valid: {err}")))
+    }
+
+    fn to_map(&self) -> Map<String, Value> {
+        match serde_json::to_value(self) {
+            Ok(Value::Object(map)) => map,
+            _ => Map::new(),
+        }
+    }
+
+    /// Its name, as in the [`catalog`].
+    pub fn name(&self) -> String {
+        match self.to_map().get("effect") {
+            Some(Value::String(name)) => name.clone(),
+            _ => String::new(),
         }
     }
 
     /// Whether `other` is the same kind of effect, possibly with other settings.
     pub fn same_kind(&self, other: &Self) -> bool {
-        self.name() == other.name()
+        std::mem::discriminant(self) == std::mem::discriminant(other)
     }
 
     /// The kind with its settings brought into range; a setting that is not a number or a colour
     /// that is not `#rrggbb` is refused.
-    pub fn tidy(mut self) -> Result<Self> {
-        let number = |v: &mut f32, min: f32, max: f32| {
-            if v.is_finite() {
-                *v = v.clamp(min, max);
-                Ok(())
-            } else {
-                Err(ProjectError::Invalid(
-                    "an effect setting is a number".into(),
-                ))
-            }
-        };
-        match &mut self {
-            Self::Brightness { amount } => number(amount, -1.0, 1.0)?,
-            Self::Contrast { amount } | Self::Saturation { amount } => number(amount, 0.0, 4.0)?,
-            Self::Hue { degrees } => number(degrees, -180.0, 180.0)?,
-            Self::Tint { colour, amount } => {
-                number(amount, 0.0, 1.0)?;
-                if rgb(colour).is_none() {
-                    return Err(bad_colour(colour));
-                }
-            }
-            Self::Invert { amount } => number(amount, 0.0, 1.0)?,
-            Self::Blur { radius } => number(radius, 0.0, 1.0)?,
-            Self::Mirror { .. } => {}
-            Self::Zoom { amount } => number(amount, MIN_ZOOM, MAX_ZOOM)?,
-            Self::Shift { x, y } => {
-                number(x, -1.0, 1.0)?;
-                number(y, -1.0, 1.0)?;
-            }
+    pub fn tidy(self) -> Result<Self> {
+        let mut map = self.to_map();
+        let name = self.name();
+        for param in &spec_of(&name)?.params {
+            let Some(value) = map.get_mut(param.key()) else {
+                return Err(ProjectError::Invalid(format!(
+                    "a {name} effect lacks {}",
+                    param.key()
+                )));
+            };
+            param.tidy(value)?;
         }
-        Ok(self)
+        Self::from_map(map)
     }
 
     /// Checks the settings are in range, as [`Self::tidy`] would bring them.
@@ -179,10 +868,6 @@ impl EffectKind {
             )))
         }
     }
-}
-
-fn bad_colour(colour: &str) -> ProjectError {
-    ProjectError::Invalid(format!("a tint colour must look like #rrggbb: {colour}"))
 }
 
 /// What an effect is added to.
@@ -216,4 +901,189 @@ pub(crate) fn validate_stack<'a>(
         effect.kind.validate()?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_should_start_with_its_defaults_and_be_valid() {
+        let names: Vec<&str> = EffectKind::names().collect();
+        assert_eq!(names.len(), 36);
+        for name in &names {
+            let kind = EffectKind::default_of(name).unwrap();
+            assert_eq!(kind.name(), *name);
+            kind.validate().unwrap();
+            // The enum carries exactly the settings the catalog describes.
+            let map = kind.to_map();
+            let spec = spec_of(name).unwrap();
+            assert_eq!(map.len(), spec.params.len() + 1, "{name}");
+            for param in &spec.params {
+                assert!(map.contains_key(param.key()), "{name}: {}", param.key());
+            }
+            assert!(CATEGORIES.contains(&spec.category), "{name}");
+        }
+        let mut unique = names.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len());
+        assert!(EffectKind::default_of("sparkle").is_err());
+    }
+
+    #[test]
+    fn the_catalog_defaults_should_lie_within_their_ranges() {
+        for spec in catalog() {
+            let paced = spec.params.iter().any(|p| p.key() == "sync");
+            assert_eq!(paced, spec.animated, "{}", spec.name);
+            for param in &spec.params {
+                if let ParamSpec::Number {
+                    min,
+                    max,
+                    default,
+                    snap,
+                    key,
+                    ..
+                } = param
+                {
+                    assert!(min <= default && default <= max, "{}.{key}", spec.name);
+                    assert!(
+                        snap.is_empty() || snap.contains(default),
+                        "{}.{key}",
+                        spec.name
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_setting_should_be_brought_into_range_and_a_wrong_one_refused() {
+        let clamped = EffectKind::Zoom { amount: 50.0 }.tidy().unwrap();
+        assert_eq!(clamped, EffectKind::Zoom { amount: MAX_ZOOM });
+        assert!(EffectKind::Zoom { amount: f32::NAN }.tidy().is_err());
+        let bad = EffectKind::Tint {
+            colour: "orange".into(),
+            amount: 0.5,
+        };
+        assert!(bad.tidy().is_err());
+        // Whole numbers where the setting counts things.
+        let kaleidoscope = EffectKind::Kaleidoscope {
+            segments: 99.6,
+            rotation: 0.0,
+            spin: 0.0,
+            x: 0.5,
+            y: 0.5,
+            pace: Pace {
+                sync: Sync::Free,
+                rate: 1.0,
+                beats: 1.0,
+            },
+        };
+        let EffectKind::Kaleidoscope { segments, .. } = kaleidoscope.tidy().unwrap() else {
+            unreachable!()
+        };
+        assert_eq!(segments, 32.0);
+        let low = EffectKind::Posterize { levels: 0.2 };
+        assert_eq!(low.tidy().unwrap(), EffectKind::Posterize { levels: 2.0 });
+    }
+
+    #[test]
+    fn a_beat_cycle_should_snap_to_a_length_the_tempo_divides() {
+        let EffectKind::Strobe { mut pace, .. } = EffectKind::default_of("strobe").unwrap() else {
+            unreachable!()
+        };
+        pace.beats = 3.1;
+        let strobe = EffectKind::Strobe {
+            colour: "#ffffff".into(),
+            duty: 0.5,
+            mode: StrobeMode::Flash,
+            pace,
+        };
+        let EffectKind::Strobe { pace, .. } = strobe.tidy().unwrap() else {
+            unreachable!()
+        };
+        assert_eq!(pace.beats, 4.0);
+    }
+
+    #[test]
+    fn a_pace_should_sit_flat_in_the_effect_in_the_file() {
+        let wave = EffectKind::default_of("wave").unwrap();
+        let json = serde_json::to_string(&wave).unwrap();
+        assert!(
+            json.contains(r#""sync":"free""#) && json.contains(r#""rate":0.5"#),
+            "{json}"
+        );
+        assert!(!json.contains("pace"), "{json}");
+        let back: EffectKind = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, wave);
+    }
+
+    #[test]
+    fn the_kind_of_an_effect_should_be_told_from_its_settings() {
+        let a = EffectKind::default_of("twirl").unwrap();
+        let b = EffectKind::Twirl {
+            angle: 1.0,
+            radius: 1.0,
+            x: 0.1,
+            y: 0.2,
+        };
+        assert!(a.same_kind(&b));
+        assert!(!a.same_kind(&EffectKind::default_of("bulge").unwrap()));
+    }
+
+    /// Every word the interface draws from the catalogue is in both catalogues of messages.
+    #[test]
+    fn every_effect_should_have_its_words_in_english_and_in_spanish() {
+        let catalogues = [
+            ("en", include_str!("../../../../src/i18n/en.ts")),
+            ("es", include_str!("../../../../src/i18n/es.ts")),
+        ];
+        for (language, text) in catalogues {
+            let has = |key: &str| text.contains(&format!("\n  \"{key}\": "));
+            for category in CATEGORIES {
+                assert!(
+                    has(&format!("vj.effect.cat.{category}")),
+                    "{language}: {category}"
+                );
+            }
+            for spec in catalog() {
+                let name = spec.name;
+                assert!(has(&format!("vj.effect.{name}")), "{language}: {name}");
+                assert!(
+                    has(&format!("vj.effect.{name}.hint")),
+                    "{language}: {name} hint"
+                );
+                let mut keys = spec.params.iter().peekable();
+                while let Some(param) = keys.next() {
+                    let key = param.key();
+                    // A pair of centre or count settings is drawn as one row with one label.
+                    let key = match (key, keys.peek().map(|p| p.key())) {
+                        ("x", Some("y")) => {
+                            keys.next();
+                            "xy".to_owned()
+                        }
+                        ("columns", Some("rows")) => {
+                            keys.next();
+                            "columnsrows".to_owned()
+                        }
+                        _ => key.to_owned(),
+                    };
+                    assert!(
+                        has(&format!("vj.effect.{name}.{key}"))
+                            || has(&format!("vj.effect.param.{key}")),
+                        "{language}: {name}.{key}"
+                    );
+                    if let ParamSpec::Choice { key, options, .. } = param {
+                        for option in options {
+                            assert!(
+                                has(&format!("vj.effect.param.{key}.{option}")),
+                                "{language}: {key}.{option}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

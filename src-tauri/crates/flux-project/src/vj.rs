@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::generator::Generator;
 use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit};
-pub use crate::vj_effects::{Effect, EffectKind, EffectTarget, MAX_EFFECTS, MirrorAxis};
+pub use crate::vj_effects::{
+    Effect, EffectKind, EffectSpec, EffectTarget, MAX_EFFECTS, MirrorAxis, ParamSpec, Sync,
+};
 use crate::{ProjectError, Result};
 
 /// Most layers a grid has.
@@ -578,7 +580,7 @@ pub enum VjOp {
         x: f32,
         y: f32,
     },
-    /// Puts a new effect of the kind called `kind` (see [`EffectKind::NAMES`]), with the settings
+    /// Puts a new effect of the kind called `kind` (see [`crate::vj_effects::catalog`]), with the settings
     /// it starts with, at the end of the stack of a clip or of a layer; a stack holds at most
     /// [`MAX_EFFECTS`].
     AddEffect {
@@ -601,6 +603,15 @@ pub enum VjOp {
     EffectBypass {
         effect: String,
         bypass: bool,
+    },
+    /// Puts a copy of the effect, with a new id and the same settings, right after it; a stack
+    /// holds at most [`MAX_EFFECTS`].
+    DuplicateEffect {
+        effect: String,
+    },
+    /// Gives the effect the settings its kind starts with.
+    ResetEffect {
+        effect: String,
     },
 }
 
@@ -1009,6 +1020,23 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::EffectBypass { effect, bypass } => {
             let (stack, at) = vj.effect_mut(&effect)?;
             stack[at].bypass = bypass;
+        }
+        VjOp::DuplicateEffect { effect } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            if stack.len() >= MAX_EFFECTS {
+                return Err(ProjectError::Invalid(format!(
+                    "a stack has at most {MAX_EFFECTS} effects"
+                )));
+            }
+            let copy = Effect {
+                id: new_id(),
+                ..stack[at].clone()
+            };
+            stack.insert(at + 1, copy);
+        }
+        VjOp::ResetEffect { effect } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            stack[at].kind = EffectKind::default_of(&stack[at].kind.name())?;
         }
     }
     Ok(())
@@ -1682,7 +1710,7 @@ mod tests {
             "blur",
             &mut new_id,
         ); // g16
-        let names = |project: &Project| -> Vec<&'static str> {
+        let names = |project: &Project| -> Vec<String> {
             project.vj.layers[0].clips[0]
                 .effects
                 .iter()
@@ -1768,7 +1796,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stack_should_hold_at_most_eight_effects() {
+    fn a_stack_should_hold_at_most_sixteen_effects() {
         let (mut project, mut new_id) = vj_project();
         for _ in 0..MAX_EFFECTS {
             add_effect(
@@ -1778,11 +1806,11 @@ mod tests {
                 &mut new_id,
             );
         }
-        let ninth = VjOp::AddEffect {
+        let seventeenth = VjOp::AddEffect {
             target: EffectTarget::Layer("g1".into()),
             kind: "invert".into(),
         };
-        assert!(apply(&mut project, ninth, &mut new_id).is_err());
+        assert!(apply(&mut project, seventeenth, &mut new_id).is_err());
         // Another stack is its own.
         add_effect(
             &mut project,
@@ -1792,7 +1820,7 @@ mod tests {
         );
         let repeated = project.vj.layers[0].effects[0].clone();
         project.vj.layers[0].effects.push(repeated);
-        assert!(project.validate().is_err(), "nine, and a repeated id");
+        assert!(project.validate().is_err(), "seventeen, and a repeated id");
     }
 
     #[test]
@@ -1827,15 +1855,17 @@ mod tests {
         let json = serde_json::to_string(&project).unwrap();
         assert!(!json.contains("effects"), "{json}");
         let clip = || EffectTarget::Clip("g13".into());
-        // Ten kinds do not fit one stack: five go on the clip, five on its layer.
-        for (at, kind) in EffectKind::NAMES.into_iter().enumerate() {
-            let target = if at < 5 {
-                clip()
-            } else {
-                EffectTarget::Layer("g1".into())
+        // Every kind goes on the clip, its layer or another layer, 16 to each.
+        let names: Vec<&str> = EffectKind::names().collect();
+        for (at, kind) in names.iter().enumerate() {
+            let target = match at / MAX_EFFECTS {
+                0 => clip(),
+                1 => EffectTarget::Layer("g1".into()),
+                _ => EffectTarget::Layer("g2".into()),
             };
             add_effect(&mut project, target, kind, &mut new_id);
         }
+        // The tint is the fifth of the clip: g14 is the first effect.
         let tint = VjOp::EffectParams {
             effect: "g18".into(),
             kind: EffectKind::Tint {
@@ -1861,10 +1891,54 @@ mod tests {
         let back: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(back.vj, project.vj);
         back.validate().unwrap();
-        let (on_clip, on_layer) = (&back.vj.layers[0].clips[0], &back.vj.layers[0]);
-        assert_eq!(
-            on_clip.effects.len() + on_layer.effects.len(),
-            EffectKind::NAMES.len()
-        );
+        let on_clip = back.vj.layers[0].clips[0].effects.len();
+        let on_layers: usize = back.vj.layers.iter().map(|l| l.effects.len()).sum();
+        assert_eq!(on_clip + on_layers, names.len());
+    }
+
+    #[test]
+    fn an_effect_should_be_duplicated_after_itself_and_reset_to_its_defaults() {
+        let (mut project, mut new_id) = vj_project();
+        let layer = || EffectTarget::Layer("g1".into());
+        add_effect(&mut project, layer(), "twirl", &mut new_id); // g13
+        add_effect(&mut project, layer(), "hue", &mut new_id); // g14
+        let twirl = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::Twirl {
+                angle: 40.0,
+                radius: 0.2,
+                x: 0.1,
+                y: 0.9,
+            },
+        };
+        run(&mut project, twirl.clone(), &mut new_id);
+        let duplicate = VjOp::DuplicateEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, duplicate, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert_eq!(stack.len(), 3);
+        assert_eq!(stack[1].kind, stack[0].kind);
+        assert_ne!(stack[1].id, stack[0].id);
+        assert_eq!(stack[2].id, "g14");
+        let reset = VjOp::ResetEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, reset, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert_eq!(stack[0].kind, EffectKind::default_of("twirl").unwrap());
+        assert_ne!(stack[1].kind, stack[0].kind);
+        // A full stack takes no copy.
+        while project.vj.layers[0].effects.len() < MAX_EFFECTS {
+            add_effect(&mut project, layer(), "invert", &mut new_id);
+        }
+        let again = VjOp::DuplicateEffect {
+            effect: "g13".into(),
+        };
+        assert!(apply(&mut project, again, &mut new_id).is_err());
+        let missing = VjOp::ResetEffect {
+            effect: "nope".into(),
+        };
+        assert!(apply(&mut project, missing, &mut new_id).is_err());
     }
 }
