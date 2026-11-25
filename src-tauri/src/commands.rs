@@ -445,6 +445,18 @@ pub fn vj_preview(
     Ok(())
 }
 
+/// What the inspector and the effects browser are drawn from: how many effects a stack holds, the
+/// categories effects are listed in, and every kind with its category and each setting's range,
+/// unit and default.
+#[tauri::command]
+pub fn vj_effect_catalog() -> serde_json::Value {
+    serde_json::json!({
+        "max": flux_project::vj_effects::MAX_EFFECTS,
+        "categories": flux_project::vj_effects::CATEGORIES,
+        "effects": flux_project::vj_effects::catalog(),
+    })
+}
+
 #[tauri::command]
 pub async fn project_save(
     app: AppHandle,

@@ -541,25 +541,28 @@ impl Render {
     /// Draws one refresh; `false` when it drew black or nothing.
     fn step(&mut self) -> bool {
         self.refresh();
-        let shown = match &self.vj {
+        let bpm = self.timeline.as_ref().map_or(120.0, |t| t.tempo.bpm);
+        let (shown, beats) = match &self.vj {
             Some(vj) => {
-                let (play, now) = {
-                    let grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
-                    (grid.play.clone(), grid.now())
+                let (play, now, beats) = {
+                    let mut grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
+                    (grid.play.clone(), grid.now(), grid.beats(bpm))
                 };
-                self.deck
+                let shown = self
+                    .deck
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .as_mut()
                     .map(|deck| deck.show_grid(vj, &play, now))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                (shown, beats)
             }
-            None => self.timeline_pictures(),
+            None => (self.timeline_pictures(), 0.0),
         };
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
         }
-        let mut pictures = pictures(&shown, self.card_size);
+        let mut pictures = pictures(&shown, self.card_size, beats);
         let card = pictures.is_empty() && self.sweep_card();
         if card {
             pictures.push(Picture {
@@ -721,7 +724,7 @@ fn composition_size(session: &SharedSession) -> (u32, u32) {
 
 /// What to draw of `shown` (topmost first) in a composition of `composition` pixels, the bottom
 /// first: from the top down to the first picture that hides everything under it.
-fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture<'_>> {
+fn pictures(shown: &[flux_video::Shown], composition: (u32, u32), beats: f64) -> Vec<Picture<'_>> {
     let mut pictures = Vec::new();
     for shown in shown {
         let Some(frame) = &shown.frame else { continue };
@@ -733,7 +736,11 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture
             layer.scale,
             layer.position,
         );
-        let effects = effects(&layer.effects);
+        let time = flux_render::Time {
+            seconds: layer.elapsed.as_secs_f64(),
+            beats,
+        };
+        let effects = flux_render::Effects::new(&layer.effects, time);
         pictures.push(Picture {
             id: hash.finish(),
             width: frame.width,
@@ -790,10 +797,15 @@ impl VideoOutputs {
             return Ok(None);
         };
         ensure_deck(&self.deck, app)?;
-        let (play, now) = {
+        let bpm = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .active_timeline_copy()
+            .map_or(120.0, |timeline| timeline.tempo.bpm);
+        let (play, now, beats) = {
             let grid = app.state::<crate::vj_commands::SharedGrid>();
-            let grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
-            (grid.play.clone(), grid.now())
+            let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
+            (grid.play.clone(), grid.now(), grid.beats(bpm))
         };
         let shown = self
             .deck
@@ -813,7 +825,7 @@ impl VideoOutputs {
         picture.extend_from_slice(&(width as u16).to_le_bytes());
         picture.extend_from_slice(&(height as u16).to_le_bytes());
         picture.extend(flux_render::composite(
-            &pictures(&shown, size),
+            &pictures(&shown, size, beats),
             width,
             height,
         ));
@@ -919,37 +931,6 @@ pub fn video_output_pattern(output: State<'_, SharedVideoOutput>, on: bool) {
 }
 
 /// The render's blend for a layer's.
-/// What the effects of a layer's picture come to for the renderer.
-fn effects(chain: &[flux_project::vj::EffectKind]) -> flux_render::Effects {
-    use flux_project::vj::{EffectKind as Kind, MirrorAxis};
-    use flux_render::Effect;
-    let chain: Vec<Effect> = chain
-        .iter()
-        .map(|kind| match kind {
-            Kind::Brightness { amount } => Effect::Brightness(*amount),
-            Kind::Contrast { amount } => Effect::Contrast(*amount),
-            Kind::Saturation { amount } => Effect::Saturation(*amount),
-            Kind::Hue { degrees } => Effect::Hue(*degrees),
-            Kind::Tint { colour, amount } => Effect::Tint {
-                colour: flux_project::generator::rgb(colour)
-                    .unwrap_or([255; 3])
-                    .map(|c| f32::from(c) / 255.0),
-                amount: *amount,
-            },
-            Kind::Invert { amount } => Effect::Invert(*amount),
-            Kind::Blur { radius } => Effect::Blur(*radius),
-            Kind::Mirror { axis } => Effect::Mirror(match axis {
-                MirrorAxis::Horizontal => flux_render::Mirror::Horizontal,
-                MirrorAxis::Vertical => flux_render::Mirror::Vertical,
-                MirrorAxis::Both => flux_render::Mirror::Both,
-            }),
-            Kind::Zoom { amount } => Effect::Zoom(*amount),
-            Kind::Shift { x, y } => Effect::Shift(*x, *y),
-        })
-        .collect();
-    flux_render::Effects::new(&chain)
-}
-
 fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
     use flux_project::vj::Blend as B;
     match blend {

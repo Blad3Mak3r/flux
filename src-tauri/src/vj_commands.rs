@@ -18,6 +18,8 @@ use flux_video::{GridPlay, Rate, grid_frame};
 pub struct Grid {
     pub play: GridPlay,
     started: Instant,
+    /// Where the beats were counted to, and how many there were by then.
+    beat: (Duration, f64),
 }
 
 impl Default for Grid {
@@ -25,6 +27,7 @@ impl Default for Grid {
         Self {
             play: GridPlay::default(),
             started: Instant::now(),
+            beat: (Duration::ZERO, 0.0),
         }
     }
 }
@@ -38,6 +41,19 @@ impl Grid {
     /// Where the grid's clock is.
     pub fn now(&self) -> Duration {
         self.started.elapsed()
+    }
+
+    /// The beats the grid's clock has counted, at `bpm` beats a minute now: a count that keeps its
+    /// phase when the tempo changes, as the beats before it were counted at the tempo they had.
+    /// Every screen asks for it, each a little after the last.
+    pub fn beats(&mut self, bpm: f64) -> f64 {
+        let now = self.now();
+        let (at, beats) = self.beat;
+        self.beat = (
+            now.max(at),
+            beats + now.saturating_sub(at).as_secs_f64() * bpm / 60.0,
+        );
+        self.beat.1
     }
 }
 

@@ -311,8 +311,9 @@ impl GridPlay {
                         .iter()
                         .chain(&layer.effects)
                         .filter(|effect| !effect.bypass)
-                        .map(|effect| effect.kind.clone())
+                        .cloned()
                         .collect(),
+                    elapsed,
                 })
             };
             let fading = launched.fading(now);
@@ -630,20 +631,26 @@ mod tests {
         play.launch(&vj, "a", secs(0.0));
         play.launch(&vj, "b", secs(0.0));
         let shown = play.layers(&vj, secs(1.0), &probe);
+        let kinds = |layer: &crate::Layer| -> Vec<EffectKind> {
+            layer.effects.iter().map(|e| e.kind.clone()).collect()
+        };
         assert_eq!(
-            shown[0].effects,
+            kinds(&shown[0]),
             [EffectKind::Invert { amount: 1.0 }],
             "the layer's effects reach a clip with none of its own"
         );
+        assert_eq!(shown[0].elapsed, secs(1.0));
         play.launch(&vj, "a", secs(1.0));
         let shown = play.layers(&vj, secs(1.5), &probe);
         assert_eq!(
-            shown[0].effects,
+            kinds(&shown[0]),
             [
                 EffectKind::Brightness { amount: 0.2 },
                 EffectKind::Invert { amount: 1.0 }
             ]
         );
+        // The effects carry their ids, which seed their randomness.
+        assert_eq!(shown[0].effects[0].id, "e1");
     }
 
     #[test]
