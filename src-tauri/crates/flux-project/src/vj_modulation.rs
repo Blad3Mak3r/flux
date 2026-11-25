@@ -398,6 +398,14 @@ impl Vj {
         })
     }
 
+    /// Whether a clip lasts a number of beats, so that its sound follows the tempo.
+    pub fn has_beat_clips(&self) -> bool {
+        self.layers
+            .iter()
+            .flat_map(|layer| &layer.clips)
+            .any(|clip| matches!(clip.tempo, crate::vj::Tempo::Beats { .. }))
+    }
+
     /// Whether a layer's master or volume is modulated: the sound follows them.
     pub fn is_sound_modulated(&self) -> bool {
         self.layers.iter().any(|layer| {

@@ -333,6 +333,23 @@ pub struct Clip {
     /// What a press on the clip does; absent is [`Trigger::Normal`].
     #[serde(default, skip_serializing_if = "Trigger::is_normal")]
     pub trigger: Trigger,
+    /// How fast the clip plays when its [`tempo`](Self::tempo) is free: 1 is its own speed, from
+    /// [`MIN_SPEED`] to [`MAX_SPEED`]. Absent is 1.
+    #[serde(default = "full_speed", skip_serializing_if = "is_full_speed")]
+    pub speed: f32,
+    /// Which way the clip plays; absent is [`Direction::Forward`].
+    #[serde(default, skip_serializing_if = "Direction::is_forward")]
+    pub direction: Direction,
+    /// Whether a pass lasts as long as the clip says or a number of beats; absent is
+    /// [`Tempo::Free`].
+    #[serde(default, skip_serializing_if = "Tempo::is_free")]
+    pub tempo: Tempo,
+    /// The part of the clip that plays and repeats, as fractions of its length; absent is all of it.
+    #[serde(default, skip_serializing_if = "Region::is_whole")]
+    pub region: Region,
+    /// Places the clip jumps to, as fractions of its length; absent are all empty.
+    #[serde(default, skip_serializing_if = "no_cues")]
+    pub cues: [Option<f32>; CUES],
     /// How the video is sized into the composition; absent is [`VideoFit::Fit`].
     #[serde(default, skip_serializing_if = "is_fit")]
     pub fit: VideoFit,
@@ -366,6 +383,122 @@ fn is_full_scale(scale: &f32) -> bool {
 
 fn is_centred(position: &[f32; 2]) -> bool {
     *position == [0.0, 0.0]
+}
+
+fn full_speed() -> f32 {
+    1.0
+}
+
+fn is_full_speed(speed: &f32) -> bool {
+    *speed == 1.0
+}
+
+fn no_cues(cues: &[Option<f32>; CUES]) -> bool {
+    cues.iter().all(Option::is_none)
+}
+
+/// Slowest and fastest a clip plays, times its own speed.
+pub const MIN_SPEED: f32 = 0.05;
+pub const MAX_SPEED: f32 = 8.0;
+/// The shortest region of a clip, as a fraction of its length.
+pub const MIN_REGION: f32 = 0.001;
+/// How many cues a clip has.
+pub const CUES: usize = 8;
+/// The lengths, in beats, that one pass of a clip can be made to last.
+pub const TEMPO_BEATS: [u32; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
+
+/// Which way a clip plays through its region.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Direction {
+    #[default]
+    Forward,
+    Reverse,
+    /// Holds the picture where it is, and is silent.
+    Pause,
+}
+
+impl Direction {
+    fn is_forward(&self) -> bool {
+        *self == Self::Forward
+    }
+
+    /// 1 forwards, -1 backwards, 0 paused.
+    pub fn sign(self) -> f64 {
+        match self {
+            Self::Forward => 1.0,
+            Self::Reverse => -1.0,
+            Self::Pause => 0.0,
+        }
+    }
+}
+
+/// How long one pass through a clip's region lasts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Tempo {
+    /// As long as the clip's speed makes it.
+    #[default]
+    Free,
+    /// Exactly this many beats of the composition's tempo, one of [`TEMPO_BEATS`]; the speed does
+    /// not count.
+    Beats { beats: u32 },
+}
+
+impl Tempo {
+    fn is_free(&self) -> bool {
+        *self == Self::Free
+    }
+}
+
+/// The part of a clip that plays, as fractions of its length: `start` below `end`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Region {
+    pub start: f32,
+    pub end: f32,
+}
+
+impl Default for Region {
+    fn default() -> Self {
+        Self {
+            start: 0.0,
+            end: 1.0,
+        }
+    }
+}
+
+impl Region {
+    fn is_whole(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The region with both ends brought into 0 to 1 and at least [`MIN_REGION`] apart: the start
+    /// is kept unless there is no room for the end after it, and the end gives way to it.
+    pub fn tidy(start: f32, end: f32) -> Result<Self> {
+        if !start.is_finite() || !end.is_finite() {
+            return Err(ProjectError::Invalid("a region is made of numbers".into()));
+        }
+        let start = start.clamp(0.0, 1.0 - MIN_REGION);
+        let end = end.clamp(start + MIN_REGION, 1.0);
+        Ok(Self { start, end })
+    }
+
+    /// Its length, as a fraction of the clip's.
+    pub fn span(&self) -> f32 {
+        self.end - self.start
+    }
+
+    fn valid(&self) -> bool {
+        self.start.is_finite()
+            && self.end.is_finite()
+            && self.start >= 0.0
+            && self.end <= 1.0
+            && self.end - self.start >= MIN_REGION * 0.999
+    }
 }
 
 /// Largest scale of a clip: 1000%.
@@ -564,6 +697,33 @@ pub enum VjOp {
     ClipPlayback {
         clip: String,
         playback: Playback,
+    },
+    /// How fast the clip plays, times its own speed, from [`MIN_SPEED`] to [`MAX_SPEED`].
+    ClipSpeed {
+        clip: String,
+        value: f32,
+    },
+    ClipDirection {
+        clip: String,
+        direction: Direction,
+    },
+    /// Free, or a pass of so many beats; the beats go to the nearest of [`TEMPO_BEATS`].
+    ClipTempo {
+        clip: String,
+        tempo: Tempo,
+    },
+    /// The part of the clip that plays, as fractions of its length; cues stay where they are.
+    ClipRegion {
+        clip: String,
+        start: f32,
+        end: f32,
+    },
+    /// Puts cue `index` (0 to 7) of the clip at `position`, a fraction of its length, or empties
+    /// it with `None`.
+    ClipCue {
+        clip: String,
+        index: usize,
+        position: Option<f32>,
     },
     /// Changes what a generator clip draws; a video clip stays a video.
     ClipGenerator {
@@ -801,6 +961,14 @@ fn within(value: f32, min: f32, max: f32) -> Result<f32> {
     }
 }
 
+/// The length in [`TEMPO_BEATS`] nearest to `beats`.
+fn nearest_beats(beats: u32) -> u32 {
+    TEMPO_BEATS
+        .into_iter()
+        .min_by_key(|length| length.abs_diff(beats))
+        .unwrap_or(1)
+}
+
 /// Applies `op` to a VJ project; `new_id` names whatever it creates. The caller validates the result.
 pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String) -> Result<()> {
     if project.mode != ProjectMode::Vj {
@@ -977,6 +1145,33 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         }
         VjOp::RenameClip { clip, name } => vj.clip_mut(&clip)?.name = typed_name(&name)?,
         VjOp::ClipPlayback { clip, playback } => vj.clip_mut(&clip)?.playback = playback,
+        VjOp::ClipSpeed { clip, value } => {
+            vj.clip_mut(&clip)?.speed = within(value, MIN_SPEED, MAX_SPEED)?;
+        }
+        VjOp::ClipDirection { clip, direction } => vj.clip_mut(&clip)?.direction = direction,
+        VjOp::ClipTempo { clip, tempo } => {
+            vj.clip_mut(&clip)?.tempo = match tempo {
+                Tempo::Free => Tempo::Free,
+                Tempo::Beats { beats } => Tempo::Beats {
+                    beats: nearest_beats(beats),
+                },
+            };
+        }
+        VjOp::ClipRegion { clip, start, end } => {
+            vj.clip_mut(&clip)?.region = Region::tidy(start, end)?;
+        }
+        VjOp::ClipCue {
+            clip,
+            index,
+            position,
+        } => {
+            let clip = vj.clip_mut(&clip)?;
+            let slot = clip
+                .cues
+                .get_mut(index)
+                .ok_or_else(|| ProjectError::Invalid(format!("a clip has {CUES} cues")))?;
+            *slot = position.map(|p| within(p, 0.0, 1.0)).transpose()?;
+        }
         VjOp::ClipGenerator { clip, generator } => {
             let clip = vj.clip_mut(&clip)?;
             if clip.generator.is_none() {
@@ -1071,6 +1266,11 @@ pub(crate) fn new_clip(id: String, asset: String, generator: Option<Generator>) 
         name: None,
         playback: Playback::Loop,
         trigger: Trigger::Normal,
+        speed: 1.0,
+        direction: Direction::Forward,
+        tempo: Tempo::Free,
+        region: Region::default(),
+        cues: [None; CUES],
         fit: VideoFit::Fit,
         scale: 1.0,
         position: [0.0, 0.0],
@@ -1268,6 +1468,7 @@ pub(crate) fn validate<'a>(
                 None => {}
             }
             check_name(clip.name.as_deref())?;
+            check_transport(clip)?;
             crate::vj_effects::validate_stack(&clip.effects, item_ids)?;
             crate::vj_modulation::validate_map(&clip.modulation, crate::vj_modulation::clip_range)?;
             if !(0.0..=MAX_SCALE).contains(&clip.scale)
@@ -1282,6 +1483,26 @@ pub(crate) fn validate<'a>(
                 )));
             }
         }
+    }
+    Ok(())
+}
+
+/// The speed, tempo, region and cues of a clip are within their ranges.
+fn check_transport(clip: &Clip) -> Result<()> {
+    let tempo = match clip.tempo {
+        Tempo::Free => true,
+        Tempo::Beats { beats } => TEMPO_BEATS.contains(&beats),
+    };
+    let cues = clip
+        .cues
+        .iter()
+        .flatten()
+        .all(|cue| (0.0..=1.0).contains(cue));
+    if !(MIN_SPEED..=MAX_SPEED).contains(&clip.speed) || !tempo || !clip.region.valid() || !cues {
+        return Err(ProjectError::Invalid(format!(
+            "clip {} needs a speed of {MIN_SPEED} to {MAX_SPEED}, a length of 1 to 128 beats, a region of at least {MIN_REGION} inside the clip and cues inside the clip",
+            clip.id
+        )));
     }
     Ok(())
 }
@@ -1488,6 +1709,150 @@ mod tests {
         );
         let back: Clip = serde_json::from_value(json).unwrap();
         assert_eq!(back, clip(&project));
+    }
+
+    fn transport(project: &Project) -> &Clip {
+        project.vj.find_clip("g13").unwrap().1
+    }
+
+    #[test]
+    fn a_clip_should_start_with_the_transport_of_a_plain_clip_and_store_none_of_it() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let clip = transport(&project);
+        assert_eq!(clip.speed, 1.0);
+        assert_eq!(clip.direction, Direction::Forward);
+        assert_eq!(clip.tempo, Tempo::Free);
+        assert_eq!(clip.region, Region::default());
+        assert_eq!(clip.cues, [None; CUES]);
+        let json = serde_json::to_value(clip).unwrap();
+        for field in ["speed", "direction", "tempo", "region", "cues"] {
+            assert!(json.get(field).is_none(), "{field} is left out");
+        }
+        // A clip written before the transport has the same.
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, clip);
+    }
+
+    #[test]
+    fn the_transport_ops_should_set_bring_into_range_and_round_trip() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let clip = || "g13".to_owned();
+        run(
+            &mut project,
+            VjOp::ClipSpeed {
+                clip: clip(),
+                value: 50.0,
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).speed, MAX_SPEED);
+        run(
+            &mut project,
+            VjOp::ClipSpeed {
+                clip: clip(),
+                value: 0.0,
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).speed, MIN_SPEED);
+        assert!(
+            apply(
+                &mut project,
+                VjOp::ClipSpeed {
+                    clip: clip(),
+                    value: f32::NAN
+                },
+                &mut new_id
+            )
+            .is_err()
+        );
+        run(
+            &mut project,
+            VjOp::ClipDirection {
+                clip: clip(),
+                direction: Direction::Reverse,
+            },
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            VjOp::ClipTempo {
+                clip: clip(),
+                tempo: Tempo::Beats { beats: 5 },
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).tempo, Tempo::Beats { beats: 4 });
+        run(
+            &mut project,
+            VjOp::ClipRegion {
+                clip: clip(),
+                start: 0.3,
+                end: 0.2,
+            },
+            &mut new_id,
+        );
+        let region = transport(&project).region;
+        assert_eq!(region.start, 0.3);
+        assert!(region.span() >= MIN_REGION * 0.999, "a minimum span");
+        run(
+            &mut project,
+            VjOp::ClipRegion {
+                clip: clip(),
+                start: -2.0,
+                end: 9.0,
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).region, Region::default());
+        for (index, position) in [(0, Some(0.25)), (7, Some(7.0)), (3, None)] {
+            let op = VjOp::ClipCue {
+                clip: clip(),
+                index,
+                position,
+            };
+            run(&mut project, op, &mut new_id);
+        }
+        let cues = transport(&project).cues;
+        assert_eq!((cues[0], cues[7], cues[3]), (Some(0.25), Some(1.0), None));
+        let outside = VjOp::ClipCue {
+            clip: clip(),
+            index: CUES,
+            position: Some(0.5),
+        };
+        assert!(apply(&mut project, outside, &mut new_id).is_err());
+        // What was set is stored, and read back the same.
+        let json = serde_json::to_value(transport(&project)).unwrap();
+        assert_eq!(json["direction"], "reverse");
+        assert_eq!(json["tempo"]["kind"], "beats");
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, transport(&project));
+    }
+
+    #[test]
+    fn validate_should_refuse_a_transport_out_of_range() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let broken = |change: &dyn Fn(&mut Clip)| {
+            let mut project = project.clone();
+            change(project.vj.clip_mut("g13").unwrap());
+            project.validate().is_err()
+        };
+        assert!(broken(&|c| c.speed = 9.0));
+        assert!(broken(&|c| c.speed = 0.0));
+        assert!(broken(&|c| c.tempo = Tempo::Beats { beats: 3 }));
+        assert!(broken(&|c| c.region = Region {
+            start: 0.5,
+            end: 0.5
+        }));
+        assert!(broken(&|c| c.region = Region {
+            start: 0.1,
+            end: 1.5
+        }));
+        assert!(broken(&|c| c.cues[2] = Some(1.5)));
+        assert!(!broken(&|c| c.tempo = Tempo::Beats { beats: 128 }));
     }
 
     #[test]
