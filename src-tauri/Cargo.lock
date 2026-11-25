@@ -1561,6 +1561,7 @@ dependencies = [
 name = "flux-render"
 version = "0.2.2"
 dependencies = [
+ "flux-project",
  "font8x8",
  "naga",
  "pollster",
