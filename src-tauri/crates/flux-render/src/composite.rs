@@ -260,6 +260,7 @@ mod tests {
             .map(|(at, kind)| Effect {
                 id: format!("e{at}"),
                 bypass: false,
+                modulation: Default::default(),
                 kind: kind.clone(),
             })
             .collect()

@@ -1010,6 +1010,7 @@ mod tests {
         Effect {
             id: "e1".into(),
             bypass: false,
+            modulation: Default::default(),
             kind,
         }
     }

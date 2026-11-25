@@ -745,10 +745,12 @@ impl Session {
                 | Op::ClipPosition { .. }
                 | Op::ClipGenerator { .. }
                 | Op::EffectParams { .. }
+                | Op::SetModulation { .. }
         );
         if !level {
             return Err(ProjectError::Invalid(
-                "only a level, a transform, a generator or an effect is previewed".into(),
+                "only a level, a transform, a generator, an effect or a modulation is previewed"
+                    .into(),
             ));
         }
         if let Op::ClipGenerator { generator, .. } = &op {
@@ -970,6 +972,23 @@ impl Session {
     pub fn grid_copy(&self) -> Option<crate::vj::Vj> {
         let project = &self.document.as_ref()?.project;
         (project.mode == crate::ProjectMode::Vj).then(|| project.vj.clone())
+    }
+
+    /// The VJ grid of a VJ project, where it is held.
+    pub fn grid_ref(&self) -> Option<&crate::vj::Vj> {
+        let project = &self.document.as_ref()?.project;
+        (project.mode == crate::ProjectMode::Vj).then_some(&project.vj)
+    }
+
+    /// The tempo of the timeline being played, in beats a minute; 120 with no project.
+    pub fn tempo_bpm(&self) -> f64 {
+        let Some(document) = self.document.as_ref() else {
+            return 120.0;
+        };
+        document
+            .project
+            .timeline(&document.active)
+            .map_or(120.0, |timeline| timeline.tempo.bpm)
     }
 
     /// A copy of the project's video `id`.

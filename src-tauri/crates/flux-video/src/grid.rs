@@ -413,6 +413,7 @@ mod tests {
             scale: 1.0,
             position: [0.0, 0.0],
             effects: Vec::new(),
+            modulation: Default::default(),
         }
     }
 
@@ -432,6 +433,7 @@ mod tests {
             solo: false,
             collapsed: false,
             effects: Vec::new(),
+            modulation: Default::default(),
             clips,
         }
     }
@@ -616,6 +618,7 @@ mod tests {
         let effect = |id: &str, kind, bypass| Effect {
             id: id.into(),
             bypass,
+            modulation: Default::default(),
             kind,
         };
         let mut vj = grid();
@@ -755,5 +758,57 @@ mod tests {
         play.launch_column(&vj, "c2", secs(1.0));
         assert_eq!(play.playing()["g"].clip.as_deref(), Some("logo"));
         assert!(!play.playing().contains_key("l2"));
+    }
+
+    #[test]
+    fn a_modulated_grid_should_draw_the_modulated_values_and_leave_the_stored_ones() {
+        use flux_project::vj::{Effect, EffectKind};
+        use flux_project::vj_effects::{Pace, Sync};
+        use flux_project::vj_modulation::{
+            self as modulation, Bands, Clock, Modulation, Shape, Source,
+        };
+        let ramp = |min, max| Modulation {
+            source: Source::Lfo {
+                shape: Shape::SawUp,
+                pace: Pace {
+                    sync: Sync::Beats,
+                    rate: 0.0,
+                    beats: 1.0,
+                },
+                phase: 0.0,
+            },
+            min,
+            max,
+        };
+        let mut vj = grid();
+        vj.layers[0]
+            .modulation
+            .insert("opacity".into(), ramp(0.0, 1.0));
+        vj.layers[0].clips[0]
+            .modulation
+            .insert("scale".into(), ramp(1.0, 3.0));
+        vj.layers[0].clips[0].effects = vec![Effect {
+            id: "e1".into(),
+            bypass: false,
+            modulation: [("radius".to_owned(), ramp(0.0, 1.0))].into(),
+            kind: EffectKind::Blur { radius: 0.1 },
+        }];
+        let stored = vj.clone();
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        let clock = Clock {
+            seconds: 1.0,
+            beats: 0.5,
+        };
+        let drawn = modulation::modulate(&vj, &mut Default::default(), clock, Bands::default());
+        let shown = play.layers(&drawn, secs(1.0), &probe);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].opacity, 0.5);
+        assert_eq!(shown[0].scale, 2.0);
+        assert_eq!(shown[0].effects[0].kind, EffectKind::Blur { radius: 0.5 });
+        assert_eq!(vj, stored, "what is stored is never changed by modulation");
+        // Drawn from the stored grid, the stored values show.
+        let plain = play.layers(&vj, secs(1.0), &probe);
+        assert_eq!((plain[0].opacity, plain[0].scale), (1.0, 1.0));
     }
 }

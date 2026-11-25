@@ -14,7 +14,7 @@
 //! blend, transition and crossfader side of a layer are stored with the project; which clip is
 //! playing is not, it belongs to the show running.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +23,7 @@ use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit}
 pub use crate::vj_effects::{
     Effect, EffectKind, EffectSpec, EffectTarget, MAX_EFFECTS, MirrorAxis, ParamSpec, Sync,
 };
+pub use crate::vj_modulation::{ModTarget, Modulation};
 use crate::{ProjectError, Result};
 
 /// Most layers a grid has.
@@ -190,6 +191,10 @@ pub struct Layer {
     /// is applied first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    /// What drives `master`, `opacity` or `volume` by itself (see [`crate::vj_modulation`]), by
+    /// field. The stored value is the one the fader stands at.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modulation: BTreeMap<String, Modulation>,
     /// At most one per column of each deck (per slot on a global layer), in no particular order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<Clip>,
@@ -228,6 +233,7 @@ impl Layer {
             solo: false,
             collapsed: false,
             effects: Vec::new(),
+            modulation: BTreeMap::new(),
             clips: Vec::new(),
         }
     }
@@ -340,6 +346,10 @@ pub struct Clip {
     /// The clip's effects, first applied first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
+    /// What drives `scale`, `positionX` or `positionY` by itself (see [`crate::vj_modulation`]), by
+    /// field.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modulation: BTreeMap<String, Modulation>,
 }
 
 fn is_fit(fit: &VideoFit) -> bool {
@@ -609,9 +619,15 @@ pub enum VjOp {
     DuplicateEffect {
         effect: String,
     },
-    /// Gives the effect the settings its kind starts with.
+    /// Gives the effect the settings its kind starts with, and takes its modulation away.
     ResetEffect {
         effect: String,
+    },
+    /// Sets what drives a numeric setting by itself (see [`crate::vj_modulation`]), or with `None`
+    /// takes it away. The values are brought into the setting's range.
+    SetModulation {
+        target: ModTarget,
+        modulation: Option<Modulation>,
     },
 }
 
@@ -994,6 +1010,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             stack.push(Effect {
                 id: new_id(),
                 bypass: false,
+                modulation: BTreeMap::new(),
                 kind,
             });
         }
@@ -1037,12 +1054,14 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::ResetEffect { effect } => {
             let (stack, at) = vj.effect_mut(&effect)?;
             stack[at].kind = EffectKind::default_of(&stack[at].kind.name())?;
+            stack[at].modulation.clear();
         }
+        VjOp::SetModulation { target, modulation } => set_modulation(vj, target, modulation)?,
     }
     Ok(())
 }
 
-fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
+pub(crate) fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
     Clip {
         id,
         column: None,
@@ -1056,6 +1075,7 @@ fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
         scale: 1.0,
         position: [0.0, 0.0],
         effects: Vec::new(),
+        modulation: BTreeMap::new(),
     }
 }
 
@@ -1082,6 +1102,36 @@ fn take_clip(vj: &mut Vj, layer: &str, which: impl Fn(&Clip) -> bool) -> Option<
     let layer = vj.layers.iter_mut().find(|l| l.id == layer)?;
     let index = layer.clips.iter().position(which)?;
     Some(layer.clips.remove(index))
+}
+
+/// Sets or takes away the modulation `target` names, brought into the range of the setting.
+fn set_modulation(vj: &mut Vj, target: ModTarget, modulation: Option<Modulation>) -> Result<()> {
+    let (map, key, (lo, hi)) = match target {
+        ModTarget::Effect { effect, param } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            let range = stack[at].kind.modulatable_range(&param)?;
+            (&mut stack[at].modulation, param, range)
+        }
+        ModTarget::Layer { layer, field } => {
+            let range = crate::vj_modulation::layer_range(&field)
+                .ok_or_else(|| ProjectError::Invalid(format!("{field} cannot be modulated")))?;
+            (&mut vj.layer_mut(&layer)?.modulation, field, range)
+        }
+        ModTarget::Clip { clip, field } => {
+            let range = crate::vj_modulation::clip_range(&field)
+                .ok_or_else(|| ProjectError::Invalid(format!("{field} cannot be modulated")))?;
+            (&mut vj.clip_mut(&clip)?.modulation, field, range)
+        }
+    };
+    match modulation {
+        Some(modulation) => {
+            map.insert(key, modulation.tidy(lo, hi)?);
+        }
+        None => {
+            map.remove(&key);
+        }
+    }
+    Ok(())
 }
 
 /// A typed name, or `None` for an empty one (the default name).
@@ -1178,6 +1228,7 @@ pub(crate) fn validate<'a>(
             )));
         }
         crate::vj_effects::validate_stack(&layer.effects, item_ids)?;
+        crate::vj_modulation::validate_map(&layer.modulation, crate::vj_modulation::layer_range)?;
         let mut cells = HashSet::new();
         for clip in &layer.clips {
             if !item_ids.insert(&clip.id) {
@@ -1218,6 +1269,7 @@ pub(crate) fn validate<'a>(
             }
             check_name(clip.name.as_deref())?;
             crate::vj_effects::validate_stack(&clip.effects, item_ids)?;
+            crate::vj_modulation::validate_map(&clip.modulation, crate::vj_modulation::clip_range)?;
             if !(0.0..=MAX_SCALE).contains(&clip.scale)
                 || clip
                     .position
@@ -1940,5 +1992,216 @@ mod tests {
             effect: "nope".into(),
         };
         assert!(apply(&mut project, missing, &mut new_id).is_err());
+    }
+
+    fn sine(min: f32, max: f32) -> Modulation {
+        use crate::vj_effects::Pace;
+        use crate::vj_modulation::{Shape, Source};
+        Modulation {
+            source: Source::Lfo {
+                shape: Shape::Sine,
+                pace: Pace {
+                    sync: Sync::Beats,
+                    rate: 0.5,
+                    beats: 1.0,
+                },
+                phase: 0.0,
+            },
+            min,
+            max,
+        }
+    }
+
+    fn set(target: ModTarget, modulation: Option<Modulation>) -> VjOp {
+        VjOp::SetModulation { target, modulation }
+    }
+
+    #[test]
+    fn set_modulation_should_store_and_remove_it_on_effects_layers_and_clips() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        add_effect(
+            &mut project,
+            EffectTarget::Clip("g13".into()),
+            "blur",
+            &mut new_id,
+        ); // g14
+        let effect = || ModTarget::Effect {
+            effect: "g14".into(),
+            param: "radius".into(),
+        };
+        let layer = |field: &str| ModTarget::Layer {
+            layer: "g1".into(),
+            field: field.into(),
+        };
+        let clip = |field: &str| ModTarget::Clip {
+            clip: "g13".into(),
+            field: field.into(),
+        };
+        run(
+            &mut project,
+            set(effect(), Some(sine(0.0, 1.0))),
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            set(layer("opacity"), Some(sine(1.0, 0.2))),
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            set(clip("positionX"), Some(sine(-1.0, 1.0))),
+            &mut new_id,
+        );
+        let layer0 = &project.vj.layers[0];
+        assert_eq!(
+            layer0.clips[0].effects[0].modulation["radius"],
+            sine(0.0, 1.0)
+        );
+        assert_eq!(
+            layer0.modulation["opacity"].min, 1.0,
+            "min may be above max"
+        );
+        assert!(layer0.clips[0].modulation.contains_key("positionX"));
+        // The stored values stay as they were.
+        assert_eq!(layer0.opacity, 1.0);
+
+        // Out of range is brought into it; a number that is not one is refused.
+        run(
+            &mut project,
+            set(layer("master"), Some(sine(-3.0, 9.0))),
+            &mut new_id,
+        );
+        let master = project.vj.layers[0].modulation["master"];
+        assert_eq!((master.min, master.max), (0.0, 1.0));
+        let mut nan = sine(0.0, 1.0);
+        nan.max = f32::NAN;
+        assert!(apply(&mut project, set(layer("master"), Some(nan)), &mut new_id).is_err());
+
+        // Null removes.
+        run(&mut project, set(layer("master"), None), &mut new_id);
+        assert!(!project.vj.layers[0].modulation.contains_key("master"));
+    }
+
+    #[test]
+    fn set_modulation_should_refuse_what_cannot_be_modulated() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        add_effect(
+            &mut project,
+            EffectTarget::Clip("g13".into()),
+            "kaleidoscope",
+            &mut new_id,
+        ); // g14
+        add_effect(
+            &mut project,
+            EffectTarget::Clip("g13".into()),
+            "mirror",
+            &mut new_id,
+        ); // g15
+        let effect = |id: &str, param: &str| ModTarget::Effect {
+            effect: id.into(),
+            param: param.into(),
+        };
+        let mut refused = |target: ModTarget| {
+            assert!(apply(&mut project, set(target, Some(sine(0.0, 1.0))), &mut new_id).is_err());
+        };
+        // A choice, a rate, a length of beats, a setting the kind lacks, an unknown effect.
+        refused(effect("g15", "axis"));
+        refused(effect("g14", "rate"));
+        refused(effect("g14", "beats"));
+        refused(effect("g14", "nope"));
+        refused(effect("nope", "x"));
+        refused(ModTarget::Layer {
+            layer: "g1".into(),
+            field: "transition".into(),
+        });
+        refused(ModTarget::Clip {
+            clip: "g13".into(),
+            field: "opacity".into(),
+        });
+        refused(ModTarget::Layer {
+            layer: "nope".into(),
+            field: "master".into(),
+        });
+    }
+
+    #[test]
+    fn modulation_should_follow_duplicate_and_clear_on_reset_and_survive_a_round_trip() {
+        let (mut project, mut new_id) = vj_project();
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "zoom",
+            &mut new_id,
+        ); // g13
+        let target = ModTarget::Effect {
+            effect: "g13".into(),
+            param: "amount".into(),
+        };
+        run(&mut project, set(target, Some(sine(0.5, 2.0))), &mut new_id);
+        let duplicate = VjOp::DuplicateEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, duplicate, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert_eq!(stack[1].modulation, stack[0].modulation);
+        assert_eq!(stack[1].modulation.len(), 1);
+
+        // Changing the setting keeps the modulation; the stored value is the base.
+        let params = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::Zoom { amount: 1.5 },
+        };
+        run(&mut project, params, &mut new_id);
+        assert_eq!(project.vj.layers[0].effects[0].modulation.len(), 1);
+
+        let json = serde_json::to_string(&project).unwrap();
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.vj, project.vj);
+        back.validate().unwrap();
+        // A plain effect writes no modulation key.
+        let plain = serde_json::to_value(&project.vj.layers[1]).unwrap();
+        assert!(plain.get("modulation").is_none());
+
+        let reset = VjOp::ResetEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, reset, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert!(stack[0].modulation.is_empty());
+        assert_eq!(
+            stack[1].modulation.len(),
+            1,
+            "only the reset effect is cleared"
+        );
+    }
+
+    #[test]
+    fn validate_should_refuse_a_modulation_out_of_range_or_on_a_wrong_field() {
+        let (mut project, _) = vj_project();
+        project.vj.layers[0]
+            .modulation
+            .insert("opacity".into(), sine(0.0, 2.0));
+        assert!(project.validate().is_err());
+        project.vj.layers[0].modulation.clear();
+        project.vj.layers[0]
+            .modulation
+            .insert("blend".into(), sine(0.0, 1.0));
+        assert!(project.validate().is_err());
+        project.vj.layers[0].modulation.clear();
+        project.vj.layers[0]
+            .modulation
+            .insert("volume".into(), sine(0.0, 1.0));
+        project.validate().unwrap();
+    }
+
+    #[test]
+    fn a_project_saved_before_modulation_should_load_without_any() {
+        let (project, _) = vj_project();
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(!json.contains("modulation"));
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert!(!back.vj.is_modulated());
     }
 }

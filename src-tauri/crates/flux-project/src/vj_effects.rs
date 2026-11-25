@@ -6,12 +6,14 @@
 //! its default. The ops take their defaults and ranges from it, and the inspector draws its
 //! controls from it, so no range lives in the interface.
 
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::generator::rgb;
+use crate::vj_modulation::Modulation;
 use crate::{ProjectError, Result};
 
 /// Most effects one stack holds.
@@ -31,6 +33,10 @@ pub struct Effect {
     /// Skipped while drawing; the effect keeps its place and settings.
     #[serde(default, skip_serializing_if = "is_false")]
     pub bypass: bool,
+    /// What drives a numeric setting by itself (see [`crate::vj_modulation`]), by the setting's key
+    /// in the [`catalog`]. The setting itself keeps the value the user set.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modulation: BTreeMap<String, Modulation>,
     #[serde(flatten)]
     pub kind: EffectKind,
 }
@@ -296,6 +302,9 @@ pub enum ParamSpec {
         /// What it is counted in: `%` (the number times 100), `°`, `Hz`, or nothing.
         unit: &'static str,
         snap: Vec<f32>,
+        /// Whether a modulation can drive it: not a rate or a length of beats, which a modulation
+        /// is itself paced by.
+        modulatable: bool,
     },
     /// One of `options`.
     Choice {
@@ -412,6 +421,7 @@ fn num(key: &'static str, min: f32, max: f32, step: f32, default: f32) -> ParamS
         whole: false,
         unit,
         snap: Vec::new(),
+        modulatable: key != "rate",
     }
 }
 
@@ -425,6 +435,7 @@ fn whole(key: &'static str, min: f32, max: f32, default: f32) -> ParamSpec {
         whole: true,
         unit: "",
         snap: Vec::new(),
+        modulatable: true,
     }
 }
 
@@ -458,6 +469,7 @@ fn pace(rate: f32, beats: f32) -> [ParamSpec; 3] {
             whole: false,
             unit: "",
             snap: BEAT_CYCLES.to_vec(),
+            modulatable: false,
         },
     ]
 }
@@ -857,6 +869,35 @@ impl EffectKind {
         Self::from_map(map)
     }
 
+    /// The range of the setting `param` if it can be modulated: a number that is not a rate or a
+    /// length of beats, which are what a modulation itself is paced by.
+    pub fn modulatable_range(&self, param: &str) -> Result<(f32, f32)> {
+        let name = self.name();
+        let range = spec_of(&name)?.params.iter().find_map(|spec| match spec {
+            ParamSpec::Number {
+                key,
+                min,
+                max,
+                modulatable: true,
+                ..
+            } if *key == param => Some((*min, *max)),
+            _ => None,
+        });
+        range.ok_or_else(|| {
+            ProjectError::Invalid(format!("the {name} setting {param} cannot be modulated"))
+        })
+    }
+
+    /// The kind with the numeric settings `values` (key and number) set, each brought into range
+    /// (and to a whole number where it is one); `None` if a key is not a number of this kind.
+    pub fn with_numbers(&self, values: &[(String, f32)]) -> Option<Self> {
+        let mut map = self.to_map();
+        for (key, value) in values {
+            *map.get_mut(key)? = Value::from(f64::from(*value));
+        }
+        Self::from_map(map).ok()?.tidy().ok()
+    }
+
     /// Checks the settings are in range, as [`Self::tidy`] would bring them.
     pub(crate) fn validate(&self) -> Result<()> {
         if self.clone().tidy()? == *self {
@@ -899,6 +940,10 @@ pub(crate) fn validate_stack<'a>(
             )));
         }
         effect.kind.validate()?;
+        for (param, modulation) in &effect.modulation {
+            let (lo, hi) = effect.kind.modulatable_range(param)?;
+            modulation.validate(lo, hi)?;
+        }
     }
     Ok(())
 }
