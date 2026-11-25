@@ -155,8 +155,8 @@ transport is stopped, before a clip and after it. A GPU error is kept for the se
 
 A VJ project ([project format](fxtc-format.md#vj-grid-version-14)) shows its grid instead of a timeline. Its clips play
 on a clock of their own, not the transport's: `flux_video::GridPlay` holds which clip plays on each layer and when it was
-launched, and `grid_frame` maps the time since the launch to a frame of the video, looping, stopping after one pass or
-going back and forth (`playback`). The output's render threads ask `VideoDeck::show_grid` for the pictures on every
+launched, with a playhead for each (see [Clip transport](#clip-transport)), and `frame_at` maps the playhead to a frame of the video, looping, stopping after one pass or
+going back and forth (`playback`) inside the clip's region. The output's render threads ask `VideoDeck::show_grid` for the pictures on every
 refresh, so a launched clip has a player only while it plays. A layer's picture is its `master` times its `opacity`
 times its crossfader side: each side shows fully from its end to the middle and fades out over the other half. `bypass`
 hides a layer and a `solo` layer hides every layer that is not soloed. Clip sound is not played yet, so `volume` does
@@ -169,8 +169,8 @@ clip that already plays restarts it at once. A clip launched on a layer that pla
 already drawn, and a layer that is not `alpha` never hides the ones below it.
 
 The app crate's `vj_commands.rs` holds what plays, which is never stored. Its commands answer with what plays now
-(`{ playing: [{ layer, clip, seconds, progress, remaining, level, transition, stopping }], column, crossfader }`:
-`progress` is where each clip is in its video, `level` how much of it reaches the output, `transition` how far its
+(`{ playing: [{ layer, clip, seconds, position, progress, remaining, region, cues, rate, passSeconds, level, transition, stopping }], column, crossfader }`:
+`position` is where each clip's playhead is in the whole clip, `progress` where it is in its region, `level` how much of it reaches the output, `transition` how far its
 layer's transition is while one runs, `stopping` whether the layer is fading out, and `column` the column launched last while its
 clips play):
 
@@ -180,11 +180,13 @@ clips play):
 | `vj_release` | `clip` | Stops a `piano` clip when it is let go; a `normal` clip keeps playing. |
 | `vj_launch_column` | `column` | Launches every clip of the column at once; a deck layer without a clip in it stops and global layers are left as they are. |
 | `vj_stop` | `layer?` | Stops the layer, or every layer. |
+| `vj_scrub` | `layer`, `position` | Moves the playhead of the clip playing on the layer to `position`, 0 to 1 of the clip's length (brought into its region). |
+| `vj_cue` | `clip`, `index` | Jumps the clip to its cue `index` (0 to 7), launching it there if it is not playing; refused when the cue is empty. |
 | `vj_crossfader` | `position` | Moves the crossfader, 0 (side A) to 1 (side B). |
 | `vj_play_state` | | Reads what plays. |
 
 A VJ show has a menu bar and keys of its own (`src/vj/menus.ts`): File, Edit, Composition, Deck, Layer, Clip, Output,
-View and Help, with no tracks, timelines or transport. Its keys: 1 to 9 launch a column of the deck shown, Enter the
+View and Help, with no tracks, timelines or transport. Its keys: 1 to 9 launch a column of the deck shown, Shift+1 to 8 jump the selected clip to its cues, Enter the
 selected clip, Ctrl+PgUp/PgDn change deck, Ctrl+. stops everything, B, S and X bypass, solo and stop the selected layer,
 Del removes the selected clip, Ctrl+I imports media, Ctrl+Shift+A opens the output and Space plays or pauses the
 timecode on the internal clock. The timeline's other keys (Home, the arrows, N, S, G, F2, Ctrl+1/2) do nothing in a VJ
@@ -290,6 +292,45 @@ flash, a 16:9 picture for a gradient (so its angle is the one drawn), 1792 x 1 f
 each stretched when drawn. The picture's index changes with its parameters and its phase, so a screen uploads it again
 only then. Between a strobe's flashes the layer shows nothing. The screens and the output monitor draw them as any other
 picture.
+
+### Clip transport
+
+Each clip of the grid has a transport, as in Resolume (fields in the [project format](fxtc-format.md#vj-grid-version-14)):
+a `speed` (0.05 to 8), a `direction` (forward, reverse or pause), a `tempo` (free, or one pass of 1 to 128 beats), a
+`region` (the part of the clip that plays, with in and out points) and 8 `cues`. The Clip tab of the inspector has a
+Transport section: a strip of the clip's thumbnails with the region shaded and its two handles (dragged live through
+`vj_preview`, kept on release), the playhead, the cue marks, and a click or drag on it scrubs (`vj_scrub`); the
+direction, a speed scrub with a 1x reset, the tempo (Free or 1 to 128 beats, with the length of a pass the backend
+reports) and 8 cue buttons: a click jumps (`vj_cue`), an empty one is set at the playhead, Alt-click or the x clears
+it. A clip that does not play forwards at its own speed shows a badge on its cell (a reversed or paused clip, the speed
+or the beats). The UI never computes a position: it draws `position`, `region` and `cues` from the play state.
+
+**The playhead.** `flux_project::playhead` holds the math, which the picture, the sound and the play state share. A
+launched clip has an anchored `Playhead`: where it was (`u`, counted in lengths of the region from its start, so 1 is the
+end of the region and it goes on past it when the clip loops) when the grid's clock read some time and had counted some
+beats. At a later tick `u` is the anchor plus the time since times the rate (the speed times the direction, over the
+length of the region in seconds) while the tempo is free, or the beats since times the direction over the beats of a
+pass when it is a number of beats, which follows tempo changes and TAP exactly (the grid's beat count keeps its phase
+across a tempo change). `fold` then turns `u` into a place in the region by the clip's `playback`: `loop` wraps,
+`once` ends (forwards past the end of the region, backwards past its start, and the layer then shows nothing) and
+`pingPong` bounces. A clip launched in reverse starts at the end of its region. Any change of the clip's speed,
+direction, tempo, region or playback anchors the playhead again from where it is (`GridPlay::follow`, called with every
+tick of the grid's clock by the screens, the sound and the commands), so nothing jumps; a region that moves under the
+playhead keeps its place (brought into the new region) and, in a ping-pong, the leg of the bounce. A `scrub` or a `cue`
+anchors it at the place asked, brought into the region, and wakes a clip that played once and ended. A clip a
+transition leaves keeps its own playhead. A generator uses the playhead as its clock only: its milliseconds follow the
+speed and direction (not before its start), and region, cues and tempo do not apply to it. Effects animate on the real
+time since the launch, whatever the speed. The speed is not modulatable: integrating a modulated rate over time is not
+done.
+
+**The sound.** A grid voice (`flux_engine::grid_audio`) follows the same playhead as a `Course`: where `u` was at an
+instant of the grid's clock and how fast it moves, folded by the same function, so sound and picture agree. The audio
+callback reads the decoded sound at a fractional frame with linear interpolation (varispeed: the pitch follows the speed
+and the tempo), backwards in reverse, and a paused clip is silent. The callback cannot count beats, so a clip that lasts
+a number of beats is turned into its rate when the mix is built; the mix is built again when the tempo changes
+(`modulation.rs`' timer checks it for clips with a beat tempo) and whenever what plays changes. When a new mix takes a
+voice somewhere else (a scrub, a cue, a clip that ends or starts moving), the old place fades out and the new one in over
+one mix chunk (256 frames, about 5 ms) so the jump does not click; the wrap of a loop is not smoothed.
 
 ### Modulation
 
