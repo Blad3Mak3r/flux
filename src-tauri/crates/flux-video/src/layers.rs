@@ -33,6 +33,9 @@ pub struct Layer {
     pub scale: f32,
     /// How far its centre moves from where its fit puts it, as fractions of the composition.
     pub position: [f32; 2],
+    /// The effects drawn on the picture, the first applied first: the clip's, then its layer's,
+    /// without the bypassed ones; none on a timeline.
+    pub effects: Vec<flux_project::vj::EffectKind>,
 }
 
 /// The rate and length of a video, which the mapping needs; `None` when it could not be read.
@@ -77,6 +80,7 @@ pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
                             blend: Default::default(),
                             scale: 1.0,
                             position: [0.0, 0.0],
+                            effects: Vec::new(),
                         },
                     ))
                 })
@@ -133,6 +137,7 @@ pub fn upcoming(timeline: &Timeline, position: u64, ahead: u64, probe: Probe<'_>
                 blend: Default::default(),
                 scale: 1.0,
                 position: [0.0, 0.0],
+                effects: Vec::new(),
             })
         })
         .collect()

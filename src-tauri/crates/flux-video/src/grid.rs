@@ -306,6 +306,13 @@ impl GridPlay {
                     blend: layer.blend,
                     scale: clip.scale,
                     position: clip.position,
+                    effects: clip
+                        .effects
+                        .iter()
+                        .chain(&layer.effects)
+                        .filter(|effect| !effect.bypass)
+                        .map(|effect| effect.kind.clone())
+                        .collect(),
                 })
             };
             let fading = launched.fading(now);
@@ -404,6 +411,7 @@ mod tests {
             fit: Default::default(),
             scale: 1.0,
             position: [0.0, 0.0],
+            effects: Vec::new(),
         }
     }
 
@@ -422,6 +430,7 @@ mod tests {
             bypass: false,
             solo: false,
             collapsed: false,
+            effects: Vec::new(),
             clips,
         }
     }
@@ -598,6 +607,43 @@ mod tests {
         vj.layers[1].clips.clear();
         play.retain(&vj);
         assert_eq!(play.playing().len(), 1);
+    }
+
+    #[test]
+    fn a_picture_should_carry_its_clips_effects_then_its_layers_without_the_bypassed() {
+        use flux_project::vj::{Effect, EffectKind};
+        let effect = |id: &str, kind, bypass| Effect {
+            id: id.into(),
+            bypass,
+            kind,
+        };
+        let mut vj = grid();
+        vj.layers[0].effects = vec![
+            effect("e3", EffectKind::Invert { amount: 1.0 }, false),
+            effect("e4", EffectKind::Blur { radius: 0.5 }, true),
+        ];
+        vj.layers[0].clips[0].effects = vec![
+            effect("e1", EffectKind::Brightness { amount: 0.2 }, false),
+            effect("e2", EffectKind::Zoom { amount: 2.0 }, true),
+        ];
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        play.launch(&vj, "b", secs(0.0));
+        let shown = play.layers(&vj, secs(1.0), &probe);
+        assert_eq!(
+            shown[0].effects,
+            [EffectKind::Invert { amount: 1.0 }],
+            "the layer's effects reach a clip with none of its own"
+        );
+        play.launch(&vj, "a", secs(1.0));
+        let shown = play.layers(&vj, secs(1.5), &probe);
+        assert_eq!(
+            shown[0].effects,
+            [
+                EffectKind::Brightness { amount: 0.2 },
+                EffectKind::Invert { amount: 1.0 }
+            ]
+        );
     }
 
     #[test]

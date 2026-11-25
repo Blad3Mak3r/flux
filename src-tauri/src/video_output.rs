@@ -570,6 +570,7 @@ impl Render {
                 place: [0.0, 0.0, 1.0, 1.0],
                 opacity: 1.0,
                 blend: flux_render::Blend::Alpha,
+                effects: Default::default(),
             });
         }
         let drawn = !pictures.is_empty();
@@ -732,6 +733,7 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture
             layer.scale,
             layer.position,
         );
+        let effects = effects(&layer.effects);
         pictures.push(Picture {
             id: hash.finish(),
             width: frame.width,
@@ -740,9 +742,12 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture
             place,
             opacity: layer.opacity,
             blend: blend(layer.blend),
+            effects,
         });
         let alpha = layer.blend == flux_project::vj::Blend::Alpha;
-        if alpha && layer.opacity >= 1.0 && !frame.alpha && covers(place) {
+        // Effects can leave parts of the picture clear (a zoom out, a blur's soft edge), so a
+        // picture with any hides nothing below it.
+        if alpha && layer.opacity >= 1.0 && !frame.alpha && covers(place) && effects.is_identity() {
             break;
         }
     }
@@ -914,6 +919,37 @@ pub fn video_output_pattern(output: State<'_, SharedVideoOutput>, on: bool) {
 }
 
 /// The render's blend for a layer's.
+/// What the effects of a layer's picture come to for the renderer.
+fn effects(chain: &[flux_project::vj::EffectKind]) -> flux_render::Effects {
+    use flux_project::vj::{EffectKind as Kind, MirrorAxis};
+    use flux_render::Effect;
+    let chain: Vec<Effect> = chain
+        .iter()
+        .map(|kind| match kind {
+            Kind::Brightness { amount } => Effect::Brightness(*amount),
+            Kind::Contrast { amount } => Effect::Contrast(*amount),
+            Kind::Saturation { amount } => Effect::Saturation(*amount),
+            Kind::Hue { degrees } => Effect::Hue(*degrees),
+            Kind::Tint { colour, amount } => Effect::Tint {
+                colour: flux_project::generator::rgb(colour)
+                    .unwrap_or([255; 3])
+                    .map(|c| f32::from(c) / 255.0),
+                amount: *amount,
+            },
+            Kind::Invert { amount } => Effect::Invert(*amount),
+            Kind::Blur { radius } => Effect::Blur(*radius),
+            Kind::Mirror { axis } => Effect::Mirror(match axis {
+                MirrorAxis::Horizontal => flux_render::Mirror::Horizontal,
+                MirrorAxis::Vertical => flux_render::Mirror::Vertical,
+                MirrorAxis::Both => flux_render::Mirror::Both,
+            }),
+            Kind::Zoom { amount } => Effect::Zoom(*amount),
+            Kind::Shift { x, y } => Effect::Shift(*x, *y),
+        })
+        .collect();
+    flux_render::Effects::new(&chain)
+}
+
 fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
     use flux_project::vj::Blend as B;
     match blend {
