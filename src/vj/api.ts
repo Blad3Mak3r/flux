@@ -56,7 +56,9 @@ export type VjOp =
   | { op: "removeEffect"; effect: string }
   | { op: "moveEffect"; effect: string; index: number }
   | { op: "effectParams"; effect: string; kind: VjEffectKind }
-  | { op: "effectBypass"; effect: string; bypass: boolean };
+  | { op: "effectBypass"; effect: string; bypass: boolean }
+  | { op: "duplicateEffect"; effect: string }
+  | { op: "resetEffect"; effect: string };
 
 export const vjEdit = (project: Project, op: VjOp) => invoke<ProjectState>("vj_edit", { project, op });
 /** Moves a level or a clip's transform in the backend while the hand moves it, without the project going back and forth. */
@@ -101,3 +103,28 @@ export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfad
 export const vjPlayState = () => invoke<GridState>("vj_play_state");
 /** What the grid sends to the screens now, as a small picture (see `bindOutput`); empty outside a VJ project. */
 export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");
+
+/** A setting of an effect, with what it takes; the backend owns the ranges and the defaults. */
+export type VjParamSpec =
+  | { type: "number"; key: string; min: number; max: number; step: number; default: number; whole: boolean; unit: string; snap: number[] }
+  | { type: "choice"; key: string; options: string[]; default: string }
+  | { type: "colour"; key: string; default: string }
+  | { type: "flag"; key: string; default: boolean };
+
+/** One kind of effect: its category, whether it moves with time, and its settings. */
+export interface VjEffectSpec {
+  name: string;
+  category: string;
+  animated: boolean;
+  params: VjParamSpec[];
+}
+
+export interface VjEffectCatalog {
+  /** Most effects a stack holds. */
+  max: number;
+  /** The groups effects are listed in, in order. */
+  categories: string[];
+  effects: VjEffectSpec[];
+}
+
+export const vjEffectCatalog = () => invoke<VjEffectCatalog>("vj_effect_catalog");

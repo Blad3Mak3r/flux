@@ -40,8 +40,10 @@ interface VjState {
   tab: "clip" | "layer";
   /** Which media the browser lists. */
   media: MediaKind;
-  /** What the browser shows: the project's media or the generators. */
-  browser: "media" | "generators";
+  /** What the browser shows: the project's media, the generators or the effects. */
+  browser: "media" | "generators" | "effects";
+  /** The effects of the inspector folded shut; only the screen's, never the file's. */
+  folded: Record<string, true>;
   /** Whether the Advanced Output is open. */
   output: boolean;
 }
@@ -56,6 +58,7 @@ export const useVj = create<VjState>()(() => ({
   tab: "clip",
   media: "all",
   browser: "media",
+  folded: {},
   output: false,
 }));
 
@@ -139,6 +142,14 @@ export const selectClip = (clip: string, layer: string) => useVj.setState({ clip
 export const selectLayer = (layer: string) => useVj.setState({ layer, tab: "layer" });
 export const showTab = (tab: VjState["tab"]) => useVj.setState({ tab });
 export const showMedia = (media: MediaKind) => useVj.setState({ media });
+/** Folds an effect of the inspector shut, or opens it again. */
+export const foldEffect = (effect: string) =>
+  useVj.setState((vj) => {
+    const folded = { ...vj.folded };
+    if (folded[effect]) delete folded[effect];
+    else folded[effect] = true;
+    return { folded };
+  });
 export const showBrowser = (browser: VjState["browser"]) => useVj.setState({ browser });
 
 /** Asks the backend what plays, ten times a second, while the VJ screen is open and in sight. */

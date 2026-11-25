@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
-import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, EyeIcon, EyeOffIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
+import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
 import type { Translate } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
@@ -17,11 +17,8 @@ import type {
   VjColumn,
   VjDeck,
   VjEffect,
-  VjEffectKind,
-  VjEffectName,
   VjGrid,
   VjLayer,
-  VjMirrorAxis,
   VjPlayback,
   VjSide,
   VjTransition,
@@ -52,6 +49,9 @@ import {
 import type { MediaKind } from "./store";
 import { GENERATORS, swatch } from "./generators";
 import { AdvancedOutput } from "./AdvancedOutput";
+import { ColourField, Scrub, Segments } from "./controls";
+import { EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect } from "./EffectStack";
+import { loadEffectCatalog } from "./effects";
 import { Tempo, TimecodeClock } from "./CompositionBar";
 import "./vj.css";
 
@@ -85,29 +85,10 @@ const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
 const TRIGGERS: VjTrigger[] = ["normal", "piano"];
 const FITS: VideoFit[] = ["fit", "fill", "stretch", "none"];
-const EFFECTS: VjEffectName[] = ["brightness", "contrast", "saturation", "hue", "tint", "invert", "blur", "mirror", "zoom", "shift"];
-const MIRRORS: VjMirrorAxis[] = ["horizontal", "vertical", "both"];
-/** Most effects a stack holds. The backend refuses more; this only greys out the control. */
-const MAX_EFFECTS = 8;
-type EffectField = "amount" | "degrees" | "radius" | "x" | "y";
-/** The number settings of each effect, as a handle: the key it is sent under, its tag, and how it shows (times `shown`). */
-const EFFECT_FIELDS: Partial<Record<VjEffectName, { key: EffectField; tag: string; shown: number; reset: number; unit: string }[]>> = {
-  brightness: [{ key: "amount", tag: "◐", shown: 100, reset: 0, unit: "%" }],
-  contrast: [{ key: "amount", tag: "◐", shown: 100, reset: 1, unit: "%" }],
-  saturation: [{ key: "amount", tag: "◐", shown: 100, reset: 1, unit: "%" }],
-  hue: [{ key: "degrees", tag: "∠", shown: 1, reset: 0, unit: "°" }],
-  tint: [{ key: "amount", tag: "◐", shown: 100, reset: 0.5, unit: "%" }],
-  invert: [{ key: "amount", tag: "◐", shown: 100, reset: 1, unit: "%" }],
-  blur: [{ key: "radius", tag: "◌", shown: 100, reset: 0, unit: "%" }],
-  zoom: [{ key: "amount", tag: "↔", shown: 100, reset: 1, unit: "%" }],
-  shift: [
-    { key: "x", tag: "X", shown: 100, reset: 0, unit: "%" },
-    { key: "y", tag: "Y", shown: 100, reset: 0, unit: "%" },
-  ],
-};
 /** The longest transition, in seconds, as the backend keeps it. */
 const MAX_TRANSITION = 10;
 const DRAG = "application/x-flux-vj";
+
 
 type Dragged = { clip: string } | { asset: string } | { generator: VjGeneratorKind };
 
@@ -243,6 +224,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const thumbs = useDoc((doc) => doc.thumbs);
   const [renaming, setRenaming] = useState(false);
+  const [over, setOver] = useState(false);
   const name = layerName(t, grid, layer);
   const clip = playingClip === undefined ? undefined : layer.clips?.find((c) => c.id === playingClip);
   const level = (op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition", scale = 1) => ({
@@ -283,6 +265,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
           <Marquee className="vj-nm" title={name} onDoubleClick={() => setRenaming(true)}>{name}</Marquee>
         )}
         {layer.global && <span className="vj-global" title={t("vj.layer.global")}><GlobeIcon /></span>}
+        <EffectBadge count={layer.effects?.length ?? 0} />
         <Marquee className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(t, clip, videos) : t("vj.layer.noClip")}</Marquee>
         <span className="vj-ab" role="group" aria-label={t("vj.layer.side")}>
           {(["a", "b"] as VjSide[]).map((s) => (
@@ -292,7 +275,20 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         </span>
       </div>
   );
-  const className = `vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}`;
+  const className = `vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}${over ? " over" : ""}`;
+  // An effect dropped on the header goes to the layer's stack.
+  const dropping = {
+    onDragOver: (event: DragEvent<HTMLDivElement>) => {
+      if (!carriesEffect(event)) return;
+      event.preventDefault();
+      setOver(true);
+    },
+    onDragLeave: () => setOver(false),
+    onDrop: (event: DragEvent<HTMLDivElement>) => {
+      setOver(false);
+      dropEffect(event, { layer: layer.id });
+    },
+  };
   const onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
     openMenu({ x: event.clientX, y: event.clientY, items: menu });
@@ -300,7 +296,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   if (layer.collapsed) {
     // Folded as in Resolume: one thin row with the name, the clip on air, bypass, solo and the side.
     return (
-      <div className={`${className} folded`} onClick={() => selectLayer(layer.id)} onContextMenu={onContextMenu}>
+      <div className={`${className} folded`} onClick={() => selectLayer(layer.id)} onContextMenu={onContextMenu} {...dropping}>
         <button type="button" className="vj-eject" title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
           onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
           <CloseIcon />
@@ -315,6 +311,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
       className={className}
       onClick={() => selectLayer(layer.id)}
       onContextMenu={onContextMenu}
+      {...dropping}
     >
       <button type="button" className="vj-eject" title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
         onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
@@ -364,6 +361,8 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setOver(false);
+    // An effect lands on the clip of the cell, and on nothing in an empty one.
+    if (clip && dropEffect(event, { clip: clip.id })) return;
     const raw = event.dataTransfer.getData(DRAG);
     if (!raw) return;
     const dragged = JSON.parse(raw) as Dragged;
@@ -375,7 +374,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   };
   const dropping = {
     onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes(DRAG)) return;
+      if (!event.dataTransfer.types.includes(DRAG) && !(clip && carriesEffect(event))) return;
       event.preventDefault();
       setOver(true);
     },
@@ -414,6 +413,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
     >
       <Thumb strip={stripOf(thumbs, clip)} generator={clip.generator} />
       <span className="vj-shade" />
+      <EffectBadge count={clip.effects?.length ?? 0} />
       {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
       {state && <VideoState state={state} asset={clip.asset} />}
       {/* The name strip selects the clip without launching it. */}
@@ -641,99 +641,6 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
   );
 }
 
-/**
- * A number set by dragging its label sideways, as in Resolume, by typing it or with the arrow keys; a
- * double click on the label puts it back to `reset`. `value` and what it sends are in the backend's units, shown times
- * `shown` (e.g. 100 for a percent).
- */
-function Scrub({ label, name, value, shown, reset, unit = "%", decimals = 0, onMove, onSet }: {
-  /** The handle's short tag. */
-  label: string;
-  /** What the number is, for a screen reader. */
-  name: string;
-  value: number;
-  shown: number;
-  reset: number;
-  /** Shown after the number. */
-  unit?: string;
-  /** Places after the point it is shown with. */
-  decimals?: number;
-  onMove: (value: number) => void;
-  onSet: (value: number) => void;
-}) {
-  const t = useT();
-  const [held, setHeld] = useState<{ x: number; from: number; v: number; moved: boolean } | null>(null);
-  const [text, setText] = useState<string | null>(null);
-  const current = held?.v ?? value;
-  const display = (current * shown).toFixed(decimals);
-  // One pixel is one shown unit; with Shift a tenth of one.
-  const dragged = (event: PointerEvent<HTMLElement>, from: { x: number; from: number }) =>
-    from.from + ((event.clientX - from.x) * (event.shiftKey ? 0.1 : 1)) / shown;
-  const commit = () => {
-    if (text !== null && text.trim() !== "" && Number.isFinite(Number(text))) onSet(Number(text) / shown);
-    setText(null);
-  };
-  return (
-    <span className="vj-scrub">
-      <span
-        className="vj-scrub-l"
-        title={t("vj.clip.scrub")}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId);
-          setHeld({ x: event.clientX, from: value, v: value, moved: false });
-        }}
-        onPointerMove={(event) => {
-          if (!held) return;
-          const v = dragged(event, held);
-          setHeld({ ...held, v, moved: true });
-          onMove(v);
-        }}
-        onPointerUp={(event) => {
-          if (!held) return;
-          const v = dragged(event, held);
-          setHeld(null);
-          // Even back where it started: the previews moved the output, and this puts it back.
-          if (held.moved) onSet(v);
-        }}
-        onPointerCancel={() => setHeld(null)}
-        onDoubleClick={() => onSet(reset)}
-      >{label}</span>
-      <input className="vj-input vj-mono" inputMode="decimal" aria-label={name} value={text ?? display}
-        onFocus={(event) => event.currentTarget.select()}
-        onChange={(event) => setText(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-          if (event.key === "Escape") { setText(null); event.currentTarget.blur(); }
-          // Arrows step one unit, ten with Shift.
-          const step = event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
-          if (step) {
-            event.preventDefault();
-            setText(null);
-            onSet(value + (step * (event.shiftKey ? 10 : 1)) / shown);
-          }
-        }} />
-      <span className="vj-scrub-u">{unit}</span>
-    </span>
-  );
-}
-
-function Segments<T extends string>({ options, value, label, onPick }: {
-  options: T[];
-  value: T;
-  label: (option: T) => string;
-  onPick: (option: T) => void;
-}) {
-  return (
-    <div className="vj-segs" role="radiogroup">
-      {options.map((option) => (
-        <button key={option} type="button" role="radio" aria-checked={option === value} className={option === value ? "on" : ""}
-          onClick={() => { if (option !== value) onPick(option); }}>{label(option)}</button>
-      ))}
-    </div>
-  );
-}
-
 /** A name typed in place; one the backend refuses goes back to the name it had. */
 function NameField({ value, placeholder, label, onCommit }: { value: string; placeholder: string; label: string; onCommit: (name: string) => Promise<boolean> }) {
   const [text, setText] = useState(value);
@@ -749,25 +656,6 @@ function NameField({ value, placeholder, label, onCommit }: { value: string; pla
         if (event.key === "Enter") event.currentTarget.blur();
         if (event.key === "Escape") { setText(value); event.currentTarget.blur(); }
       }} />
-  );
-}
-
-/** A colour picked in place: the output follows while it is picked, and it is kept when the picker closes. */
-function ColourField({ value, label, onMove, onSet }: {
-  value: string;
-  label: string;
-  onMove: (colour: string) => void;
-  onSet: (colour: string) => void;
-}) {
-  const [colour, setColour] = useState(value);
-  useEffect(() => setColour(value), [value]);
-  return (
-    <label className="vj-colour" title={label}>
-      <input type="color" aria-label={label} value={colour}
-        onChange={(event) => { setColour(event.target.value); onMove(event.target.value); }}
-        onBlur={() => { if (colour !== value) onSet(colour); }} />
-      <span className="vj-mono">{colour.toUpperCase()}</span>
-    </label>
   );
 }
 
@@ -819,86 +707,6 @@ function GeneratorFields({ clip, generator }: { clip: string; generator: VjGener
     case "bars":
       return null;
   }
-}
-
-/** One effect of a stack: its name, bypass, order and removal, and its settings. */
-function EffectRow({ effect, index, count }: { effect: VjEffect; index: number; count: number }) {
-  const t = useT();
-  const { id, bypass, ...rest } = effect;
-  const kind = rest as VjEffectKind;
-  const withValues = (changed: Record<string, unknown>) => ({ ...kind, ...changed }) as VjEffectKind;
-  const move = (changed: Record<string, unknown>) => preview({ op: "effectParams", effect: id, kind: withValues(changed) });
-  const keep = (changed: Record<string, unknown>) => void edit({ op: "effectParams", effect: id, kind: withValues(changed) });
-  const values = kind as Record<string, unknown>;
-  const fields = EFFECT_FIELDS[kind.effect] ?? [];
-  const name = t(`vj.effect.${kind.effect}`);
-  const scrub = (field: (typeof fields)[number], label: string) => (
-    <Scrub key={field.key} label={field.tag} name={label} value={values[field.key] as number} shown={field.shown} reset={field.reset} unit={field.unit}
-      onMove={(v) => move({ [field.key]: v })} onSet={(v) => keep({ [field.key]: v })} />
-  );
-  return (
-    <li className={`vj-fx-item${bypass ? " off" : ""}`}>
-      <div className="vj-fx-h">
-        <span className="vj-fx-n">{name}</span>
-        <button type="button" className="vj-fx-b" aria-pressed={!!bypass} title={t("vj.effect.bypass")} aria-label={t("vj.effect.bypass")}
-          onClick={() => void edit({ op: "effectBypass", effect: id, bypass: !bypass })}>{bypass ? <EyeOffIcon /> : <EyeIcon />}</button>
-        <button type="button" className="vj-fx-b" disabled={index === 0} title={t("vj.effect.up")} aria-label={t("vj.effect.up")}
-          onClick={() => void edit({ op: "moveEffect", effect: id, index: index - 1 })}><ArrowUpIcon /></button>
-        <button type="button" className="vj-fx-b" disabled={index === count - 1} title={t("vj.effect.down")} aria-label={t("vj.effect.down")}
-          onClick={() => void edit({ op: "moveEffect", effect: id, index: index + 1 })}><ArrowDownIcon /></button>
-        <button type="button" className="vj-fx-b" title={t("vj.effect.remove")} aria-label={t("vj.effect.remove")}
-          onClick={() => void edit({ op: "removeEffect", effect: id })}><CloseIcon /></button>
-      </div>
-      <div className="vj-fx-p">
-        {kind.effect === "tint" && (
-          <div className="vj-f"><span>{t("vj.effect.colour")}</span>
-            <ColourField value={kind.colour} label={t("vj.effect.colour")} onMove={(colour) => move({ colour })} onSet={(colour) => keep({ colour })} />
-          </div>
-        )}
-        {kind.effect === "mirror" && (
-          <div className="vj-f"><span>{t("vj.effect.axis")}</span>
-            <Segments options={MIRRORS} value={kind.axis} label={(o) => t(`vj.effect.axis.${o}`)}
-              onPick={(axis) => void edit({ op: "effectParams", effect: id, kind: { effect: "mirror", axis } })} />
-          </div>
-        )}
-        {fields.length === 1 && (
-          <div className="vj-f"><span>{t(`vj.effect.${fields[0].key}`)}</span>
-            <div className="vj-scrubs one">{scrub(fields[0], t(`vj.effect.${fields[0].key}`))}</div>
-          </div>
-        )}
-        {fields.length === 2 && (
-          <div className="vj-f"><span>{name}</span>
-            <div className="vj-scrubs">{fields.map((field) => scrub(field, t(`vj.effect.${field.key}`)))}</div>
-          </div>
-        )}
-      </div>
-    </li>
-  );
-}
-
-/** The effects stack of a clip or a layer, applied from the top down; the backend orders, limits and draws it. */
-function EffectStack({ target, effects }: { target: { clip: string } | { layer: string }; effects: VjEffect[] }) {
-  const t = useT();
-  const full = effects.length >= MAX_EFFECTS;
-  return (
-    <section className="vj-fx" aria-label={t("vj.effects")}>
-      <header className="vj-fx-head">
-        <h3>{t("vj.effects")}</h3>
-        <select className="vj-select wide vj-fx-add" value="" disabled={full} aria-label={t("vj.effect.add")}
-          title={full ? t("vj.effect.full", { n: MAX_EFFECTS }) : undefined}
-          onChange={(event) => { if (event.target.value) void edit({ op: "addEffect", target, kind: event.target.value as VjEffectName }); }}>
-          <option value="">{t("vj.effect.add")}</option>
-          {EFFECTS.map((kind) => <option key={kind} value={kind}>{t(`vj.effect.${kind}`)}</option>)}
-        </select>
-      </header>
-      {effects.length === 0 ? <p className="vj-dim vj-fx-empty">{t("vj.effect.empty")}</p> : (
-        <ol className="vj-fx-list">
-          {effects.map((effect, index) => <EffectRow key={effect.id} effect={effect} index={index} count={effects.length} />)}
-        </ol>
-      )}
-      {full && <p className="vj-dim vj-fx-empty">{t("vj.effect.full", { n: MAX_EFFECTS })}</p>}
-    </section>
-  );
 }
 
 function Inspector({ grid }: { grid: VjGrid }) {
@@ -1045,6 +853,11 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
   const importing = useVj((vj) => vj.importing);
   const kind = useVj((vj) => vj.media);
   const browser = useVj((vj) => vj.browser);
+  const selectedClip = useVj((vj) => vj.clip);
+  // What a double click on an effect adds it to: the clip selected, or else the layer.
+  const effectTarget = grid.layers.some((l) => l.clips?.some((c) => c.id === selectedClip))
+    ? { clip: selectedClip as string }
+    : { layer: target.id };
   // A video still being read is listed under "All" only, until the backend says what it is.
   const shown = kind === "all" ? videos : videos.filter((video) => {
     const still = probes[video.id]?.still;
@@ -1061,9 +874,9 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
     <section className="vj-panel vj-media" aria-label={t("vj.media")}>
       <header className="vj-ph">
         <nav className="vj-tabs" role="tablist">
-          {(["media", "generators"] as const).map((key) => (
+          {(["media", "generators", "effects"] as const).map((key) => (
             <button key={key} type="button" role="tab" aria-selected={browser === key} className={browser === key ? "on" : ""}
-              onClick={() => showBrowser(key)}>{t(key === "media" ? "vj.media" : "vj.browser.generators")}</button>
+              onClick={() => showBrowser(key)}>{t(key === "media" ? "vj.media" : key === "generators" ? "vj.browser.generators" : "vj.effects")}</button>
           ))}
         </nav>
         {browser === "media" && (
@@ -1074,9 +887,12 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
           </div>
         )}
         {browser === "generators" && <div className="vj-tools"><span className="vj-dim">{t("vj.generators.note")}</span></div>}
+        {browser === "effects" && <div className="vj-tools"><span className="vj-dim">{t("vj.effects.note")}</span></div>}
       </header>
       <div className="vj-pb">
-        {browser === "generators" ? (
+        {browser === "effects" ? (
+          <EffectBrowser target={effectTarget} />
+        ) : browser === "generators" ? (
           <div className="vj-mg">
             {GENERATORS.map((kind) => (
               <figure key={kind} className="vj-m" draggable title={t("vj.generators.note")}
@@ -1121,6 +937,7 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
 export function VjScreen() {
   const grid = useDoc((doc) => doc.project.vj);
   useEffect(bindPlayState, []);
+  useEffect(() => { void loadEffectCatalog(); }, []);
   if (!grid) return null;
   return (
     <div className="vj-app">

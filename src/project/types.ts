@@ -88,19 +88,14 @@ export interface VjLayer {
 }
 
 export type VjMirrorAxis = "horizontal" | "vertical" | "both";
-/** What an effect does, with its settings as the backend answers them. */
-export type VjEffectKind =
-  | { effect: "brightness"; amount: number }
-  | { effect: "contrast"; amount: number }
-  | { effect: "saturation"; amount: number }
-  | { effect: "hue"; degrees: number }
-  | { effect: "tint"; colour: string; amount: number }
-  | { effect: "invert"; amount: number }
-  | { effect: "blur"; radius: number }
-  | { effect: "mirror"; axis: VjMirrorAxis }
-  | { effect: "zoom"; amount: number }
-  | { effect: "shift"; x: number; y: number };
-export type VjEffectName = VjEffectKind["effect"];
+/** A setting of an effect, as the backend keeps it: a number, a choice or a `#rrggbb` colour, or on or off. */
+export type VjParamValue = number | string | boolean;
+/**
+ * What an effect does, with its settings. Which kinds there are and what each setting takes come from the backend's
+ * catalogue (`vjEffectCatalog`), so this only names the kind and carries the settings.
+ */
+export type VjEffectKind = { effect: string } & { [setting: string]: VjParamValue };
+export type VjEffectName = string;
 /** One effect of a clip's or a layer's stack. */
 export type VjEffect = VjEffectKind & { id: string; bypass?: boolean };
 

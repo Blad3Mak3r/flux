@@ -199,6 +199,12 @@ export const VoiceIcon = () => (
 
 export const ArrowUpIcon = () => <Icon><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" /></Icon>;
 export const ArrowDownIcon = () => <Icon><path d="M8 3v10M3.5 8.5L8 13l4.5-4.5" /></Icon>;
+export const DuplicateIcon = () => <Icon><path d="M5.5 5.5h7v7h-7zM3.5 10.5v-7h7" /></Icon>;
+export const GripIcon = () => (
+  <Icon>
+    <path d="M6 3.5h.5M9.5 3.5h.5M6 8h.5M9.5 8h.5M6 12.5h.5M9.5 12.5h.5" strokeWidth="2" />
+  </Icon>
+);
 export const LoopIcon = () => <Icon><path d="M12.5 5H5a3 3 0 0 0 0 6h6a3 3 0 0 0 0-6M10 2.5 12.5 5 10 7.5" /></Icon>;
 export const ListIcon = () => <Icon><path d="M6 3.5h7M6 8h7M6 12.5h7M2.5 3.5h.5M2.5 8h.5M2.5 12.5h.5" /></Icon>;
 
