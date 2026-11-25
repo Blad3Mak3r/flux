@@ -5,6 +5,8 @@ import type {
   ProjectState,
   VideoFit,
   VjBlend,
+  VjEffectKind,
+  VjEffectName,
   VjGenerator,
   VjPlayback,
   VjSide,
@@ -49,7 +51,12 @@ export type VjOp =
   | { op: "clipTrigger"; clip: string; trigger: VjTrigger }
   | { op: "clipFit"; clip: string; fit: VideoFit }
   | { op: "clipScale"; clip: string; value: number }
-  | { op: "clipPosition"; clip: string; x: number; y: number };
+  | { op: "clipPosition"; clip: string; x: number; y: number }
+  | { op: "addEffect"; target: { clip: string } | { layer: string }; kind: VjEffectName }
+  | { op: "removeEffect"; effect: string }
+  | { op: "moveEffect"; effect: string; index: number }
+  | { op: "effectParams"; effect: string; kind: VjEffectKind }
+  | { op: "effectBypass"; effect: string; bypass: boolean };
 
 export const vjEdit = (project: Project, op: VjOp) => invoke<ProjectState>("vj_edit", { project, op });
 /** Moves a level or a clip's transform in the backend while the hand moves it, without the project going back and forth. */

@@ -81,9 +81,28 @@ export interface VjLayer {
   solo?: boolean;
   /** Folded to a thin row on the grid. */
   collapsed?: boolean;
+  /** Drawn on each of its clips' pictures after the clip's own effects; the first is applied first. */
+  effects?: VjEffect[];
   /** At most one per column of each deck, or per slot on a global layer. */
   clips?: VjClip[];
 }
+
+export type VjMirrorAxis = "horizontal" | "vertical" | "both";
+/** What an effect does, with its settings as the backend answers them. */
+export type VjEffectKind =
+  | { effect: "brightness"; amount: number }
+  | { effect: "contrast"; amount: number }
+  | { effect: "saturation"; amount: number }
+  | { effect: "hue"; degrees: number }
+  | { effect: "tint"; colour: string; amount: number }
+  | { effect: "invert"; amount: number }
+  | { effect: "blur"; radius: number }
+  | { effect: "mirror"; axis: VjMirrorAxis }
+  | { effect: "zoom"; amount: number }
+  | { effect: "shift"; x: number; y: number };
+export type VjEffectName = VjEffectKind["effect"];
+/** One effect of a clip's or a layer's stack. */
+export type VjEffect = VjEffectKind & { id: string; bypass?: boolean };
 
 /** What a launched clip does at the end of its video; absent is `loop`. */
 export type VjPlayback = "loop" | "once" | "pingPong";
@@ -122,6 +141,8 @@ export interface VjClip {
   /** How far its centre moves from where its fit puts it, as fractions of the composition, right
    * and down; absent is not moved. */
   position?: [number, number];
+  /** Drawn on its picture, the first applied first. */
+  effects?: VjEffect[];
 }
 
 export interface Autosave {

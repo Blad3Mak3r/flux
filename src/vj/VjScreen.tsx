@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
-import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon, EyeIcon, EyeOffIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
 import type { Translate } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
@@ -16,8 +16,12 @@ import type {
   VjGeneratorKind,
   VjColumn,
   VjDeck,
+  VjEffect,
+  VjEffectKind,
+  VjEffectName,
   VjGrid,
   VjLayer,
+  VjMirrorAxis,
   VjPlayback,
   VjSide,
   VjTransition,
@@ -53,6 +57,7 @@ import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
 const NO_VIDEOS: VideoAsset[] = [];
+const NO_EFFECTS: VjEffect[] = [];
 
 /** Whether a video can be shown yet: `failed` when the backend cannot read it, `processing` while it reads it. */
 function useVideoState(asset: string | undefined): "failed" | "processing" | null {
@@ -80,6 +85,26 @@ const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
 const TRIGGERS: VjTrigger[] = ["normal", "piano"];
 const FITS: VideoFit[] = ["fit", "fill", "stretch", "none"];
+const EFFECTS: VjEffectName[] = ["brightness", "contrast", "saturation", "hue", "tint", "invert", "blur", "mirror", "zoom", "shift"];
+const MIRRORS: VjMirrorAxis[] = ["horizontal", "vertical", "both"];
+/** Most effects a stack holds. The backend refuses more; this only greys out the control. */
+const MAX_EFFECTS = 8;
+type EffectField = "amount" | "degrees" | "radius" | "x" | "y";
+/** The number settings of each effect, as a handle: the key it is sent under, its tag, and how it shows (times `shown`). */
+const EFFECT_FIELDS: Partial<Record<VjEffectName, { key: EffectField; tag: string; shown: number; reset: number; unit: string }[]>> = {
+  brightness: [{ key: "amount", tag: "◐", shown: 100, reset: 0, unit: "%" }],
+  contrast: [{ key: "amount", tag: "◐", shown: 100, reset: 1, unit: "%" }],
+  saturation: [{ key: "amount", tag: "◐", shown: 100, reset: 1, unit: "%" }],
+  hue: [{ key: "degrees", tag: "∠", shown: 1, reset: 0, unit: "°" }],
+  tint: [{ key: "amount", tag: "◐", shown: 100, reset: 0.5, unit: "%" }],
+  invert: [{ key: "amount", tag: "◐", shown: 100, reset: 1, unit: "%" }],
+  blur: [{ key: "radius", tag: "◌", shown: 100, reset: 0, unit: "%" }],
+  zoom: [{ key: "amount", tag: "↔", shown: 100, reset: 1, unit: "%" }],
+  shift: [
+    { key: "x", tag: "X", shown: 100, reset: 0, unit: "%" },
+    { key: "y", tag: "Y", shown: 100, reset: 0, unit: "%" },
+  ],
+};
 /** The longest transition, in seconds, as the backend keeps it. */
 const MAX_TRANSITION = 10;
 const DRAG = "application/x-flux-vj";
@@ -796,6 +821,86 @@ function GeneratorFields({ clip, generator }: { clip: string; generator: VjGener
   }
 }
 
+/** One effect of a stack: its name, bypass, order and removal, and its settings. */
+function EffectRow({ effect, index, count }: { effect: VjEffect; index: number; count: number }) {
+  const t = useT();
+  const { id, bypass, ...rest } = effect;
+  const kind = rest as VjEffectKind;
+  const withValues = (changed: Record<string, unknown>) => ({ ...kind, ...changed }) as VjEffectKind;
+  const move = (changed: Record<string, unknown>) => preview({ op: "effectParams", effect: id, kind: withValues(changed) });
+  const keep = (changed: Record<string, unknown>) => void edit({ op: "effectParams", effect: id, kind: withValues(changed) });
+  const values = kind as Record<string, unknown>;
+  const fields = EFFECT_FIELDS[kind.effect] ?? [];
+  const name = t(`vj.effect.${kind.effect}`);
+  const scrub = (field: (typeof fields)[number], label: string) => (
+    <Scrub key={field.key} label={field.tag} name={label} value={values[field.key] as number} shown={field.shown} reset={field.reset} unit={field.unit}
+      onMove={(v) => move({ [field.key]: v })} onSet={(v) => keep({ [field.key]: v })} />
+  );
+  return (
+    <li className={`vj-fx-item${bypass ? " off" : ""}`}>
+      <div className="vj-fx-h">
+        <span className="vj-fx-n">{name}</span>
+        <button type="button" className="vj-fx-b" aria-pressed={!!bypass} title={t("vj.effect.bypass")} aria-label={t("vj.effect.bypass")}
+          onClick={() => void edit({ op: "effectBypass", effect: id, bypass: !bypass })}>{bypass ? <EyeOffIcon /> : <EyeIcon />}</button>
+        <button type="button" className="vj-fx-b" disabled={index === 0} title={t("vj.effect.up")} aria-label={t("vj.effect.up")}
+          onClick={() => void edit({ op: "moveEffect", effect: id, index: index - 1 })}><ArrowUpIcon /></button>
+        <button type="button" className="vj-fx-b" disabled={index === count - 1} title={t("vj.effect.down")} aria-label={t("vj.effect.down")}
+          onClick={() => void edit({ op: "moveEffect", effect: id, index: index + 1 })}><ArrowDownIcon /></button>
+        <button type="button" className="vj-fx-b" title={t("vj.effect.remove")} aria-label={t("vj.effect.remove")}
+          onClick={() => void edit({ op: "removeEffect", effect: id })}><CloseIcon /></button>
+      </div>
+      <div className="vj-fx-p">
+        {kind.effect === "tint" && (
+          <div className="vj-f"><span>{t("vj.effect.colour")}</span>
+            <ColourField value={kind.colour} label={t("vj.effect.colour")} onMove={(colour) => move({ colour })} onSet={(colour) => keep({ colour })} />
+          </div>
+        )}
+        {kind.effect === "mirror" && (
+          <div className="vj-f"><span>{t("vj.effect.axis")}</span>
+            <Segments options={MIRRORS} value={kind.axis} label={(o) => t(`vj.effect.axis.${o}`)}
+              onPick={(axis) => void edit({ op: "effectParams", effect: id, kind: { effect: "mirror", axis } })} />
+          </div>
+        )}
+        {fields.length === 1 && (
+          <div className="vj-f"><span>{t(`vj.effect.${fields[0].key}`)}</span>
+            <div className="vj-scrubs one">{scrub(fields[0], t(`vj.effect.${fields[0].key}`))}</div>
+          </div>
+        )}
+        {fields.length === 2 && (
+          <div className="vj-f"><span>{name}</span>
+            <div className="vj-scrubs">{fields.map((field) => scrub(field, t(`vj.effect.${field.key}`)))}</div>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/** The effects stack of a clip or a layer, applied from the top down; the backend orders, limits and draws it. */
+function EffectStack({ target, effects }: { target: { clip: string } | { layer: string }; effects: VjEffect[] }) {
+  const t = useT();
+  const full = effects.length >= MAX_EFFECTS;
+  return (
+    <section className="vj-fx" aria-label={t("vj.effects")}>
+      <header className="vj-fx-head">
+        <h3>{t("vj.effects")}</h3>
+        <select className="vj-select wide vj-fx-add" value="" disabled={full} aria-label={t("vj.effect.add")}
+          title={full ? t("vj.effect.full", { n: MAX_EFFECTS }) : undefined}
+          onChange={(event) => { if (event.target.value) void edit({ op: "addEffect", target, kind: event.target.value as VjEffectName }); }}>
+          <option value="">{t("vj.effect.add")}</option>
+          {EFFECTS.map((kind) => <option key={kind} value={kind}>{t(`vj.effect.${kind}`)}</option>)}
+        </select>
+      </header>
+      {effects.length === 0 ? <p className="vj-dim vj-fx-empty">{t("vj.effect.empty")}</p> : (
+        <ol className="vj-fx-list">
+          {effects.map((effect, index) => <EffectRow key={effect.id} effect={effect} index={index} count={effects.length} />)}
+        </ol>
+      )}
+      {full && <p className="vj-dim vj-fx-empty">{t("vj.effect.full", { n: MAX_EFFECTS })}</p>}
+    </section>
+  );
+}
+
 function Inspector({ grid }: { grid: VjGrid }) {
   const t = useT();
   // One value each, so the play state polled ten times a second does not draw the inspector again.
@@ -869,6 +974,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
             </div>
           </div>
         </div>
+        <EffectStack target={{ clip: clip.id }} effects={clip.effects ?? NO_EFFECTS} />
         <dl className="vj-meta">
           {generator ? (
             <div><dt>{t("vj.gen.kind")}</dt><dd>{t(`vj.generator.${generator.kind}`)}</dd></div>
@@ -908,6 +1014,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
             <span>{t(layer.global ? "vj.layer.kindGlobal" : "vj.layer.kindDeck")}</span>
           </div>
         </div>
+        <EffectStack target={{ layer: layer.id }} effects={layer.effects ?? NO_EFFECTS} />
       </div>
     );
   }
