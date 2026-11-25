@@ -1538,6 +1538,7 @@ dependencies = [
  "flux-core",
  "flux-project",
  "midir",
+ "realfft",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

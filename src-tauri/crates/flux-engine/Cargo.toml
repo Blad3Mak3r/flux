@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2.0.21"
 cpal = "0.18.2"
 midir = "0.11.1"
+realfft = "3.5.1"
 
 # Extra audio drivers the picker offers next to the system's default one (ALSA, WASAPI, CoreAudio).
 # JACK loads libjack at run time, so it needs nothing installed to start.

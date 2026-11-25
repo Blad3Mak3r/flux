@@ -10,6 +10,8 @@ use std::time::{Duration, Instant};
 use flux_audio::{Decoded, ENGINE_RATE};
 use flux_project::vj::Playback;
 
+use crate::mixer::MIX_CHUNK;
+
 const SCALE: f32 = 1.0 / 32_768.0;
 
 /// How far the callback's own count of the grid clock may drift from the wall clock before it
@@ -234,7 +236,25 @@ impl GridPlayer {
         let Some(now) = self.clock else {
             return;
         };
-        self.mix.mix(now, &mut self.applied, left, right);
+        let frames = left.len();
+        if frames <= MIX_CHUNK && right.len() == frames {
+            // The grid's own sound, apart from what it is added to, is what the analysis hears.
+            let mut own_left = [0.0f32; MIX_CHUNK];
+            let mut own_right = [0.0f32; MIX_CHUNK];
+            self.mix.mix(
+                now,
+                &mut self.applied,
+                &mut own_left[..frames],
+                &mut own_right[..frames],
+            );
+            crate::analysis::tap_grid(&own_left[..frames], &own_right[..frames], ENGINE_RATE);
+            for at in 0..frames {
+                left[at] += own_left[at];
+                right[at] += own_right[at];
+            }
+        } else {
+            self.mix.mix(now, &mut self.applied, left, right);
+        }
         self.clock =
             Some(now + Duration::from_secs_f64(left.len() as f64 / f64::from(ENGINE_RATE)));
     }
