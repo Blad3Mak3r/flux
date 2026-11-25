@@ -16,6 +16,9 @@ use flux_audio::SharedAudio;
 use flux_engine::grid_audio::{GridMix, GridVoice, Ramp};
 use flux_project::VideoAsset;
 use flux_project::vj::Vj;
+use flux_project::vj_modulation::Clock;
+
+use crate::modulation::SharedModulation;
 
 /// The videos whose sound is being decoded now.
 static LOADING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
@@ -57,7 +60,12 @@ fn build(
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .grid_copy();
-    let grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
+    // The grid as it sounds now: a layer's volume or master may be modulated.
+    let bpm = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .tempo_bpm();
+    let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
     let mut mix = GridMix {
         origin: grid.origin(),
         voices: Vec::new(),
@@ -66,6 +74,13 @@ fn build(
         return mix;
     };
     let now = grid.now();
+    let clock = Clock {
+        seconds: now.as_secs_f64(),
+        beats: grid.beats(bpm),
+    };
+    let modulation = Arc::clone(&app.state::<SharedModulation>());
+    let stored = vj;
+    let vj = modulation.apply(&stored, clock);
     for (layer_id, launched) in grid.play.playing() {
         let Some(layer) = vj.layers.iter().find(|l| &l.id == layer_id) else {
             continue;

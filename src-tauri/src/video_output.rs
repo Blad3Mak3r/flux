@@ -287,6 +287,7 @@ impl VideoOutput {
         let (width, height) = unpack(size.load(Ordering::Relaxed));
         let transport = Arc::clone(&app.state::<SharedOutput>());
         let grid = Arc::clone(&app.state::<crate::vj_commands::SharedGrid>());
+        let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
         let render_stop = Arc::clone(&stop);
         let pattern = Arc::clone(&self.pattern);
         let screen_id = self.screen.clone();
@@ -311,6 +312,7 @@ impl VideoOutput {
             card_id: 0,
             decoding: None,
             grid,
+            modulation,
             vj: None,
         };
         let thread = thread::Builder::new()
@@ -518,6 +520,8 @@ struct Render {
     /// What the VJ grid plays, and the grid copied from the session for a VJ project, which
     /// shows its grid instead of a timeline.
     grid: crate::vj_commands::SharedGrid,
+    /// Puts the modulated values in the grid it draws.
+    modulation: crate::modulation::SharedModulation,
     vj: Option<flux_project::vj::Vj>,
 }
 
@@ -548,12 +552,18 @@ impl Render {
                     let mut grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
                     (grid.play.clone(), grid.now(), grid.beats(bpm))
                 };
+                // What is drawn is the grid with its modulated values; the stored one is not changed.
+                let clock = flux_project::vj_modulation::Clock {
+                    seconds: now.as_secs_f64(),
+                    beats,
+                };
+                let drawn = self.modulation.apply(vj, clock);
                 let shown = self
                     .deck
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .as_mut()
-                    .map(|deck| deck.show_grid(vj, &play, now))
+                    .map(|deck| deck.show_grid(&drawn, &play, now))
                     .unwrap_or_default();
                 (shown, beats)
             }
@@ -807,12 +817,18 @@ impl VideoOutputs {
             let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
             (grid.play.clone(), grid.now(), grid.beats(bpm))
         };
+        let clock = flux_project::vj_modulation::Clock {
+            seconds: now.as_secs_f64(),
+            beats,
+        };
+        let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
+        let drawn = modulation.apply(&vj, clock);
         let shown = self
             .deck
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_mut()
-            .map(|deck| deck.show_grid(&vj, &play, now))
+            .map(|deck| deck.show_grid(&drawn, &play, now))
             .unwrap_or_default();
         let size = composition_size(&session);
         let (width, height) = (

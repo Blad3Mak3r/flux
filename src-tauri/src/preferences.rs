@@ -26,6 +26,8 @@ pub struct Preferences {
     pub ltc_in: Option<Microphone>,
     /// The MIDI input external MTC comes in on, for the VJ clock.
     pub mtc_in: Option<String>,
+    /// What the VJ grid's audio modulation listens to; absent is the grid's own sound.
+    pub analysis: Option<AnalysisSource>,
     pub metronome: Option<AudioOutput>,
     pub ltc: BTreeMap<u32, LtcOutput>,
     pub mtc: BTreeMap<u32, MtcOutput>,
@@ -51,6 +53,27 @@ pub struct Microphone {
     pub channel: u16,
 }
 
+/// What the audio analysis of the VJ grid listens to.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum AnalysisSource {
+    /// Nothing: audio modulation stays still.
+    Off,
+    /// The sound of the grid's own clips.
+    #[default]
+    Grid,
+    /// One channel of an audio input.
+    Input {
+        driver: Option<String>,
+        device: String,
+        channel: u16,
+    },
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Locale {
@@ -72,6 +95,9 @@ pub enum Change {
     },
     MtcIn {
         port: Option<String>,
+    },
+    Analysis {
+        source: Option<AnalysisSource>,
     },
     AudioRoute {
         id: String,
@@ -163,6 +189,18 @@ fn validate(p: &Preferences) -> Result<(), String> {
     {
         return Err("invalid microphone input".into());
     }
+    if let Some(AnalysisSource::Input {
+        driver,
+        device,
+        channel,
+    }) = &p.analysis
+        && (device.len() > 1024
+            || *channel == 0
+            || *channel > 256
+            || driver.as_ref().is_some_and(|d| d.len() > 128))
+    {
+        return Err("invalid analysis input".into());
+    }
     flux_project::operator::validate_voice(p.voice.as_deref()).map_err(|e| e.to_string())?;
     if p.ltc.keys().chain(p.mtc.keys()).any(|s| *s == 0) {
         return Err("invalid output slot".into());
@@ -226,6 +264,7 @@ impl Preferences {
             Change::Microphone { microphone } => self.microphone = Some(microphone),
             Change::LtcIn { input } => self.ltc_in = input,
             Change::MtcIn { port } => self.mtc_in = port,
+            Change::Analysis { source } => self.analysis = source,
             Change::AudioRoute { id, field, text } => {
                 if !flux_project::routing::valid_id(&id) {
                     return Err("invalid audio output id".into());
@@ -539,6 +578,24 @@ impl Preferences {
             osc: show.osc.clone(),
         }
     }
+}
+
+/// What the audio analysis listens to now, loading the preferences if they are not yet.
+pub fn analysis_source(app: &AppHandle) -> AnalysisSource {
+    let state = app.state::<Store>();
+    let mut guard = state.0.lock().unwrap_or_else(PoisonError::into_inner);
+    guard
+        .get_or_insert_with(|| {
+            file(app)
+                .map(|p| load(&p))
+                .unwrap_or_else(|error| Preferences {
+                    warning: Some(error),
+                    ..Default::default()
+                })
+        })
+        .analysis
+        .clone()
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -923,5 +980,33 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn the_analysis_source_should_default_to_the_grid_and_round_trip() {
+        assert_eq!(AnalysisSource::default(), AnalysisSource::Grid);
+        assert!(Preferences::default().analysis.is_none());
+        let input = AnalysisSource::Input {
+            driver: None,
+            device: "Interface".into(),
+            channel: 2,
+        };
+        let json = serde_json::to_value(&input).unwrap();
+        assert_eq!(json["kind"], "input");
+        assert_eq!(
+            serde_json::from_value::<AnalysisSource>(json).unwrap(),
+            input
+        );
+        let change: Change =
+            serde_json::from_str(r#"{"op":"analysis","source":{"kind":"off"}}"#).unwrap();
+        let mut prefs = Preferences::default();
+        prefs.apply(change).unwrap();
+        assert_eq!(prefs.analysis, Some(AnalysisSource::Off));
+        prefs.analysis = Some(AnalysisSource::Input {
+            driver: None,
+            device: "x".into(),
+            channel: 0,
+        });
+        assert!(validate(&prefs).is_err());
     }
 }
