@@ -1,7 +1,7 @@
 //! The composition drawn on the CPU, small, for a monitor in the editor: the same pictures at the
 //! same places, opacities and blends the GPU draws on the screens, before their mapping.
 
-use crate::{Blend, Picture};
+use crate::{Blend, Picture, effects};
 
 /// Where an output column or row samples a picture: between its pixels `a` and `b`, `t` of the
 /// way to `b`.
@@ -12,22 +12,25 @@ struct Tap {
     t: f32,
 }
 
+/// Where coordinate `at` (0 to 1 across a side of `pixels` pixels) samples: between pixels, the
+/// edge ones repeating beyond.
+fn tap(at: f32, pixels: usize) -> Tap {
+    let p = (at * pixels as f32 - 0.5).max(0.0);
+    let a = (p as usize).min(pixels - 1);
+    Tap {
+        a,
+        b: (a + 1).min(pixels - 1),
+        t: (p - a as f32).min(1.0),
+    }
+}
+
 /// For each of `out` output pixels along one side, where it samples a picture of `pixels` pixels
 /// placed from `start` over `size` of the output, or `None` outside it.
 fn taps(out: usize, start: f32, size: f32, pixels: usize) -> Vec<Option<Tap>> {
     (0..out)
         .map(|i| {
             let at = ((i as f32 + 0.5) / out as f32 - start) / size;
-            if !(0.0..1.0).contains(&at) {
-                return None;
-            }
-            let p = (at * pixels as f32 - 0.5).max(0.0);
-            let a = (p as usize).min(pixels - 1);
-            Some(Tap {
-                a,
-                b: (a + 1).min(pixels - 1),
-                t: (p - a as f32).min(1.0),
-            })
+            (0.0..1.0).contains(&at).then(|| tap(at, pixels))
         })
         .collect()
 }
@@ -70,21 +73,73 @@ pub fn composite(pictures: &[Picture], width: u32, height: u32) -> Vec<u8> {
         let lerp = |x: [f32; 4], y: [f32; 4], t: f32| {
             std::array::from_fn::<f32, 4, _>(|i| x[i] + (y[i] - x[i]) * t)
         };
-        for (y, row) in taps(h, py, ph, sh).into_iter().enumerate() {
-            let Some(row) = row else { continue };
-            let out = &mut light[y * w..(y + 1) * w];
-            for (dst, column) in out.iter_mut().zip(&columns) {
-                let Some(column) = column else { continue };
-                let top = lerp(pixel(row.a, column.a), pixel(row.a, column.b), column.t);
-                let bottom = lerp(pixel(row.b, column.a), pixel(row.b, column.b), column.t);
-                let [r, g, b, cover] = lerp(top, bottom, row.t);
-                if cover <= 0.0 {
+        let mut put = |at: usize, [r, g, b, cover]: [f32; 4]| {
+            if cover <= 0.0 {
+                return;
+            }
+            for (c, premultiplied) in [r, g, b].into_iter().enumerate() {
+                let colour = premultiplied / cover;
+                let dst = &mut light[at][c];
+                *dst = mix(picture.blend, colour, cover * opacity, *dst).clamp(0.0, 1.0);
+            }
+        };
+        let fx = &picture.effects;
+        if fx.is_identity() {
+            for (y, row) in taps(h, py, ph, sh).into_iter().enumerate() {
+                let Some(row) = row else { continue };
+                for (x, column) in columns.iter().enumerate() {
+                    let Some(column) = column else { continue };
+                    let top = lerp(pixel(row.a, column.a), pixel(row.a, column.b), column.t);
+                    let bottom = lerp(pixel(row.b, column.a), pixel(row.b, column.b), column.t);
+                    put(y * w + x, lerp(top, bottom, row.t));
+                }
+            }
+            continue;
+        }
+        // With effects each pixel finds where the picture is read, then blurs and colours there.
+        let sample = |uv: [f32; 2]| {
+            let (column, row) = (tap(uv[0], sw), tap(uv[1], sh));
+            let top = lerp(pixel(row.a, column.a), pixel(row.a, column.b), column.t);
+            let bottom = lerp(pixel(row.b, column.a), pixel(row.b, column.b), column.t);
+            lerp(top, bottom, row.t)
+        };
+        let reach = {
+            let short = sw.min(sh) as f32 * fx.blur * effects::MAX_BLUR;
+            [short / sw as f32, short / sh as f32]
+        };
+        for y in 0..h {
+            let v = ((y as f32 + 0.5) / h as f32 - py) / ph;
+            if !(0.0..1.0).contains(&v) {
+                continue;
+            }
+            for x in 0..w {
+                let u = ((x as f32 + 0.5) / w as f32 - px) / pw;
+                if !(0.0..1.0).contains(&u) {
                     continue;
                 }
-                for (c, premultiplied) in [r, g, b].into_iter().enumerate() {
-                    let colour = premultiplied / cover;
-                    dst[c] = mix(picture.blend, colour, cover * opacity, dst[c]).clamp(0.0, 1.0);
+                let Some(at) = fx.source([u, v]) else {
+                    continue;
+                };
+                let mut mixed = if fx.blur > 0.0 {
+                    let mut sum = [0.0f32; 4];
+                    for n in 0..effects::BLUR_TAPS {
+                        let [dx, dy] = effects::blur_tap(n);
+                        let t = sample([at[0] + dx * reach[0], at[1] + dy * reach[1]]);
+                        sum.iter_mut().zip(t).for_each(|(s, t)| *s += t);
+                    }
+                    sum.map(|s| s / effects::BLUR_TAPS as f32)
+                } else {
+                    sample(at)
+                };
+                if mixed[3] > 0.0 {
+                    let [r, g, b] = fx.colour_of([
+                        mixed[0] / mixed[3],
+                        mixed[1] / mixed[3],
+                        mixed[2] / mixed[3],
+                    ]);
+                    mixed = [r * mixed[3], g * mixed[3], b * mixed[3], mixed[3]];
                 }
+                put(y * w + x, mixed);
             }
         }
     }
@@ -118,7 +173,7 @@ fn mix(blend: Blend, src: f32, cover: f32, dst: f32) -> f32 {
     }
 }
 
-fn to_linear(v: f32) -> f32 {
+pub(crate) fn to_linear(v: f32) -> f32 {
     if v <= 0.04045 {
         v / 12.92
     } else {
@@ -148,6 +203,7 @@ mod tests {
             place,
             opacity,
             blend,
+            effects: Default::default(),
         }
     }
 
@@ -210,5 +266,90 @@ mod tests {
             1,
         );
         assert!(darker[0].abs_diff(188) <= 1, "{}", darker[0]);
+    }
+
+    /// A picture of `rgba` drawn over a whole output of its own size, with `chain` applied.
+    fn effected(rgba: &[u8], (width, height): (u32, u32), chain: &[effects::Effect]) -> Vec<u8> {
+        let picture = Picture {
+            width,
+            height,
+            effects: effects::Effects::new(chain),
+            ..picture(rgba, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha)
+        };
+        composite(&[picture], width, height)
+    }
+
+    const FOUR: [u8; 16] = [
+        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+    ];
+
+    fn colours(out: &[u8]) -> Vec<[u8; 3]> {
+        out.chunks(4).map(|p| [p[0], p[1], p[2]]).collect()
+    }
+
+    #[test]
+    fn mirror_and_shift_should_move_the_pixels_of_a_picture() {
+        let (r, g, b, w) = ([255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]);
+        let mirror = effects::Effect::Mirror(effects::Mirror::Horizontal);
+        assert_eq!(colours(&effected(&FOUR, (4, 1), &[mirror])), [r, g, g, r]);
+        let shift = effects::Effect::Shift(0.5, 0.0);
+        assert_eq!(colours(&effected(&FOUR, (4, 1), &[shift])), [b, w, r, g]);
+    }
+
+    #[test]
+    fn a_zoom_out_should_leave_the_picture_transparent_around_it() {
+        let white = [255, 255, 255, 255];
+        let zoom = effects::Effect::Zoom(0.5);
+        let out = composite(
+            &[Picture {
+                effects: effects::Effects::new(&[zoom]),
+                ..picture(&white, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha)
+            }],
+            4,
+            1,
+        );
+        let reds: Vec<u8> = out.chunks(4).map(|p| p[0]).collect();
+        assert_eq!(reds, [0, 255, 255, 0]);
+    }
+
+    #[test]
+    fn colour_effects_should_change_the_light_of_a_picture() {
+        let white = [255, 255, 255, 255];
+        let invert = effects::Effect::Invert(1.0);
+        assert_eq!(colours(&effected(&white, (1, 1), &[invert])), [[0, 0, 0]]);
+        let black = [0, 0, 0, 255];
+        let brighter = effected(&black, (1, 1), &[effects::Effect::Brightness(0.5)]);
+        // Half the light of white, as in the blend test.
+        assert!(brighter[0].abs_diff(188) <= 1, "{}", brighter[0]);
+        // The chain applies in order: brightening then inverting is not the reverse.
+        let chain = [effects::Effect::Brightness(0.5), invert];
+        let reverse = [invert, effects::Effect::Brightness(0.5)];
+        assert!(effected(&black, (1, 1), &chain)[0].abs_diff(188) <= 1);
+        assert_eq!(effected(&black, (1, 1), &reverse)[0], 255);
+    }
+
+    #[test]
+    fn a_blur_should_soften_an_edge_and_leave_the_rest() {
+        let mut edge = Vec::new();
+        for _ in 0..40 {
+            for x in 0..40 {
+                let v = if x < 20 { 0 } else { 255 };
+                edge.extend_from_slice(&[v, v, v, 255]);
+            }
+        }
+        let sharp = composite(
+            &[Picture {
+                width: 40,
+                height: 40,
+                ..picture(&edge, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha)
+            }],
+            40,
+            40,
+        );
+        let blurred = effected(&edge, (40, 40), &[effects::Effect::Blur(1.0)]);
+        let at = |out: &[u8], x: usize| out[(20 * 40 + x) * 4];
+        assert_eq!((at(&sharp, 19), at(&sharp, 20)), (0, 255));
+        assert!(at(&blurred, 19) > 0 && at(&blurred, 20) < 255);
+        assert_eq!((at(&blurred, 2), at(&blurred, 37)), (0, 255));
     }
 }

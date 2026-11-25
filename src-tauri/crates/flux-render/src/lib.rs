@@ -8,9 +8,11 @@
 //! two projectors where their pictures overlap), and [`Mask`]s black out parts of the window.
 
 mod composite;
+pub mod effects;
 pub mod pattern;
 
 pub use composite::composite;
+pub use effects::{Effect, Effects, Mirror};
 
 use thiserror::Error;
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
@@ -42,6 +44,8 @@ pub struct Picture<'a> {
     pub opacity: f32,
     /// How it mixes with what is below, at its opacity.
     pub blend: Blend,
+    /// What is done to its colours and shape before it is drawn.
+    pub effects: Effects,
 }
 
 /// How a picture mixes with what is drawn below it; the light is mixed as the GPU blends, in linear
@@ -181,6 +185,8 @@ pub const MAX_MASKS: usize = 8;
 pub const MAX_MASK_POINTS: usize = 32;
 /// The masks' uniform: a header, one line of 4 numbers per mask and two points per line.
 const MASKS_SIZE: u64 = 16 + 16 * MAX_MASKS as u64 + 8 * (MAX_MASKS * MAX_MASK_POINTS) as u64;
+/// The effects' uniform: [`effects::FX_FLOATS`] floats for each of [`MAX_LAYERS`] pictures.
+const EFFECTS_SIZE: u64 = (effects::FX_FLOATS * MAX_LAYERS * 4) as u64;
 
 /// A corner of a quad as the GPU reads it: its place in clip space and its texture coordinate,
 /// multiplied by a weight that undoes the perspective (see [`vertices`]).
@@ -198,6 +204,8 @@ pub struct Vertex {
     pub opacity: f32,
     /// [`Blend::shading`].
     pub shading: f32,
+    /// The picture's place in the layers, which picks its effects.
+    pub fx: f32,
 }
 
 const VERTEX_SIZE: u64 = size_of::<Vertex>() as u64;
@@ -226,6 +234,7 @@ pub struct Screen {
     pipelines: Vec<wgpu::RenderPipeline>,
     vertices: wgpu::Buffer,
     masks: wgpu::Buffer,
+    effects: wgpu::Buffer,
     masks_group: wgpu::BindGroup,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -248,6 +257,7 @@ struct Out {
     @location(4) @interpolate(flat) place: vec4f,
     @location(5) @interpolate(flat) opacity: f32,
     @location(6) @interpolate(flat) shading: f32,
+    @location(7) @interpolate(flat) fx: f32,
 };
 
 @vertex
@@ -260,6 +270,7 @@ fn vs(
     @location(5) place: vec4f,
     @location(6) opacity: f32,
     @location(7) shading: f32,
+    @location(8) fx: f32,
 ) -> Out {
     var out: Out;
     out.pos = vec4f(pos, 0.0, 1.0);
@@ -270,6 +281,7 @@ fn vs(
     out.place = place;
     out.opacity = opacity;
     out.shading = shading;
+    out.fx = fx;
     return out;
 }
 
@@ -284,6 +296,80 @@ struct Masks {
     points: array<vec4f, 128>,
 };
 @group(1) @binding(0) var<uniform> masks: Masks;
+
+// What is done to each picture, by its place in the layers: three rows of the colour matrix; the
+// number of steps and the blur; the steps that move the picture (see `effects.rs`).
+struct Fx {
+    r0: vec4f,
+    r1: vec4f,
+    r2: vec4f,
+    info: vec4f,
+    steps: array<vec4f, 16>,
+};
+@group(1) @binding(1) var<uniform> effects: array<Fx, 16>;
+
+fn fold(v: f32) -> f32 {
+    if v > 0.5 {
+        return 1.0 - v;
+    }
+    return v;
+}
+
+fn tap(uv: vec2f) -> vec4f {
+    return textureSampleLevel(picture, linear_sampler, uv, 0.0);
+}
+
+// The picture at `at` (0 to 1 across it) with its effects of layer `i`: the steps walked back from
+// the last to where the picture is read, a blur there, then the colour matrix.
+fn shade(i: u32, at: vec2f) -> vec4f {
+    var p = at;
+    var seen = 1.0;
+    for (var k = u32(effects[i].info.x); k > 0u; k--) {
+        let s = effects[i].steps[k - 1u];
+        let kind = u32(s.x);
+        if kind == 0u || kind == 2u {
+            p.x = fold(p.x);
+        }
+        if kind == 1u || kind == 2u {
+            p.y = fold(p.y);
+        }
+        if kind == 3u {
+            p = (p - 0.5) / s.y + 0.5;
+            if any(p < vec2f(0.0)) || any(p > vec2f(1.0)) {
+                seen = 0.0;
+                break;
+            }
+        }
+        if kind == 4u {
+            p = fract(p - s.yz);
+        }
+    }
+    var c = vec4f(0.0);
+    let blur = effects[i].info.y;
+    if blur > 0.0 {
+        let size = vec2f(textureDimensions(picture));
+        let reach = blur * 0.05 * min(size.x, size.y) / size;
+        var sum = vec4f(0.0);
+        for (var n = 0u; n < 32u; n++) {
+            let r = sqrt((f32(n) + 0.5) / 32.0);
+            let a = f32(n) * 2.399963;
+            let t = tap(p + vec2f(cos(a), sin(a)) * r * reach);
+            sum += vec4f(t.rgb * t.a, t.a);
+        }
+        sum /= 32.0;
+        if sum.a > 0.0 {
+            c = vec4f(sum.rgb / sum.a, sum.a);
+        }
+    } else {
+        c = tap(p);
+    }
+    let rgb = vec3f(
+        dot(effects[i].r0.xyz, c.rgb) + effects[i].r0.w,
+        dot(effects[i].r1.xyz, c.rgb) + effects[i].r1.w,
+        dot(effects[i].r2.xyz, c.rgb) + effects[i].r2.w,
+    );
+    return vec4f(clamp(rgb, vec3f(0.0), vec3f(1.0)), c.a * seen);
+}
 
 fn mask_point(i: u32) -> vec2f {
     let pair = masks.points[i / 2u];
@@ -325,7 +411,7 @@ fn ramp(t: f32, width: f32) -> f32 {
 fn fs(in: Out) -> @location(0) vec4f {
     // The slice's texture coordinate is in the composition; the picture sits at `place` in it.
     let at = (in.uvq.xy / in.uvq.z - in.place.xy) / in.place.zw;
-    let colour = textureSample(picture, linear_sampler, at);
+    let colour = shade(u32(in.fx), at);
     let within = all(at >= vec2f(0.0)) && all(at <= vec2f(1.0));
     let l = in.local / in.uvq.z;
     let edge = ramp(l.x, in.soft.x) * ramp(1.0 - l.x, in.soft.y) * ramp(l.y, in.soft.z)
@@ -443,8 +529,8 @@ impl Screen {
         });
         let masks_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("masks"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
+            entries: &[0, 1].map(|binding| wgpu::BindGroupLayoutEntry {
+                binding,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
@@ -452,7 +538,7 @@ impl Screen {
                     min_binding_size: None,
                 },
                 count: None,
-            }],
+            }),
         });
         let masks = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("masks"),
@@ -460,13 +546,25 @@ impl Screen {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let effects = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("effects"),
+            size: EFFECTS_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let masks_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("masks"),
             layout: &masks_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: masks.as_entire_binding(),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: masks.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: effects.as_entire_binding(),
+                },
+            ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("picture"),
@@ -492,7 +590,8 @@ impl Screen {
                             4 => Float32,
                             5 => Float32x4,
                             6 => Float32,
-                            7 => Float32
+                            7 => Float32,
+                            8 => Float32
                         ],
                     })],
                 },
@@ -534,6 +633,7 @@ impl Screen {
             pipelines,
             vertices,
             masks,
+            effects,
             masks_group,
             layout,
             sampler,
@@ -587,6 +687,7 @@ impl Screen {
         // Each layer's vertices, and the range of them it draws.
         let mut data: Vec<Vertex> = Vec::new();
         let mut layers = Vec::new();
+        let mut effects = [Effects::default().pack(); MAX_LAYERS];
         for (slot, picture) in pictures.iter().enumerate() {
             if picture.opacity <= 0.0 || !self.upload(slot, *picture) {
                 continue;
@@ -596,10 +697,14 @@ impl Screen {
                 place: picture.place,
                 opacity: picture.opacity.min(1.0),
                 shading: picture.blend.shading(),
+                fx: slot as f32,
                 ..vertex
             }));
+            effects[slot] = picture.effects.pack();
             layers.push((slot, picture.blend, first..data.len() as u32));
         }
+        self.queue
+            .write_buffer(&self.effects, 0, &effect_bytes(&effects));
         if !data.is_empty() {
             self.queue
                 .write_buffer(&self.vertices, 0, &vertex_bytes(&data));
@@ -769,6 +874,7 @@ pub fn vertices(quad: &Quad) -> [Vertex; 6] {
         place: [0.0, 0.0, 1.0, 1.0],
         opacity: 1.0,
         shading: 0.0,
+        fx: 0.0,
     };
     [
         corner(0),
@@ -823,9 +929,17 @@ fn vertex_bytes(vertices: &[Vertex]) -> Vec<u8> {
                 .chain(&v.soft)
                 .chain([&v.gamma])
                 .chain(&v.place)
-                .chain([&v.opacity, &v.shading])
+                .chain([&v.opacity, &v.shading, &v.fx])
                 .flat_map(|f| f.to_ne_bytes())
         })
+        .collect()
+}
+
+fn effect_bytes(effects: &[[f32; effects::FX_FLOATS]]) -> Vec<u8> {
+    effects
+        .iter()
+        .flatten()
+        .flat_map(|f| f.to_ne_bytes())
         .collect()
 }
 
@@ -978,7 +1092,7 @@ mod tests {
         );
         // A fade past the whole quad is cut to it.
         assert_eq!((v[0].soft, v[0].gamma), ([0.25, 0.0, 0.0, 1.0], 2.2));
-        assert_eq!(vertex_bytes(&v).len(), 6 * 18 * 4);
-        assert_eq!(VERTEX_SIZE, 18 * 4);
+        assert_eq!(vertex_bytes(&v).len(), 6 * 19 * 4);
+        assert_eq!(VERTEX_SIZE, 19 * 4);
     }
 }
