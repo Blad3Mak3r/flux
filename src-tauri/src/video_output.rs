@@ -548,13 +548,15 @@ impl Render {
         let bpm = self.timeline.as_ref().map_or(120.0, |t| t.tempo.bpm);
         let (shown, beats) = match &self.vj {
             Some(vj) => {
-                let (play, now, beats) = {
+                let (play, now) = {
                     let mut grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
-                    (grid.play.clone(), grid.now(), grid.beats(bpm))
+                    let now = grid.tick(vj, bpm);
+                    (grid.play.clone(), now)
                 };
+                let beats = now.beats;
                 // What is drawn is the grid with its modulated values; the stored one is not changed.
                 let clock = flux_project::vj_modulation::Clock {
-                    seconds: now.as_secs_f64(),
+                    seconds: now.time.as_secs_f64(),
                     beats,
                 };
                 let drawn = self.modulation.apply(vj, clock);
@@ -812,13 +814,15 @@ impl VideoOutputs {
             .unwrap_or_else(PoisonError::into_inner)
             .active_timeline_copy()
             .map_or(120.0, |timeline| timeline.tempo.bpm);
-        let (play, now, beats) = {
+        let (play, now) = {
             let grid = app.state::<crate::vj_commands::SharedGrid>();
             let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
-            (grid.play.clone(), grid.now(), grid.beats(bpm))
+            let now = grid.tick(&vj, bpm);
+            (grid.play.clone(), now)
         };
+        let beats = now.beats;
         let clock = flux_project::vj_modulation::Clock {
-            seconds: now.as_secs_f64(),
+            seconds: now.time.as_secs_f64(),
             beats,
         };
         let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());

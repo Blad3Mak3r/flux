@@ -15,6 +15,7 @@ use crate::vj_commands::SharedGrid;
 use flux_audio::SharedAudio;
 use flux_engine::grid_audio::{GridMix, GridVoice, Ramp};
 use flux_project::VideoAsset;
+use flux_project::playhead::{Playhead, Tick};
 use flux_project::vj::Vj;
 use flux_project::vj_modulation::Clock;
 
@@ -73,10 +74,11 @@ fn build(
     let Some(vj) = vj else {
         return mix;
     };
-    let now = grid.now();
+    let tick = grid.tick(&vj, bpm);
+    let now = tick.time;
     let clock = Clock {
         seconds: now.as_secs_f64(),
-        beats: grid.beats(bpm),
+        beats: tick.beats,
     };
     let modulation = Arc::clone(&app.state::<SharedModulation>());
     let stored = vj;
@@ -99,11 +101,13 @@ fn build(
         let entering = launched
             .clip
             .as_deref()
-            .map(|clip| (clip, launched.at, true));
-        let leaving = leaving.map(|(clip, at)| (clip.as_str(), *at, false));
-        for (clip, at, rising) in entering.into_iter().chain(leaving) {
+            .zip(launched.head.as_ref())
+            .map(|(clip, head)| (clip, launched.at, head, true));
+        let leaving = leaving.map(|left| (left.clip.as_str(), left.at, &left.head, false));
+        for (clip, at, head, rising) in entering.into_iter().chain(leaving) {
+            let moving = Moving { head, tick, bpm };
             if let Some(voice) =
-                voice(app, session, cache, &vj, clip, at, gain).map(|voice| GridVoice {
+                voice(app, session, cache, &vj, clip, moving, gain).map(|voice| GridVoice {
                     key: key(layer_id, clip, at),
                     ramp: ramp(rising),
                     ..voice
@@ -124,7 +128,15 @@ fn key(layer: &str, clip: &str, at: Duration) -> u64 {
     hasher.finish()
 }
 
-/// The sound of `clip`, launched `at`; `None` for a clip without sound, or until its video is read
+/// Where a clip is on the grid's clock, and the tempo, which a voice follows.
+#[derive(Clone, Copy)]
+struct Moving<'a> {
+    head: &'a Playhead,
+    tick: Tick,
+    bpm: f64,
+}
+
+/// The sound of `clip`; `None` for a clip without sound, or until its video is read
 /// and decoded.
 fn voice(
     app: &AppHandle,
@@ -132,7 +144,7 @@ fn voice(
     cache: &SharedAudio,
     vj: &Vj,
     clip: &str,
-    at: Duration,
+    moving: Moving<'_>,
     gain: f32,
 ) -> Option<GridVoice> {
     let (_, clip) = vj.find_clip(clip)?;
@@ -150,15 +162,12 @@ fn voice(
     if probe.still || audio.frames() == 0 || probe.rate_num == 0 {
         return None;
     }
-    let length = Duration::from_secs_f64(
-        probe.frames as f64 * f64::from(probe.rate_den) / f64::from(probe.rate_num),
-    );
+    let length = probe.frames as f64 * f64::from(probe.rate_den) / f64::from(probe.rate_num);
     Some(GridVoice {
         key: 0,
         audio,
-        at,
-        playback: clip.playback,
-        length,
+        course: moving.head.course(moving.tick, length, moving.bpm),
+        length: Duration::from_secs_f64(length),
         gain,
         ramp: None,
     })

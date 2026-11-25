@@ -107,15 +107,18 @@ pub fn start(app: &AppHandle) {
     let _ = thread::Builder::new()
         .name("flux-vj-modulation".into())
         .spawn(move || {
+            let mut tempo = 0.0;
             loop {
                 thread::sleep(SOUND_EVERY);
-                let modulated = app
-                    .state::<SharedSession>()
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .grid_ref()
-                    .is_some_and(Vj::is_sound_modulated);
-                if modulated {
+                let session = app.state::<SharedSession>();
+                let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+                let modulated = session.grid_ref().is_some_and(Vj::is_sound_modulated);
+                // A clip that lasts a number of beats sounds at the speed the tempo makes of it.
+                let bpm = session.tempo_bpm();
+                let retempo = bpm != tempo && session.grid_ref().is_some_and(Vj::has_beat_clips);
+                tempo = bpm;
+                drop(session);
+                if modulated || retempo {
                     crate::vj_audio::refresh(&app);
                 }
             }

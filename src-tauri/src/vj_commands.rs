@@ -10,9 +10,10 @@ use tauri::{AppHandle, State};
 
 use crate::commands::SharedSession;
 use crate::video_commands::known_probe;
-use flux_project::vj::Vj;
+use flux_project::playhead::{Playhead, Tick};
+use flux_project::vj::{CUES, Playback, Region, Vj};
 use flux_project::{ProjectError, Result};
-use flux_video::{GridPlay, Rate, grid_frame};
+use flux_video::{GridPlay, Rate, video_seconds};
 
 /// What the grid plays, and the clock its clips play on.
 pub struct Grid {
@@ -47,13 +48,35 @@ impl Grid {
     /// phase when the tempo changes, as the beats before it were counted at the tempo they had.
     /// Every screen asks for it, each a little after the last.
     pub fn beats(&mut self, bpm: f64) -> f64 {
-        let now = self.now();
+        self.count(self.now(), bpm)
+    }
+
+    fn count(&mut self, now: Duration, bpm: f64) -> f64 {
         let (at, beats) = self.beat;
         self.beat = (
             now.max(at),
             beats + now.saturating_sub(at).as_secs_f64() * bpm / 60.0,
         );
         self.beat.1
+    }
+
+    /// The grid's clock now, with the beats it counted, after the playing clips followed the
+    /// grid `vj` as it is: a clip whose speed, direction, tempo or region changed goes on from
+    /// where it was. Every screen and the sound ask for it before they look at what plays.
+    pub fn tick(&mut self, vj: &Vj, bpm: f64) -> Tick {
+        let time = self.now();
+        let tick = Tick {
+            time,
+            beats: self.count(time, bpm),
+        };
+        self.play.follow(vj, tick, &|asset| {
+            let probe = crate::video_commands::probed(asset)?;
+            Some(video_seconds(
+                Rate::new(probe.rate_num, probe.rate_den),
+                probe.frames,
+            ))
+        });
+        tick
     }
 }
 
@@ -76,10 +99,21 @@ pub struct PlayingClip {
     pub clip: String,
     /// Since it was launched.
     pub seconds: f64,
-    /// Where it is in its video, 0 to 1, and how long until it reaches the end of it, in seconds;
-    /// `None` until the video's length is known, or once a clip played once has ended.
+    /// Where the playhead is in the whole clip, 0 to 1; `None` until the video's length is known,
+    /// for a generator, or once a clip played once has ended.
+    pub position: Option<f64>,
+    /// Where it is in its region, 0 to 1, and how long until it reaches the edge it moves towards,
+    /// in seconds, at the pace it has now; `None` as `position` is, and while it is paused.
     pub progress: Option<f64>,
     pub remaining: Option<f64>,
+    /// The region and the cues of the clip, as fractions of its length.
+    pub region: Region,
+    pub cues: [Option<f32>; CUES],
+    /// How many seconds of the clip play in a second, negative backwards, 0 paused: what the
+    /// speed, direction and tempo come to.
+    pub rate: f64,
+    /// How long one pass through the region lasts, in seconds; `None` while paused.
+    pub pass_seconds: Option<f64>,
     /// How much of the clip shows, 0 to 1: its layer's level (see [`GridPlay::level`]) and where
     /// the layer's transition is.
     pub level: f32,
@@ -103,16 +137,20 @@ fn play(
     app: &AppHandle,
     session: &SharedSession,
     grid: &SharedGrid,
-    change: impl FnOnce(&mut GridPlay, &Vj, Duration) -> Result<()>,
+    change: impl FnOnce(&mut GridPlay, &Vj, Tick) -> Result<()>,
 ) -> Result<GridState> {
     let vj = grid_of(session)?;
+    let bpm = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .tempo_bpm();
     let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
-    let now = grid.now();
     let before = grid.play.clone();
     grid.play.retain(&vj);
-    grid.play.retime(&vj, now);
+    let now = grid.tick(&vj, bpm);
+    grid.play.retime(&vj, now.time);
     change(&mut grid.play, &vj, now)?;
-    let answer = state(session, &vj, &grid);
+    let answer = state(session, &vj, &grid, now, bpm);
     let changed = grid.play != before;
     drop(grid);
     // The window asks for the state all the time; the sound changes only when what plays does.
@@ -122,34 +160,79 @@ fn play(
     Ok(answer)
 }
 
-fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
-    let now = grid.now();
+/// Where a playing clip is and how it moves, for the window to draw its transport.
+#[derive(Debug, PartialEq)]
+struct Report {
+    position: Option<f64>,
+    progress: Option<f64>,
+    remaining: Option<f64>,
+    rate: f64,
+    pass_seconds: Option<f64>,
+}
+
+impl Report {
+    /// `length` is the video's, in seconds; `None` while it is not known, and for a generator.
+    fn of(head: &Playhead, tick: Tick, bpm: f64, length: Option<f64>) -> Self {
+        let motion = head.motion();
+        let Some(length) = length else {
+            return Self {
+                position: None,
+                progress: None,
+                remaining: None,
+                rate: motion.direction.sign() * f64::from(motion.speed),
+                pass_seconds: None,
+            };
+        };
+        let u = head.phase(tick, length);
+        let position = motion.place(u);
+        let (start, span) = (
+            f64::from(motion.region.start),
+            f64::from(motion.region.span()),
+        );
+        let progress = position.map(|x| (x - start) / span);
+        let speed = motion.rate(length, bpm);
+        // Which edge of the region it moves towards: a ping-pong on its way back turns.
+        let back = motion.playback == Playback::PingPong && u.rem_euclid(2.0) > 1.0;
+        let towards = if back { -speed } else { speed };
+        let remaining = progress
+            .filter(|_| speed != 0.0)
+            .map(|inside| if towards > 0.0 { 1.0 - inside } else { inside } / speed.abs());
+        Self {
+            position,
+            progress,
+            remaining,
+            rate: speed * span * length,
+            pass_seconds: motion.pass_seconds(length, bpm),
+        }
+    }
+}
+
+fn state(session: &SharedSession, vj: &Vj, grid: &Grid, tick: Tick, bpm: f64) -> GridState {
+    let now = tick.time;
     let mut playing: Vec<PlayingClip> = grid
         .play
         .playing()
         .iter()
         .filter_map(|(layer, launched)| {
-            let (shown, at) = launched.shown(now)?;
+            let (shown, at, head) = launched.shown(now)?;
             let elapsed = now.saturating_sub(at);
-            let place = vj
-                .find_clip(shown)
-                .and_then(|(_, clip)| {
-                    // Only the videos playing are copied, not the whole list on every poll.
+            let (_, clip) = vj.find_clip(shown)?;
+            // Only the videos playing are copied, not the whole list on every poll.
+            let length = (clip.generator.is_none())
+                .then(|| {
                     let asset = session
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
                         .video_copy(&clip.asset)?;
-                    Some((clip, known_probe(session, &asset)?))
+                    known_probe(session, &asset)
                 })
+                .flatten()
                 // A still image has no length: nothing to count down.
-                .filter(|(_, probe)| !probe.still)
-                .and_then(|(clip, probe)| {
-                    let rate = Rate::new(probe.rate_num, probe.rate_den);
-                    let frame = grid_frame(elapsed, rate, probe.frames, clip.playback)?;
-                    let per_frame = f64::from(probe.rate_den) / f64::from(probe.rate_num.max(1));
-                    let frames = probe.frames.max(1) as f64;
-                    Some((frame as f64 / frames, (frames - frame as f64) * per_frame))
+                .filter(|probe| !probe.still)
+                .map(|probe| {
+                    video_seconds(Rate::new(probe.rate_num, probe.rate_den), probe.frames)
                 });
+            let report = Report::of(head, tick, bpm, length);
             let transition = launched.fading(now).map(|fade| fade.progress(now));
             let stopping = launched.clip.is_none();
             let fade = transition.map_or(1.0, |t| if stopping { 1.0 - t } else { t });
@@ -163,8 +246,13 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
                 layer: layer.clone(),
                 clip: shown.to_owned(),
                 seconds: elapsed.as_secs_f64(),
-                progress: place.map(|p| p.0),
-                remaining: place.map(|p| p.1),
+                position: report.position,
+                progress: report.progress,
+                remaining: report.remaining,
+                region: clip.region,
+                cues: clip.cues,
+                rate: report.rate,
+                pass_seconds: report.pass_seconds,
                 transition,
                 stopping,
             })
@@ -192,6 +280,44 @@ pub fn vj_launch(
         } else {
             Err(ProjectError::Invalid(format!("no clip {clip}")))
         }
+    })
+}
+
+/// Moves the playhead of the clip playing on a layer to `position`, a fraction of the clip's
+/// length (brought into its region), as the hand scrubs.
+#[tauri::command]
+pub fn vj_scrub(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    grid: State<'_, SharedGrid>,
+    layer: String,
+    position: f64,
+) -> Result<GridState> {
+    if !position.is_finite() {
+        return Err(ProjectError::Invalid("a position is a number".into()));
+    }
+    play(&app, &session, &grid, |play, _, now| {
+        if play.scrub(&layer, position.clamp(0.0, 1.0), now) {
+            Ok(())
+        } else {
+            Err(ProjectError::Invalid(format!("no clip plays on {layer}")))
+        }
+    })
+}
+
+/// Jumps to cue number `index` (0 to 7) of a clip: the clip's playhead moves there if it plays,
+/// and the clip is launched there if it does not.
+#[tauri::command]
+pub fn vj_cue(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    grid: State<'_, SharedGrid>,
+    clip: String,
+    index: usize,
+) -> Result<GridState> {
+    play(&app, &session, &grid, |play, vj, now| {
+        play.cue(vj, &clip, index, now)
+            .ok_or_else(|| ProjectError::Invalid(format!("clip {clip} has no cue {}", index + 1)))
     })
 }
 
@@ -280,4 +406,111 @@ pub fn vj_play_state(
     grid: State<'_, SharedGrid>,
 ) -> Result<GridState> {
     play(&app, &session, &grid, |_, _, _| Ok(()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flux_project::playhead::Motion;
+    use flux_project::vj::{Direction, Tempo};
+
+    fn head(motion: Motion) -> Playhead {
+        Playhead::launch(motion, Tick::default())
+    }
+
+    fn motion() -> Motion {
+        Motion {
+            speed: 1.0,
+            direction: Direction::Forward,
+            tempo: Tempo::Free,
+            region: Region::default(),
+            playback: Playback::Loop,
+            generator: false,
+        }
+    }
+
+    fn at(seconds: f64, beats: f64) -> Tick {
+        Tick {
+            time: Duration::from_secs_f64(seconds),
+            beats,
+        }
+    }
+
+    #[test]
+    fn the_report_should_say_where_the_playhead_is_in_the_clip_and_in_its_region() {
+        let region = Region {
+            start: 0.5,
+            end: 1.0,
+        };
+        let moving = head(Motion { region, ..motion() });
+        // A video of 10 s: the region lasts 5.
+        let report = Report::of(&moving, at(1.0, 0.0), 120.0, Some(10.0));
+        assert!((report.position.unwrap() - 0.6).abs() < 1e-9);
+        assert!((report.progress.unwrap() - 0.2).abs() < 1e-9);
+        assert!((report.remaining.unwrap() - 4.0).abs() < 1e-9);
+        assert!((report.rate - 1.0).abs() < 1e-9);
+        assert!((report.pass_seconds.unwrap() - 5.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_report_should_count_down_to_the_edge_it_moves_towards_at_the_pace_it_has() {
+        let reverse = head(Motion {
+            direction: Direction::Reverse,
+            speed: 2.0,
+            ..motion()
+        });
+        let report = Report::of(&reverse, at(1.0, 0.0), 120.0, Some(10.0));
+        assert!((report.progress.unwrap() - 0.8).abs() < 1e-9);
+        assert!(
+            (report.remaining.unwrap() - 4.0).abs() < 1e-9,
+            "to the start, twice as fast"
+        );
+        assert!((report.rate + 2.0).abs() < 1e-9);
+        // A ping-pong on its way back goes to the start although it plays forwards.
+        let bounce = head(Motion {
+            playback: Playback::PingPong,
+            ..motion()
+        });
+        let report = Report::of(&bounce, at(12.5, 0.0), 120.0, Some(10.0));
+        assert!((report.progress.unwrap() - 0.75).abs() < 1e-9);
+        assert!((report.remaining.unwrap() - 7.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_report_should_follow_the_beats_and_be_still_while_paused_or_ended() {
+        let beats = head(Motion {
+            tempo: Tempo::Beats { beats: 8 },
+            speed: 4.0,
+            ..motion()
+        });
+        let report = Report::of(&beats, at(1.0, 2.0), 120.0, Some(10.0));
+        assert!((report.pass_seconds.unwrap() - 4.0).abs() < 1e-9);
+        assert!((report.progress.unwrap() - 0.25).abs() < 1e-9);
+        assert!((report.remaining.unwrap() - 3.0).abs() < 1e-9);
+        assert!((report.rate - 2.5).abs() < 1e-9, "10 s of video in 4 s");
+        let paused = head(Motion {
+            direction: Direction::Pause,
+            ..motion()
+        });
+        let report = Report::of(&paused, at(5.0, 0.0), 120.0, Some(10.0));
+        assert_eq!(
+            (report.remaining, report.pass_seconds, report.rate),
+            (None, None, 0.0)
+        );
+        assert_eq!(report.position, Some(0.0));
+        let once = head(Motion {
+            playback: Playback::Once,
+            ..motion()
+        });
+        let report = Report::of(&once, at(11.0, 0.0), 120.0, Some(10.0));
+        assert_eq!(
+            (report.position, report.progress, report.remaining),
+            (None, None, None)
+        );
+        let unknown = Report::of(&once, at(1.0, 0.0), 120.0, None);
+        assert_eq!(
+            (unknown.position, unknown.pass_seconds, unknown.rate),
+            (None, None, 1.0)
+        );
+    }
 }

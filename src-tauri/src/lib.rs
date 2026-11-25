@@ -143,6 +143,8 @@ pub fn run() {
             commands::vj_effect_catalog,
             vj_commands::vj_launch,
             vj_commands::vj_launch_column,
+            vj_commands::vj_scrub,
+            vj_commands::vj_cue,
             vj_commands::vj_release,
             vj_commands::vj_stop,
             vj_commands::vj_crossfader,
