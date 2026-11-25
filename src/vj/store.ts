@@ -8,6 +8,7 @@ import { say, sayError } from "../state/ui";
 import { probeVideos } from "../state/video";
 import {
   vjCrossfader,
+  vjCue,
   vjEdit,
   vjLaunch,
   vjLaunchColumn,
@@ -15,6 +16,7 @@ import {
   vjPreview,
   vjPlayState,
   vjRelease,
+  vjScrub,
   vjImport,
   vjModulationValues,
   vjStop,
@@ -145,6 +147,24 @@ export const launch = (clip: string, layer: string) => {
 export const release = (clip: string) => played(() => vjRelease(clip));
 export const launchColumn = (column: string) => played(() => vjLaunchColumn(column));
 export const stopLayer = (layer: string | null) => played(() => vjStop(layer));
+export const cue = (clip: string, index: number) => played(() => vjCue(clip, index));
+
+/**
+ * Moves the playhead of the clip on `layer` while the hand scrubs: one goes at a time, and moves made meanwhile are
+ * folded into the newest, as {@link preview} does.
+ */
+let nextScrub: { layer: string; position: number } | null = null;
+export function scrub(layer: string, position: number): void {
+  const idle = nextScrub === null;
+  nextScrub = { layer, position };
+  if (!idle) return;
+  scrubbing = scrubbing.then(async () => {
+    const to = nextScrub;
+    nextScrub = null;
+    if (to) await vjScrub(to.layer, to.position).then((play) => useVj.setState({ play })).catch(() => undefined);
+  });
+}
+let scrubbing: Promise<void> = Promise.resolve();
 export const moveCrossfader = (position: number) => played(() => vjCrossfader(position));
 
 export const selectClip = (clip: string, layer: string) => useVj.setState({ clip, layer, tab: "clip" });
@@ -169,7 +189,7 @@ export const showModulation = (key: string, open?: boolean) =>
   });
 export const showBrowser = (browser: VjState["browser"]) => useVj.setState({ browser });
 
-/** Asks the backend what plays, ten times a second, while the VJ screen is open and in sight. */
+/** Asks the backend what plays, twenty times a second, while the VJ screen is open and in sight. */
 export function bindPlayState(): () => void {
   let stopped = false;
   const tick = () => {
@@ -185,7 +205,7 @@ export function bindPlayState(): () => void {
       })
       .catch(() => undefined)
       .finally(() => {
-        if (!stopped) window.setTimeout(tick, 100);
+        if (!stopped) window.setTimeout(tick, PLAY_EVERY);
       });
   };
   tick();
@@ -193,6 +213,9 @@ export function bindPlayState(): () => void {
     stopped = true;
   };
 }
+
+/** How often the play state is asked for: the playhead of a clip moves with it. */
+const PLAY_EVERY = 50;
 
 /** How often the modulated values are asked for while the inspector shows something modulated: thirty times a second. */
 const MOD_EVERY = 1000 / 30;

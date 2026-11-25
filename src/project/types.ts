@@ -128,6 +128,15 @@ export type VjModulations = Record<string, VjModulation>;
 
 /** What a launched clip does at the end of its video; absent is `loop`. */
 export type VjPlayback = "loop" | "once" | "pingPong";
+/** Which way a clip plays through its region. */
+export type VjDirection = "forward" | "reverse" | "pause";
+/** Whether one pass of a clip lasts as long as its speed makes it, or a number of beats of the composition's tempo. */
+export type VjTempo = { kind: "free" } | { kind: "beats"; beats: number };
+/** The part of a clip that plays, as fractions of its length. */
+export interface VjRegion {
+  start: number;
+  end: number;
+}
 /** What a press on a clip does; absent is `normal`. */
 export type VjTrigger = "normal" | "piano";
 
@@ -157,6 +166,16 @@ export interface VjClip {
   name?: string;
   playback?: VjPlayback;
   trigger?: VjTrigger;
+  /** How fast it plays when its tempo is free; absent is 1. */
+  speed?: number;
+  /** Absent is forward. */
+  direction?: VjDirection;
+  /** Absent is free. */
+  tempo?: VjTempo;
+  /** The part that plays and repeats; absent is all of it. */
+  region?: VjRegion;
+  /** Places the clip jumps to, as fractions of its length: 8, each empty or set; absent are all empty. */
+  cues?: (number | null)[];
   fit?: VideoFit;
   /** How much larger than its fit it is drawn, about its centre; absent is 1 (100%). */
   scale?: number;

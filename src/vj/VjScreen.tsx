@@ -55,6 +55,7 @@ import { EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect } fr
 import { loadEffectCatalog, useEffectCatalog } from "./effects";
 import { AnalysisMeter, Tempo, TimecodeClock } from "./CompositionBar";
 import { ModPanel, ModScrub, fieldRange, inspectorModulated } from "./Modulation";
+import { Transport } from "./Transport";
 import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
@@ -401,6 +402,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   }
   const name = clipName(t, clip, videos);
   const piano = clip.trigger === "piano";
+  const motion = transportBadge(clip);
   return (
     <div
       className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${over ? " over" : ""}`}
@@ -431,10 +433,20 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
         onPointerDown={(event) => { event.stopPropagation(); if (event.button === 0) selectClip(clip.id, layer.id); }}
         onPointerUp={(event) => event.stopPropagation()}>
         <Marquee className="vj-cn">{name}</Marquee>
-        <span className="vj-cm">{t(`vj.trigger.short.${clip.trigger ?? "normal"}`)}{clip.playback && clip.playback !== "loop" ? ` · ${t(`vj.playback.short.${clip.playback}`)}` : ""}</span>
+        <span className="vj-cm">{t(`vj.trigger.short.${clip.trigger ?? "normal"}`)}{clip.playback && clip.playback !== "loop" ? ` · ${t(`vj.playback.short.${clip.playback}`)}` : ""}{motion ? ` · ${motion}` : ""}</span>
       </div>
     </div>
   );
+}
+
+/** What shows on a cell of a clip that does not play forwards at its own speed: ◀ or ❚❚, then × the speed or the beats of a pass. */
+function transportBadge(clip: VjClip): string {
+  const parts: string[] = [];
+  if (clip.direction === "reverse") parts.push("◀");
+  if (clip.direction === "pause") parts.push("❚❚");
+  if (clip.tempo?.kind === "beats") parts.push(`${clip.tempo.beats}♩`);
+  else if (clip.speed !== undefined && clip.speed !== 1) parts.push(`×${Math.round(clip.speed * 100) / 100}`);
+  return parts.join(" ");
 }
 
 function ColumnHead({ column, at, live }: { column: VjColumn; at: number; live: boolean }) {
@@ -728,7 +740,7 @@ const LEVELS = [
 
 function Inspector({ grid }: { grid: VjGrid }) {
   const t = useT();
-  // One value each, so the play state polled ten times a second does not draw the inspector again.
+  // One value each, so the play state polled twenty times a second does not draw the inspector again.
   const clipId = useVj((vj) => vj.clip);
   const layerId = useVj((vj) => vj.layer);
   const tab = useVj((vj) => vj.tab);
@@ -776,6 +788,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
     };
     body = (
       <div className="vj-insp">
+        {!probe?.still && <Transport clip={clip} layer={found.layer.id} strip={stripOf(thumbs, clip)} />}
         <Thumb className="vj-ithumb" strip={stripOf(thumbs, clip)} generator={generator} />
         <div className="vj-fields">
           <label className="vj-f"><span>{t("vj.clip.name")}</span>

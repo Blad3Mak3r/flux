@@ -12,7 +12,10 @@ import type {
   VjModSource,
   VjGenerator,
   VjModulation,
+  VjDirection,
   VjPlayback,
+  VjRegion,
+  VjTempo,
   VjSide,
   VjTransition,
   VjTrigger,
@@ -52,6 +55,12 @@ export type VjOp =
   | { op: "setClock"; source: VjClockSource }
   | { op: "renameClip"; clip: string; name: string }
   | { op: "clipPlayback"; clip: string; playback: VjPlayback }
+  | { op: "clipSpeed"; clip: string; value: number }
+  | { op: "clipDirection"; clip: string; direction: VjDirection }
+  | { op: "clipTempo"; clip: string; tempo: VjTempo }
+  | { op: "clipRegion"; clip: string; start: number; end: number }
+  /** Sets cue `index` (0 to 7) at `position`, a fraction of the clip's length, or empties it with `null`. */
+  | { op: "clipCue"; clip: string; index: number; position: number | null }
   | { op: "clipTrigger"; clip: string; trigger: VjTrigger }
   | { op: "clipFit"; clip: string; fit: VideoFit }
   | { op: "clipScale"; clip: string; value: number }
@@ -82,10 +91,19 @@ export interface PlayingClip {
   clip: string;
   /** Since it was launched. */
   seconds: number;
-  /** Where it is in its video, 0 to 1; `null` until its length is known. */
+  /** Where the playhead is in the whole clip, 0 to 1; `null` until its length is known, and once a clip played once has ended. */
+  position: number | null;
+  /** Where it is in its region, 0 to 1. */
   progress: number | null;
-  /** Seconds until the end of its video. */
+  /** Seconds until it reaches the edge of its region it moves towards, at its pace; `null` while paused. */
   remaining: number | null;
+  /** The region and cues of the clip, as the backend plays them. */
+  region: VjRegion;
+  cues: (number | null)[];
+  /** Seconds of the clip that play in a second: negative backwards, 0 paused. */
+  rate: number;
+  /** How long one pass through the region lasts, in seconds; `null` while paused or unknown. */
+  passSeconds: number | null;
   /** How much of the clip shows on the output, 0 to 1. */
   level: number;
   /** How far the layer's transition is, 0 to 1, while one runs. */
@@ -106,6 +124,10 @@ export const vjLaunch = (clip: string) => invoke<GridState>("vj_launch", { clip 
 export const vjRelease = (clip: string) => invoke<GridState>("vj_release", { clip });
 export const vjLaunchColumn = (column: string) => invoke<GridState>("vj_launch_column", { column });
 /** Stops a layer, or every layer with `null`. */
+/** Moves the playhead of the clip playing on `layer` to `position`, a fraction of the clip's length. */
+export const vjScrub = (layer: string, position: number) => invoke<GridState>("vj_scrub", { layer, position });
+/** Jumps to cue `index` (0 to 7) of a clip, launching the clip there if it is not playing. */
+export const vjCue = (clip: string, index: number) => invoke<GridState>("vj_cue", { clip, index });
 export const vjStop = (layer: string | null) => invoke<GridState>("vj_stop", { layer });
 export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfader", { position });
 export const vjPlayState = () => invoke<GridState>("vj_play_state");

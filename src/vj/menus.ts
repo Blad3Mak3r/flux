@@ -12,7 +12,7 @@ import { closeDocument, newDocument, openDocument, saveDocument } from "../state
 import { hasNativeWindow } from "../components/WindowControls";
 import { stop, toggle } from "../transport/playback";
 import { MOD_KEY, helpMenu } from "../components/menus";
-import { edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
+import { cue, edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
 
 const mod = (keys: string) => `${MOD_KEY}+${keys}`;
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -72,6 +72,12 @@ export const stopAll = () => void stopLayer(null);
 export function launchSelected(): void {
   const found = selectedClip();
   if (found) void launch(found.clip.id, found.layer.id);
+}
+
+/** Jumps the selected clip to its `n`-th cue (from 0), launching it there if it is not playing; nothing when the cue is empty. */
+export function cueSelected(n: number): void {
+  const found = selectedClip();
+  if (found?.clip.cues?.[n] != null) void cue(found.clip.id, n);
 }
 
 export function removeSelected(): void {
@@ -283,6 +289,9 @@ export function vjKeyDown(event: KeyboardEvent, t: Translate): boolean {
       : key === "pageup" ? () => stepDeck(-1)
       : key === "pagedown" ? () => stepDeck(1)
       : null;
+  } else if (event.shiftKey && !event.altKey && /^Digit[1-8]$/.test(event.code)) {
+    // Shift and 1 to 8 jump to the cues of the selected clip, as the digits alone launch columns.
+    run = () => cueSelected(Number(event.code.slice(5)) - 1);
   } else if (event.key === " " && !onButton) {
     run = () => {
       if (internalClock()) void toggle();
