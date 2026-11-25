@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::commands::SharedSession;
 use crate::video_commands::known_probe;
@@ -30,6 +30,11 @@ impl Default for Grid {
 }
 
 impl Grid {
+    /// The instant the grid's clock started.
+    pub fn origin(&self) -> Instant {
+        self.started
+    }
+
     /// Where the grid's clock is.
     pub fn now(&self) -> Duration {
         self.started.elapsed()
@@ -79,6 +84,7 @@ fn grid_of(session: &SharedSession) -> Result<Vj> {
 /// Applies `change` to what the grid plays, with the grid as the project has it, and answers with
 /// the new state.
 fn play(
+    app: &AppHandle,
     session: &SharedSession,
     grid: &SharedGrid,
     change: impl FnOnce(&mut GridPlay, &Vj, Duration) -> Result<()>,
@@ -86,10 +92,18 @@ fn play(
     let vj = grid_of(session)?;
     let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
     let now = grid.now();
+    let before = grid.play.clone();
     grid.play.retain(&vj);
     grid.play.retime(&vj, now);
     change(&mut grid.play, &vj, now)?;
-    Ok(state(session, &vj, &grid))
+    let answer = state(session, &vj, &grid);
+    let changed = grid.play != before;
+    drop(grid);
+    // The window asks for the state all the time; the sound changes only when what plays does.
+    if changed {
+        crate::vj_audio::refresh(app);
+    }
+    Ok(answer)
 }
 
 fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
@@ -151,11 +165,12 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid) -> GridState {
 /// Plays a clip of the grid on its layer from its first frame; a playing clip starts again.
 #[tauri::command]
 pub fn vj_launch(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     grid: State<'_, SharedGrid>,
     clip: String,
 ) -> Result<GridState> {
-    play(&session, &grid, |play, vj, now| {
+    play(&app, &session, &grid, |play, vj, now| {
         if play.launch(vj, &clip, now) {
             Ok(())
         } else {
@@ -167,11 +182,12 @@ pub fn vj_launch(
 /// Lets go of a clip: one triggered as a piano key stops.
 #[tauri::command]
 pub fn vj_release(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     grid: State<'_, SharedGrid>,
     clip: String,
 ) -> Result<GridState> {
-    play(&session, &grid, |play, vj, now| {
+    play(&app, &session, &grid, |play, vj, now| {
         if play.release(vj, &clip, now) {
             Ok(())
         } else {
@@ -183,11 +199,12 @@ pub fn vj_release(
 /// Launches every clip of a column; the deck layers without a clip in it stop, global layers play on.
 #[tauri::command]
 pub fn vj_launch_column(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     grid: State<'_, SharedGrid>,
     column: String,
 ) -> Result<GridState> {
-    play(&session, &grid, |play, vj, now| {
+    play(&app, &session, &grid, |play, vj, now| {
         if play.launch_column(vj, &column, now) {
             Ok(())
         } else {
@@ -199,11 +216,12 @@ pub fn vj_launch_column(
 /// Stops a layer, or every layer without one.
 #[tauri::command]
 pub fn vj_stop(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     grid: State<'_, SharedGrid>,
     layer: Option<String>,
 ) -> Result<GridState> {
-    play(&session, &grid, |play, vj, now| {
+    play(&app, &session, &grid, |play, vj, now| {
         play.stop(vj, layer.as_deref(), now);
         Ok(())
     })
@@ -212,11 +230,12 @@ pub fn vj_stop(
 /// Moves the crossfader: 0 is all side A, 1 all side B.
 #[tauri::command]
 pub fn vj_crossfader(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     grid: State<'_, SharedGrid>,
     position: f32,
 ) -> Result<GridState> {
-    play(&session, &grid, |play, _, _| {
+    play(&app, &session, &grid, |play, _, _| {
         play.set_crossfader(position);
         Ok(())
     })
@@ -240,8 +259,9 @@ pub async fn vj_output_frame(
 /// What the grid plays now.
 #[tauri::command]
 pub fn vj_play_state(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     grid: State<'_, SharedGrid>,
 ) -> Result<GridState> {
-    play(&session, &grid, |_, _, _| Ok(()))
+    play(&app, &session, &grid, |_, _, _| Ok(()))
 }

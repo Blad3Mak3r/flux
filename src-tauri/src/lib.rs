@@ -17,6 +17,7 @@ mod transport_commands;
 mod update_commands;
 mod video_commands;
 mod video_output;
+mod vj_audio;
 mod vj_commands;
 mod voice_commands;
 mod voice_jobs;

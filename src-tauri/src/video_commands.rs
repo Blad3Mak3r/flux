@@ -161,6 +161,27 @@ pub fn video_cache(app: &AppHandle) -> Result<PathBuf> {
     Ok(CACHE.get_or_init(|| dir).clone())
 }
 
+/// The key under which the sound of the video `id` is kept in the audio cache.
+pub fn audio_key(id: &str) -> String {
+    format!("video:{id}")
+}
+
+/// What FFmpeg reads of `asset`, reading it now if it was not read yet: only for a thread that may
+/// wait. `None` when it cannot be read, or before the app has said where its video cache is.
+pub fn read_probe(session: &SharedSession, asset: &VideoAsset) -> Option<VideoProbe> {
+    probe(session, &shared_probes(), asset, CACHE.get()?).ok()
+}
+
+/// What FFmpeg read of the video `id`, if it did; never reads.
+pub fn probed(id: &str) -> Option<VideoProbe> {
+    shared_probes()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(id)
+        .cloned()
+}
+
 /// The sound of a video for the mixer, decoding it the first time; `None` for a video without
 /// sound. Kept in the audio cache beside the project's audio, under a key no audio asset has.
 pub fn load_audio(
@@ -168,7 +189,7 @@ pub fn load_audio(
     cache: &SharedAudio,
     asset: &VideoAsset,
 ) -> std::result::Result<Option<Arc<Decoded>>, AudioError> {
-    let key = format!("video:{}", asset.id);
+    let key = audio_key(&asset.id);
     let decoded = match cache.get(&key) {
         Some(decoded) => decoded,
         None => {

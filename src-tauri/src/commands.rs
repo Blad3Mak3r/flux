@@ -414,25 +414,35 @@ fn check_video(path: &Path) -> Result<()> {
 /// the edit made.
 #[tauri::command]
 pub async fn vj_edit(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     project: Project,
     op: flux_project::VjOp,
 ) -> Result<ProjectState> {
-    run(&session, move |s| {
+    let state = run(&session, move |s| {
         s.update(project);
         s.edit_vj(op)
     })
-    .await
+    .await?;
+    // A level, a side, a bypass or a solo changes how loud the playing clips are.
+    crate::vj_audio::refresh(&app);
+    Ok(state)
 }
 
 /// Moves a level or a clip's transform as a fader or a drag goes, without the project going back
 /// and forth; `vj_edit` keeps the value when the hand lets go.
 #[tauri::command]
-pub fn vj_preview(session: State<'_, SharedSession>, op: flux_project::VjOp) -> Result<()> {
+pub fn vj_preview(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    op: flux_project::VjOp,
+) -> Result<()> {
     session
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .preview_vj(op)
+        .preview_vj(op)?;
+    crate::vj_audio::refresh(&app);
+    Ok(())
 }
 
 #[tauri::command]

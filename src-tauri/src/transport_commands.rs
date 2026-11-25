@@ -240,6 +240,11 @@ pub struct Running {
 }
 
 impl Running {
+    /// Gives the output the sound of the VJ grid (see [`crate::vj_audio`]).
+    pub fn set_grid_audio(&self, mix: flux_engine::grid_audio::GridMix) {
+        self.output.set_grid_audio(mix);
+    }
+
     /// Reads where the transport is, for a thread of its own (the video output).
     pub fn reader(&self) -> flux_engine::output::PositionReader {
         self.output.reader()
@@ -551,6 +556,7 @@ pub async fn output_start(
             app: app.clone(),
             session: Arc::clone(&session),
         });
+        let refresh = app.clone();
         *lock(&state) = Some(Running::new(
             output,
             setup,
@@ -563,6 +569,8 @@ pub async fn output_start(
             on_live,
             on_audio_routing,
         )?);
+        // The grid goes on playing across a restart of the output.
+        crate::vj_audio::refresh(&refresh);
         Ok(info)
     })
     .await
