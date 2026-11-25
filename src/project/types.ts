@@ -83,6 +83,8 @@ export interface VjLayer {
   collapsed?: boolean;
   /** Drawn on each of its clips' pictures after the clip's own effects; the first is applied first. */
   effects?: VjEffect[];
+  /** What drives `master`, `opacity` or `volume` by itself. */
+  modulation?: VjModulations;
   /** At most one per column of each deck, or per slot on a global layer. */
   clips?: VjClip[];
 }
@@ -98,6 +100,31 @@ export type VjEffectKind = { effect: string } & { [setting: string]: VjParamValu
 export type VjEffectName = string;
 /** One effect of a clip's or a layer's stack. */
 export type VjEffect = VjEffectKind & { id: string; bypass?: boolean };
+/** What drives the settings of an effect by themselves, by the setting's key (typed apart: the settings are all values). */
+export const effectModulation = (effect: VjEffect): VjModulations | undefined =>
+  (effect as unknown as { modulation?: VjModulations }).modulation;
+
+/** What an LFO draws and what an audio source follows; the backend's lists are in the effect catalogue. */
+export type VjLfoShape = "sine" | "triangle" | "sawUp" | "sawDown" | "square" | "random" | "smoothRandom";
+export type VjAudioBand = "low" | "mid" | "high" | "level";
+export interface VjPace {
+  sync: "free" | "beats";
+  /** Cycles a second when free. */
+  rate: number;
+  /** Beats a cycle when synced. */
+  beats: number;
+}
+export type VjModSource =
+  | { kind: "lfo"; shape: VjLfoShape; pace: VjPace; phase: number }
+  | { kind: "audio"; band: VjAudioBand; gain: number; attack: number; release: number };
+/** A numeric setting driven by itself between `min` and `max`, in the setting's own units (`min` may be above `max`). */
+export interface VjModulation {
+  source: VjModSource;
+  min: number;
+  max: number;
+}
+/** By the key of the setting: an effect's, or `master`, `opacity`, `volume` of a layer, `scale`, `positionX`, `positionY` of a clip. */
+export type VjModulations = Record<string, VjModulation>;
 
 /** What a launched clip does at the end of its video; absent is `loop`. */
 export type VjPlayback = "loop" | "once" | "pingPong";
@@ -138,6 +165,8 @@ export interface VjClip {
   position?: [number, number];
   /** Drawn on its picture, the first applied first. */
   effects?: VjEffect[];
+  /** What drives `scale`, `positionX` or `positionY` by itself. */
+  modulation?: VjModulations;
 }
 
 export interface Autosave {

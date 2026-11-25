@@ -255,3 +255,10 @@ export const ScreenIcon = () => (
     <path d="M2.5 3.5 H13.5 V10.5 H2.5 Z M6 13.5 H10 M8 10.5 V13.5" />
   </Icon>
 );
+
+/** A wave: what drives a setting by itself, as its modulation button. */
+export const ModulationIcon = () => (
+  <Icon>
+    <path d="M1.5 9 C4 2.5 6.5 2.5 8 8 C9.5 13.5 12 13.5 14.5 7" />
+  </Icon>
+);

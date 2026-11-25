@@ -7,7 +7,11 @@ import type {
   VjBlend,
   VjEffectKind,
   VjEffectName,
+  VjAudioBand,
+  VjLfoShape,
+  VjModSource,
   VjGenerator,
+  VjModulation,
   VjPlayback,
   VjSide,
   VjTransition,
@@ -58,7 +62,11 @@ export type VjOp =
   | { op: "effectParams"; effect: string; kind: VjEffectKind }
   | { op: "effectBypass"; effect: string; bypass: boolean }
   | { op: "duplicateEffect"; effect: string }
-  | { op: "resetEffect"; effect: string };
+  | { op: "resetEffect"; effect: string }
+  | { op: "setModulation"; target: ModTarget; modulation: VjModulation | null };
+
+/** What a modulation is set on: a numeric setting of an effect, or a field of a layer or a clip. */
+export type ModTarget = { effect: string; param: string } | { layer: string; field: string } | { clip: string; field: string };
 
 export const vjEdit = (project: Project, op: VjOp) => invoke<ProjectState>("vj_edit", { project, op });
 /** Moves a level or a clip's transform in the backend while the hand moves it, without the project going back and forth. */
@@ -106,7 +114,7 @@ export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");
 
 /** A setting of an effect, with what it takes; the backend owns the ranges and the defaults. */
 export type VjParamSpec =
-  | { type: "number"; key: string; min: number; max: number; step: number; default: number; whole: boolean; unit: string; snap: number[] }
+  | { type: "number"; key: string; min: number; max: number; step: number; default: number; whole: boolean; unit: string; snap: number[]; modulatable: boolean }
   | { type: "choice"; key: string; options: string[]; default: string }
   | { type: "colour"; key: string; default: string }
   | { type: "flag"; key: string; default: boolean };
@@ -119,12 +127,59 @@ export interface VjEffectSpec {
   params: VjParamSpec[];
 }
 
+/** A layer's or a clip's modulatable field: its range, its default and where a new modulation of it starts. */
+export interface VjModField {
+  min: number;
+  max: number;
+  default: number;
+  start: [number, number];
+}
+
+/** What modulation is made of, as the backend lists it. */
+export interface VjModulationCatalog {
+  shapes: VjLfoShape[];
+  bands: VjAudioBand[];
+  maxGain: number;
+  maxSmoothing: number;
+  maxRate: number;
+  /** The lengths of a synced cycle, in beats. */
+  beats: number[];
+  /** What a new modulation starts as (min and max are set from the setting). */
+  start: VjModulation;
+  /** What switching to an audio source starts as. */
+  audio: VjModSource;
+  layer: Record<string, VjModField>;
+  clip: Record<string, VjModField>;
+}
+
 export interface VjEffectCatalog {
   /** Most effects a stack holds. */
   max: number;
+  modulation: VjModulationCatalog;
   /** The groups effects are listed in, in order. */
   categories: string[];
   effects: VjEffectSpec[];
 }
 
 export const vjEffectCatalog = () => invoke<VjEffectCatalog>("vj_effect_catalog");
+
+/** The modulated values of the grid now, by effect id and setting, layer id and field, clip id and field. */
+export interface ModValues {
+  effects: Record<string, Record<string, number>>;
+  layers: Record<string, Record<string, number>>;
+  clips: Record<string, Record<string, number>>;
+}
+
+export const vjModulationValues = () => invoke<ModValues>("vj_modulation_values");
+
+/** How loud the bands of the sound are, 0 to 1, and what the analysis listens to. */
+export interface AnalysisLevels {
+  low: number;
+  mid: number;
+  high: number;
+  level: number;
+  source: "off" | "grid" | "input";
+  state: "off" | "listening" | "missing" | "error";
+}
+
+export const vjAnalysisLevels = () => invoke<AnalysisLevels>("vj_analysis_levels");

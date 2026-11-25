@@ -13,6 +13,8 @@ import { openSetup } from "../state/ui";
 import { formatFrames, parseTimecode } from "../timecode";
 import { pause, play, seek, stop } from "../transport/playback";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
+import { vjAnalysisLevels } from "./api";
+import type { AnalysisLevels } from "./api";
 import { edit } from "./store";
 import { closeTimecodeIn, useTimecodeIn } from "./timecodeIn";
 import type { TimecodeInStatus } from "./timecodeIn";
@@ -179,4 +181,49 @@ function signalOf(status: TimecodeInStatus | null): Signal {
   if (status.state !== "listening") return status.state;
   if (!status.reading) return "waiting";
   return status.reading.running ? "running" : "stopped";
+}
+
+/** The bands the analysis hears, as the backend reads them. */
+const BANDS = ["low", "mid", "high", "level"] as const;
+/** How often the meter asks: fifteen times a second is enough to see it move. */
+const METER_EVERY = 1000 / 15;
+
+/**
+ * The audio analysis meter of the composition bar: the low, mid and high bands and the level that audio modulation
+ * follows. It only draws what the backend reads; a click opens the page that chooses what is listened to.
+ */
+export function AnalysisMeter() {
+  const t = useT();
+  const [levels, setLevels] = useState<AnalysisLevels | null>(null);
+  useEffect(() => {
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      if (document.hidden) {
+        window.setTimeout(tick, 200);
+        return;
+      }
+      vjAnalysisLevels()
+        .then((next) => !stopped && setLevels(next))
+        .catch(() => undefined)
+        .finally(() => !stopped && window.setTimeout(tick, METER_EVERY));
+    };
+    tick();
+    return () => {
+      stopped = true;
+    };
+  }, []);
+  const state = levels?.state ?? "off";
+  const word = t(`setup.analysis.state.${state}` as MessageKey);
+  return (
+    <button type="button" className="vj-meter" data-state={state} title={t("vj.mod.meterOpen", { state: word })} aria-label={t("vj.mod.meterOpen", { state: word })}
+      onClick={() => openSetup("analysis")}>
+      {BANDS.map((band) => (
+        <span key={band} className="vj-meter-b" data-band={band}>
+          <i style={{ height: `${Math.round((levels?.[band] ?? 0) * 100)}%` }} />
+          <b>{t(`vj.mod.meter.${band}` as MessageKey).slice(0, 1)}</b>
+        </span>
+      ))}
+    </button>
+  );
 }

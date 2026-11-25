@@ -26,6 +26,8 @@ test("every page is listed once, in its group, and only the planned ones are una
 test("timecode input is only listed for a VJ show, which has no timecode outputs", () => {
   assert.equal(isListed("timecodeIn", true), true);
   assert.equal(isListed("timecodeIn", false), false);
+  assert.equal(isListed("analysis", true), true);
+  assert.equal(isListed("analysis", false), false);
   assert.equal(isListed("ltc", true), false);
   assert.equal(isListed("ltc", false), true);
 });

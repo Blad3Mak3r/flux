@@ -16,9 +16,10 @@ import {
   vjPlayState,
   vjRelease,
   vjImport,
+  vjModulationValues,
   vjStop,
 } from "./api";
-import type { GridState, VjOp } from "./api";
+import type { GridState, ModValues, VjOp } from "./api";
 
 /** A video file being copied into the project, shown where it will land until it is there. */
 export interface Importing {
@@ -44,9 +45,15 @@ interface VjState {
   browser: "media" | "generators" | "effects";
   /** The effects of the inspector folded shut; only the screen's, never the file's. */
   folded: Record<string, true>;
+  /** The modulation sub-rows of the inspector that are open, by the setting's key; only the screen's. */
+  modOpen: Record<string, true>;
+  /** The modulated values now, while the inspector shows something modulated. */
+  mod: ModValues;
   /** Whether the Advanced Output is open. */
   output: boolean;
 }
+
+const NO_MOD: ModValues = { effects: {}, layers: {}, clips: {} };
 
 export type MediaKind = "all" | "video" | "image";
 
@@ -59,6 +66,8 @@ export const useVj = create<VjState>()(() => ({
   media: "all",
   browser: "media",
   folded: {},
+  modOpen: {},
+  mod: NO_MOD,
   output: false,
 }));
 
@@ -150,6 +159,14 @@ export const foldEffect = (effect: string) =>
     else folded[effect] = true;
     return { folded };
   });
+/** Opens the modulation sub-row of a setting (`open`), closes it, or flips it with no `open`. */
+export const showModulation = (key: string, open?: boolean) =>
+  useVj.setState((vj) => {
+    const modOpen = { ...vj.modOpen };
+    if (open ?? !modOpen[key]) modOpen[key] = true;
+    else delete modOpen[key];
+    return { modOpen };
+  });
 export const showBrowser = (browser: VjState["browser"]) => useVj.setState({ browser });
 
 /** Asks the backend what plays, ten times a second, while the VJ screen is open and in sight. */
@@ -174,6 +191,34 @@ export function bindPlayState(): () => void {
   tick();
   return () => {
     stopped = true;
+  };
+}
+
+/** How often the modulated values are asked for while the inspector shows something modulated: thirty times a second. */
+const MOD_EVERY = 1000 / 30;
+
+/** Asks the backend for the modulated values {@link MOD_EVERY}, to mark them on the controls. The UI never computes them. */
+export function bindModulation(): () => void {
+  let stopped = false;
+  const tick = () => {
+    if (stopped) return;
+    if (document.hidden) {
+      window.setTimeout(tick, 100);
+      return;
+    }
+    vjModulationValues()
+      .then((mod) => {
+        if (!stopped) useVj.setState({ mod });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!stopped) window.setTimeout(tick, MOD_EVERY);
+      });
+  };
+  tick();
+  return () => {
+    stopped = true;
+    useVj.setState({ mod: NO_MOD });
   };
 }
 

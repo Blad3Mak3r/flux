@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
@@ -33,6 +33,7 @@ import {
   bindPlayState,
   edit,
   importVideos,
+  bindModulation,
   launch,
   launchColumn,
   moveCrossfader,
@@ -51,8 +52,9 @@ import { GENERATORS, swatch } from "./generators";
 import { AdvancedOutput } from "./AdvancedOutput";
 import { ColourField, Scrub, Segments } from "./controls";
 import { EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect } from "./EffectStack";
-import { loadEffectCatalog } from "./effects";
-import { Tempo, TimecodeClock } from "./CompositionBar";
+import { loadEffectCatalog, useEffectCatalog } from "./effects";
+import { AnalysisMeter, Tempo, TimecodeClock } from "./CompositionBar";
+import { ModPanel, ModScrub, fieldRange, inspectorModulated } from "./Modulation";
 import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
@@ -137,11 +139,13 @@ function Thumb({ strip, generator, position = 0.3, children, className }: {
 }
 
 /** A vertical fader: its letter is the handle, its colour says what it moves. */
-function Fader({ letter, label, value, off, progress, onMove, onSet }: {
+function Fader({ letter, label, value, off, progress, modulated, onMove, onSet }: {
   letter: string;
   label: string;
   value: number;
   off?: boolean;
+  /** The layer and field of this fader when it is modulated: a mark shows where the modulated value is. */
+  modulated?: { layer: string; field: string };
   /** How far what the fader times is, 0 to 1, while it runs: the transition of the T fader. */
   progress?: number | null;
   onMove: (value: number) => void;
@@ -149,6 +153,8 @@ function Fader({ letter, label, value, off, progress, onMove, onSet }: {
 }) {
   const [held, setHeld] = useState<number | null>(null);
   const shown = held ?? value;
+  const now = useVj((vj) => (modulated ? vj.mod.layers[modulated.layer]?.[modulated.field] : undefined));
+  const t = useT();
   const at = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     return Math.min(1, Math.max(0, 1 - (event.clientY - box.top) / box.height));
@@ -162,7 +168,7 @@ function Fader({ letter, label, value, off, progress, onMove, onSet }: {
   };
   return (
     <div
-      className={`vj-fader${off ? " off" : ""}`}
+      className={`vj-fader${off ? " off" : ""}${modulated ? " modulated" : ""}`}
       data-letter={letter}
       role="slider"
       tabIndex={0}
@@ -170,8 +176,8 @@ function Fader({ letter, label, value, off, progress, onMove, onSet }: {
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(shown * 100)}
-      title={`${label} ${Math.round(shown * 100)}`}
-      style={{ "--v": shown } as CSSProperties}
+      title={`${label} ${Math.round(shown * 100)}${modulated ? ` · ${t("vj.layer.modulated")}` : ""}`}
+      style={{ "--v": shown, ...(now === undefined ? {} : { "--mv": Math.min(1, Math.max(0, now)) }) } as CSSProperties}
       onKeyDown={onKeyDown}
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -195,6 +201,7 @@ function Fader({ letter, label, value, off, progress, onMove, onSet }: {
     >
       <i />
       {progress != null && <u style={{ "--p": progress } as CSSProperties} />}
+      {now !== undefined && <em aria-hidden="true" />}
       <b>{letter}</b>
     </div>
   );
@@ -325,9 +332,12 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         </select>
       </div>
       <div className="vj-faders">
-        <Fader letter="M" label={t("vj.fader.master")} value={layer.master ?? 1} {...level("layerMaster")} />
-        <Fader letter="A" label={t("vj.fader.audio")} value={layer.volume ?? 1} {...level("layerVolume")} />
-        <Fader letter="V" label={t("vj.fader.video")} value={layer.opacity ?? 1} {...level("layerOpacity")} />
+        <Fader letter="M" label={t("vj.fader.master")} value={layer.master ?? 1} {...level("layerMaster")}
+          modulated={layer.modulation?.master ? { layer: layer.id, field: "master" } : undefined} />
+        <Fader letter="A" label={t("vj.fader.audio")} value={layer.volume ?? 1} {...level("layerVolume")}
+          modulated={layer.modulation?.volume ? { layer: layer.id, field: "volume" } : undefined} />
+        <Fader letter="V" label={t("vj.fader.video")} value={layer.opacity ?? 1} {...level("layerOpacity")}
+          modulated={layer.modulation?.opacity ? { layer: layer.id, field: "opacity" } : undefined} />
       </div>
       <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={stripOf(thumbs, clip)} generator={clip?.generator}>
         {clip && <PlayTime layer={layer.id} countdown="header" />}
@@ -566,7 +576,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
           </div>
         </div>
         <div className="vj-comp">
-          <div className="vj-cl"><strong>{t("vj.composition")}</strong></div>
+          <div className="vj-cl"><strong>{t("vj.composition")}</strong><AnalysisMeter /></div>
           <Tempo />
           <TimecodeClock grid={grid} />
           <button type="button" className="button" onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
@@ -709,6 +719,13 @@ function GeneratorFields({ clip, generator }: { clip: string; generator: VjGener
   }
 }
 
+/** The levels of a layer the inspector sets and can modulate: the same as its master, audio and video faders. */
+const LEVELS = [
+  { field: "master", op: "layerMaster", label: "vj.fader.master", tag: "M" },
+  { field: "volume", op: "layerVolume", label: "vj.fader.audio", tag: "A" },
+  { field: "opacity", op: "layerOpacity", label: "vj.fader.video", tag: "V" },
+] as const;
+
 function Inspector({ grid }: { grid: VjGrid }) {
   const t = useT();
   // One value each, so the play state polled ten times a second does not draw the inspector again.
@@ -720,6 +737,10 @@ function Inspector({ grid }: { grid: VjGrid }) {
   const thumbs = useDoc((doc) => doc.thumbs);
   const found = grid.layers.flatMap((layer) => (layer.clips ?? []).map((clip) => ({ layer, clip }))).find((x) => x.clip.id === clipId);
   const layer = grid.layers.find((l) => l.id === layerId) ?? found?.layer;
+  const modCatalog = useEffectCatalog((state) => state.catalog?.modulation);
+  // The modulated values are asked for only while the inspector shows something modulated.
+  const modulated = inspectorModulated(layer, found?.clip);
+  useEffect(() => (modulated ? bindModulation() : undefined), [modulated]);
   const tabs = (
     <nav className="vj-tabs" role="tablist">
       {(["clip", "layer"] as const).map((key) => (
@@ -739,6 +760,20 @@ function Inspector({ grid }: { grid: VjGrid }) {
     const scale = clip.scale ?? 1;
     const [x, y] = clip.position ?? [0, 0];
     const columnAt = found.layer.global ? clip.slot ?? 0 : deck?.columns.findIndex((c) => c.id === clip.column) ?? -1;
+    // A transform number that can be modulated, with its "~" button; the row of `scale` is drawn here, the two of
+    // `position` by the caller. The sub-rows go under them.
+    const modScrub = (field: string, name: string, tag: string, value: number, reset: number, onMove: (v: number) => void, onSet: (v: number) => void, bare = false) => {
+      const range = fieldRange(modCatalog, "clip", field);
+      const scrub = { label: tag, name, value, shown: 100, reset, onMove, onSet };
+      const control = range
+        ? <ModScrub key={field} {...scrub} target={{ clip: clip.id, field }} modulation={clip.modulation?.[field]} range={range} />
+        : <Scrub key={field} {...scrub} />;
+      return bare ? control : <div className="vj-f"><span>{name}</span><div className="vj-scrubs one">{control}</div></div>;
+    };
+    const modPanel = (field: string) => {
+      const range = fieldRange(modCatalog, "clip", field);
+      return range && <ModPanel key={field} target={{ clip: clip.id, field }} modulation={clip.modulation?.[field]} range={range} />;
+    };
     body = (
       <div className="vj-insp">
         <Thumb className="vj-ithumb" strip={stripOf(thumbs, clip)} generator={generator} />
@@ -764,23 +799,18 @@ function Inspector({ grid }: { grid: VjGrid }) {
                 onPick={(fit) => void edit({ op: "clipFit", clip: clip.id, fit })} />
             </div>
           )}
-          <div className="vj-f"><span>{t("vj.clip.scale")}</span>
-            <div className="vj-scrubs">
-              <Scrub label="↔" name={t("vj.clip.scale")} value={scale} shown={100} reset={1}
-                onMove={(value) => preview({ op: "clipScale", clip: clip.id, value })}
-                onSet={(value) => void edit({ op: "clipScale", clip: clip.id, value })} />
-            </div>
-          </div>
+          {modScrub("scale", t("vj.clip.scale"), "↔", scale, 1, (v) => preview({ op: "clipScale", clip: clip.id, value: v }),
+            (v) => void edit({ op: "clipScale", clip: clip.id, value: v }))}
+          {modPanel("scale")}
           <div className="vj-f"><span>{t("vj.clip.position")}</span>
             <div className="vj-scrubs">
-              <Scrub label="X" name={t("vj.clip.x")} value={x} shown={100} reset={0}
-                onMove={(v) => preview({ op: "clipPosition", clip: clip.id, x: v, y })}
-                onSet={(v) => void edit({ op: "clipPosition", clip: clip.id, x: v, y })} />
-              <Scrub label="Y" name={t("vj.clip.y")} value={y} shown={100} reset={0}
-                onMove={(v) => preview({ op: "clipPosition", clip: clip.id, x, y: v })}
-                onSet={(v) => void edit({ op: "clipPosition", clip: clip.id, x, y: v })} />
+              {modScrub("positionX", t("vj.clip.x"), "X", x, 0, (v) => preview({ op: "clipPosition", clip: clip.id, x: v, y }),
+                (v) => void edit({ op: "clipPosition", clip: clip.id, x: v, y }), true)}
+              {modScrub("positionY", t("vj.clip.y"), "Y", y, 0, (v) => preview({ op: "clipPosition", clip: clip.id, x, y: v }),
+                (v) => void edit({ op: "clipPosition", clip: clip.id, x, y: v }), true)}
             </div>
           </div>
+          {(["positionX", "positionY"] as const).map((field) => modPanel(field))}
         </div>
         <EffectStack target={{ clip: clip.id }} effects={clip.effects ?? NO_EFFECTS} />
         <dl className="vj-meta">
@@ -821,6 +851,27 @@ function Inspector({ grid }: { grid: VjGrid }) {
           <div className="vj-f"><span>{t("vj.layer.kind")}</span>
             <span>{t(layer.global ? "vj.layer.kindGlobal" : "vj.layer.kindDeck")}</span>
           </div>
+          {LEVELS.map(({ field, op, label, tag }) => {
+            const range = fieldRange(modCatalog, "layer", field);
+            const value = layer[field] ?? 1;
+            const scrub = {
+              label: tag, name: t(label), value, shown: 100, reset: 1,
+              onMove: (v: number) => preview({ op, layer: layer.id, value: v }),
+              onSet: (v: number) => void edit({ op, layer: layer.id, value: v }),
+            };
+            return (
+              <Fragment key={field}>
+                <div className="vj-f"><span>{t(label)}</span>
+                  <div className="vj-scrubs one">
+                    {range
+                      ? <ModScrub {...scrub} target={{ layer: layer.id, field }} modulation={layer.modulation?.[field]} range={range} />
+                      : <Scrub {...scrub} />}
+                  </div>
+                </div>
+                {range && <ModPanel target={{ layer: layer.id, field }} modulation={layer.modulation?.[field]} range={range} />}
+              </Fragment>
+            );
+          })}
         </div>
         <EffectStack target={{ layer: layer.id }} effects={layer.effects ?? NO_EFFECTS} />
       </div>

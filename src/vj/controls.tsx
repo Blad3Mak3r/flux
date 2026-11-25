@@ -1,7 +1,7 @@
 // The small controls of the VJ screen: a number scrubbed by its handle, a choice among a few and a colour.
 
 import { useEffect, useState } from "react";
-import type { PointerEvent } from "react";
+import type { PointerEvent, ReactNode } from "react";
 import { useT } from "../i18n";
 
 /**
@@ -9,7 +9,7 @@ import { useT } from "../i18n";
  * double click on the label puts it back to `reset`. `value` and what it sends are in the backend's units, shown times
  * `shown` (e.g. 100 for a percent).
  */
-export function Scrub({ label, name, value, shown, reset, unit = "%", decimals = 0, perPixel, step, onMove, onSet }: {
+export function Scrub({ label, name, value, shown, reset, unit = "%", decimals = 0, perPixel, step, marker, trailing, onMove, onSet }: {
   /** The handle's short tag. */
   label: string;
   /** What the number is, for a screen reader. */
@@ -25,6 +25,10 @@ export function Scrub({ label, name, value, shown, reset, unit = "%", decimals =
   perPixel?: number;
   /** How much an arrow key moves it, in the backend's units; one shown unit by default. */
   step?: number;
+  /** Where a modulation has the value now, 0 to 1 along the setting's range: a mark under the number. */
+  marker?: number;
+  /** Something drawn at the end of the box, such as the button of its modulation. */
+  trailing?: ReactNode;
   onMove: (value: number) => void;
   onSet: (value: number) => void;
 }) {
@@ -41,7 +45,7 @@ export function Scrub({ label, name, value, shown, reset, unit = "%", decimals =
     setText(null);
   };
   return (
-    <span className="vj-scrub">
+    <span className={`vj-scrub${marker === undefined ? "" : " modulated"}${trailing ? " has-trailing" : ""}`}>
       <span
         className="vj-scrub-l"
         title={t("vj.clip.scrub")}
@@ -81,20 +85,25 @@ export function Scrub({ label, name, value, shown, reset, unit = "%", decimals =
           }
         }} />
       <span className="vj-scrub-u">{unit}</span>
+      {trailing}
+      {marker !== undefined && <i className="vj-scrub-m" style={{ left: `${Math.min(1, Math.max(0, marker)) * 100}%` }} aria-hidden="true" />}
     </span>
   );
 }
 
-export function Segments<T extends string>({ options, value, label, onPick }: {
+export function Segments<T extends string>({ options, value, label, title, onPick }: {
   options: T[];
   value: T;
-  label: (option: T) => string;
+  label: (option: T) => ReactNode;
+  /** What a segment is called when its label is only a picture. */
+  title?: (option: T) => string;
   onPick: (option: T) => void;
 }) {
   return (
     <div className="vj-segs" role="radiogroup">
       {options.map((option) => (
         <button key={option} type="button" role="radio" aria-checked={option === value} className={option === value ? "on" : ""}
+          title={title?.(option)} aria-label={title?.(option)}
           onClick={() => { if (option !== value) onPick(option); }}>{label(option)}</button>
       ))}
     </div>

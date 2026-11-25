@@ -2,7 +2,7 @@
 // effect to drag onto one. The backend owns the kinds, the settings with their ranges and defaults, the order and
 // the limit; this draws what its catalogue says and forwards the user's intent.
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { DragEvent, ReactNode } from "react";
 import {
   ArrowDownIcon,
@@ -17,10 +17,13 @@ import {
   RefreshIcon,
 } from "../components/icons";
 import { useT } from "../i18n";
-import type { VjEffect, VjEffectKind, VjParamValue } from "../project/types";
+import { effectModulation } from "../project/types";
+import type { VjEffect, VjEffectKind, VjModulations, VjParamValue } from "../project/types";
 import type { VjEffectSpec, VjParamSpec } from "./api";
 import { ColourField, Scrub, Segments } from "./controls";
 import { categoryKey, choiceKey, effectKey, genericParamKey, paramKey, specOf, useEffectCatalog } from "./effects";
+import { ModPanel, ModScrub } from "./Modulation";
+import type { ModRange } from "./Modulation";
 import { edit, foldEffect, preview, useVj } from "./store";
 
 /** What an effect dragged from the browser carries: the name of its kind. */
@@ -57,22 +60,33 @@ const beatLabel = (beats: number) => (beats < 1 ? `1/${Math.round(1 / beats)}` :
 type Changed = Record<string, VjParamValue>;
 
 /** The settings of one effect, each drawn as its catalogue entry says. */
-function Settings({ id, spec, kind }: { id: string; spec: VjEffectSpec; kind: VjEffectKind }) {
+function Settings({ id, spec, kind, modulation }: { id: string; spec: VjEffectSpec; kind: VjEffectKind; modulation: VjModulations | undefined }) {
   const t = useT();
   const withValues = (changed: Changed) => ({ ...kind, ...changed }) as VjEffectKind;
   const move = (changed: Changed) => preview({ op: "effectParams", effect: id, kind: withValues(changed) });
   const keep = (changed: Changed) => void edit({ op: "effectParams", effect: id, kind: withValues(changed) });
   const label = (key: string) => t(paramKey(spec.name, key)) ?? t(genericParamKey(key));
 
-  const scrub = (param: Extract<VjParamSpec, { type: "number" }>, tag: string) => {
+  type NumberParam = Extract<VjParamSpec, { type: "number" }>;
+  const rangeOf = (param: NumberParam): ModRange => {
     const percent = param.unit === "%";
-    const decimals = percent || param.whole ? 0 : param.step >= 0.1 ? 1 : 2;
-    return (
-      <Scrub key={param.key} label={tag} name={label(param.key)} value={kind[param.key] as number} shown={percent ? 100 : 1}
-        reset={param.default} unit={param.unit} decimals={decimals} perPixel={(param.max - param.min) / 160}
-        step={param.whole ? 1 : param.step} onMove={(v) => move({ [param.key]: v })} onSet={(v) => keep({ [param.key]: v })} />
-    );
+    return { min: param.min, max: param.max, shown: percent ? 100 : 1, unit: param.unit, decimals: percent || param.whole ? 0 : param.step >= 0.1 ? 1 : 2 };
   };
+  const scrub = (param: NumberParam, tag: string) => {
+    const range = rangeOf(param);
+    const shared = {
+      label: tag, name: label(param.key), value: kind[param.key] as number, shown: range.shown, reset: param.default, unit: param.unit,
+      decimals: range.decimals, perPixel: (param.max - param.min) / 160, step: param.whole ? 1 : param.step,
+      onMove: (v: number) => move({ [param.key]: v }), onSet: (v: number) => keep({ [param.key]: v }),
+    };
+    if (!param.modulatable) return <Scrub key={param.key} {...shared} />;
+    return <ModScrub key={param.key} {...shared} target={{ effect: id, param: param.key }} modulation={modulation?.[param.key]} range={range} />;
+  };
+  // The sub-row of a modulated setting, under the row that holds it.
+  const panel = (param: VjParamSpec) =>
+    param.type === "number" && param.modulatable
+      ? <ModPanel key={`m-${param.key}`} target={{ effect: id, param: param.key }} modulation={modulation?.[param.key]} range={rangeOf(param)} />
+      : null;
   const control = (param: VjParamSpec): ReactNode => {
     switch (param.type) {
       case "number":
@@ -119,14 +133,17 @@ function Settings({ id, spec, kind }: { id: string; spec: VjEffectSpec; kind: Vj
     if (pair) {
       const [first, second] = param.key === "x" ? ["X", "Y"] : ["C", "R"];
       rows.push(
-        <div className="vj-f" key={param.key}><span>{t(paramKey(spec.name, param.key + next.key)) ?? t(genericParamKey(param.key + next.key))}</span>
-          <div className="vj-scrubs">{scrub(param, first)}{scrub(next, second)}</div>
-        </div>,
+        <Fragment key={param.key}>
+          <div className="vj-f"><span>{t(paramKey(spec.name, param.key + next.key)) ?? t(genericParamKey(param.key + next.key))}</span>
+            <div className="vj-scrubs">{scrub(param, first)}{scrub(next, second)}</div>
+          </div>
+          {panel(param)}{panel(next)}
+        </Fragment>,
       );
       at++;
       continue;
     }
-    rows.push(<div className="vj-f" key={param.key}><span>{label(param.key)}</span>{control(param)}</div>);
+    rows.push(<Fragment key={param.key}><div className="vj-f"><span>{label(param.key)}</span>{control(param)}</div>{panel(param)}</Fragment>);
   }
   return <div className="vj-fx-p">{rows}</div>;
 }
@@ -137,7 +154,8 @@ function EffectRow({ effect, index, stack, full }: { effect: VjEffect; index: nu
   const catalog = useEffectCatalog((state) => state.catalog);
   const folded = useVj((vj) => vj.folded[effect.id] === true);
   const [edge, setEdge] = useState<"before" | "after" | null>(null);
-  const { id, bypass, ...rest } = effect;
+  // The modulation stays out of the settings the backend takes back with the new values.
+  const { id, bypass, modulation: _modulation, ...rest } = effect as typeof effect & { modulation?: unknown };
   const kind = rest as VjEffectKind;
   const spec = specOf(catalog, kind.effect);
   const count = stack.length;
@@ -184,7 +202,7 @@ function EffectRow({ effect, index, stack, full }: { effect: VjEffect; index: nu
         {button(t("vj.effect.down"), () => void edit({ op: "moveEffect", effect: id, index: index + 1 }), <ArrowDownIcon />, index === count - 1)}
         {button(t("vj.effect.remove"), () => void edit({ op: "removeEffect", effect: id }), <CloseIcon />)}
       </div>
-      {!folded && spec && <Settings id={id} spec={spec} kind={kind} />}
+      {!folded && spec && <Settings id={id} spec={spec} kind={kind} modulation={effectModulation(effect)} />}
     </li>
   );
 }

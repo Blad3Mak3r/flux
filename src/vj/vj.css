@@ -417,7 +417,18 @@
   border-top: 1px solid var(--vj-ground);
 }
 
-.vj-cl { padding-left: 12px; }
+.vj-cl { display: flex; align-items: center; gap: 14px; padding-left: 12px; }
+
+/* The audio analysis meter: the low, mid and high bands and the level, as little bars. */
+.vj-meter { display: flex; align-items: stretch; gap: 3px; height: 30px; padding: 3px 5px; background: var(--vj-well); border: 1px solid var(--vj-line); border-radius: 2px; cursor: pointer; }
+.vj-meter:hover { border-color: var(--rule-strong); }
+.vj-meter:focus-visible { outline: 1px solid var(--phosphor); outline-offset: 1px; }
+.vj-meter-b { position: relative; display: flex; flex-direction: column; justify-content: flex-end; width: 12px; }
+.vj-meter-b i { display: block; min-height: 1px; background: var(--phosphor); border-radius: 1px; }
+.vj-meter-b[data-band="level"] i { background: var(--vj-master); }
+.vj-meter-b b { position: absolute; top: -2px; left: 0; right: 0; color: var(--ink-faint); font: 600 8px var(--font-measure); text-align: center; mix-blend-mode: difference; pointer-events: none; }
+.vj-meter[data-state="missing"] i, .vj-meter[data-state="error"] i { background: var(--signal); }
+.vj-meter[data-state="off"] { opacity: 0.6; }
 
 /* The crossfader, under the layer headers and beside the deck tabs, as in Resolume. */
 .vj-xf { display: flex; flex: none; align-items: center; gap: 10px; width: var(--vj-header, 276px); padding: 0 6px 0 8px; }
@@ -906,3 +917,33 @@ output.vj-tc-v { color: var(--ink-faint); }
 /* Incoming timecode: bright while it runs, dim while it is parked. */
 .vj-tc[data-signal="running"] output.vj-tc-v { color: var(--vj-video); }
 .vj-tc[data-signal="stopped"] output.vj-tc-v { color: var(--ink); }
+
+/* ---- Modulation: the "~" button of a setting, its sub-row, and the mark of the modulated value ---- */
+.vj-mod-b {
+  display: inline-grid; flex: none; place-items: center; width: 24px; height: 24px; padding: 0;
+  color: var(--ink-faint); background: none; border: 0; border-radius: 2px; cursor: pointer;
+}
+.vj-mod-b:hover:not(:disabled) { color: var(--ink); background: var(--vj-ctl); }
+.vj-mod-b.on { color: var(--phosphor); }
+.vj-mod-b.on.open { background: oklch(from var(--phosphor) l c h / 0.16); box-shadow: inset 0 0 0 1px var(--phosphor-dim); }
+.vj-mod-b:focus-visible { outline: 1px solid var(--phosphor); outline-offset: 1px; }
+.vj-mod-b .icon { width: 14px; height: 14px; }
+.vj-scrub { position: relative; }
+.vj-scrub .vj-mod-b { width: 22px; margin-right: 1px; }
+.vj-scrub.has-trailing .vj-scrub-l { padding: 0 4px; }
+.vj-scrub.has-trailing .vj-scrub-u { padding: 0 2px 0 1px; }
+.vj-scrub-m { position: absolute; bottom: 0; width: 3px; height: 6px; margin-left: -1px; background: var(--phosphor); box-shadow: 0 0 4px var(--phosphor); pointer-events: none; }
+.vj-scrub.modulated::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--phosphor-dim); opacity: 0.5; pointer-events: none; }
+
+.vj-mod {
+  display: flex; flex-direction: column; gap: 6px; margin: 0 0 2px 16px; padding: 6px 8px;
+  background: oklch(0.17 0.012 250); border-left: 2px solid var(--phosphor-dim); border-radius: 0 2px 2px 0;
+}
+.vj-mod .vj-f { grid-template-columns: 68px minmax(0, 1fr); gap: 8px; }
+.vj-mod .vj-segs button { padding: 0 4px; font-size: 11px; }
+.vj-shape { width: 16px; height: 12px; vertical-align: middle; }
+.vj-mod .vj-segs button .vj-shape { display: block; margin: 0 auto; }
+
+/* A layer fader that is modulated shows a line where the modulated value is now. */
+.vj-fader em { position: absolute; left: 0; right: 0; bottom: calc((100% - 14px) * var(--mv, 0) + 7px); height: 2px; background: var(--phosphor); box-shadow: 0 0 4px var(--phosphor); pointer-events: none; }
+.vj-fader.modulated b { box-shadow: 0 0 0 1px var(--phosphor); }

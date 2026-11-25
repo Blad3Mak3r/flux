@@ -4285,3 +4285,12 @@ input:disabled {
 .recent-filter button { height: 22px; padding: 0 10px; color: var(--ink-dim); font-size: 12px; background: none; border: 0; border-radius: 1px; }
 .recent-filter button:hover { color: var(--ink); }
 .recent-filter button.on { color: var(--ink); background: var(--panel-hi); }
+
+/* Audio analysis page: what the analysis hears now, as four bars. */
+.setup-analysis-hear { display: flex; flex-direction: column; gap: 8px; }
+.setup-analysis-bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
+.setup-analysis-bar { display: flex; align-items: center; gap: 8px; }
+.setup-analysis-track { flex: 1; height: 8px; background: var(--panel-lo); border: 1px solid var(--rule); border-radius: 1px; }
+.setup-analysis-track i { display: block; height: 100%; background: var(--phosphor); }
+.setup-analysis-bar[data-band="level"] .setup-analysis-track i { background: var(--amber); }
+.setup-analysis-bar .field-note { min-width: 48px; margin: 0; }
