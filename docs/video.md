@@ -226,17 +226,59 @@ playback; the play state gives it no `progress` or `remaining`. The media browse
 or image.
 
 Effects work as in Resolume: an ordered stack on each clip and on each layer, listed in the inspector's Clip and Layer
-tabs under **Effects** (up to 8 per stack; **Add effect** picks one of brightness, contrast, saturation, hue, tint, invert,
-blur, mirror, zoom and shift). Each effect has a bypass, arrows to move it in the stack and a button to remove it, and its
-numbers are scrubbed like the clip's scale; dragging one moves the output live (`effectParams` through `vj_preview`). A
-clip's stack applies first, from the top down, then its layer's, so a layer's effects also reach both clips while a
-transition runs. The model is `flux_project::vj_effects`; the backend turns the stack into one `flux_render::Effects` per
-picture (`video_output::effects`) and draws it in the same single pass as the rest, on the screens and in the monitor
-(`flux_render::composite`, the same taps). The colour effects (brightness, contrast, saturation, hue, tint, invert) are
-affine on linear light and compose into one 3x4 matrix; mirror, zoom and shift are steps the shader walks back from each
-output pixel to the pixel it reads (a zoom out leaves the edge transparent, a shift wraps around); blurs add in
-quadrature and sample 32 points of a disc, whose full radius is 5% of the picture's short side. A picture with no
-effects is drawn exactly as before; one with effects never hides what is below it.
+tabs under **Effects** (up to 16 per stack). **Add effect** picks one from a list grouped by category, and the media
+browser's **Effects** tab lists them all with a line each: drag one onto a grid clip, a layer header or an inspector
+stack, or double click it to add it to the selected clip (or layer). In the stack each effect folds shut (kept on the
+screen only, never in the file), can be bypassed, duplicated, reset to its starting settings, moved with its grip or
+with the arrows, and removed; a badge on the grid clip and the layer header counts the effects. Settings are scrubbed like
+the clip's scale (dragging one moves the output live: `effectParams` through `vj_preview`), picked or switched, and
+animated effects choose between a rate in Hz and a cycle in beats of the show's tempo. A clip's stack applies first,
+from the top down, then its layer's, so a layer's effects also reach both clips while a transition runs.
+
+The 36 effects, by category (settings and ranges are in [the format](fxtc-format.md#vj-effects)):
+
+- **Colour:** brightness, contrast, saturation, hue, tint, invert, levels, colorize (gradient map), solarize.
+- **Distort:** mirror, zoom, shift, rotate, kaleidoscope, polar, wave warp, twirl, bulge (fisheye), tile, pixelate,
+  displace.
+- **Blur & edges:** blur, radial blur, zoom blur.
+- **Glitch:** shift glitch, twitch, RGB split.
+- **Stylise:** posterize, threshold, edge detect, vignette, film grain, scanlines.
+- **Time:** strobe, slide, roll (vertical hold).
+
+The catalogue of kinds, settings, ranges and defaults is `flux_project::vj_effects::catalog()`; the interface gets it from
+`vj_effect_catalog` and holds no range of its own. The ops are `addEffect`, `removeEffect`, `moveEffect`, `effectParams`,
+`effectBypass`, `duplicateEffect` and `resetEffect`.
+
+How they are drawn: the backend turns a picture's stack into one program, `flux_render::Effects`, each time it draws
+(`Effects::new(stack, Time { seconds, beats })`: the seconds since the clip was launched and the beats the grid's clock
+has counted at the show's tempo, `Grid::beats`), and the shader interprets it in the same single pass as the rest, on the
+screens and, step for step the same, in the monitor (`flux_render::composite`). A step is a kind and twelve numbers (at
+most 32 steps a picture, 16 pictures: 33 KB of uniform), in three stages that keep the order of the stack within each:
+
+1. **Where:** the distortions walk back from the last to the first, mapping each output pixel to where the picture is read
+   (a zoom out or a rotation leaves transparent edges, a shift wraps, the others bounce at the edges). Mirror, shift,
+   kaleidoscope and the rest all live here.
+2. **How:** the picture is read there. Blur, radial blur and zoom blur share one pass of 32 taps and their offsets add (two
+   blurs add in quadrature, up to a full blur); RGB split, and the colour offsets of shift glitch, pull the red and the
+   blue to either side; edge detect looks at the result with a Sobel filter and shows only the edges, or adds them.
+3. **What colour:** the colour steps apply first to last. Consecutive affine ones (brightness, contrast, saturation, hue,
+   tint, invert, a lit strobe, a twitch's flash of light) fold into one 3x4 matrix on linear light; posterize, threshold,
+   colorize, solarize, levels, vignette, noise and scanlines run in their place, on a gamma 2.2 scale where it matters.
+
+The stages do not interleave, so a blur below a threshold in the stack still blurs first; this is the price of one pass.
+
+Time is worked out on the CPU for each frame, so the shader only sees numbers: a spin is an angle, a scroll an offset, a
+strobe or a twitch whether it is on. A paced effect counts cycles as seconds times its rate, or beats over its beat length,
+and the whole cycle number (kept exact for days) and the fraction of it go to the shader. Randomness (shift glitch bands,
+twitch jumps, grain, displacement noise, roll jitter) is a hash of the effect's id, that cycle number and the pixel or the
+row, never a generator: the same frame is the same everywhere. Because the tempo moves the beat count, the count keeps its
+phase when the tempo changes. Aspect-correct effects (rotate, kaleidoscope, twirl, bulge, radial blur) use the picture's own
+shape, so a clip stretched to a different shape distorts them a little.
+
+The monitor draws the same program on the CPU, with two cheaper approximations: its blur pass takes 16 taps instead of 32
+(`flux_render::effects::CPU_TAPS`), and it samples bilinearly at 480 pixels wide rather than at the screens' resolution,
+so fine noise and one pixel edges differ from the screens. A picture with no effects is drawn exactly as before; one with
+effects never hides what is below it.
 
 Generators are clips whose picture Flux makes itself: a solid colour, a strobe, a gradient, colour bars and noise
 (`flux_project::generator`). The media browser lists them under its Generators tab and they are dragged onto the grid

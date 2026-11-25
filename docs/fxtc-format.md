@@ -416,14 +416,68 @@ to the running show.
 | `vj.clock` | `internal` \| `ltc` \| `mtc` | Where the show's timecode clock comes from; absent is `internal`. The show's tempo is the `tempo.bpm` of its one timeline. |
 | `vj.layers[]` | `{ id, name?, global?, master?, opacity?, volume?, blend?, transition?, transitionEffect?, crossfade?, bypass?, solo?, collapsed?, effects?, clips? }` | Drawing order: the first is at the bottom, the last on top. 1 to 16, shared by every deck. A `global` layer keeps its clips when the deck changes and is not launched with a column. `master`, `opacity` (video) and `volume` (audio) are 0 to 1, absent is 1; the picture is `master` × `opacity`. `blend` is how the layer is drawn over the ones below: `alpha` (absent), `add`, `subtract`, `multiply`, `screen`, `lighten` or `darken`. `transition` is how long, 0 to 10 seconds, a launched clip takes to replace the one playing on the layer, absent is 0 (a cut); `transitionEffect` is `alpha` (absent, the new clip fades in over the old) or `add` (one fades out while the other fades in). `crossfade` is `a` or `b`, the crossfader side, absent is neither. `bypass` hides the layer; with any `solo` layer only those show. `collapsed` folds the layer's row on the grid to a thin one; it plays as before. `effects` is the layer's effect stack (see below), absent when empty. Ids of layers, decks and columns are unique within the grid; names are 1 to 64 characters. |
 | `vj.layers[].clips[]` | `{ id, column?, slot?, asset?, generator?, name?, playback?, trigger?, fit?, scale?, position?, effects? }` | At most one per cell. A clip of a deck layer has `column`, a column id of any deck; a clip of a global layer has `slot`, its position from the left, the same on every deck. `asset` is an entry of `videos`; a generator clip has no `asset` but a `generator`, `{ kind, ... }`, the picture Flux makes for it, which fills the composition: `solid` (`colour`), `strobe` (`colour`, `rate` flashes a second above 0 up to 30, `width` of each period lit above 0 up to 1; between flashes what is below shows), `gradient` (`from`, `to`, `angle` in degrees -360 to 360, 0 left to right and 90 top to bottom), `bars` (colour bars) or `noise` (`colour`, `rate` new snow a second above 0 up to 30). Colours are `#rrggbb`; a parameter left out takes its default (white, 8 flashes of half the period, black to white at 0°, 30 a second). A clip with both or neither is rejected. `id` is unique among every clip of the project. `playback` is what the clip does at the end of its video: `loop` (absent), `once` or `pingPong`. `trigger` is `normal` (absent, plays until something else replaces it) or `piano` (plays while held). `fit` as for video clips, absent is `fit`. `scale` draws the clip that many times its fitted size about its centre, 0 to 10, absent is 1 (100%). `position` is `[x, y]`, how far its centre moves right and down from where its fit puts it, as fractions of the composition's width and height, -2 to 2 each, absent is `[0, 0]`. `effects` is the clip's effect stack (see below), absent when empty. |
-| `effects[]` | `{ id, bypass?, effect, ... }` | On a clip or a layer, at most 8 each, the first applied first. A clip's stack applies to its picture first and then its layer's, so a layer's effects reach both clips of a transition. `id` is unique among every effect of the project; `bypass` skips the effect (absent is false). `effect` names the kind and the rest are its settings, each brought into range by the ops and checked on load (a NaN, a value out of range or a bad colour is refused): `brightness` (`amount` -1 to 1, added to every colour, 0 is none), `contrast` (`amount` 0 to 4 about mid grey, 1 is none), `saturation` (`amount` 0 to 4, 1 is none), `hue` (`degrees` -180 to 180, a turn about the grey axis), `tint` (`colour` `#rrggbb`, `amount` 0 to 1: the picture's grey mixed with the colour), `invert` (`amount` 0 to 1), `blur` (`radius` 0 to 1 of the largest blur, 5% of the picture's short side), `mirror` (`axis` `horizontal`, `vertical` or `both`: the left half onto the right, the top onto the bottom), `zoom` (`amount` 0.25 to 8 about the centre; outside the picture is transparent) and `shift` (`x`, `y` -1 to 1 of the picture's size, right and down, wrapping around). Colour effects work on linear light. |
+| `effects[]` | `{ id, bypass?, effect, ... }` | On a clip or a layer, at most 16 each, the first applied first. A clip's stack applies to its picture first and then its layer's, so a layer's effects reach both clips of a transition. `id` is unique among every effect of the project and seeds the effect's randomness; `bypass` skips the effect (absent is false). `effect` names the kind and the rest are its settings, each brought into range by the ops and checked on load (a NaN, a value out of range, a choice that is not one of its options or a bad colour is refused). The kinds, their categories and settings are listed under [VJ effects](#vj-effects). New kinds are new values of `effect`: the field was already optional, so the format version is unchanged (a build that does not know a kind refuses the project, as with any unknown value). |
+
+#### VJ effects
+
+The kinds are described once, in `flux_project::vj_effects::catalog()`, which holds each one's category and every
+setting's range, step, unit and default; the ops take their defaults and limits from it and `vj_effect_catalog` hands the
+same table to the interface, which draws its lists and controls from it. Categories: `colour`, `distort`, `blur`,
+`glitch`, `stylise` and `time`. Colour work (levels, posterize, threshold, solarize, noise) happens on a gamma 2.2
+scale of the light so that its steps look even; everything else works on linear light.
+
+Effects marked **paced** move with time and carry `sync` (`free` or `beats`), `rate` (cycles a second, 0 to 30, used when
+free) and `beats` (the length of one cycle in beats of the show's tempo: 1/4, 1/2, 1, 2, 4, 8 or 16, used when synced).
+What a cycle is depends on the effect and is given below; at `rate` 0 a free effect stands still.
+
+| Category | `effect` | Settings (range, default) |
+| --- | --- | --- |
+| colour | `brightness` | `amount` -1 to 1 (0) |
+| colour | `contrast` | `amount` 0 to 4 (1) |
+| colour | `saturation` | `amount` 0 to 4 (1) |
+| colour | `hue` | `degrees` -180 to 180 (0) |
+| colour | `tint` | `colour` (`#ff8800`), `amount` 0 to 1 (0.5) |
+| colour | `invert` | `amount` 0 to 1 (1) |
+| colour | `levels` | `black` 0 to 1 (0), `white` 0 to 1 (1), `gamma` 0.1 to 4 (1) |
+| colour | `colorize` | `dark` (`#1a0b3d`), `light` (`#ffb347`), `amount` 0 to 1 (1): a gradient map of the picture's grey |
+| colour | `solarize` | `threshold` 0 to 1 (0.5) |
+| distort | `mirror` | `axis` `horizontal`, `vertical` or `both` |
+| distort | `zoom` | `amount` 0.25 to 8 (1); outside the picture is transparent |
+| distort | `shift` | `x`, `y` -1 to 1 (0), wrapping around |
+| distort | `rotate` | paced; `angle` -180 to 180 (0), `spin` -4 to 4 turns a cycle (0); the corners it leaves are transparent |
+| distort | `kaleidoscope` | paced; `segments` 2 to 32 (6), `rotation` -180 to 180 (0), `spin` -4 to 4 turns a cycle (0.25), `x`, `y` centre 0 to 1 (0.5) |
+| distort | `polar` | `amount` 0 to 1 (1): rectangle to polar |
+| distort | `wave` | paced; `amplitude` 0 to 0.25 (0.03), `frequency` 0 to 32 waves across (4), `direction` `horizontal`, `vertical` or `both`; a wave travels one period a cycle |
+| distort | `twirl` | `angle` -1440 to 1440 degrees (180), `radius` 0 to 2 picture heights (0.5), `x`, `y` centre |
+| distort | `bulge` | `amount` -1 to 1 (0.5; negative pinches), `radius` 0.05 to 2 (0.6), `x`, `y` centre |
+| distort | `tile` | `columns`, `rows` 1 to 16 (2), `mirror` (true: alternate tiles are turned over) |
+| distort | `pixelate` | `size` 0 to 0.25 of the height (0.02); 0 is none |
+| distort | `displace` | paced; `amplitude` 0 to 0.25 (0.03), `scale` 0.5 to 32 blobs across (6); the noise drifts one unit a cycle |
+| blur | `blur` | `radius` 0 to 1 of the largest blur (0.1), 5% of the picture's short side |
+| blur | `radialBlur` | `amount` 0 to 1 (0.3), `x`, `y` centre |
+| blur | `zoomBlur` | `amount` 0 to 1 (0.3), `x`, `y` centre |
+| glitch | `shiftGlitch` | paced; `amount` 0 to 1 of the width (0.15), `block` 0.005 to 0.5 band height (0.06), `probability` 0 to 1 (0.35); the bands are drawn again every cycle |
+| glitch | `twitch` | paced; `amount` 0 to 1 (0.5), `probability` 0 to 1 (0.5); in a cycle that is picked the picture jumps by up to a quarter of its size, scales between 0.5 and 1.5 and changes light, held until the next cycle |
+| glitch | `rgbSplit` | paced; `amount` 0 to 1 (0.3; 1 pulls 5% of the height), `angle` -180 to 180 (0), `animate` (turns the angle once a cycle) |
+| stylise | `posterize` | `levels` 2 to 32 (4) |
+| stylise | `threshold` | `level` 0 to 1 (0.5), `softness` 0 to 1 (0.05), `dark` (`#000000`), `light` (`#ffffff`) |
+| stylise | `edgeDetect` | `strength` 0 to 8 (1), `mode` `edges` or `glow` (added to the picture) |
+| stylise | `vignette` | `amount` 0 to 1 (0.6), `softness` 0 to 1 (0.5), `roundness` 0 (the frame) to 1 (an ellipse) (0.5) |
+| stylise | `noise` | `amount` 0 to 1 (0.25), `size` 0 to 1 (0.1), `animated` (new grain 24 times a second) |
+| stylise | `scanlines` | paced; `count` 2 to 540 (120), `intensity` 0 to 1 (0.5); the lines scroll one line a cycle |
+| time | `strobe` | paced; `colour` (`#ffffff`), `duty` 0.02 to 1 of each cycle (0.25), `mode` `flash` or `blackout` |
+| time | `slide` | paced; `x`, `y` -4 to 4 pictures a cycle (0.25, 0), `wrap` (true goes round; false lets the picture leave and come back) |
+| time | `roll` | paced; `jitter` 0 to 1 (0.2); the picture rolls up one picture a cycle, like a TV out of vertical hold |
+
+Randomness is never drawn from a generator: it is a hash of the effect's id, the step of time (the whole cycle) and the
+pixel or the row, so the same frame is the same wherever it is drawn and a stop and a launch repeat it.
 
 Commands: `vj_edit` (`project`, `op`) edits the grid of a VJ project; `op` is tagged by `op`: `addLayer` (`global`),
 `removeLayer`, `moveLayer`, `renameLayer`, `layerMaster`, `layerOpacity`, `layerVolume`, `layerTransition`,
 `layerBlend`, `layerTransitionEffect`, `layerCrossfade`, `layerBypass`, `layerSolo`, `layerCollapse`, `setBpm`, `nudgeBpm`, `scaleBpm`, `tapBpm`, `setClock`, `addDeck`, `removeDeck`,
 `moveDeck`, `renameDeck`, `selectDeck`, `addColumn` (to the deck shown), `removeColumn`, `moveColumn`, `renameColumn`,
 `placeVideo` (a video of the project into a cell), `placeGenerator` (`generator`, `layer`, `column`: a new generator clip into a cell), `moveClip` (swaps with the clip already there), `removeClip`,
-`renameClip`, `clipPlayback`, `clipTrigger`, `clipFit`, `clipScale` (`value`), `clipPosition` (`x`, `y`), `addEffect` (`target`: `{ clip }` or `{ layer }`, `kind`: a kind's name, which takes the settings it starts with; at the end of the stack), `removeEffect` (`effect`), `moveEffect` (`effect`, `index`: its new place in its stack), `effectParams` (`effect`, `kind`: the effect's kind with its new settings, which must be the kind it already is), `effectBypass` (`effect`, `bypass`) and `clipGenerator` (`generator`, the new parameters of a generator clip; a video clip refuses it), which clamp to their limits. The last layer, deck and column of a deck cannot be removed.
+`renameClip`, `clipPlayback`, `clipTrigger`, `clipFit`, `clipScale` (`value`), `clipPosition` (`x`, `y`), `addEffect` (`target`: `{ clip }` or `{ layer }`, `kind`: a kind's name, which takes the settings it starts with; at the end of the stack), `removeEffect` (`effect`), `moveEffect` (`effect`, `index`: its new place in its stack), `effectParams` (`effect`, `kind`: the effect's kind with its new settings, which must be the kind it already is), `effectBypass` (`effect`, `bypass`), `duplicateEffect` (`effect`: a copy with a new id and the same settings right after it, refused when the stack is full), `resetEffect` (`effect`: its kind's starting settings) and `clipGenerator` (`generator`, the new parameters of a generator clip; a video clip refuses it), which clamp to their limits. The last layer, deck and column of a deck cannot be removed.
 `project_import_vj_video` (`project`, `path`, `layer`, `column?`) adds a video file from disk into a cell, or into the
 layer's first empty cell of the deck shown when `column` is absent. Both answer
 with `ProjectState`, and a refusal leaves the document as it was.
