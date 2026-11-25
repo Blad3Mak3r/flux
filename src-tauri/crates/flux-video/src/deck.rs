@@ -4,6 +4,8 @@ use std::sync::Arc;
 
 use std::time::Duration;
 
+use flux_project::playhead::Tick;
+
 use flux_project::generator::Generator;
 use flux_project::vj::Vj;
 use flux_project::{Timeline, TrackKind};
@@ -124,8 +126,8 @@ impl VideoDeck {
 
     /// The layers of the VJ grid to draw `now` on the grid's clock, topmost first: it keeps a player
     /// for each clip playing and closes the rest.
-    pub fn show_grid(&mut self, vj: &Vj, play: &GridPlay, now: Duration) -> Vec<Shown> {
-        let playing = play.clips(vj, now);
+    pub fn show_grid(&mut self, vj: &Vj, play: &GridPlay, now: Tick) -> Vec<Shown> {
+        let playing = play.clips(vj, now.time);
         self.keep_players(&playing);
         let players = &self.players;
         let probe = |asset: &str| {
