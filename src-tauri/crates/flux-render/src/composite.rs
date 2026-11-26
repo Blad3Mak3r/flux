@@ -1,20 +1,21 @@
 //! The composition drawn on the CPU, small, for a monitor in the editor: the same pictures at the
 //! same places, opacities and blends the GPU draws on the screens, before their mapping.
 
+use crate::post::{History, Post};
 use crate::{Blend, Picture};
 
 /// Where an output column or row samples a picture: between its pixels `a` and `b`, `t` of the
 /// way to `b`.
 #[derive(Clone, Copy)]
-struct Tap {
-    a: usize,
-    b: usize,
-    t: f32,
+pub(crate) struct Tap {
+    pub(crate) a: usize,
+    pub(crate) b: usize,
+    pub(crate) t: f32,
 }
 
 /// Where coordinate `at` (0 to 1 across a side of `pixels` pixels) samples: between pixels, the
 /// edge ones repeating beyond.
-fn tap(at: f32, pixels: usize) -> Tap {
+pub(crate) fn tap(at: f32, pixels: usize) -> Tap {
     let p = (at * pixels as f32 - 0.5).max(0.0);
     let a = (p as usize).min(pixels - 1);
     Tap {
@@ -39,6 +40,26 @@ fn taps(out: usize, start: f32, size: f32, pixels: usize) -> Vec<Option<Tap>> {
 /// sRGB RGBA. Each output pixel blends the four pixels of each picture around it (bilinear), and
 /// the light is mixed in linear light as the GPU mixes it.
 pub fn composite(pictures: &[Picture], width: u32, height: u32) -> Vec<u8> {
+    composite_post(
+        pictures,
+        width,
+        height,
+        &Post::default(),
+        &mut History::default(),
+    )
+}
+
+/// [`composite`] with the composition's effects `post` applied to the mix before it is encoded.
+/// `history` is what the monitor remembers of the frame before, which feedback and trails draw
+/// again; it is forgotten when `post` has no effect and when the size changes. With no effect the
+/// result is exactly what [`composite`] always drew.
+pub fn composite_post(
+    pictures: &[Picture],
+    width: u32,
+    height: u32,
+    post: &Post,
+    history: &mut History,
+) -> Vec<u8> {
     let linear: Vec<f32> = (0..=255u8)
         .map(|v| to_linear(f32::from(v) / 255.0))
         .collect();
@@ -125,6 +146,11 @@ pub fn composite(pictures: &[Picture], width: u32, height: u32) -> Vec<u8> {
                 put(y * w + x, [r * cover, g * cover, b * cover, cover]);
             }
         }
+    }
+    if post.is_empty() {
+        history.clear();
+    } else {
+        crate::post::apply(post, &mut light, w, h, history);
     }
     // Linear light back to sRGB through a table, finer in the dark where sRGB is.
     let srgb: Vec<u8> = (0..=SRGB_STEPS)
@@ -522,5 +548,176 @@ mod tests {
         let at = |x: usize| edges[(8 * 16 + x) * 4];
         assert_eq!((at(2), at(13)), (0, 0));
         assert!(at(7) > 100 || at(8) > 100);
+    }
+
+    // The composition's effects.
+
+    const STEP: f32 = 1.0 / 60.0;
+
+    fn post(chain: &[EffectKind]) -> Post {
+        Post::new(&kinds(chain), Time::default(), STEP)
+    }
+
+    fn feedback(amount: f32, zoom: f32) -> EffectKind {
+        EffectKind::Feedback {
+            amount,
+            zoom,
+            rotate: 0.0,
+            x: 0.0,
+            y: 0.0,
+            hue: 0.0,
+            blend: flux_project::vj_effects::FeedbackBlend::Mix,
+        }
+    }
+
+    /// A white dot at the pixel `x`, `y` of an output of 8 by 8 pixels, over black.
+    fn dot(rgba: &[u8], x: usize, y: usize) -> Picture<'_> {
+        picture(
+            rgba,
+            [x as f32 / 8.0, y as f32 / 8.0, 0.125, 0.125],
+            1.0,
+            Blend::Alpha,
+        )
+    }
+
+    const WHITE: [u8; 4] = [255, 255, 255, 255];
+
+    fn draw(pictures: &[Picture], post: &Post, history: &mut History) -> Vec<u8> {
+        composite_post(pictures, 8, 8, post, history)
+    }
+
+    #[test]
+    fn an_empty_stack_should_draw_exactly_what_it_always_did() {
+        let pictures = [dot(&WHITE, 2, 3), dot(&WHITE, 5, 5)];
+        let before = composite(&pictures, 8, 8);
+        let mut history = History::default();
+        for chain in [vec![], vec![EffectKind::Brightness { amount: 0.0 }]] {
+            let out = draw(&pictures, &post(&chain), &mut history);
+            assert_eq!(out, before);
+        }
+        // A bypassed effect is as good as none.
+        let mut bypassed = kinds(&[feedback(0.9, 1.1)]);
+        bypassed[0].bypass = true;
+        let none = Post::new(&bypassed, Time::default(), STEP);
+        assert!(none.is_empty());
+        assert_eq!(draw(&pictures, &none, &mut history), before);
+    }
+
+    #[test]
+    fn a_feedback_of_nothing_should_equal_none() {
+        let mut history = History::default();
+        let first = [dot(&WHITE, 2, 2)];
+        let second = [dot(&WHITE, 6, 6)];
+        let post = post(&[feedback(0.0, 1.5)]);
+        draw(&first, &post, &mut history);
+        let again = draw(&second, &post, &mut history);
+        assert_eq!(again, composite(&second, 8, 8));
+        // With some of it kept, the old dot is still there.
+        let mut history = History::default();
+        let post = super::tests::post(&[feedback(0.8, 1.0)]);
+        draw(&first, &post, &mut history);
+        let kept = draw(&second, &post, &mut history);
+        assert!(pixel(&kept, 8, 2, 2)[0] > 0 && pixel(&kept, 8, 6, 6)[0] > 0);
+    }
+
+    #[test]
+    fn trails_should_fade_behind_a_moving_dot() {
+        let post = post(&[EffectKind::Trails {
+            decay: 0.9,
+            mode: flux_project::vj_effects::TrailMode::Lighten,
+        }]);
+        let mut history = History::default();
+        let mut trail = Vec::new();
+        for x in 1..=4 {
+            let out = draw(&[dot(&WHITE, x, 4)], &post, &mut history);
+            trail.push(pixel(&out, 8, 1, 4)[0]);
+        }
+        // The first dot's pixel is lit at first, then fades while the dot is elsewhere.
+        assert_eq!(trail[0], 255);
+        assert!(
+            trail[1] > trail[2] && trail[2] > trail[3] && trail[3] > 0,
+            "{trail:?}"
+        );
+        // The newest dot is as bright as ever.
+        let last = draw(&[dot(&WHITE, 5, 4)], &post, &mut history);
+        assert_eq!(pixel(&last, 8, 5, 4)[0], 255);
+    }
+
+    #[test]
+    fn a_bloom_should_light_around_a_bright_pixel_and_leave_the_dark_alone() {
+        let bloom = EffectKind::Bloom {
+            threshold: 0.5,
+            intensity: 1.0,
+            radius: 0.3,
+        };
+        // A white dot of 8 pixels in a frame of 64, over black.
+        let dot = [picture(&WHITE, [0.5, 0.5, 0.125, 0.125], 1.0, Blend::Alpha)];
+        let plain = composite(&dot, 64, 64);
+        let glowing = composite_post(
+            &dot,
+            64,
+            64,
+            &post(std::slice::from_ref(&bloom)),
+            &mut History::default(),
+        );
+        let at = |out: &[u8], x: usize, y: usize| out[(y * 64 + x) * 4];
+        // Next to the dot it was black and now it glows, less the further it is.
+        assert_eq!(at(&plain, 30, 36), 0);
+        let (near, far) = (at(&glowing, 30, 36), at(&glowing, 24, 36));
+        assert!(near > 0 && near > far, "{near} {far}");
+        // The corner is out of its reach, and the dot itself does not get darker.
+        assert_eq!(at(&glowing, 63, 63), 0);
+        assert_eq!(at(&glowing, 35, 35), 255);
+        // A frame with nothing bright gets nothing.
+        let dim = [20, 20, 20, 255];
+        let dark = [picture(&dim, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha)];
+        let before = composite(&dark, 16, 16);
+        let after = composite_post(&dark, 16, 16, &post(&[bloom]), &mut History::default());
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn the_program_should_apply_to_the_whole_composition() {
+        // Two dots on black, inverted as one picture: black turns white and the dots black.
+        let pictures = [dot(&WHITE, 1, 1), dot(&WHITE, 6, 6)];
+        let out = draw(
+            &pictures,
+            &post(&[EffectKind::Invert { amount: 1.0 }]),
+            &mut History::default(),
+        );
+        assert_eq!(pixel(&out, 8, 4, 4), [255, 255, 255, 255]);
+        assert_eq!(pixel(&out, 8, 1, 1), [0, 0, 0, 255]);
+        assert_eq!(pixel(&out, 8, 6, 6), [0, 0, 0, 255]);
+        // And a zoom of the whole frame moves what is in it.
+        let zoomed = draw(
+            &[dot(&WHITE, 5, 4)],
+            &post(&[EffectKind::Zoom { amount: 2.0 }]),
+            &mut History::default(),
+        );
+        assert_eq!(pixel(&zoomed, 8, 4, 4)[0], 0);
+        assert!(pixel(&zoomed, 8, 7, 5)[0] > 150);
+    }
+
+    #[test]
+    fn the_history_should_be_forgotten_when_the_size_changes_or_the_stack_empties() {
+        let post = post(&[feedback(0.9, 1.0)]);
+        let mut history = History::default();
+        draw(&[dot(&WHITE, 2, 2)], &post, &mut history);
+        // Another size: nothing of the old frame is drawn again.
+        let black = [0, 0, 0, 255];
+        let other = composite_post(
+            &[picture(&black, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha)],
+            4,
+            4,
+            &post,
+            &mut history,
+        );
+        assert!(other.chunks(4).all(|p| p[0] == 0));
+        assert!(history.holds(4, 4) && !history.holds(8, 8));
+        // The stack emptied for a frame: the old frame is gone when it comes back.
+        draw(&[dot(&WHITE, 2, 2)], &post, &mut history);
+        draw(&[dot(&WHITE, 2, 2)], &Post::default(), &mut history);
+        let back = draw(&[dot(&WHITE, 6, 6)], &post, &mut history);
+        assert_eq!(pixel(&back, 8, 2, 2)[0], 0);
     }
 }

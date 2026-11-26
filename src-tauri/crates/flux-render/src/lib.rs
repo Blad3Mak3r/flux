@@ -7,12 +7,15 @@
 //! [`Blend`]. A quad can fade out towards its edges (a soft edge, to blend
 //! two projectors where their pictures overlap), and [`Mask`]s black out parts of the window.
 
+mod compose;
 mod composite;
 pub mod effects;
 pub mod pattern;
+pub mod post;
 
-pub use composite::composite;
+pub use composite::{composite, composite_post};
 pub use effects::{Effects, Time};
+pub use post::{History, Post};
 
 use thiserror::Error;
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
@@ -241,6 +244,13 @@ pub struct Screen {
     /// The texture of each layer, from the bottom.
     pictures: Vec<Option<Uploaded>>,
     errors: Errors,
+    shader: wgpu::ShaderModule,
+    pipeline_layout: wgpu::PipelineLayout,
+    masks_layout: wgpu::BindGroupLayout,
+    /// The format the composition is drawn in when it has effects (see [`compose`]).
+    composition_format: wgpu::TextureFormat,
+    /// What draws a composition with effects, made when the first one is drawn.
+    compose: Option<compose::Compose>,
 }
 
 /// The last error the GPU reported while drawing, shared with whoever reports it. A GPU error never
@@ -248,6 +258,107 @@ pub struct Screen {
 pub type Errors = std::sync::Arc<std::sync::Mutex<Option<String>>>;
 
 const SHADER: &str = include_str!("shader.wgsl");
+
+/// The pipeline that draws pictures blended by `blend` into a target of `format`.
+fn picture_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+    blend: Blend,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("picture"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs"),
+            compilation_options: Default::default(),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: VERTEX_SIZE,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![
+                    0 => Float32x2,
+                    1 => Float32x3,
+                    2 => Float32x2,
+                    3 => Float32x4,
+                    4 => Float32,
+                    5 => Float32x4,
+                    6 => Float32,
+                    7 => Float32,
+                    8 => Float32
+                ],
+            })],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(blend.state()),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// The group of the picture shader's first binding: a picture's texture and its sampler.
+fn picture_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("picture"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    })
+}
+
+/// The group of its second: the masks and the effects.
+fn masks_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("masks"),
+        entries: &[0, 1].map(|binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }),
+    })
+}
+
+/// The quad that draws a picture over the whole of a target of the composition's size.
+fn whole_quad() -> Quad {
+    Quad {
+        input: [0.0, 0.0, 1.0, 1.0],
+        corners: [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        soft: [0.0; 4],
+        gamma: 1.0,
+    }
+}
 
 impl Screen {
     /// Makes the GPU surface of `window`. Call it on the thread the platform wants windows touched
@@ -277,6 +388,9 @@ impl Screen {
                 label: Some("flux-render"),
                 ..Default::default()
             }))?;
+        let features = adapter.get_texture_format_features(wgpu::TextureFormat::Rgba16Float);
+        let composition_format =
+            compose::composition_format(features.allowed_usages, features.flags);
         let errors = Errors::default();
         let sink = std::sync::Arc::clone(&errors);
         device.on_uncaptured_error(std::sync::Arc::new(move |error: wgpu::Error| {
@@ -307,44 +421,12 @@ impl Screen {
         };
         surface.configure(&device, &config);
 
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("picture"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
+        let layout = picture_group_layout(&device);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("picture"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
-        let masks_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("masks"),
-            entries: &[0, 1].map(|binding| wgpu::BindGroupLayoutEntry {
-                binding,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }),
-        });
+        let masks_layout = masks_group_layout(&device);
         let masks = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("masks"),
             size: MASKS_SIZE,
@@ -376,48 +458,10 @@ impl Screen {
             bind_group_layouts: &[Some(&layout), Some(&masks_layout)],
             immediate_size: 0,
         });
-        let pipeline = |blend: Blend| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("picture"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs"),
-                    compilation_options: Default::default(),
-                    buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: VERTEX_SIZE,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![
-                            0 => Float32x2,
-                            1 => Float32x3,
-                            2 => Float32x2,
-                            3 => Float32x4,
-                            4 => Float32,
-                            5 => Float32x4,
-                            6 => Float32,
-                            7 => Float32,
-                            8 => Float32
-                        ],
-                    })],
-                },
-                primitive: wgpu::PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs"),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: Some(blend.state()),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            })
-        };
-        let pipelines = Blend::ALL.into_iter().map(pipeline).collect();
+        let pipelines = Blend::ALL
+            .into_iter()
+            .map(|blend| picture_pipeline(&device, &shader, &pipeline_layout, format, blend))
+            .collect();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("picture"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -444,6 +488,11 @@ impl Screen {
             sampler,
             pictures: (0..MAX_LAYERS).map(|_| None).collect(),
             errors,
+            shader,
+            pipeline_layout,
+            masks_layout,
+            composition_format,
+            compose: None,
         })
     }
 
@@ -466,12 +515,18 @@ impl Screen {
     /// [`MAX_QUADS`]) or with the composition fitted to the window when there are none, with
     /// `masks` hiding parts of it; black for no picture. Waits for the display's next refresh, so
     /// a loop calling it runs at the display's rate.
+    ///
+    /// With no effect in `post` the pictures are drawn straight onto the window. With some they
+    /// are drawn into a texture of the composition's size first, which the effects change (and
+    /// remember, for the next frame) and which is then drawn onto the window through the quads and
+    /// masks as if it were a picture.
     pub fn draw(
         &mut self,
         pictures: &[Picture<'_>],
         composition: (u32, u32),
         quads: &[Quad],
         masks: &[Mask],
+        post: &Post,
     ) -> Result<(), RenderError> {
         self.queue.write_buffer(
             &self.masks,
@@ -489,6 +544,13 @@ impl Screen {
         } else {
             &quads[..quads.len().min(MAX_QUADS)]
         };
+        let composed = !post.is_empty();
+        if !composed && let Some(compose) = &mut self.compose {
+            compose.forget();
+        }
+        // With effects the pictures go into the composition, each over the whole of it.
+        let whole = [whole_quad()];
+        let into = if composed { &whole[..] } else { quads };
         // Each layer's vertices, and the range of them it draws.
         let mut data: Vec<Vertex> = Vec::new();
         let mut layers = Vec::new();
@@ -498,7 +560,7 @@ impl Screen {
                 continue;
             }
             let first = data.len() as u32;
-            data.extend(quads.iter().flat_map(vertices).map(|vertex| Vertex {
+            data.extend(into.iter().flat_map(vertices).map(|vertex| Vertex {
                 place: picture.place,
                 opacity: picture.opacity.min(1.0),
                 shading: picture.blend.shading(),
@@ -507,6 +569,17 @@ impl Screen {
             }));
             effects[slot] = picture.effects.pack();
             layers.push((slot, picture.blend, first..data.len() as u32));
+        }
+        // The composition's program and the composition on the window: one picture the size of
+        // the composition each.
+        let (mut program, mut result) = (0..0, 0..0);
+        if composed {
+            let first = data.len() as u32;
+            data.extend(vertices(&whole[0]));
+            program = first..data.len() as u32;
+            let first = data.len() as u32;
+            data.extend(quads.iter().flat_map(vertices));
+            result = first..data.len() as u32;
         }
         self.queue
             .write_buffer(&self.effects, 0, &effect_bytes(&effects));
@@ -528,6 +601,9 @@ impl Screen {
         };
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        if composed {
+            self.draw_composition(&mut encoder, &layers, program, post, composition);
+        }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("picture"),
@@ -542,20 +618,81 @@ impl Screen {
                 })],
                 ..Default::default()
             });
-            pass.set_bind_group(1, &self.masks_group, &[]);
             pass.set_vertex_buffer(0, self.vertices.slice(..));
-            for (slot, blend, range) in layers {
-                let index = Blend::ALL.iter().position(|b| *b == blend).unwrap_or(0);
-                pass.set_pipeline(&self.pipelines[index]);
-                if let Some(uploaded) = &self.pictures[slot] {
-                    pass.set_bind_group(0, &uploaded.bind_group, &[]);
-                    pass.draw(range, 0..1);
+            match self.compose.as_ref().filter(|_| composed) {
+                Some(compose) => {
+                    if let Some(group) = compose.result() {
+                        pass.set_bind_group(1, &compose.window_group, &[]);
+                        pass.set_pipeline(&self.pipelines[0]);
+                        pass.set_bind_group(0, group, &[]);
+                        pass.draw(result, 0..1);
+                    }
+                }
+                None => {
+                    pass.set_bind_group(1, &self.masks_group, &[]);
+                    for (slot, blend, range) in layers {
+                        let index = Blend::ALL.iter().position(|b| *b == blend).unwrap_or(0);
+                        pass.set_pipeline(&self.pipelines[index]);
+                        if let Some(uploaded) = &self.pictures[slot] {
+                            pass.set_bind_group(0, &uploaded.bind_group, &[]);
+                            pass.draw(range, 0..1);
+                        }
+                    }
                 }
             }
         }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
         Ok(())
+    }
+
+    /// Records the passes that draw the pictures into the composition and apply `post` to it.
+    fn draw_composition(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        layers: &[(usize, Blend, std::ops::Range<u32>)],
+        program: std::ops::Range<u32>,
+        post: &Post,
+        composition: (u32, u32),
+    ) {
+        if self.compose.is_none() {
+            let shared = compose::Shared {
+                masks_layout: &self.masks_layout,
+                masks: &self.masks,
+                effects: &self.effects,
+            };
+            let (device, shader, layout) = (&self.device, &self.shader, &self.pipeline_layout);
+            self.compose = Some(compose::Compose::new(
+                device,
+                self.composition_format,
+                &shared,
+                |blend, format| picture_pipeline(device, shader, layout, format, blend),
+            ));
+        }
+        let Some(compose) = self.compose.as_mut() else {
+            return;
+        };
+        let groups: Vec<_> = layers
+            .iter()
+            .filter_map(|(slot, blend, range)| {
+                let uploaded = self.pictures[*slot].as_ref()?;
+                Some((&uploaded.bind_group, *blend, range.clone()))
+            })
+            .collect();
+        compose.run(
+            compose::Inputs {
+                device: &self.device,
+                queue: &self.queue,
+                encoder,
+                vertices: &self.vertices,
+                layers: &groups,
+                program,
+                post,
+                composition,
+            },
+            &self.sampler,
+            &self.layout,
+        );
     }
 
     /// Puts `picture` in the texture of layer `slot`; `false` when it cannot be shown.
