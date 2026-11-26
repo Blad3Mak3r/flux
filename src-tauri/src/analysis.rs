@@ -4,16 +4,18 @@
 //! composition bar's meter. The logic is in [`flux_engine::analysis`]; this opens and closes the
 //! sources, and retries an input that failed.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use flux_engine::analysis::{self, Analyzer, InputTap, Ring, SharedBands};
+use flux_project::vj::Vj;
 use flux_project::vj_modulation::Bands;
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::commands::SharedSession;
 use crate::preferences::{self, AnalysisSource};
 
 /// How long to wait before trying again to open an input that failed.
@@ -22,6 +24,12 @@ const RETRY: Duration = Duration::from_secs(2);
 const LOOK: Duration = Duration::from_millis(250);
 /// With no sound arriving for this long, the analysis is fed silence so the bands fall away.
 const IDLE: Duration = Duration::from_millis(40);
+
+/// How long after a meter asked for the levels the analysis keeps running.
+const METER_GRACE_MS: u64 = 1000;
+
+/// The clock `Analysis::polled` counts on.
+static START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,6 +66,8 @@ pub struct Analysis {
     pub bands: Arc<SharedBands>,
     kind: AtomicU8,
     state: AtomicU8,
+    /// When a meter last asked for the levels, in milliseconds on [`START`] plus one; 0 is never.
+    polled: AtomicU64,
 }
 
 pub type SharedAnalysis = Arc<Analysis>;
@@ -69,6 +79,11 @@ impl Analysis {
         }
         self.kind.store(at(&KINDS, kind), Ordering::Relaxed);
         self.state.store(at(&STATES, state), Ordering::Relaxed);
+    }
+
+    fn polled_lately(&self) -> bool {
+        let at = self.polled.load(Ordering::Relaxed);
+        at != 0 && (START.elapsed().as_millis() as u64 + 1).saturating_sub(at) <= METER_GRACE_MS
     }
 
     fn kind(&self) -> SourceKind {
@@ -155,6 +170,22 @@ fn run(app: &AppHandle, shared: &Analysis) {
         thread::sleep(Duration::from_millis(5));
         if looked.elapsed() >= LOOK {
             looked = Instant::now();
+            // Only listen while a meter is open or a modulation of the grid follows the sound.
+            let session = app.state::<SharedSession>();
+            let needed = shared.polled_lately()
+                || session
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .grid_ref()
+                    .is_some_and(Vj::has_audio_modulation);
+            if !needed {
+                if listening.take().is_some() {
+                    analysis::set_grid_tap(false);
+                }
+                shared.bands.store(Bands::default());
+                thread::sleep(LOOK);
+                continue;
+            }
             let choice = preferences::analysis_source(app);
             let retry = listening
                 .as_ref()
@@ -222,6 +253,9 @@ pub struct Levels {
 /// composition bar.
 #[tauri::command]
 pub fn vj_analysis_levels(analysis: State<'_, SharedAnalysis>) -> Levels {
+    analysis
+        .polled
+        .store(START.elapsed().as_millis() as u64 + 1, Ordering::Relaxed);
     let bands = analysis.bands.load();
     Levels {
         low: bands.low,
