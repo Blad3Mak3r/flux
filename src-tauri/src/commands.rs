@@ -425,6 +425,7 @@ pub async fn vj_edit(
     })
     .await?;
     // A level, a side, a bypass or a solo changes how loud the playing clips are.
+    crate::modulation::wake();
     crate::vj_audio::refresh(&app);
     Ok(state)
 }

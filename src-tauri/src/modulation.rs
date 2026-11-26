@@ -10,7 +10,7 @@
 //! [`GridMix`]: flux_engine::grid_audio::GridMix
 
 use std::borrow::Cow;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -118,16 +118,36 @@ pub fn vj_modulation_values(
     modulation.values(&vj, clock(&session, &grid))
 }
 
+/// How often the timer looks at the grid while nothing needs it.
+const IDLE_EVERY: Duration = Duration::from_millis(250);
+
+/// The timer's thread, to wake it when the grid is edited.
+static TIMER: OnceLock<thread::Thread> = OnceLock::new();
+
+/// Wakes the timer after an edit of the grid, so a new modulation is followed at once.
+pub fn wake() {
+    if let Some(timer) = TIMER.get() {
+        timer.unpark();
+    }
+}
+
 /// Starts the timer that keeps the grid's sound following a modulated volume, for as long as the
-/// app runs.
+/// app runs. It runs at full pace only while the sound is modulated or a clip lasts beats; else it
+/// looks every [`IDLE_EVERY`], or when [`wake`] is called.
 pub fn start(app: &AppHandle) {
     let app = app.clone();
     let _ = thread::Builder::new()
         .name("flux-vj-modulation".into())
         .spawn(move || {
             let mut tempo = 0.0;
+            let _ = TIMER.set(thread::current());
+            let mut busy = false;
             loop {
-                thread::sleep(SOUND_EVERY);
+                if busy {
+                    thread::sleep(SOUND_EVERY);
+                } else {
+                    thread::park_timeout(IDLE_EVERY);
+                }
                 let session = app.state::<SharedSession>();
                 let session = session.lock().unwrap_or_else(PoisonError::into_inner);
                 let modulated = session.grid_ref().is_some_and(Vj::is_sound_modulated);
@@ -135,6 +155,7 @@ pub fn start(app: &AppHandle) {
                 let bpm = session.tempo_bpm();
                 let retempo = bpm != tempo && session.grid_ref().is_some_and(Vj::has_beat_clips);
                 tempo = bpm;
+                busy = modulated || session.grid_ref().is_some_and(Vj::has_beat_clips);
                 drop(session);
                 if modulated || retempo {
                     crate::vj_audio::refresh(&app);
