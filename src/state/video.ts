@@ -62,6 +62,18 @@ async function loadSound(asset: VideoAsset): Promise<void> {
   });
 }
 
+const asked = new Set<string>();
+
+/** Loads the waveform of a video's sound once, for a VJ clip that shows it; `probeVideos` skips it for a VJ project. */
+export function ensureSound(asset: VideoAsset): void {
+  if (asked.has(asset.id) || useDoc.getState().audio[asset.id]) return;
+  asked.add(asset.id);
+  loadSound(asset).catch((err) => {
+    asked.delete(asset.id);
+    sayError(`${asset.name}: ${errorMessage(err)}`);
+  });
+}
+
 /** The conversion to HAP running, if any: the video's id and how many of its frames are done. */
 export interface Converting {
   asset: string;
