@@ -1056,6 +1056,8 @@ pub enum EffectTarget {
     Clip(String),
     /// The layer with this id.
     Layer(String),
+    /// The group with this id: its effects apply to the picture the group's layers make together.
+    Group(String),
     /// The composition: the final mix, before the output mapping.
     Composition,
 }
