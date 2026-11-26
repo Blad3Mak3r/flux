@@ -601,7 +601,7 @@
 .vj-fxc span { overflow: hidden; font-size: 11.5px; line-height: 1.3; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .vj-fxt { color: var(--phosphor-dim); font-style: normal; font-weight: 400; }
 /* An effect that only works on the composition. */
-.vj-fxo { padding: 0 4px; color: var(--amber); font: 600 9px var(--font-measure); font-style: normal; letter-spacing: 0.05em; line-height: 13px; text-transform: uppercase; border: 1px solid currentcolor; border-radius: 2px; opacity: 0.85; }
+.vj-fxo { padding: 0 4px; color: var(--ink-dim); font: 600 9px var(--font-measure); font-style: normal; letter-spacing: 0.05em; line-height: 13px; text-transform: uppercase; border: 1px solid currentcolor; border-radius: 2px; opacity: 0.85; }
 
 .vj-meta { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; margin: 0; padding-top: 4px; border-top: 1px solid var(--vj-line); }
 .vj-meta div { display: flex; min-width: 0; justify-content: space-between; align-items: center; gap: 12px; height: 30px; font-size: 12px; border-bottom: 1px solid oklch(0.29 0.014 250 / 0.6); }
