@@ -102,13 +102,13 @@
 
 .vj-row {
   display: grid;
-  grid-template-columns: var(--vj-header) repeat(var(--columns), minmax(104px, 1fr));
+  grid-template-columns: var(--vj-header) repeat(var(--columns), minmax(88px, 1fr));
   gap: 3px;
-  height: 95px;
+  height: 64px;
   margin-top: 3px;
 }
 
-.vj-row.head { position: sticky; top: 0; z-index: 2; height: 30px; margin: 0; background: var(--vj-panel); }
+.vj-row.head { position: sticky; top: 0; z-index: 2; height: 24px; margin: 0; background: var(--vj-panel); }
 .vj-row.split { margin-top: 8px; position: relative; }
 .vj-row.split::before { content: ""; position: absolute; inset: -5px 0 auto; height: 1px; background: oklch(0.8 0.08 255 / 0.4); }
 
@@ -246,8 +246,8 @@
 
 .vj-fader b {
   position: absolute;
-  left: 1px;
-  right: 1px;
+  left: 0;
+  right: 0;
   bottom: calc((100% - 14px) * var(--v));
   display: grid;
   place-items: center;
@@ -329,24 +329,24 @@
 .vj-clip .vj-thumb { position: absolute; inset: 0; filter: saturate(0.92) brightness(0.9); }
 .vj-clip.on-air .vj-thumb { filter: none; }
 .vj-shade { position: absolute; inset: 0; background: linear-gradient(to top, oklch(0.1 0.01 250 / 0.85), transparent 46%); }
-.vj-pick { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; cursor: default; }
+.vj-pick { position: absolute; left: 0; right: 0; bottom: 0; height: 20px; cursor: default; }
 .vj-pick:hover { background: oklch(0.1 0.01 250 / 0.55); box-shadow: inset 0 1px 0 var(--phosphor); }
 
 .vj-cn {
   position: absolute;
-  left: 8px;
-  right: 30px;
-  bottom: 6px;
+  left: 6px;
+  right: 28px;
+  bottom: 4px;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
   text-shadow: 0 1px 2px oklch(0 0 0 / 0.6);
 }
 
-.vj-cm { position: absolute; right: 6px; bottom: 6px; color: oklch(0.93 0.012 85 / 0.7); font: 10px var(--font-measure); }
-.vj-clip.on-air .vj-cn, .vj-clip.on-air .vj-cm { bottom: 9px; }
+.vj-cm { position: absolute; right: 5px; bottom: 4px; color: oklch(0.93 0.012 85 / 0.7); font: 10px var(--font-measure); }
+.vj-clip.on-air .vj-cn, .vj-clip.on-air .vj-cm { bottom: 7px; }
 .vj-clip::after { content: ""; position: absolute; inset: 0; border-radius: 2px; pointer-events: none; box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.06); }
 .vj-clip.sel::after { box-shadow: inset 0 0 0 2px var(--phosphor); }
 .vj-clip.on-air::after { box-shadow: inset 0 0 0 2px var(--signal); }
@@ -355,12 +355,12 @@
 
 .vj-air {
   position: absolute;
-  left: 6px;
-  top: 6px;
+  left: 4px;
+  top: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 18px;
+  height: 16px;
   padding: 0 6px 0 3px;
   color: oklch(0.16 0.03 32);
   font: 600 10.5px var(--font-measure);
