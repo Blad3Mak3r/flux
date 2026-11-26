@@ -11,7 +11,7 @@ export const SETUP_GROUPS = [
   { id: "show", sections: ["project", "timeline"] },
   { id: "audio", sections: ["audio", "audioOutputs", "metronome", "operator", "analysis"] },
   { id: "outputs", sections: ["video", "ltc", "mtc", "osc"] },
-  { id: "control", sections: ["timecodeIn", "controlMidi", "controlOsc", "http"] },
+  { id: "control", sections: ["timecodeIn", "controlMidi", "controlOsc", "controlArtnet", "http"] },
   { id: "app", sections: ["graphics", "general"] },
 ] as const;
 export type SetupGroup = (typeof SETUP_GROUPS)[number]["id"];

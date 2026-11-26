@@ -54,6 +54,7 @@ import { GENERATORS, swatch } from "./generators";
 import { clipName, layerName } from "./names";
 import { Dashboard } from "./Dashboard";
 import { MapBar, MapLayer } from "./MapLayer";
+import { MapImportDialog } from "./MapImportDialog";
 import { bindVjControl, useMap } from "./mapping";
 import { mappable } from "./mapModel";
 import { MappingsPanel } from "./Mappings";
@@ -1100,6 +1101,7 @@ export function VjScreen() {
       <MediaPanel grid={grid} />
       <AdvancedOutput />
       <MapLayer grid={grid} />
+      <MapImportDialog />
     </div>
   );
 }

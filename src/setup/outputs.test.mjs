@@ -19,6 +19,7 @@ test("every page is listed once, in its group, and only the planned ones are una
   assert.equal(groupOf("audio"), "audio");
   assert.equal(groupOf("project"), "show");
   assert.equal(groupOf("controlOsc"), "control");
+  assert.equal(groupOf("controlArtnet"), "control");
   assert.equal(groupOf("http"), "control");
   assert.equal(groupOf("general"), "app");
 });

@@ -60,7 +60,7 @@ const same = (a: Box[], b: Box[]) =>
 /** A short tag for a source, for a box too small for its whole name. */
 function shortSource(label: string): string {
   const [head] = label.split(" · ");
-  return head.startsWith("/") ? "OSC" : head.replace("Note ", "N").replace("CC ", "CC").replace("Pitch bend", "PB");
+  return head.startsWith("/") ? "OSC" : head.startsWith("DMX ") ? head : head.startsWith("Key ") ? head.slice(4) : head.replace("Note ", "N").replace("CC ", "CC").replace("Pitch bend", "PB");
 }
 
 /** The overlays of the controls: only while the map mode is on. */
@@ -133,31 +133,34 @@ export function MapBar({ grid }: { grid: VjGrid }) {
   const t = useT();
   const learn = useMap((state) => state.learn);
   const linking = useMap((state) => state.linking);
+  const refused = useMap((state) => state.refused);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
-  const [inputs, setInputs] = useState<Pick<ControlView, "midi" | "osc"> | null>(null);
+  const [inputs, setInputs] = useState<Pick<ControlView, "midi" | "osc" | "artnet"> | null>(null);
   useEffect(() => {
     let alive = true;
     void controlGet().then((view) => alive && setInputs(view)).catch(() => undefined);
     return () => { alive = false; };
   }, []);
-  const status = linking !== null
+  const status = refused ? t("vj.map.keyTaken", { key: sourceLabel(refused).replace("Key ", "") })
+    : linking !== null
     ? t("vj.map.linkingKnob", { n: linking + 1 })
     : learn ? t("vj.map.waitingFor", { target: targetLabel(t, learn, grid, videos) }) : t("vj.map.hint");
-  const lamp = (name: "midi" | "osc") => {
+  const lamp = (name: "midi" | "osc" | "artnet") => {
     const link = inputs?.[name];
     const state = stateText(link);
     return (
       <span className={`vj-map-in ${state}`} title={link && (link.state === "listening" || link.state === "error") ? link.detail : undefined}>
-        <i aria-hidden="true" />{name.toUpperCase()} {t(`vj.map.state.${state}` as MessageKey)}
+        <i aria-hidden="true" />{name === "artnet" ? "DMX" : name.toUpperCase()} {t(`vj.map.state.${state}` as MessageKey)}
       </span>
     );
   };
   return (
     <div className="vj-mapbar" role="status">
       <strong>{t("vj.map.banner")}</strong>
-      <span className="vj-mapbar-s">{status}</span>
+      <span className="vj-mapbar-s" title={status}>{status}</span>
       {lamp("midi")}
       {lamp("osc")}
+      {lamp("artnet")}
       {linking !== null && <button type="button" className="vj-tb" onClick={() => linkKnob(null)}>{t("vj.map.linkDone")}</button>}
       <button type="button" className="vj-tb" onClick={() => setMapMode(false)}>{t("vj.map.exit")}<kbd>Esc</kbd></button>
     </div>

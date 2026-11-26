@@ -19,6 +19,7 @@ import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
 import { vjKeyDown } from "./vj/menus";
+import { forwardKeyDown, forwardKeyUp, releaseKeys } from "./vj/keys";
 import { useVj } from "./vj/store";
 import { VjScreen } from "./vj/VjScreen";
 import { bindRemoteControl } from "./control/bind";
@@ -113,6 +114,11 @@ function Shell({ devices }: { devices: Devices }) {
       if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || useVj.getState().output || isTyping(event.target)) return;
       // A VJ show has keys of its own, and none of the timeline's.
       if (useDoc.getState().project.mode === "vj") {
+        // A key a mapping waits for is the mapping's, not a shortcut's.
+        if (forwardKeyDown(event)) {
+          event.preventDefault();
+          return;
+        }
         vjKeyDown(event, t);
         return;
       }
@@ -196,11 +202,14 @@ function Shell({ devices }: { devices: Devices }) {
     };
     // Space activates a focused button on key-up; keep it from also firing a click.
     const onKeyUp = (event: KeyboardEvent) => {
+      forwardKeyUp(event);
       if (event.key === " " && !isTyping(event.target)) event.preventDefault();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", releaseKeys);
     return () => {
+      window.removeEventListener("blur", releaseKeys);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };

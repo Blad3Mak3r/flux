@@ -2,23 +2,15 @@
 // mapping does (`flux-project/src/vj_mapping.rs`); these are only the words and the numbers' units to show it by.
 
 import type { MessageKey, Translate } from "../i18n";
-import { noteName } from "../control/model";
 import type { VjEffectCatalog } from "./api";
-import type { VideoAsset, VjClip, VjEffect, VjGrid, VjMapping, VjSource, VjTarget } from "../project/types";
+import type { VideoAsset, VjClip, VjEffect, VjGrid, VjMapping, VjTarget } from "../project/types";
 import { targetKey } from "./mapTarget";
 
-export { linkable, mappable, targetClass, targetKey } from "./mapTarget";
+export { hasSlot, keyName, linkable, mappable, sourceKind, sourceLabel, targetClass, targetKey } from "./mapTarget";
+export type { SourceKind } from "./mapTarget";
 export type { TargetClass } from "./mapTarget";
 import { effectKey, genericParamKey, paramKey, specOf } from "./effects";
 import { clipName, layerName } from "./names";
-
-export function sourceLabel(source: VjSource): string {
-  if (source.type === "osc") return source.address;
-  const channel = `ch ${source.channel}`;
-  if (source.kind === "note") return `Note ${noteName(source.number)} · ${channel}`;
-  if (source.kind === "cc") return `CC ${source.number} · ${channel}`;
-  return `Pitch bend · ${channel}`;
-}
 
 /** The mappings of a grid by the key of their target. */
 export function mappingsByTarget(grid: VjGrid): Map<string, VjMapping[]> {

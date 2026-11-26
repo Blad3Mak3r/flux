@@ -48,6 +48,8 @@ export interface Binding {
 export interface ControlPrefs {
   midi: { enabled: boolean; portName: string | null; portIndex: number; bindings: Binding[]; feedback?: boolean };
   osc: { enabled: boolean; port: number; bindAddress?: string; tcpEnabled?: boolean };
+  /** Art-Net (DMX) input on UDP 6454; `universe` is a Port-Address filter, absent hears every universe. */
+  artnet: { enabled: boolean; universe: number | null; bindAddress: string };
 }
 
 /** Whether an input is listening, and if not, why. `detail` is the port, or the reason of an error. */
@@ -61,6 +63,9 @@ export interface ControlView {
   prefs: ControlPrefs;
   midi: LinkState;
   osc: LinkState;
+  artnet: LinkState;
+  /** ArtDmx packets heard since the input was opened. */
+  artnetPackets: number;
   /** The MIDI input ports there are now. */
   inputs: { name: string }[];
   /** Why MIDI cannot be listed, on a system without it. */
@@ -86,3 +91,7 @@ export const hear = <T>(event: string, handler: (payload: T) => void): (() => vo
 
 export const onLearned = (handler: (trigger: MidiTrigger) => void) => hear("control-learned", handler);
 export const onWindowAction = (handler: (action: WindowAction) => void) => hear("control-action", handler);
+
+/** A key of the keyboard, for the VJ mappings (and to learn one). */
+export const controlKey = (key: { code: string; ctrl: boolean; alt: boolean; shift: boolean; meta: boolean; down: boolean }) =>
+  invoke<void>("control_key", { key });

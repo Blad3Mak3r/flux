@@ -13,6 +13,7 @@ import { hasNativeWindow } from "../components/WindowControls";
 import { stop, toggle } from "../transport/playback";
 import { MOD_KEY, helpMenu } from "../components/menus";
 import { escapeMap, toggleMapMode, useMap } from "./mapping";
+import { exportMappings, importMappings } from "./mapFile";
 import { cue, edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
 
 const mod = (keys: string) => `${MOD_KEY}+${keys}`;
@@ -250,6 +251,8 @@ function viewMenu(t: Translate): MenuItem[] {
     "-",
     { heading: t("vj.menu.control") },
     { label: t("vj.map.mode"), shortcut: mod("M"), checked: useMap.getState().on, run: toggleMapMode },
+    { label: t("vj.mapfile.import"), run: () => void importMappings() },
+    { label: t("vj.mapfile.export"), run: () => void exportMappings() },
     "-",
     { heading: t("vj.menu.browser") },
     { label: t("vj.media"), checked: browser === "media", run: () => showBrowser("media") },

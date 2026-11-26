@@ -51,7 +51,14 @@ export interface VjGrid {
 /** What drives a target: a MIDI control (learned on a port) or an OSC address. */
 export type VjSource =
   | { type: "midi"; port?: string; channel: number; kind: "cc" | "note" | "pitchBend"; number: number }
-  | { type: "osc"; address: string };
+  | { type: "osc"; address: string }
+  /** A DMX channel of an Art-Net universe (the Port-Address), 1 to 512; `fine` is the channel of the low byte of a 16-bit value. */
+  | { type: "artnet"; universe: number; channel: number; fine?: number }
+  /** A key of the keyboard by its place (`KeyboardEvent.code`) and the modifiers held. */
+  | { type: "key"; code: string; ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean };
+
+/** How a mapping keeps hold of a clip, layer, column, deck or effect: by id, or by the slot it is in. */
+export type VjFollow = "id" | "position";
 
 /** What is driven; every id names something of the grid. */
 export type VjTarget =
@@ -79,6 +86,10 @@ export interface VjMapping {
   invert?: boolean;
   /** Absent is `trigger`. */
   mode?: VjButtonMode;
+  /** Absent is `id`. */
+  follow?: VjFollow;
+  /** A position mapping whose slot is empty: kept, and it drives nothing until something fills the slot. */
+  parked?: boolean;
 }
 
 export interface VjKnob {

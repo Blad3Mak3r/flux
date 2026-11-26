@@ -48,6 +48,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <ControlPage part="midi" />;
     case "controlOsc":
       return <ControlPage part="osc" />;
+    case "controlArtnet":
+      return <ControlPage part="artnet" />;
     case "graphics":
       return <GraphicsPage />;
     case "general":
@@ -124,6 +126,7 @@ const NAV_LABEL: Partial<Record<SetupSection, MessageKey>> = {
   osc: "setup.nav.osc",
   controlMidi: "setup.nav.controlMidi",
   controlOsc: "setup.nav.osc",
+  controlArtnet: "setup.nav.artnet",
   http: "setup.nav.http",
 };
 

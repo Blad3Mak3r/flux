@@ -22,6 +22,7 @@ import type {
   VjTransition,
   VjTrigger,
   VjButtonMode,
+  VjFollow,
   VjSource,
   VjTarget,
 } from "../project/types";
@@ -88,6 +89,10 @@ export type VjOp =
   | { op: "addMapping"; source: VjSource; target: VjTarget }
   | { op: "removeMapping"; mapping: string }
   | { op: "clearMapping"; target: VjTarget }
+  /** Pairs a DMX mapping with the channel of its 16-bit low byte, or back to 8 bits with `null`. */
+  | { op: "setMappingFine"; mapping: string; fine: number | null }
+  /** Follows a clip, layer, column, deck or effect by id or by its slot. */
+  | { op: "setMappingFollow"; mapping: string; follow: VjFollow }
   | { op: "setMapping"; mapping: string; min: number; max: number; invert: boolean; mode: VjButtonMode }
   /** Turns a dashboard knob (0 to 1) and moves what it is linked to. */
   | { op: "dashboardValue"; knob: number; value: number }
@@ -248,3 +253,28 @@ export const vjAnalysisLevels = () => invoke<AnalysisLevels>("vj_analysis_levels
 
 /** Waits for the next control touched, or OSC message, and makes it the source of `target`; `null` stops waiting. */
 export const vjLearn = (target: VjTarget | null) => invoke<void>("vj_learn", { target });
+
+/** What reading a `.flxmap` file would do: how much resolves, and the mappings it would overwrite. */
+export interface MapImportPlan {
+  taken: number;
+  skipped: number;
+  conflicts: { index: number; source: VjSource; existing: VjTarget; incoming: VjTarget }[];
+}
+
+/** What to do about the mappings an import overwrites: wipe all first, or keep the conflicts named (by `index`). */
+export interface MapImportChoice {
+  wipe: boolean;
+  keep: number[];
+}
+
+export interface MapImported extends ProjectState {
+  imported: number;
+  skipped: number;
+  kept: number;
+}
+
+export const vjMappingsExport = (project: Project, path: string) => invoke<void>("vj_mappings_export", { project, path });
+export const vjMappingsImportPreview = (project: Project, path: string) =>
+  invoke<MapImportPlan>("vj_mappings_import_preview", { project, path });
+export const vjMappingsImport = (project: Project, path: string, choice: MapImportChoice) =>
+  invoke<MapImported>("vj_mappings_import", { project, path, choice });

@@ -1181,3 +1181,25 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-link > .vj-mp-del { grid-area: del; }
 .vj-mp-opt .vj-scrub, .vj-link .vj-scrub { flex: none; width: 132px; }
 .vj-mp-opt .vj-segs button { flex: none; padding: 0 12px; overflow: visible; }
+
+/* ---- Mappings: filter, 16-bit field, parked rows, the import question ---- */
+.vj-mp-tools { gap: 8px; }
+.vj-mp-files { display: flex; gap: 6px; }
+.vj-mp-fine { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-dim); font-size: 11px; }
+.vj-mp-fine input { width: 38px; height: 22px; padding: 0 4px; color: var(--ink); font-family: var(--font-measure); font-size: 11px; background: var(--vj-well); border: 0; border-radius: 2px; text-align: right; }
+.vj-mp-row.parked .vj-mp-tgt { color: var(--amber); font-style: italic; }
+.dialog.vj-import { width: min(640px, 94vw); max-width: none; }
+.vj-import-list { max-height: 44vh; margin: 0 0 16px; padding: 0; overflow: auto; list-style: none; border: 1px solid var(--rule); }
+.vj-import-list li { display: grid; grid-template-columns: minmax(70px, 0.7fr) minmax(0, 1fr) 14px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.vj-import-list li:last-child { border-bottom: 0; }
+.vj-import-list li.kept .vj-import-now { color: var(--ink-faint); text-decoration: line-through; }
+.vj-import-src { overflow: hidden; color: var(--phosphor); white-space: nowrap; text-overflow: ellipsis; }
+.vj-import-was, .vj-import-now { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.vj-import-was { color: var(--ink-dim); }
+.vj-import-actions { flex-wrap: wrap; }
+.vj-mp-tools .vj-segs, .vj-mp-opt .vj-segs { flex: none; }
+.vj-mp-tools .vj-segs button, .vj-mp-opt .vj-segs button { flex: none; padding: 0 8px; }
+.vj-mp-opt { flex-wrap: wrap; }
+.vj-mapbar-s[title] { cursor: help; }
+.vj-import-list .vj-segs { flex: none; }
+.vj-import-list .vj-segs button { flex: none; padding: 0 8px; }

@@ -20,16 +20,18 @@ interface MapState {
   linking: number | null;
   /** The source of the last mapping learned, for the overlay to confirm it. */
   learned: VjSource | null;
+  /** The key the backend refused to learn because the app uses it, until the next try. */
+  refused: VjSource | null;
 }
 
-export const useMap = create<MapState>()(() => ({ on: false, learn: null, linking: null, learned: null }));
+export const useMap = create<MapState>()(() => ({ on: false, learn: null, linking: null, learned: null, refused: null }));
 
 const stopLearning = () => void vjLearn(null).catch(() => undefined);
 
 export function setMapMode(on: boolean): void {
   if (on === useMap.getState().on) return;
   if (!on) stopLearning();
-  useMap.setState({ on, learn: null, linking: null, learned: null });
+  useMap.setState({ on, learn: null, linking: null, learned: null, refused: null });
 }
 
 export const toggleMapMode = () => setMapMode(!useMap.getState().on);
@@ -53,7 +55,7 @@ export function pickTarget(target: VjTarget): void {
     if (linkable(target)) void edit({ op: "dashboardLink", knob: linking, target });
     return;
   }
-  useMap.setState({ learn: target, learned: null });
+  useMap.setState({ learn: target, learned: null, refused: null });
   void vjLearn(target).catch(() => undefined);
 }
 
@@ -71,7 +73,8 @@ export function bindVjControl(): () => void {
   const offs = [
     hear<{ project: Project; active: string; commit: boolean }>("vj-control", (state) =>
       dispatch({ type: "controlled", project: state.project, active: state.active, commit: state.commit })),
-    hear<VjSource>("vj-learned", (source) => useMap.setState({ learn: null, learned: source })),
+    hear<VjSource>("vj-learned", (source) => useMap.setState({ learn: null, learned: source, refused: null })),
+    hear<VjSource>("vj-learn-refused", (source) => useMap.setState({ refused: source })),
   ];
   return () => {
     offs.forEach((off) => off());
