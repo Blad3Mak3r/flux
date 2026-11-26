@@ -16,6 +16,9 @@ import { escapeMap, toggleMapMode, useMap } from "./mapping";
 import { acceleratorOf, shortcutOf } from "./shortcuts";
 import type { ShortcutAction } from "./shortcuts";
 import { exportMappings, importMappings } from "./mapFile";
+import { fullscreenOn, saveSnapshot, toggleDisable, toggleTestCard, useOutput } from "./output";
+import { usePreferences } from "../preferences/store";
+import { say } from "../state/ui";
 import { edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
 
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -81,6 +84,18 @@ function toggleLayer(op: "layerBypass" | "layerSolo"): void {
   if (!layer) return;
   const on = op === "layerBypass" ? !layer.bypass : !layer.solo;
   void edit({ op, layer: layer.id, on });
+}
+
+/** Output > Snapshot: saves the composition as a PNG and, when the preferences say so, adds it to the media. */
+export async function snapshot(): Promise<void> {
+  try {
+    const saved = await saveSnapshot();
+    say("status.snapshotSaved", { name: saved.path.split(/[\\/]/).pop() ?? saved.path });
+    const layer = importTarget();
+    if (layer && usePreferences.getState().saved.snapshotMedia) await importVideos([saved.path], layer.id, null);
+  } catch (err) {
+    fail(err);
+  }
 }
 
 /** The Advanced Output: the screens, their slices and masks. */
@@ -220,9 +235,30 @@ function clipMenu(t: Translate): MenuItem[] {
   ];
 }
 
+const FULLSCREEN = ["fullscreen1", "fullscreen2", "fullscreen3", "fullscreen4", "fullscreen5", "fullscreen6", "fullscreen7", "fullscreen8", "fullscreen9"] as const;
+
 function outputMenu(t: Translate): MenuItem[] {
+  const { disabled, testCard, displays, fullscreen } = useOutput.getState();
   return [
     { label: t("vj.menu.advancedOutput"), shortcut: acceleratorOf("output"), run: openOutput },
+    "-",
+    { label: t("vj.menu.disableOutput"), shortcut: acceleratorOf("disableOutput"), checked: disabled, run: toggleDisable },
+    { label: t("vj.menu.testCard"), shortcut: acceleratorOf("testCard"), checked: testCard, run: toggleTestCard },
+    { label: t("vj.menu.snapshot"), shortcut: acceleratorOf("snapshot"), run: () => void snapshot() },
+    "-",
+    {
+      label: t("vj.menu.fullscreen"),
+      submenu: [
+        { label: t("vj.menu.windowed"), checked: fullscreen === null, run: () => fullscreenOn(null) },
+        "-",
+        ...Array.from({ length: Math.max(displays, 1) }, (_, i): MenuItem => ({
+          label: t("vj.menu.display", { n: i + 1 }),
+          shortcut: i < FULLSCREEN.length ? acceleratorOf(FULLSCREEN[i]) : undefined,
+          checked: fullscreen === i + 1,
+          run: () => fullscreenOn(i + 1),
+        })),
+      ],
+    },
   ];
 }
 
@@ -277,6 +313,18 @@ const KEYS: Record<ShortcutAction, (t: Translate) => void> = {
   mapOsc: toggleMapMode,
   mapDmx: toggleMapMode,
   output: openOutput,
+  disableOutput: toggleDisable,
+  testCard: toggleTestCard,
+  snapshot: () => void snapshot(),
+  fullscreen1: () => fullscreenOn(1),
+  fullscreen2: () => fullscreenOn(2),
+  fullscreen3: () => fullscreenOn(3),
+  fullscreen4: () => fullscreenOn(4),
+  fullscreen5: () => fullscreenOn(5),
+  fullscreen6: () => fullscreenOn(6),
+  fullscreen7: () => fullscreenOn(7),
+  fullscreen8: () => fullscreenOn(8),
+  fullscreen9: () => fullscreenOn(9),
   escape: () => void escapeMap(),
 };
 
