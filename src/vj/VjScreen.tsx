@@ -52,6 +52,7 @@ import {
 import type { MediaKind } from "./store";
 import { GENERATORS, swatch } from "./generators";
 import { clipName, layerName } from "./names";
+import { Dashboard } from "./Dashboard";
 import { MapBar, MapLayer } from "./MapLayer";
 import { bindVjControl, useMap } from "./mapping";
 import { mappable } from "./mapModel";
@@ -965,6 +966,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
       <div className="vj-insp single">
         <p className="vj-dim vj-fx-empty">{t("vj.composition.note")}</p>
         <EffectStack target="composition" effects={grid.compositionEffects ?? NO_EFFECTS} />
+        <Dashboard grid={grid} />
       </div>
     );
   } else if (tab === "mappings") {
