@@ -116,23 +116,22 @@ impl Modulation {
     /// a number is refused.
     pub fn tidy(self, lo: f32, hi: f32) -> Result<Self> {
         let source = match self.source {
-            Source::Lfo { shape, pace, phase } => Source::Lfo {
-                shape,
-                pace: Pace {
-                    sync: pace.sync,
-                    rate: finite(pace.rate)?.clamp(0.0, MAX_RATE),
-                    beats: BEAT_CYCLES
-                        .iter()
-                        .copied()
-                        .min_by(|a, b| {
-                            (a - finite(pace.beats).unwrap_or(1.0))
-                                .abs()
-                                .total_cmp(&(b - finite(pace.beats).unwrap_or(1.0)).abs())
-                        })
-                        .unwrap_or(1.0),
-                },
-                phase: finite(phase)?.clamp(0.0, 1.0),
-            },
+            Source::Lfo { shape, pace, phase } => {
+                let beats = finite(pace.beats)?;
+                Source::Lfo {
+                    shape,
+                    pace: Pace {
+                        sync: pace.sync,
+                        rate: finite(pace.rate)?.clamp(0.0, MAX_RATE),
+                        beats: BEAT_CYCLES
+                            .iter()
+                            .copied()
+                            .min_by(|a, b| (a - beats).abs().total_cmp(&(b - beats).abs()))
+                            .unwrap_or(1.0),
+                    },
+                    phase: finite(phase)?.clamp(0.0, 1.0),
+                }
+            }
             Source::Audio {
                 band,
                 gain,
@@ -756,6 +755,11 @@ mod tests {
         let mut nan = audio(Band::Low, 1.0, 0.0, 0.0);
         nan.min = f32::NAN;
         assert!(nan.tidy(0.0, 1.0).is_err());
+        let mut nan_beats = lfo(Shape::Sine, beats(1.0), 0.0, 0.0, 1.0);
+        if let Source::Lfo { pace, .. } = &mut nan_beats.source {
+            pace.beats = f32::NAN;
+        }
+        assert!(nan_beats.tidy(0.0, 1.0).is_err());
         let gain = audio(Band::Low, 99.0, 99.0, -1.0).tidy(0.0, 1.0).unwrap();
         assert_eq!(
             gain.source,
