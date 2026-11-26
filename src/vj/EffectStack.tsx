@@ -23,7 +23,7 @@ import type { VjEffect, VjEffectKind, VjModulations, VjParamValue } from "../pro
 import type { VjEffectSpec, VjParamSpec } from "./api";
 import { ColourField, Scrub, Segments } from "./controls";
 import { categoryKey, choiceKey, effectKey, genericParamKey, paramKey, specOf, useEffectCatalog } from "./effects";
-import { ModPanel, ModScrub } from "./Modulation";
+import { ModPanel, ModScrub, beatLabel } from "./Modulation";
 import type { ModRange } from "./Modulation";
 import { edit, foldEffect, preview, useVj } from "./store";
 
@@ -55,8 +55,6 @@ export function EffectBadge({ count }: { count: number }) {
   return <span className="vj-fxb" title={t("vj.effect.badge", { n: count })}>FX {count}</span>;
 }
 
-/** A length of a cycle in beats, as a musician writes it: 1/4, 1/2, 1, 2... */
-const beatLabel = (beats: number) => (beats < 1 ? `1/${Math.round(1 / beats)}` : String(beats));
 
 type Changed = Record<string, VjParamValue>;
 

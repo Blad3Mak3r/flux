@@ -426,8 +426,8 @@
 .vj-meter-b { position: relative; display: flex; flex-direction: column; justify-content: flex-end; width: 12px; }
 .vj-meter-b i { display: block; min-height: 1px; background: var(--phosphor); border-radius: 1px; }
 .vj-meter-b[data-band="level"] i { background: var(--vj-master); }
-.vj-meter-b b { position: absolute; top: -2px; left: 0; right: 0; color: var(--ink-faint); font: 600 8px var(--font-measure); text-align: center; mix-blend-mode: difference; pointer-events: none; }
-.vj-meter[data-state="missing"] i, .vj-meter[data-state="error"] i { background: var(--signal); }
+.vj-meter-b b { position: absolute; top: -2px; left: 0; right: 0; color: var(--ink-dim); font: 600 8px var(--font-measure); text-align: center; pointer-events: none; }
+.vj-meter[data-state="missing"], .vj-meter[data-state="error"] { border-color: var(--signal); }
 .vj-meter[data-state="off"] { opacity: 0.6; }
 
 /* The crossfader, under the layer headers and beside the deck tabs, as in Resolume. */
@@ -932,18 +932,20 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-scrub .vj-mod-b { width: 22px; margin-right: 1px; }
 .vj-scrub.has-trailing .vj-scrub-l { padding: 0 4px; }
 .vj-scrub.has-trailing .vj-scrub-u { padding: 0 2px 0 1px; }
-.vj-scrub-m { position: absolute; bottom: 0; width: 3px; height: 6px; margin-left: -1px; background: var(--phosphor); box-shadow: 0 0 4px var(--phosphor); pointer-events: none; }
+.vj-scrub-m { position: absolute; bottom: 0; width: 3px; height: 6px; margin-left: -1px; background: var(--phosphor); pointer-events: none; }
 .vj-scrub.modulated::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--phosphor-dim); opacity: 0.5; pointer-events: none; }
 
 .vj-mod {
   display: flex; flex-direction: column; gap: 6px; margin: 0 0 2px 16px; padding: 6px 8px;
-  background: oklch(0.17 0.012 250); border-left: 2px solid var(--phosphor-dim); border-radius: 0 2px 2px 0;
+  background: var(--vj-well); border-left: 2px solid var(--phosphor-dim); border-radius: 0 2px 2px 0;
 }
 .vj-mod .vj-f { grid-template-columns: 68px minmax(0, 1fr); gap: 8px; }
-.vj-mod .vj-segs button { padding: 0 4px; font-size: 11px; }
+.vj-mod .vj-segs button { flex: 1 0 auto; padding: 0 3px; font-size: 11px; }
+.vj-mod .vj-scrub-l { padding: 0 4px; }
+.vj-mod .vj-scrub-u { padding: 0 4px 0 1px; }
 .vj-shape { width: 16px; height: 12px; vertical-align: middle; }
 .vj-mod .vj-segs button .vj-shape { display: block; margin: 0 auto; }
 
 /* A layer fader that is modulated shows a line where the modulated value is now. */
-.vj-fader em { position: absolute; left: 0; right: 0; bottom: calc((100% - 14px) * var(--mv, 0) + 7px); height: 2px; background: var(--phosphor); box-shadow: 0 0 4px var(--phosphor); pointer-events: none; }
+.vj-fader em { position: absolute; left: 0; right: 0; bottom: calc((100% - 14px) * var(--mv, 0) + 7px); height: 2px; background: var(--phosphor); pointer-events: none; }
 .vj-fader.modulated b { box-shadow: 0 0 0 1px var(--phosphor); }
