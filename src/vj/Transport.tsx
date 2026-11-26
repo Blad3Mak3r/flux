@@ -107,7 +107,8 @@ function Strip({ clip, layer, strip }: { clip: VjClip; layer: string; strip: Vid
 export function Transport({ clip, layer, strip }: { clip: VjClip; layer: string; strip: VideoStrip | undefined }) {
   const t = useT();
   const generator = clip.generator !== undefined;
-  const playing = useVj((vj) => vj.play.playing.find((p) => p.clip === clip.id && !p.stopping));
+  // Primitives, so the play state polled twenty times a second draws this only when the pass length changes.
+  const passSeconds = useVj((vj) => vj.play.playing.find((p) => p.clip === clip.id && !p.stopping)?.passSeconds ?? null);
   const speed = clip.speed ?? 1;
   const direction = clip.direction ?? "forward";
   const beats = clip.tempo?.kind === "beats" ? clip.tempo.beats : null;
@@ -115,6 +116,7 @@ export function Transport({ clip, layer, strip }: { clip: VjClip; layer: string;
   const cues = clip.cues ?? [];
   const setCue = (index: number) => {
     // At the playhead; a clip that does not play puts it at the start of its region.
+    const playing = useVj.getState().play.playing.find((p) => p.clip === clip.id && !p.stopping);
     const position = playing?.position ?? clip.region?.start ?? 0;
     void edit({ op: "clipCue", clip: clip.id, index, position });
   };
@@ -145,7 +147,7 @@ export function Transport({ clip, layer, strip }: { clip: VjClip; layer: string;
               title={(o) => (o === "free" ? t("vj.transport.free") : t("vj.transport.beats", { n: o }))}
               onPick={(next) => void edit({ op: "clipTempo", clip: clip.id, tempo: next === "free" ? { kind: "free" } : { kind: "beats", beats: Number(next) } })} />
             <span className="vj-pass vj-mono">
-              {beats === null ? "" : playing?.passSeconds != null ? t("vj.transport.pass", { seconds: playing.passSeconds.toFixed(2) }) : t("vj.transport.passIdle")}
+              {beats === null ? "" : passSeconds != null ? t("vj.transport.pass", { seconds: passSeconds.toFixed(2) }) : t("vj.transport.passIdle")}
             </span>
           </div>
         </div>
