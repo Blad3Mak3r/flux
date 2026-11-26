@@ -5,9 +5,11 @@
 //!
 //! A character the chosen face does not have is drawn with another face: a face of the system whose
 //! cmap has it (the same style first), else the bundled Inter. A line is cut into runs of one face
-//! and each run is shaped on its own. A colour emoji that a font only has as bitmaps (CBDT, sbix)
-//! has no outline to draw, so it is a blank of its advance; a font that has an outline for it (a
-//! monochrome emoji or symbol face, or the base glyph of a COLR font) draws in the block's colour.
+//! and each run is shaped on its own. A glyph the face keeps in colour (bitmaps in CBDT or sbix,
+//! layers in COLR v0/v1: see [`colour`]) is drawn with its own colours, only fading with the
+//! block's opacity; any other glyph is an outline drawn in the block's colour.
+
+mod colour;
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -228,7 +230,7 @@ impl Fonts {
     }
 
     /// The face of the system that has `ch`, the closest to `want` in weight and slant first; one
-    /// with an outline for it before one that only has bitmaps of it.
+    /// in colour (bitmaps or COLR layers) first, else one with an outline, else any.
     fn covering(&self, ch: char, want: (u16, Style)) -> Option<Arc<Face>> {
         let key = (ch, want.0, want.1 == Style::Normal);
         if let Some(found) = locked(&self.fallback).get(&key) {
@@ -237,19 +239,26 @@ impl Fonts {
         let mut faces: Vec<&fontdb::FaceInfo> = self.db.faces().collect();
         faces.sort_by_key(|f| (f.style != want.1, f.weight.0.abs_diff(want.0)));
         // The cmap is read from the file without opening the face for drawing.
-        let covers = |face: &fontdb::FaceInfo, outlined: bool| {
+        let covers = |face: &fontdb::FaceInfo, pass: u8| {
             self.db
                 .with_face_data(face.id, |data, index| {
                     let face = ttf_parser::Face::parse(data, index).ok()?;
                     let glyph = face.glyph_index(ch)?;
-                    (!outlined || face.glyph_bounding_box(glyph).is_some()).then_some(())
+                    match pass {
+                        0 => {
+                            face.glyph_raster_image(glyph, 128).is_some()
+                                || face.is_color_glyph(glyph)
+                        }
+                        1 => face.glyph_bounding_box(glyph).is_some(),
+                        _ => true,
+                    }
+                    .then_some(())
                 })
                 .flatten()
                 .is_some()
         };
-        let found = [true, false]
-            .into_iter()
-            .find_map(|outlined| faces.iter().find(|f| covers(f, outlined)))
+        let found = (0..3)
+            .find_map(|pass| faces.iter().find(|f| covers(f, pass)))
             .and_then(|f| self.face(f.id));
         locked(&self.fallback).insert(key, found.clone());
         found
@@ -407,6 +416,8 @@ struct Cover {
     width: usize,
     height: usize,
     bytes: Vec<u8>,
+    /// Premultiplied RGBA of the colour glyphs, drawn over `bytes`; empty when there are none.
+    colour: Vec<u8>,
 }
 
 /// The blocks drawn last. Moving, turning and fading a block only resamples its coverage, so the
@@ -450,6 +461,7 @@ fn draw_lines(face: &Arc<Face>, block: &Block<'_>) -> Cover {
     let height = (((pitch * (lines.len() - 1) as f32 + scaled.height()).ceil() as usize) + 2 * PAD)
         .clamp(1, MAX_SIDE);
     let mut bytes = vec![0u8; width * height];
+    let mut colour: Vec<u8> = Vec::new();
     for (n, line) in lines.iter().enumerate() {
         let indent = match block.align {
             Align::Left => 0.0,
@@ -458,6 +470,22 @@ fn draw_lines(face: &Arc<Face>, block: &Block<'_>) -> Cover {
         };
         let baseline = PAD as f32 + scaled.ascent() + pitch * n as f32;
         for placed in &line.glyphs {
+            let (ox, oy) = (PAD as f32 + indent + placed.x, baseline - placed.up);
+            if let Some(tile) =
+                colour::tile(&placed.face.shaper, ttf_parser::GlyphId(placed.id.0), em)
+            {
+                if colour.is_empty() {
+                    colour = vec![0u8; width * height * 4];
+                }
+                over(
+                    &mut colour,
+                    (width, height),
+                    &tile,
+                    ox.round() as i64,
+                    oy.round() as i64,
+                );
+                continue;
+            }
             let glyph = placed.id.with_scale_and_position(
                 placed.face.scale(em),
                 point(PAD as f32 + indent + placed.x, baseline - placed.up),
@@ -480,17 +508,52 @@ fn draw_lines(face: &Arc<Face>, block: &Block<'_>) -> Cover {
         width,
         height,
         bytes,
+        colour,
+    }
+}
+
+/// `tile` (premultiplied) laid over `canvas` (premultiplied RGBA) with its origin at `(ox, oy)`.
+fn over(canvas: &mut [u8], size: (usize, usize), tile: &colour::Tile, ox: i64, oy: i64) {
+    for ty in 0..tile.h {
+        for tx in 0..tile.w {
+            let (x, y) = (
+                ox + i64::from(tile.x) + tx as i64,
+                oy + i64::from(tile.y) + ty as i64,
+            );
+            if !(0..size.0 as i64).contains(&x) || !(0..size.1 as i64).contains(&y) {
+                continue;
+            }
+            let src = &tile.rgba[(ty * tile.w + tx) * 4..][..4];
+            let dst = &mut canvas[(y as usize * size.0 + x as usize) * 4..][..4];
+            let keep = 255 - u16::from(src[3]);
+            for c in 0..4 {
+                dst[c] =
+                    (u16::from(src[c]) + (u16::from(dst[c]) * keep + 127) / 255).min(255) as u8;
+            }
+        }
     }
 }
 
 /// The coverage at `(x, y)` of a bitmap, bilinear; what is outside is nothing.
 fn sample(cover: &[u8], size: (usize, usize), x: f32, y: f32) -> f32 {
+    sample_channel(cover, size, 1, 0, x, y)
+}
+
+/// [`sample`] of channel `ch` of a bitmap that has `stride` channels.
+fn sample_channel(
+    cover: &[u8],
+    size: (usize, usize),
+    stride: usize,
+    ch: usize,
+    x: f32,
+    y: f32,
+) -> f32 {
     let (x0, y0) = (x.floor(), y.floor());
     let (fx, fy) = (x - x0, y - y0);
     let at = |dx: i64, dy: i64| -> f32 {
         let (px, py) = (x0 as i64 + dx, y0 as i64 + dy);
         if (0..size.0 as i64).contains(&px) && (0..size.1 as i64).contains(&py) {
-            f32::from(cover[py as usize * size.0 + px as usize])
+            f32::from(cover[(py as usize * size.0 + px as usize) * stride + ch])
         } else {
             0.0
         }
@@ -540,7 +603,27 @@ pub fn rasterise_with(font: &Arc<Face>, block: &Block<'_>, width: u32, height: u
             let sx = dx * cos + dy * sin + half_w - 0.5;
             let sy = -dx * sin + dy * cos + half_h - 0.5;
             let level = sample(cover, (bw, bh), sx, sy) * opacity;
-            out[(y * w + x) * 4 + 3] = level.round().clamp(0.0, 255.0) as u8;
+            if drawn.colour.is_empty() {
+                out[(y * w + x) * 4 + 3] = level.round().clamp(0.0, 255.0) as u8;
+                continue;
+            }
+            // Colour glyphs keep their own colours over the text, and only fade with the opacity.
+            let px: [f32; 4] = std::array::from_fn(|c| {
+                sample_channel(&drawn.colour, (bw, bh), 4, c, sx, sy) * opacity
+            });
+            let keep = 1.0 - px[3] / 255.0;
+            let alpha = px[3] + level * keep;
+            let at = (y * w + x) * 4;
+            for c in 0..3 {
+                let text = f32::from(block.colour[c]) * level / 255.0 * keep;
+                let rgb = if alpha > 0.0 {
+                    (px[c] + text) * 255.0 / alpha
+                } else {
+                    f32::from(block.colour[c])
+                };
+                out[at + c] = rgb.round().clamp(0.0, 255.0) as u8;
+            }
+            out[at + 3] = alpha.round().clamp(0.0, 255.0) as u8;
         }
     }
     out
@@ -758,6 +841,23 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &draw_block(&bundled(400), &a)));
         a.size = 41.0;
         assert!(!Arc::ptr_eq(&first, &draw_block(&bundled(400), &a)));
+    }
+
+    #[test]
+    fn a_colour_tile_should_land_at_its_offset_and_keep_the_pixels_under_it_when_clear() {
+        let tile = colour::Tile {
+            x: -1,
+            y: -1,
+            w: 2,
+            h: 1,
+            rgba: vec![255, 0, 0, 255, 0, 0, 0, 0],
+        };
+        let mut canvas = vec![0u8; 4 * 3 * 4];
+        canvas[(2 * 4 + 1) * 4..][..4].copy_from_slice(&[0, 9, 0, 255]);
+        over(&mut canvas, (4, 3), &tile, 2, 2);
+        // Tile origin (2, 2) minus (1, 1): the red pixel is at (1, 1), the clear one over (2, 1).
+        assert_eq!(&canvas[(4 + 1) * 4..][..4], &[255, 0, 0, 255]);
+        assert_eq!(&canvas[(2 * 4 + 1) * 4..][..4], &[0, 9, 0, 255]);
     }
 
     #[test]
