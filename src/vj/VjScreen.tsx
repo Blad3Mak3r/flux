@@ -4,7 +4,6 @@ import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
 import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
-import type { Translate } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
 import { useVideoErrors } from "../state/video";
 import type {
@@ -21,6 +20,7 @@ import type {
   VjLayer,
   VjPlayback,
   VjSide,
+  VjTarget,
   VjAutopilot,
   VjTransition,
   VjTrigger,
@@ -51,6 +51,12 @@ import {
 } from "./store";
 import type { MediaKind } from "./store";
 import { GENERATORS, swatch } from "./generators";
+import { clipName, layerName } from "./names";
+import { MapBar, MapLayer } from "./MapLayer";
+import { bindVjControl, useMap } from "./mapping";
+import { mappable } from "./mapModel";
+import { MappingsPanel } from "./Mappings";
+import { stepDeck } from "./menus";
 import { AdvancedOutput } from "./AdvancedOutput";
 import { ColourField, Scrub, Segments } from "./controls";
 import { CompositionFx, EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect, useCompositionDrop } from "./EffectStack";
@@ -130,15 +136,6 @@ function clock(seconds: number): string {
   return `${String(Math.floor(whole / 60)).padStart(2, "0")}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-const layerName = (t: Translate, grid: VjGrid, layer: VjLayer) =>
-  layer.name ?? t("vj.layer.default", { n: grid.layers.indexOf(layer) + 1 });
-
-function clipName(t: Translate, clip: VjClip, videos: VideoAsset[]): string {
-  if (clip.name) return clip.name;
-  if (clip.generator) return t(`vj.generator.${clip.generator.kind}`);
-  return videos.find((video) => video.id === clip.asset)?.name ?? "";
-}
-
 /** The thumbnails of a clip's video; a generator has none. */
 const stripOf = (thumbs: Record<string, VideoStrip>, clip: VjClip | undefined) =>
   clip?.asset ? thumbs[clip.asset] : undefined;
@@ -167,7 +164,7 @@ function Thumb({ strip, generator, position = 0.3, children, className }: {
 }
 
 /** A vertical fader: its letter is the handle, its colour says what it moves. */
-function Fader({ letter, label, value, off, progress, modulated, onMove, onSet }: {
+function Fader({ letter, label, value, off, progress, modulated, map, onMove, onSet }: {
   letter: string;
   label: string;
   value: number;
@@ -176,6 +173,8 @@ function Fader({ letter, label, value, off, progress, modulated, onMove, onSet }
   modulated?: { layer: string; field: string };
   /** How far what the fader times is, 0 to 1, while it runs: the transition of the T fader. */
   progress?: number | null;
+  /** What the fader is in the map mode. */
+  map?: VjTarget;
   onMove: (value: number) => void;
   onSet: (value: number) => void;
 }) {
@@ -198,6 +197,7 @@ function Fader({ letter, label, value, off, progress, modulated, onMove, onSet }
     <div
       className={`vj-fader${off ? " off" : ""}${modulated ? " modulated" : ""}`}
       data-letter={letter}
+      {...mappable(map)}
       role="slider"
       tabIndex={0}
       aria-label={label}
@@ -285,9 +285,9 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   ];
   const bs = (
     <div className="vj-bs">
-      <button type="button" className={layer.bypass ? "on bypass" : ""} aria-pressed={!!layer.bypass} title={t("vj.layer.bypass")}
+      <button type="button" className={layer.bypass ? "on bypass" : ""} {...mappable({ kind: "layerBypass", layer: layer.id })} aria-pressed={!!layer.bypass} title={t("vj.layer.bypass")}
         onClick={() => void edit({ op: "layerBypass", layer: layer.id, on: !layer.bypass })}>B</button>
-      <button type="button" className={layer.solo ? "on solo" : ""} aria-pressed={!!layer.solo} title={t("vj.layer.solo")}
+      <button type="button" className={layer.solo ? "on solo" : ""} {...mappable({ kind: "layerSolo", layer: layer.id })} aria-pressed={!!layer.solo} title={t("vj.layer.solo")}
         onClick={() => void edit({ op: "layerSolo", layer: layer.id, on: !layer.solo })}>S</button>
     </div>
   );
@@ -343,7 +343,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
     // Folded as in Resolume: one thin row with the name, the clip on air, bypass, solo and the side.
     return (
       <div className={`${className} folded`} onClick={() => selectLayer(layer.id)} onContextMenu={onContextMenu} {...dropping}>
-        <button type="button" className="vj-eject" title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
+        <button type="button" className="vj-eject" {...mappable({ kind: "layerStop", layer: layer.id })} title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
           onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
           <CloseIcon />
         </button>
@@ -359,7 +359,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
       onContextMenu={onContextMenu}
       {...dropping}
     >
-      <button type="button" className="vj-eject" title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
+      <button type="button" className="vj-eject" {...mappable({ kind: "layerStop", layer: layer.id })} title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
         onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
         <CloseIcon />
       </button>
@@ -371,11 +371,11 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         </select>
       </div>
       <div className="vj-faders">
-        <Fader letter="M" label={t("vj.fader.master")} value={layer.master ?? 1} {...level("layerMaster")}
+        <Fader letter="M" map={{ kind: "layerMaster", layer: layer.id }} label={t("vj.fader.master")} value={layer.master ?? 1} {...level("layerMaster")}
           modulated={layer.modulation?.master ? { layer: layer.id, field: "master" } : undefined} />
-        <Fader letter="A" label={t("vj.fader.audio")} value={layer.volume ?? 1} {...level("layerVolume")}
+        <Fader letter="A" map={{ kind: "layerVolume", layer: layer.id }} label={t("vj.fader.audio")} value={layer.volume ?? 1} {...level("layerVolume")}
           modulated={layer.modulation?.volume ? { layer: layer.id, field: "volume" } : undefined} />
-        <Fader letter="V" label={t("vj.fader.video")} value={layer.opacity ?? 1} {...level("layerOpacity")}
+        <Fader letter="V" map={{ kind: "layerOpacity", layer: layer.id }} label={t("vj.fader.video")} value={layer.opacity ?? 1} {...level("layerOpacity")}
           modulated={layer.modulation?.opacity ? { layer: layer.id, field: "opacity" } : undefined} />
       </div>
       <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={stripOf(thumbs, clip)} generator={clip?.generator}>
@@ -383,7 +383,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         {transition != null && <span className="vj-tbar"><i style={{ width: `${transition * 100}%` }} /></span>}
       </Thumb>
       <div className="vj-tcol">
-        <Fader letter="T" label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION}
+        <Fader letter="T" map={{ kind: "layerTransition", layer: layer.id }} label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION}
           progress={transition} {...level("layerTransition", MAX_TRANSITION)} />
         <select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
@@ -444,6 +444,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   return (
     <div
       className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${over ? " over" : ""}`}
+      {...mappable({ kind: "clipLaunch", clip: clip.id })}
       draggable
       onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ clip: clip.id } satisfies Dragged))}
       onPointerDown={(event) => {
@@ -501,6 +502,7 @@ function ColumnHead({ column, at, live }: { column: VjColumn; at: number; live: 
     <button
       type="button"
       className={`vj-col${live ? " on-air" : ""}`}
+      {...mappable({ kind: "columnLaunch", column: column.id })}
       title={t("vj.column.launch")}
       onClick={() => void launchColumn(column.id)}
       onDoubleClick={() => setRenaming(true)}
@@ -533,6 +535,7 @@ function DeckTab({ deck, at, shown, only }: { deck: VjDeck; at: number; shown: b
       role="tab"
       aria-selected={shown}
       className={`vj-deck${shown ? " on" : ""}`}
+      {...mappable({ kind: "deckSelect", deck: deck.id })}
       onClick={() => { if (!shown) void edit({ op: "selectDeck", deck: deck.id }); }}
       onDoubleClick={() => setRenaming(true)}
       onContextMenu={(event) => {
@@ -567,6 +570,7 @@ function Crossfader() {
   return (
     <div
       className="vj-xt"
+      {...mappable({ kind: "crossfader" })}
       role="slider"
       tabIndex={0}
       aria-label="Crossfader"
@@ -597,10 +601,12 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
   const columns = { "--columns": deck.columns.length } as CSSProperties;
   // An effect dropped on the composition bar goes to the composition's stack.
   const composition = useCompositionDrop();
+  const mapping = useMap((state) => state.on);
   return (
     <section className="vj-panel vj-deck-panel" aria-label={t("vj.grid")}>
       <header className="vj-ph">
         <h2>{t("vj.grid")}</h2>
+        {mapping && <MapBar grid={grid} />}
         <div className="vj-tools">
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addLayer", global: false })}><PlusIcon />{t("vj.layer.add")}</button>
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addLayer", global: true })}><GlobeIcon />{t("vj.layer.addGlobal")}</button>
@@ -629,6 +635,8 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
             <b>B</b>
           </div>
           <div className="vj-deck-tabs" role="tablist" aria-label={t("vj.decks")}>
+            <button type="button" className="vj-deck step" {...mappable({ kind: "deckPrev" })} title={t("vj.menu.previousDeck")} aria-label={t("vj.menu.previousDeck")} onClick={() => stepDeck(-1)}>‹</button>
+            <button type="button" className="vj-deck step" {...mappable({ kind: "deckNext" })} title={t("vj.menu.nextDeck")} aria-label={t("vj.menu.nextDeck")} onClick={() => stepDeck(1)}>›</button>
             {grid.decks.map((d, at) => <DeckTab key={d.id} deck={d} at={at} shown={d.id === deck.id} only={grid.decks.length === 1} />)}
             <button type="button" className="vj-deck add" title={t("vj.deck.add")} aria-label={t("vj.deck.add")}
               onClick={() => void edit({ op: "addDeck" })}><PlusIcon /></button>
@@ -638,7 +646,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
           <div className="vj-cl"><strong>{t("vj.composition")}</strong><AnalysisMeter /><CompositionFx grid={grid} /></div>
           <Tempo />
           <TimecodeClock grid={grid} />
-          <button type="button" className="button" onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
+          <button type="button" className="button" {...mappable({ kind: "stopAll" })} onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
         </div>
       </div>
     </section>
@@ -816,7 +824,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
   useEffect(() => (modulated ? bindModulation() : undefined), [modulated]);
   const tabs = (
     <nav className="vj-tabs" role="tablist">
-      {(["clip", "layer", "composition"] as const).map((key) => (
+      {(["clip", "layer", "composition", "mappings"] as const).map((key) => (
         <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""} onClick={() => showTab(key)}>
           {t(`vj.inspector.${key}`)}
         </button>
@@ -917,7 +925,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
             <Segments options={TRANSITIONS} value={layer.transitionEffect ?? "alpha"} label={(o) => t(`vj.transition.${o}`)}
               onPick={(effect) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect })} />
           </div>
-          <div className="vj-f"><span>{t("vj.layer.autopilot")}</span>
+          <div className="vj-f" {...mappable({ kind: "layerAutopilot", layer: layer.id })}><span>{t("vj.layer.autopilot")}</span>
             <Segments options={AUTOPILOTS} value={layer.autopilot ?? "off"} label={(o) => t(`vj.autopilot.${o}`)}
               onPick={(mode) => void edit({ op: "layerAutopilot", layer: layer.id, mode })} />
           </div>
@@ -959,6 +967,8 @@ function Inspector({ grid }: { grid: VjGrid }) {
         <EffectStack target="composition" effects={grid.compositionEffects ?? NO_EFFECTS} />
       </div>
     );
+  } else if (tab === "mappings") {
+    body = <MappingsPanel grid={grid} />;
   }
   return (
     <section className="vj-panel vj-insp-panel">
@@ -1074,6 +1084,7 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
 export function VjScreen() {
   const grid = useDoc((doc) => doc.project.vj);
   useEffect(bindPlayState, []);
+  useEffect(bindVjControl, []);
   useEffect(() => { void loadEffectCatalog(); }, []);
   if (!grid) return null;
   return (
@@ -1086,6 +1097,7 @@ export function VjScreen() {
       <Inspector grid={grid} />
       <MediaPanel grid={grid} />
       <AdvancedOutput />
+      <MapLayer grid={grid} />
     </div>
   );
 }

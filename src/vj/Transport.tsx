@@ -141,7 +141,7 @@ export function Transport({ clip, layer, strip, still = false }: { clip: VjClip;
       <div className={`vj-f${beats !== null ? " off" : ""}`} title={beats !== null ? t("vj.transport.speedOff") : undefined}>
         <span>{t("vj.transport.speed")}</span>
         <div className="vj-speed">
-          <Scrub label="×" name={t("vj.transport.speed")} value={speed} shown={1} reset={1} unit="×" decimals={2} perPixel={0.02} step={0.05}
+          <Scrub label="×" map={{ kind: "clipSpeed", clip: clip.id }} name={t("vj.transport.speed")} value={speed} shown={1} reset={1} unit="×" decimals={2} perPixel={0.02} step={0.05}
             onMove={(value) => preview({ op: "clipSpeed", clip: clip.id, value })}
             onSet={(value) => void edit({ op: "clipSpeed", clip: clip.id, value })} />
           <button type="button" className="vj-reset" disabled={speed === 1} title={t("vj.transport.speedReset")} aria-label={t("vj.transport.speedReset")}

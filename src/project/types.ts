@@ -40,6 +40,58 @@ export interface VjGrid {
   compositionEffects?: VjEffect[];
   /** The composition's effects are skipped; absent is false. */
   compositionBypass?: boolean;
+  /** What MIDI controls and OSC addresses drive; absent is none. */
+  mappings?: VjMapping[];
+  /** The composition dashboard's knobs; one not listed is at 0 with no links. */
+  dashboard?: VjKnob[];
+}
+
+// Mirrors `flux-project/src/vj_mapping.rs`.
+
+/** What drives a target: a MIDI control (learned on a port) or an OSC address. */
+export type VjSource =
+  | { type: "midi"; port?: string; channel: number; kind: "cc" | "note" | "pitchBend"; number: number }
+  | { type: "osc"; address: string };
+
+/** What is driven; every id names something of the grid. */
+export type VjTarget =
+  | { kind: "clipLaunch"; clip: string }
+  | { kind: "columnLaunch"; column: string }
+  | { kind: "layerStop" | "layerAutopilot" | "layerBypass" | "layerSolo" | "layerMaster" | "layerVolume" | "layerOpacity" | "layerTransition"; layer: string }
+  | { kind: "deckSelect"; deck: string }
+  | { kind: "effectBypass"; effect: string }
+  | { kind: "effectParam"; effect: string; param: string }
+  | { kind: "clipSpeed"; clip: string }
+  | { kind: "generatorNumber"; clip: string; name: string }
+  | { kind: "dashboard"; knob: number }
+  | { kind: "deckNext" | "deckPrev" | "stopAll" | "bpmTap" | "bpmResync" | "bpmPlus" | "bpmMinus" | "bpmDouble" | "bpmHalf" | "bpmNudgeUp" | "bpmNudgeDown" | "bpmPause" | "crossfader" | "bpm" };
+
+/** What a mapped button does: a press runs or turns on, flips a switch, or holds while down. */
+export type VjButtonMode = "trigger" | "toggle" | "hold";
+
+export interface VjMapping {
+  id: string;
+  source: VjSource;
+  target: VjTarget;
+  /** Where a continuous target goes with the source at its minimum and its maximum, in the target's units. */
+  min: number;
+  max: number;
+  invert?: boolean;
+  /** Absent is `trigger`. */
+  mode?: VjButtonMode;
+}
+
+export interface VjKnob {
+  /** 0 to 1. */
+  value: number;
+  name?: string;
+  links?: VjLink[];
+}
+
+export interface VjLink {
+  target: VjTarget;
+  min: number;
+  max: number;
 }
 
 /** Flux's own transport, or timecode coming in by LTC or MTC. */

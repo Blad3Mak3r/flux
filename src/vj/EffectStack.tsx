@@ -22,6 +22,7 @@ import type { MessageKey } from "../i18n";
 import type { VjEffect, VjEffectKind, VjGrid, VjModulations, VjParamValue } from "../project/types";
 import type { VjEffectSpec, VjParamSpec } from "./api";
 import { ColourField, Scrub, Segments } from "./controls";
+import { mappable } from "./mapModel";
 import { categoryKey, choiceKey, effectKey, genericParamKey, paramKey, specOf, useEffectCatalog } from "./effects";
 import { ModPanel, ModScrub, beatLabel } from "./Modulation";
 import type { ModRange } from "./Modulation";
@@ -121,6 +122,7 @@ function Settings({ id, spec, kind, modulation }: { id: string; spec: VjEffectSp
       label: tag, name: label(param.key), value: kind[param.key] as number, shown: range.shown, reset: param.default, unit: param.unit,
       decimals: range.decimals, perPixel: (param.max - param.min) / 160, step: param.whole ? 1 : param.step,
       onMove: (v: number) => move({ [param.key]: v }), onSet: (v: number) => keep({ [param.key]: v }),
+      map: { kind: "effectParam" as const, effect: id, param: param.key },
     };
     if (!param.modulatable) return <Scrub key={param.key} {...shared} />;
     return <ModScrub key={param.key} {...shared} target={{ effect: id, param: param.key }} modulation={modulation?.[param.key]} range={range} />;
@@ -240,7 +242,9 @@ function EffectRow({ effect, index, stack, full }: { effect: VjEffect; index: nu
           {folded ? <ChevronRightIcon /> : <ChevronDownIcon />}
           <span>{name}</span>
         </button>
-        {button("vj.effect.bypass", () => void edit({ op: "effectBypass", effect: id, bypass: !bypass }), bypass ? <EyeOffIcon /> : <EyeIcon />, false, !!bypass)}
+        <span className="vj-map-w" {...mappable({ kind: "effectBypass", effect: id })}>
+          {button("vj.effect.bypass", () => void edit({ op: "effectBypass", effect: id, bypass: !bypass }), bypass ? <EyeOffIcon /> : <EyeIcon />, false, !!bypass)}
+        </span>
         {button("vj.effect.duplicate", () => void edit({ op: "duplicateEffect", effect: id }), <DuplicateIcon />, full)}
         {button("vj.effect.reset", () => void edit({ op: "resetEffect", effect: id }), <RefreshIcon />)}
         {button("vj.effect.up", () => void edit({ op: "moveEffect", effect: id, index: index - 1 }), <ArrowUpIcon />, index === 0)}

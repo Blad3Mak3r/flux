@@ -200,7 +200,8 @@ export function GeneratorScrub({ clip, modulation, name, ...scrub }: ComponentPr
   const { field, ...rest } = scrub;
   const range = generatorRange(catalog, field, { shown: rest.shown, unit: rest.unit ?? "%", decimals: rest.decimals ?? 0 });
   const target = { clip, field: `generator.${field}` };
-  return range ? <ModScrub {...rest} name={name} target={target} modulation={modulation?.[target.field]} range={range} /> : <Scrub {...rest} name={name} />;
+  const map = { kind: "generatorNumber" as const, clip, name: field };
+  return range ? <ModScrub {...rest} map={map} name={name} target={target} modulation={modulation?.[target.field]} range={range} /> : <Scrub {...rest} map={map} name={name} />;
 }
 
 /** The sub-row of the modulation of a generator number, under its control while it is open. */

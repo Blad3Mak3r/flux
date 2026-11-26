@@ -78,7 +78,7 @@ export const controlSet = (prefs: ControlPrefs) => invoke<ControlView>("control_
 /** While on, the next trigger is told to the window with `control-learned` instead of being run. */
 export const controlLearn = (on: boolean) => invoke<void>("control_learn", { on });
 
-const hear = <T>(event: string, handler: (payload: T) => void): (() => void) => {
+export const hear = <T>(event: string, handler: (payload: T) => void): (() => void) => {
   // Outside the desktop app there is no backend to hear from.
   const listening = listen<T>(event, ({ payload }) => handler(payload)).catch(() => undefined);
   return () => void listening.then((unlisten) => unlisten?.());

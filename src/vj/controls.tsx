@@ -3,13 +3,15 @@
 import { useEffect, useState } from "react";
 import type { PointerEvent, ReactNode } from "react";
 import { useT } from "../i18n";
+import type { VjTarget } from "../project/types";
+import { mappable } from "./mapTarget";
 
 /**
  * A number set by dragging its label sideways, as in Resolume, by typing it or with the arrow keys; a
  * double click on the label puts it back to `reset`. `value` and what it sends are in the backend's units, shown times
  * `shown` (e.g. 100 for a percent).
  */
-export function Scrub({ label, name, value, shown, reset, unit = "%", decimals = 0, perPixel, step, marker, trailing, onMove, onSet }: {
+export function Scrub({ label, name, value, shown, reset, unit = "%", decimals = 0, perPixel, step, marker, trailing, map, onMove, onSet }: {
   /** The handle's short tag. */
   label: string;
   /** What the number is, for a screen reader. */
@@ -29,6 +31,8 @@ export function Scrub({ label, name, value, shown, reset, unit = "%", decimals =
   marker?: number;
   /** Something drawn at the end of the box, such as the button of its modulation. */
   trailing?: ReactNode;
+  /** What this number is in the map mode: a MIDI control or an OSC address can drive it. */
+  map?: VjTarget;
   onMove: (value: number) => void;
   onSet: (value: number) => void;
 }) {
@@ -45,7 +49,7 @@ export function Scrub({ label, name, value, shown, reset, unit = "%", decimals =
     setText(null);
   };
   return (
-    <span className={`vj-scrub${marker === undefined ? "" : " modulated"}${trailing ? " has-trailing" : ""}`}>
+    <span className={`vj-scrub${marker === undefined ? "" : " modulated"}${trailing ? " has-trailing" : ""}`} {...mappable(map)}>
       <span
         className="vj-scrub-l"
         title={t("vj.clip.scrub")}

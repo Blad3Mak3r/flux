@@ -34,6 +34,11 @@ export interface Doc {
   video: Record<string, VideoProbe>;
   /** The thumbnails the backend made of the videos, by asset id. */
   thumbs: Record<string, VideoStrip>;
+  /**
+   * While a controller moves a value, the project as it was before the first move: the history
+   * takes it when the gesture ends (or when anything else is done), so a sweep is one undo step.
+   */
+  gesture?: Project;
 }
 
 export type DocAction =
@@ -42,6 +47,11 @@ export type DocAction =
   | { type: "restore"; project: Project; path: string | null; saved: Project; active: string }
   /** The backend changed the project (a timeline was added, removed, retimed): it goes in the undo history. */
   | { type: "apply"; project: Project; active: string }
+  /**
+   * A MIDI controller or an OSC message changed the project in the backend. Until `commit` the moves
+   * replace the project without a history entry; the one that commits closes the gesture as a single step.
+   */
+  | { type: "controlled"; project: Project; active: string; commit: boolean }
   /** The backend says which timeline is active, e.g. after an undo took one away. */
   | { type: "active"; id: string }
   | { type: "audio"; id: string; info: AssetAudio }
@@ -70,7 +80,18 @@ export function isDirty(doc: Doc): boolean {
   return doc.saved === null ? doc.past.length > 0 : doc.project !== doc.saved;
 }
 
+/** The kinds of action that can arrive while a controller is moving a value without closing the gesture. */
+const KEEPS_GESTURE = new Set<DocAction["type"]>(["controlled", "audio", "video", "thumbs", "derivedBpm", "active"]);
+
 export function docReducer(doc: Doc, action: DocAction): Doc {
+  // Anything else done meanwhile (an edit, an undo) is a step after the gesture, which is closed first.
+  if (doc.gesture && !KEEPS_GESTURE.has(action.type)) {
+    doc = { ...doc, gesture: undefined, past: [...doc.past, doc.gesture].slice(-HISTORY_LIMIT), future: [] };
+  }
+  return reduce(doc, action);
+}
+
+function reduce(doc: Doc, action: DocAction): Doc {
   switch (action.type) {
     case "load":
       return {
@@ -130,6 +151,11 @@ export function docReducer(doc: Doc, action: DocAction): Doc {
         past: [...doc.past, doc.project].slice(-HISTORY_LIMIT),
         future: [],
       };
+    case "controlled": {
+      const before = doc.gesture ?? doc.project;
+      if (!action.commit) return { ...doc, project: action.project, active: action.active, gesture: before };
+      return { ...doc, gesture: undefined, project: action.project, active: action.active, past: [...doc.past, before].slice(-HISTORY_LIMIT), future: [] };
+    }
     case "active":
       return action.id === doc.active ? doc : { ...doc, active: action.id };
     case "undo": {

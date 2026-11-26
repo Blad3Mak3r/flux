@@ -12,6 +12,7 @@ import { closeDocument, newDocument, openDocument, saveDocument } from "../state
 import { hasNativeWindow } from "../components/WindowControls";
 import { stop, toggle } from "../transport/playback";
 import { MOD_KEY, helpMenu } from "../components/menus";
+import { escapeMap, toggleMapMode, useMap } from "./mapping";
 import { cue, edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
 
 const mod = (keys: string) => `${MOD_KEY}+${keys}`;
@@ -244,6 +245,11 @@ function viewMenu(t: Translate): MenuItem[] {
     { heading: t("vj.menu.inspector") },
     { label: t("vj.inspector.clip"), checked: tab === "clip", run: () => showTab("clip") },
     { label: t("vj.inspector.layer"), checked: tab === "layer", run: () => showTab("layer") },
+    { label: t("vj.inspector.composition"), checked: tab === "composition", run: () => showTab("composition") },
+    { label: t("vj.inspector.mappings"), checked: tab === "mappings", run: () => showTab("mappings") },
+    "-",
+    { heading: t("vj.menu.control") },
+    { label: t("vj.map.mode"), shortcut: mod("M"), checked: useMap.getState().on, run: toggleMapMode },
     "-",
     { heading: t("vj.menu.browser") },
     { label: t("vj.media"), checked: browser === "media", run: () => showBrowser("media") },
@@ -284,6 +290,7 @@ export function vjKeyDown(event: KeyboardEvent, t: Translate): boolean {
       : key === "w" ? closeDocument
       : key === "," ? () => openSetup()
       : key === "i" ? () => void importMedia()
+      : key === "m" ? toggleMapMode
       : key === "." ? stopAll
       : key === "a" && event.shiftKey ? openOutput
       : key === "pageup" ? () => stepDeck(-1)
@@ -303,7 +310,7 @@ export function vjKeyDown(event: KeyboardEvent, t: Translate): boolean {
   } else if (event.key === "Delete" || event.key === "Backspace") {
     run = removeSelected;
   } else if (event.key === "Escape") {
-    run = () => useVj.setState({ clip: null });
+    run = () => { if (!escapeMap()) useVj.setState({ clip: null }); };
   } else if (key === "b") {
     run = () => toggleLayer("layerBypass");
   } else if (key === "s") {

@@ -14,6 +14,7 @@ import { formatFrames, parseTimecode } from "../timecode";
 import { pause, play, seek, stop } from "../transport/playback";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
 import { vjAnalysisLevels } from "./api";
+import { mappable } from "./mapModel";
 import type { AnalysisLevels } from "./api";
 import { beatClock, edit, useVj } from "./store";
 import { closeTimecodeIn, useTimecodeIn } from "./timecodeIn";
@@ -45,9 +46,10 @@ function BeatLights() {
 
 /** A key that holds the beats a little faster or slower for as long as it is held, by pointer or keyboard. */
 function NudgeKey({ direction, label, children }: { direction: -1 | 1; label: string; children: string }) {
+  const map = { kind: direction > 0 ? "bpmNudgeUp" : "bpmNudgeDown" } as const;
   const release = () => void beatClock({ op: "nudge", direction: 0 });
   return (
-    <button type="button" title={label} aria-label={label}
+    <button type="button" {...mappable(map)} title={label} aria-label={label}
       onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); void beatClock({ op: "nudge", direction }); }}
       onPointerUp={release}
       onPointerCancel={release}
@@ -80,6 +82,7 @@ export function Tempo() {
       <span className="vj-lbl">BPM</span>
       <input
         className="vj-bpm-v"
+        {...mappable({ kind: "bpm" })}
         aria-label={t("vj.tempo.label")}
         inputMode="decimal"
         value={draft ?? bpm.toFixed(2)}
@@ -95,22 +98,22 @@ export function Tempo() {
         }}
       />
       <div className="vj-bpm-k">
-        <button type="button" title={t("vj.tempo.down")} aria-label={t("vj.tempo.down")} onClick={() => void edit({ op: "nudgeBpm", by: -1 })}>−</button>
-        <button type="button" title={t("vj.tempo.up")} aria-label={t("vj.tempo.up")} onClick={() => void edit({ op: "nudgeBpm", by: 1 })}>+</button>
-        <button type="button" title={t("vj.tempo.half")} aria-label={t("vj.tempo.half")} onClick={() => void edit({ op: "scaleBpm", factor: 0.5 })}>÷2</button>
-        <button type="button" title={t("vj.tempo.double")} aria-label={t("vj.tempo.double")} onClick={() => void edit({ op: "scaleBpm", factor: 2 })}>×2</button>
+        <button type="button" {...mappable({ kind: "bpmMinus" })} title={t("vj.tempo.down")} aria-label={t("vj.tempo.down")} onClick={() => void edit({ op: "nudgeBpm", by: -1 })}>−</button>
+        <button type="button" {...mappable({ kind: "bpmPlus" })} title={t("vj.tempo.up")} aria-label={t("vj.tempo.up")} onClick={() => void edit({ op: "nudgeBpm", by: 1 })}>+</button>
+        <button type="button" {...mappable({ kind: "bpmHalf" })} title={t("vj.tempo.half")} aria-label={t("vj.tempo.half")} onClick={() => void edit({ op: "scaleBpm", factor: 0.5 })}>÷2</button>
+        <button type="button" {...mappable({ kind: "bpmDouble" })} title={t("vj.tempo.double")} aria-label={t("vj.tempo.double")} onClick={() => void edit({ op: "scaleBpm", factor: 2 })}>×2</button>
       </div>
       <div className="vj-bpm-k">
         <NudgeKey direction={-1} label={t("vj.beat.nudgeBack")}>|◀</NudgeKey>
         <NudgeKey direction={1} label={t("vj.beat.nudgeForward")}>▶|</NudgeKey>
       </div>
-      <button type="button" className="vj-tap" title={t("vj.tempo.tapNote")} onPointerDown={tap}>
+      <button type="button" className="vj-tap" {...mappable({ kind: "bpmTap" })} title={t("vj.tempo.tapNote")} onPointerDown={tap}>
         {t("vj.tempo.tap")}
       </button>
-      <button type="button" className="vj-tap" title={t("vj.beat.resyncNote")} onClick={() => void beatClock({ op: "resync" })}>
+      <button type="button" className="vj-tap" {...mappable({ kind: "bpmResync" })} title={t("vj.beat.resyncNote")} onClick={() => void beatClock({ op: "resync" })}>
         {t("vj.beat.resync")}
       </button>
-      <button type="button" className="vj-tap vj-hold" aria-pressed={paused} title={t("vj.beat.pauseNote")} onClick={() => void beatClock({ op: "pause", on: !paused })}>
+      <button type="button" className="vj-tap vj-hold" {...mappable({ kind: "bpmPause" })} aria-pressed={paused} title={t("vj.beat.pauseNote")} onClick={() => void beatClock({ op: "pause", on: !paused })}>
         {t("vj.beat.pause")}
       </button>
     </div>

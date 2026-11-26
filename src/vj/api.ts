@@ -21,6 +21,9 @@ import type {
   VjSide,
   VjTransition,
   VjTrigger,
+  VjButtonMode,
+  VjSource,
+  VjTarget,
 } from "../project/types";
 
 // Mirrors `VjOp` in src-tauri/crates/flux-project/src/vj.rs and src-tauri/src/vj_commands.rs.
@@ -80,7 +83,18 @@ export type VjOp =
   | { op: "effectBypass"; effect: string; bypass: boolean }
   | { op: "duplicateEffect"; effect: string }
   | { op: "resetEffect"; effect: string }
-  | { op: "setModulation"; target: ModTarget; modulation: VjModulation | null };
+  | { op: "setModulation"; target: ModTarget; modulation: VjModulation | null }
+  /** Makes the control `source` drive `target`; the latest wins, and a target learned again keeps its options. */
+  | { op: "addMapping"; source: VjSource; target: VjTarget }
+  | { op: "removeMapping"; mapping: string }
+  | { op: "clearMapping"; target: VjTarget }
+  | { op: "setMapping"; mapping: string; min: number; max: number; invert: boolean; mode: VjButtonMode }
+  /** Turns a dashboard knob (0 to 1) and moves what it is linked to. */
+  | { op: "dashboardValue"; knob: number; value: number }
+  /** Links a number to a knob; a bound left out is the target's own. */
+  | { op: "dashboardLink"; knob: number; target: VjTarget; min?: number; max?: number }
+  | { op: "dashboardUnlink"; knob: number; target: VjTarget }
+  | { op: "renameKnob"; knob: number; name: string };
 
 /** What a modulation is set on: a numeric setting of an effect, or a field of a layer or a clip. */
 export type ModTarget = { effect: string; param: string } | { layer: string; field: string } | { clip: string; field: string };
@@ -231,3 +245,6 @@ export interface AnalysisLevels {
 }
 
 export const vjAnalysisLevels = () => invoke<AnalysisLevels>("vj_analysis_levels");
+
+/** Waits for the next control touched, or OSC message, and makes it the source of `target`; `null` stops waiting. */
+export const vjLearn = (target: VjTarget | null) => invoke<void>("vj_learn", { target });
