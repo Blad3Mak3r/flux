@@ -1190,3 +1190,15 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-mapbar-s[title] { cursor: help; }
 .vj-import-list .vj-segs { flex: none; }
 .vj-import-list .vj-segs button { flex: none; padding: 0 8px; }
+
+/* The colours of the pads of a controller (Mappings tab). */
+.vj-mp-pads { justify-content: flex-start; gap: 12px; }
+.vj-lights { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.vj-light { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-dim); font-size: 11px; }
+.vj-light input, .vj-light select { height: 22px; padding: 0 4px; color: var(--ink); font-family: var(--font-measure); font-size: 11px; background: var(--vj-well); border: 0; border-radius: 2px; }
+.vj-light input { width: 44px; text-align: right; }
+.vj-light select { border-left: 6px solid var(--ink-faint); }
+.vj-light.c1 select, .vj-light.c2 select { border-left-color: #3ec46d; }
+.vj-light.c3 select, .vj-light.c4 select { border-left-color: #e0503f; }
+.vj-light.c5 select, .vj-light.c6 select { border-left-color: var(--amber); }
+.vj-knob.modulated .vj-knob-arc { stroke: var(--amber); }

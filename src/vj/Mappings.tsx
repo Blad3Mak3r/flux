@@ -9,6 +9,7 @@ import type { VideoAsset, VjButtonMode, VjFollow, VjGrid, VjMapping } from "../p
 import { useDoc } from "../state/store";
 import { Scrub, Segments } from "./controls";
 import { useEffectCatalog } from "./effects";
+import { PadColours, padStates } from "./Lights";
 import { setMapMode, useMap } from "./mapping";
 import { exportMappings, importMappings } from "./mapFile";
 import { hasSlot, sourceKind, sourceLabel, targetClass, targetLabel, targetUnits } from "./mapModel";
@@ -40,6 +41,7 @@ function Row({ grid, mapping }: { grid: VjGrid; mapping: VjMapping }) {
         step={(units.max - units.min) / 100} onMove={() => undefined} onSet={(v) => set({ [key]: Math.min(units.max, Math.max(units.min, v)) })} />
     );
   const follow = mapping.follow ?? "id";
+  const states = mapping.source.type === "midi" ? padStates(mapping.target) : null;
   const dmx = mapping.source.type === "artnet" ? mapping.source : null;
   return (
     <li className={`vj-mp-row${mapping.parked ? " parked" : ""}`}>
@@ -72,6 +74,10 @@ function Row({ grid, mapping }: { grid: VjGrid; mapping: VjMapping }) {
               onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
           </label>
         )}
+        {states && mapping.source.type === "midi" && (
+          <PadColours port={mapping.source.port} states={states} value={mapping.lights} fallback={grid.lights} name={name}
+            onSet={(lights) => void edit({ op: "setMappingLights", mapping: mapping.id, lights })} />
+        )}
         {hasSlot(mapping.target) && (
           <Segments options={FOLLOWS} value={follow} label={(f) => t(`vj.mappings.follow.${f}` as MessageKey)}
             title={(f) => t(`vj.mappings.followNote.${f}` as MessageKey)} onPick={(f) => void edit({ op: "setMappingFollow", mapping: mapping.id, follow: f })} />
@@ -97,6 +103,13 @@ export function MappingsPanel({ grid }: { grid: VjGrid }) {
           {t("vj.map.mode")}<kbd>{acceleratorOf("mapMidi")}</kbd>
         </button>
       </div>
+      {all.some((mapping) => mapping.source.type === "midi" && padStates(mapping.target)) && (
+        <div className="vj-mp-bar vj-mp-pads">
+          <span className="vj-dim" title={t("vj.lights.gridNote")}>{t("vj.lights.grid")}</span>
+          <PadColours states={["off", "loaded", "on"]} value={grid.lights} name={t("vj.lights.grid")}
+            onSet={(lights) => void edit({ op: "setLights", lights })} />
+        </div>
+      )}
       <div className="vj-mp-bar vj-mp-tools">
         <Segments options={FILTERS} value={filter} label={(f) => t(`vj.mappings.filter.${f}` as MessageKey)} onPick={setFilter} />
         <span className="vj-mp-files">

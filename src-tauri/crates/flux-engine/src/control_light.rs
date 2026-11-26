@@ -7,7 +7,7 @@
 //! the port is the app's (`src-tauri/src/control.rs`); nothing here runs in an audio callback or
 //! logs.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::control::{Binding, ControlAction, Feedback, MidiTrigger, TriggerKind, seek_target};
 use crate::cues::Cue;
@@ -15,6 +15,8 @@ use crate::midi_cue::MidiWrite;
 use crate::output::connect_midi;
 use crate::show::{GoAction, ShowTick};
 use crate::transport::TransportState;
+use flux_project::vj_feedback::{Lights, Pad};
+use flux_project::vj_mapping::MidiKind;
 
 const NOTE_ON: u8 = 0x90;
 const CONTROL_CHANGE: u8 = 0xB0;
@@ -156,19 +158,52 @@ impl Lamps {
                 Light::Blink if blink_on => feedback.on,
                 Light::Off | Light::Blink => feedback.off,
             };
-            if self.sent.get(&binding.trigger) == Some(&(value, feedback.off)) {
-                continue;
-            }
-            let Some(bytes) = message(binding.trigger, value) else {
-                continue;
-            };
-            if port.write(&bytes) {
-                self.sent.insert(binding.trigger, (value, feedback.off));
-            } else {
-                failed += 1;
-            }
+            failed += usize::from(!self.set(binding.trigger, value, feedback.off, port));
         }
         failed
+    }
+
+    /// Sends `value` to the pad of `trigger` unless it already holds it. `off` is what puts the
+    /// pad out, kept for [`Self::clear`]. `false` when the write failed, so the next call tries
+    /// again; a trigger that has no message (a program change) counts as done.
+    pub fn set(
+        &mut self,
+        trigger: MidiTrigger,
+        value: u8,
+        off: u8,
+        port: &mut impl MidiWrite,
+    ) -> bool {
+        if self.sent.get(&trigger) == Some(&(value, off)) {
+            return true;
+        }
+        let Some(bytes) = message(trigger, value) else {
+            return true;
+        };
+        if !port.write(&bytes) {
+            return false;
+        }
+        self.sent.insert(trigger, (value, off));
+        true
+    }
+
+    /// Puts out the pads that are not in `keep` any more (a mapping was removed) and forgets
+    /// them.
+    pub fn retain(
+        &mut self,
+        keep: &std::collections::HashSet<MidiTrigger>,
+        port: &mut impl MidiWrite,
+    ) {
+        self.sent.retain(|trigger, (value, off)| {
+            if keep.contains(trigger) {
+                return true;
+            }
+            if value != off
+                && let Some(bytes) = message(*trigger, *off)
+            {
+                port.write(&bytes);
+            }
+            false
+        });
     }
 
     /// Puts out every pad that is lit and forgets them all, for when the feedback ends.
@@ -186,6 +221,47 @@ impl Lamps {
     /// was reopened and the controller may have lost its lights.
     pub fn forget(&mut self) {
         self.sent.clear();
+    }
+}
+
+/// The pads of the VJ mappings by the port they are lit through: the name the control was learned
+/// on, or `default` (the controller of the control preferences) for a mapping that names none.
+pub fn by_port<'a>(pads: &'a [Pad], default: &str) -> BTreeMap<String, Vec<&'a Pad>> {
+    let mut ports: BTreeMap<String, Vec<&Pad>> = BTreeMap::new();
+    for pad in pads {
+        ports
+            .entry(pad.port.clone().unwrap_or_else(|| default.to_owned()))
+            .or_default()
+            .push(pad);
+    }
+    ports
+}
+
+fn trigger_of(pad: &Pad) -> MidiTrigger {
+    MidiTrigger {
+        kind: match pad.kind {
+            MidiKind::Note => TriggerKind::Note,
+            _ => TriggerKind::Cc,
+        },
+        channel: pad.channel,
+        number: pad.number,
+    }
+}
+
+impl Lamps {
+    /// Brings the pads of the VJ mappings on one port to the state of `pads`, writing only what
+    /// changed, and puts out the pads of mappings that are gone. `base` is what a pad with no
+    /// colours of its own is sent. Returns how many writes failed.
+    pub fn update_pads(&mut self, pads: &[&Pad], base: Lights, port: &mut impl MidiWrite) -> usize {
+        let mut failed = 0;
+        let mut keep = HashSet::new();
+        for pad in pads {
+            let trigger = trigger_of(pad);
+            keep.insert(trigger);
+            failed += usize::from(!self.set(trigger, pad.value(base), pad.off(base), port));
+        }
+        self.retain(&keep, port);
+        failed
     }
 }
 
@@ -219,6 +295,7 @@ impl MidiWrite for LightPort {
 mod tests {
     use super::*;
     use crate::cues::CueList;
+    use flux_project::vj_feedback::PadState;
     use flux_project::{AudioAsset, AudioClip, FrameRate, Project, Track, TrackKind};
 
     /// A port that remembers what it was sent, and can be made to fail.
@@ -605,5 +682,178 @@ mod tests {
         assert_eq!(Feedback::preset("Launchpad Mini"), Feedback::GENERIC);
         assert!(Feedback { on: 127, off: 0 }.is_valid());
         assert!(!Feedback { on: 128, off: 0 }.is_valid());
+    }
+
+    #[test]
+    fn set_should_write_a_value_once_and_again_when_it_changes() {
+        let mut lamps = Lamps::default();
+        let mut port = Recorder::default();
+        let pad = pad(TriggerKind::Note, 10);
+        assert!(lamps.set(pad, 5, 0, &mut port));
+        assert!(lamps.set(pad, 5, 0, &mut port));
+        assert!(lamps.set(pad, 1, 0, &mut port));
+        assert_eq!(port.take(), [vec![0x90, 10, 5], vec![0x90, 10, 1]]);
+    }
+
+    #[test]
+    fn set_should_send_a_control_change_on_the_channel_of_the_pad() {
+        let mut lamps = Lamps::default();
+        let mut port = Recorder::default();
+        let cc = MidiTrigger {
+            kind: TriggerKind::Cc,
+            channel: 3,
+            number: 7,
+        };
+        lamps.set(cc, 64, 0, &mut port);
+        assert_eq!(port.take(), [vec![0xB2, 7, 64]]);
+    }
+
+    #[test]
+    fn set_should_try_again_after_a_failed_write() {
+        let mut lamps = Lamps::default();
+        let mut port = Recorder {
+            fail: true,
+            ..Recorder::default()
+        };
+        let pad = pad(TriggerKind::Note, 10);
+        assert!(!lamps.set(pad, 5, 0, &mut port));
+        port.fail = false;
+        assert!(lamps.set(pad, 5, 0, &mut port));
+        assert_eq!(port.take(), [vec![0x90, 10, 5]]);
+    }
+
+    #[test]
+    fn retain_should_put_out_only_the_lit_pads_that_were_dropped() {
+        let mut lamps = Lamps::default();
+        let mut port = Recorder::default();
+        let (kept, lit, dark) = (
+            pad(TriggerKind::Note, 1),
+            pad(TriggerKind::Note, 2),
+            pad(TriggerKind::Note, 3),
+        );
+        lamps.set(kept, 1, 0, &mut port);
+        lamps.set(lit, 5, 0, &mut port);
+        lamps.set(dark, 0, 0, &mut port);
+        port.take();
+        lamps.retain(&std::iter::once(kept).collect(), &mut port);
+        assert_eq!(port.take(), [vec![0x90, 2, 0]]);
+        lamps.clear(&mut port);
+        assert_eq!(
+            port.take(),
+            [vec![0x90, 1, 0]],
+            "the kept pad is still known"
+        );
+    }
+
+    fn vj_pad(number: u8, state: PadState, lights: Option<Lights>) -> Pad {
+        Pad {
+            port: Some("APC40 mkII".into()),
+            channel: 1,
+            kind: MidiKind::Note,
+            number,
+            state,
+            lights,
+        }
+    }
+
+    #[test]
+    fn vj_pads_should_be_written_once_and_again_only_when_their_state_changes() {
+        let (mut lamps, mut port) = (Lamps::default(), Recorder::default());
+        let apc = Lights::APC;
+        let mut pads = [
+            vj_pad(1, PadState::Empty, None),
+            vj_pad(2, PadState::Loaded, None),
+            vj_pad(3, PadState::Playing, None),
+        ];
+        fn refs(pads: &[Pad]) -> Vec<&Pad> {
+            pads.iter().collect()
+        }
+        lamps.update_pads(&refs(&pads), apc, &mut port);
+        assert_eq!(
+            port.take(),
+            [vec![0x90, 1, 0], vec![0x90, 2, 5], vec![0x90, 3, 1]],
+            "off, loaded yellow, playing green"
+        );
+        lamps.update_pads(&refs(&pads), apc, &mut port);
+        assert!(port.take().is_empty(), "nothing changed, nothing sent");
+        pads[1].state = PadState::Playing;
+        pads[2].state = PadState::Loaded;
+        lamps.update_pads(&refs(&pads), apc, &mut port);
+        assert_eq!(port.take(), [vec![0x90, 2, 1], vec![0x90, 3, 5]]);
+    }
+
+    #[test]
+    fn a_vj_pad_should_use_its_own_colours_and_a_removed_mapping_should_go_out() {
+        let (mut lamps, mut port) = (Lamps::default(), Recorder::default());
+        let red = Lights {
+            off: 0,
+            loaded: 4,
+            on: 3,
+        };
+        let pads = [
+            vj_pad(1, PadState::Playing, Some(red)),
+            vj_pad(2, PadState::On, None),
+        ];
+        lamps.update_pads(&pads.iter().collect::<Vec<_>>(), Lights::APC, &mut port);
+        assert_eq!(port.take(), [vec![0x90, 1, 3], vec![0x90, 2, 1]]);
+        lamps.update_pads(&[&pads[0]], Lights::APC, &mut port);
+        assert_eq!(port.take(), [vec![0x90, 2, 0]]);
+    }
+
+    #[test]
+    fn closing_should_put_every_lit_vj_pad_out() {
+        let (mut lamps, mut port) = (Lamps::default(), Recorder::default());
+        let pads = [
+            vj_pad(1, PadState::Playing, None),
+            vj_pad(2, PadState::Loaded, None),
+            vj_pad(3, PadState::Empty, None),
+        ];
+        lamps.update_pads(&pads.iter().collect::<Vec<_>>(), Lights::APC, &mut port);
+        port.take();
+        lamps.clear(&mut port);
+        let mut out = port.take();
+        out.sort();
+        assert_eq!(out, [vec![0x90, 1, 0], vec![0x90, 2, 0]]);
+    }
+
+    #[test]
+    fn reopening_a_port_should_send_the_whole_state_again() {
+        let (mut lamps, mut port) = (Lamps::default(), Recorder::default());
+        let pads = [vj_pad(1, PadState::Playing, None)];
+        let refs: Vec<_> = pads.iter().collect();
+        lamps.update_pads(&refs, Lights::APC, &mut port);
+        port.take();
+        lamps.forget();
+        lamps.update_pads(&refs, Lights::APC, &mut port);
+        assert_eq!(port.take(), [vec![0x90, 1, 1]]);
+    }
+
+    #[test]
+    fn pads_should_be_grouped_by_the_port_they_were_learned_on() {
+        let mut other = vj_pad(2, PadState::Off, None);
+        other.port = Some("Launchpad".into());
+        let mut none = vj_pad(3, PadState::Off, None);
+        none.port = None;
+        let pads = [vj_pad(1, PadState::Off, None), other, none];
+        let ports = by_port(&pads, "APC40 mkII");
+        assert_eq!(
+            ports.keys().collect::<Vec<_>>(),
+            ["APC40 mkII", "Launchpad"]
+        );
+        assert_eq!(
+            ports["APC40 mkII"].len(),
+            2,
+            "a pad with no port uses the default"
+        );
+    }
+
+    #[test]
+    fn a_control_change_pad_should_be_sent_as_a_control_change() {
+        let (mut lamps, mut port) = (Lamps::default(), Recorder::default());
+        let mut pad = vj_pad(7, PadState::On, None);
+        pad.kind = MidiKind::Cc;
+        pad.channel = 2;
+        lamps.update_pads(&[&pad], Lights::GENERIC, &mut port);
+        assert_eq!(port.take(), [vec![0xB1, 7, 127]]);
     }
 }

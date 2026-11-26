@@ -386,4 +386,28 @@ mod tests {
         assert_eq!(find("Port 3", &items), Some("Port 3"));
         assert_eq!(find("Port 4", &items), None);
     }
+
+    #[test]
+    fn a_controller_input_should_find_its_output_by_name_even_after_a_replug() {
+        // ALSA numbers change when a device is plugged again; the name is what stays.
+        let outputs = ports(&[
+            "Midi Through:Midi Through Port-0 14:0",
+            "APC40 mkII:APC40 mkII MIDI 1 28:0",
+        ]);
+        let learned = "APC40 mkII:APC40 mkII MIDI 1 20:0";
+        assert_eq!(
+            find(learned, &outputs),
+            Some("APC40 mkII:APC40 mkII MIDI 1 28:0")
+        );
+        assert_eq!(
+            find("Launchpad", &outputs),
+            None,
+            "another device is not matched"
+        );
+        assert_eq!(
+            find("apc40 mkii:apc40 mkii midi 1 99:9", &outputs),
+            Some("APC40 mkII:APC40 mkII MIDI 1 28:0"),
+            "case and numbers are ignored"
+        );
+    }
 }

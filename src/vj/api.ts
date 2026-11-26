@@ -25,6 +25,7 @@ import type {
   VjFollow,
   VjSource,
   VjTarget,
+  VjLights,
 } from "../project/types";
 
 // Mirrors `VjOp` in src-tauri/crates/flux-project/src/vj.rs and src-tauri/src/vj_commands.rs.
@@ -91,6 +92,10 @@ export type VjOp =
   | { op: "clearMapping"; target: VjTarget }
   /** Pairs a DMX mapping with the channel of its 16-bit low byte, or back to 8 bits with `null`. */
   | { op: "setMappingFine"; mapping: string; fine: number | null }
+  /** The values a mapping's pad is sent for its states, or `null` to use the grid's. */
+  | { op: "setMappingLights"; mapping: string; lights: VjLights | null }
+  /** The colours of the pads whose mapping has none of its own, or `null` for the controller's preset. */
+  | { op: "setLights"; lights: VjLights | null }
   /** Follows a clip, layer, column, deck or effect by id or by its slot. */
   | { op: "setMappingFollow"; mapping: string; follow: VjFollow }
   | { op: "setMapping"; mapping: string; min: number; max: number; invert: boolean; mode: VjButtonMode }
@@ -102,7 +107,7 @@ export type VjOp =
   | { op: "renameKnob"; knob: number; name: string };
 
 /** What a modulation is set on: a numeric setting of an effect, or a field of a layer or a clip. */
-export type ModTarget = { effect: string; param: string } | { layer: string; field: string } | { clip: string; field: string };
+export type ModTarget = { effect: string; param: string } | { layer: string; field: string } | { clip: string; field: string } | { knob: number };
 
 /** The font families a text block can use. */
 export const vjFonts = () => invoke<VjFont[]>("vj_fonts");
@@ -235,7 +240,12 @@ export interface ModValues {
   effects: Record<string, Record<string, number>>;
   layers: Record<string, Record<string, number>>;
   clips: Record<string, Record<string, number>>;
+  /** The modulated knobs of the dashboard, by place. */
+  knobs: Record<string, number>;
 }
+
+/** The colours a pad gets on the controller of `port` before the user changes them, and the name of its colour table (`apc`), if its values are colours. */
+export const vjLightsPreset = (port?: string) => invoke<{ lights: VjLights; palette: string | null }>("vj_lights_preset", { port: port ?? null });
 
 export const vjModulationValues = () => invoke<ModValues>("vj_modulation_values");
 

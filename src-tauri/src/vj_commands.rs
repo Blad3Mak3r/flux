@@ -704,3 +704,21 @@ mod tests {
         );
     }
 }
+
+/// The colours a pad gets on a controller before the user changes them, and the name of the colour
+/// table its velocities pick from, if it has one (see `flux_project::vj_feedback`).
+#[derive(serde::Serialize)]
+pub struct LightsPreset {
+    lights: flux_project::vj_feedback::Lights,
+    palette: Option<&'static str>,
+}
+
+#[tauri::command]
+pub fn vj_lights_preset(port: Option<String>) -> LightsPreset {
+    use flux_project::vj_feedback::Lights;
+    let port = port.unwrap_or_default();
+    LightsPreset {
+        lights: Lights::preset(&port),
+        palette: Lights::palette(&port),
+    }
+}

@@ -173,9 +173,22 @@ impl Modulation {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum ModTarget {
-    Effect { effect: String, param: String },
-    Layer { layer: String, field: String },
-    Clip { clip: String, field: String },
+    Effect {
+        effect: String,
+        param: String,
+    },
+    Layer {
+        layer: String,
+        field: String,
+    },
+    Clip {
+        clip: String,
+        field: String,
+    },
+    /// A knob of the dashboard, 0 to 1.
+    Knob {
+        knob: usize,
+    },
 }
 
 /// The range of a layer's modulatable field.
@@ -439,9 +452,11 @@ impl Modulator {
 impl Vj {
     /// Whether anything of the grid is modulated.
     pub fn is_modulated(&self) -> bool {
-        self.composition_effects
-            .iter()
-            .any(|e| !e.modulation.is_empty())
+        self.dashboard.iter().any(|k| k.modulation.is_some())
+            || self
+                .composition_effects
+                .iter()
+                .any(|e| !e.modulation.is_empty())
             || self.layers.iter().any(|layer| {
                 !layer.modulation.is_empty()
                     || layer.effects.iter().any(|e| !e.modulation.is_empty())
@@ -466,7 +481,10 @@ impl Vj {
             m.values().any(|m| matches!(m.source, Source::Audio { .. }))
         };
         let stack = |s: &[Effect]| s.iter().any(|e| audio(&e.modulation));
-        stack(&self.composition_effects)
+        self.dashboard.iter().any(|k| {
+            k.modulation
+                .is_some_and(|m| matches!(m.source, Source::Audio { .. }))
+        }) || stack(&self.composition_effects)
             || self.layers.iter().any(|l| {
                 audio(&l.modulation)
                     || stack(&l.effects)
@@ -481,6 +499,13 @@ impl Vj {
         let Some((head, field)) = key.rsplit_once(':') else {
             return false;
         };
+        if let Some(knob) = head.strip_prefix("k:") {
+            return knob.parse::<usize>().is_ok_and(|k| {
+                self.dashboard
+                    .get(k)
+                    .is_some_and(|k| k.modulation.is_some())
+            });
+        }
         let has = |m: &BTreeMap<String, Modulation>| m.contains_key(field);
         let in_stack =
             |id: &str, stack: &[Effect]| stack.iter().any(|e| e.id == id && has(&e.modulation));
@@ -614,6 +639,13 @@ pub fn modulate_into(
             modulate_stack(&clip.effects, &mut out.effects, modulator, clock, bands);
         }
     }
+    // The knobs last: they move numbers of the drawn copy, which the stacks above rewrite whole.
+    for (at, knob) in vj.dashboard.iter().enumerate() {
+        if let Some(m) = &knob.modulation {
+            let value = modulator.value(&format!("k:{at}:value"), m, clock, bands);
+            crate::vj_mapping::drive_knob(drawn, at, value);
+        }
+    }
 }
 
 /// The modulated values of a grid at an instant, for the inspector to mark on its controls: by
@@ -623,6 +655,8 @@ pub struct Values {
     pub effects: BTreeMap<String, BTreeMap<String, f32>>,
     pub layers: BTreeMap<String, BTreeMap<String, f32>>,
     pub clips: BTreeMap<String, BTreeMap<String, f32>>,
+    /// The modulated knobs of the dashboard, by place.
+    pub knobs: BTreeMap<usize, f32>,
 }
 
 /// Every modulated value of `vj` at `clock`.
@@ -677,6 +711,12 @@ pub fn values(vj: &Vj, modulator: &mut Modulator, clock: Clock, bands: Bands) ->
                 })
                 .collect();
             out.clips.insert(clip.id.clone(), map);
+        }
+    }
+    for (at, knob) in vj.dashboard.iter().enumerate() {
+        if let Some(m) = &knob.modulation {
+            let value = modulator.value(&format!("k:{at}:value"), m, clock, bands);
+            out.knobs.insert(at, value);
         }
     }
     out
@@ -1193,5 +1233,71 @@ mod tests {
                 && flags.contains(&("rate", false))
                 && flags.contains(&("beats", false))
         );
+    }
+
+    /// A grid whose knob 2 drives the opacity of layer 0 from 0.2 to 0.8, and is modulated by a
+    /// saw over `min..max`.
+    fn modulated_knob(min: f32, max: f32) -> Vj {
+        let mut vj = grid_with_clip();
+        let layer = vj.layers[0].id.clone();
+        crate::vj_mapping::link_knob(
+            &mut vj,
+            2,
+            crate::vj_mapping::Target::LayerOpacity { layer },
+            Some(0.2),
+            Some(0.8),
+        )
+        .unwrap();
+        let m = lfo(Shape::SawUp, beats(1.0), 0.0, min, max);
+        crate::vj_mapping::modulate_knob(&mut vj, 2, Some(m)).unwrap();
+        vj
+    }
+
+    #[test]
+    fn a_modulated_knob_should_move_what_it_drives_in_the_drawn_grid_only() {
+        let vj = modulated_knob(0.0, 1.0);
+        assert!(vj.is_modulated());
+        let mut modulator = Modulator::default();
+        let out = modulate(&vj, &mut modulator, at(0.0, 0.5), Bands::default());
+        near(out.dashboard[2].value, 0.5);
+        near(out.layers[0].opacity, 0.5);
+        assert_eq!(vj.dashboard[2].value, 0.0, "the stored knob is as it was");
+        assert_eq!(vj.layers[0].opacity, 1.0, "and so is what it drives");
+    }
+
+    #[test]
+    fn a_knob_modulation_should_be_kept_in_range_stored_and_shown_as_a_value() {
+        let mut vj = modulated_knob(-3.0, 4.0);
+        let m = vj.dashboard[2].modulation.unwrap();
+        assert_eq!((m.min, m.max), (0.0, 1.0));
+        let json = serde_json::to_string(&vj).unwrap();
+        assert_eq!(serde_json::from_str::<Vj>(&json).unwrap(), vj);
+        let mut modulator = Modulator::default();
+        let shown = values(&vj, &mut modulator, at(0.0, 0.25), Bands::default());
+        near(shown.knobs[&2], 0.25);
+        crate::vj_mapping::modulate_knob(&mut vj, 2, None).unwrap();
+        assert!(!vj.is_modulated());
+    }
+
+    #[test]
+    fn a_knob_should_follow_the_sound_and_be_known_to_the_pruning() {
+        let mut vj = modulated_knob(0.0, 1.0);
+        crate::vj_mapping::modulate_knob(&mut vj, 2, Some(audio(Band::Low, 1.0, 0.0, 0.0)))
+            .unwrap();
+        assert!(vj.has_audio_modulation());
+        assert!(vj.has_modulation_key("k:2:value"));
+        assert!(!vj.has_modulation_key("k:3:value"));
+        let bands = Bands {
+            low: 0.5,
+            ..Bands::default()
+        };
+        let out = modulate(&vj, &mut Modulator::default(), at(0.0, 0.0), bands);
+        near(out.layers[0].opacity, 0.5);
+    }
+
+    #[test]
+    fn a_knob_target_should_read_from_the_json_the_window_sends() {
+        let target: ModTarget = serde_json::from_str(r#"{"knob":7}"#).unwrap();
+        assert_eq!(target, ModTarget::Knob { knob: 7 });
     }
 }

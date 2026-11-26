@@ -822,7 +822,8 @@ function Inspector({ grid }: { grid: VjGrid }) {
   const layer = grid.layers.find((l) => l.id === layerId) ?? found?.layer;
   const modCatalog = useEffectCatalog((state) => state.catalog?.modulation);
   // The modulated values are asked for only while the inspector or a layer's faders show something modulated.
-  const modulated = inspectorModulated(layer, found?.clip, grid.compositionEffects) || grid.layers.some((l) => inspectorModulated(l, undefined));
+  const modulated =
+    inspectorModulated(layer, found?.clip, grid.compositionEffects) || grid.layers.some((l) => inspectorModulated(l, undefined)) || (grid.dashboard ?? []).some((knob) => knob.modulation);
   useEffect(() => (modulated ? bindModulation() : undefined), [modulated]);
   const tabs = (
     <nav className="vj-tabs" role="tablist">

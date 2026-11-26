@@ -162,6 +162,11 @@ pub fn heard(
 /// How far a channel must have travelled (of 255) to count as the one the user moved: the
 /// flicker of a dithering fixture or a noisy fader is smaller.
 const MIN_TRAVEL: u8 = 10;
+/// A fine channel of a 16-bit fader wraps over the whole of 0 to 255 while the coarse one next
+/// to it steps; it has to have travelled at least this far, and changed at least [`PAIR_RATIO`]
+/// times as often, for the two to be paired.
+const FINE_TRAVEL: u8 = 128;
+const PAIR_RATIO: u32 = 2;
 /// How long nothing moves for the learn to be decided.
 const SETTLE: Duration = Duration::from_millis(350);
 /// The longest the learn waits after the first channel qualified, for a control still moving.
@@ -217,6 +222,29 @@ impl DmxLearn {
             .map(|(key, _)| *key)
     }
 
+    /// The 16-bit pair the chosen channel is half of, if its neighbour (the channel before or
+    /// after) moved like the fine byte of a fader: it wrapped over most of 0 to 255 and changed
+    /// at least [`PAIR_RATIO`] times as often as the coarse one, which moved too. Returns
+    /// `(coarse, fine)`; anything else stays 8 bits.
+    fn pair(&self, universe: u16, channel: u16) -> Option<(u16, u16)> {
+        let at = |c: u16| self.spans.get(&(universe, c)).copied();
+        let me = at(channel)?;
+        [channel.checked_sub(1)?, channel + 1]
+            .into_iter()
+            .filter_map(|n| Some((n, at(n)?)))
+            .find_map(|(n, other)| {
+                let ((coarse, c), (fine, f)) = if me.changes >= other.changes {
+                    ((n, other), (channel, me))
+                } else {
+                    ((channel, me), (n, other))
+                };
+                (c.max > c.min
+                    && f.max - f.min >= FINE_TRAVEL
+                    && f.changes >= c.changes.saturating_mul(PAIR_RATIO))
+                .then_some((coarse, fine))
+            })
+    }
+
     /// How long until the choice is due; `None` while no channel has qualified.
     pub fn due_in(&self, now: Instant) -> Option<Duration> {
         let (first, last) = (self.first?, self.last?);
@@ -224,14 +252,20 @@ impl DmxLearn {
         Some(at.saturating_duration_since(now))
     }
 
-    /// The choice, once it is due; the learn starts over after it. Returns `(universe, channel)`.
-    pub fn take(&mut self, now: Instant) -> Option<(u16, u16)> {
+    /// The choice, once it is due; the learn starts over after it. Returns `(universe, channel,
+    /// fine)`, `fine` being the channel of the low byte when the channel is half of a 16-bit pair.
+    pub fn take(&mut self, now: Instant) -> Option<(u16, u16, Option<u16>)> {
         if self.due_in(now)? > Duration::ZERO {
             return None;
         }
-        let best = self.best();
+        let chosen = self
+            .best()
+            .map(|(universe, channel)| match self.pair(universe, channel) {
+                Some((coarse, fine)) => (universe, coarse, Some(fine)),
+                None => (universe, channel, None),
+            });
         self.reset();
-        best
+        chosen
     }
 
     /// Forgets what was seen: the learn was cancelled, or is over.
@@ -490,7 +524,7 @@ mod tests {
         let end = console(&mut state, &mut learn, &frames, 0);
 
         assert_eq!(learn.take(at(end)), None, "still moving: not decided");
-        assert_eq!(learn.take(at(end + 400)), Some((1, 37)));
+        assert_eq!(learn.take(at(end + 400)), Some((1, 37, None)));
         assert!(learn.is_idle(), "the learn starts over after the choice");
     }
 
@@ -507,7 +541,7 @@ mod tests {
         ]);
         let end = console(&mut state, &mut learn, &frames, 0);
 
-        assert_eq!(learn.take(at(end + 400)), Some((1, 40)));
+        assert_eq!(learn.take(at(end + 400)), Some((1, 40, None)));
     }
 
     #[test]
@@ -522,7 +556,7 @@ mod tests {
         );
 
         assert_eq!(learn.take(at(end)), None);
-        assert_eq!(learn.take(at(end + 400)), Some((1, 12)));
+        assert_eq!(learn.take(at(end + 400)), Some((1, 12, None)));
     }
 
     #[test]
@@ -548,7 +582,7 @@ mod tests {
         console(&mut state, &mut learn, &frames, 0);
 
         // 100 frames last 2.3 s: the longest wait passed while it still moved.
-        assert_eq!(learn.take(at(2300)), Some((1, 9)));
+        assert_eq!(learn.take(at(2300)), Some((1, 9, None)));
     }
 
     #[test]
@@ -566,6 +600,58 @@ mod tests {
             0,
         );
 
-        assert_eq!(learn.take(at(end + 400)), Some((1, 6)));
+        assert_eq!(learn.take(at(end + 400)), Some((1, 6, None)));
+    }
+
+    /// The frames of a 16-bit fader swept from 0 to `to` in steps of 37, on `coarse` and `fine`.
+    fn sweep16(coarse: u16, fine: u16, to: u32) -> Vec<Vec<(u16, u8)>> {
+        (0..=to / 37)
+            .map(|n| {
+                let v = n * 37;
+                vec![(coarse, (v >> 8) as u8), (fine, (v & 255) as u8)]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_16_bit_fader_should_be_learned_as_a_coarse_and_fine_pair() {
+        let mut state = DmxState::default();
+        let mut learn = DmxLearn::default();
+        let mut frames = vec![vec![(7, 0), (8, 0)]; 3];
+        frames.extend(sweep16(7, 8, 2000));
+        let end = console(&mut state, &mut learn, &frames, 0);
+
+        assert_eq!(learn.take(at(end + 400)), Some((1, 7, Some(8))));
+    }
+
+    #[test]
+    fn a_fine_channel_before_its_coarse_one_should_still_pair() {
+        let mut state = DmxState::default();
+        let mut learn = DmxLearn::default();
+        let mut frames = vec![vec![(7, 0), (8, 0)]; 3];
+        frames.extend(sweep16(8, 7, 2000));
+        let end = console(&mut state, &mut learn, &frames, 0);
+
+        assert_eq!(learn.take(at(end + 400)), Some((1, 8, Some(7))));
+    }
+
+    #[test]
+    fn two_faders_moved_alike_should_not_be_paired() {
+        let mut state = DmxState::default();
+        let mut learn = DmxLearn::default();
+        let frames: Vec<_> = (0..=10).map(|n| vec![(20, n * 25), (21, n * 25)]).collect();
+        let end = console(&mut state, &mut learn, &frames, 0);
+
+        assert!(matches!(learn.take(at(end + 400)), Some((1, 20, None))));
+    }
+
+    #[test]
+    fn a_fader_beside_a_resting_channel_should_stay_8_bit() {
+        let mut state = DmxState::default();
+        let mut learn = DmxLearn::default();
+        let frames: Vec<_> = (0..=10).map(|n| vec![(30, n * 25), (31, 200)]).collect();
+        let end = console(&mut state, &mut learn, &frames, 0);
+
+        assert_eq!(learn.take(at(end + 400)), Some((1, 30, None)));
     }
 }

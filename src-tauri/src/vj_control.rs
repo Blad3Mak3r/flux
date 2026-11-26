@@ -187,11 +187,11 @@ impl VjRunner {
     /// Sends or closes the gesture if its time has come.
     pub fn tick(&mut self) {
         let now = Instant::now();
-        if let Some((universe, channel)) = self.dmx_learn.take(now) {
+        if let Some((universe, channel, fine)) = self.dmx_learn.take(now) {
             self.learn_source(Source::Artnet {
                 universe,
                 channel,
-                fine: None,
+                fine,
             });
         }
         match self.gesture.step(now) {

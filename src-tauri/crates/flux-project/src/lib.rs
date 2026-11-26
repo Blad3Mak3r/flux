@@ -24,6 +24,7 @@ pub mod show;
 mod video_clips;
 pub mod vj;
 pub mod vj_effects;
+pub mod vj_feedback;
 mod vj_file;
 pub mod vj_mapfile;
 pub mod vj_mapping;
