@@ -1209,3 +1209,26 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-mapbar-s[title] { cursor: help; }
 .vj-import-list .vj-segs { flex: none; }
 .vj-import-list .vj-segs button { flex: none; padding: 0 8px; }
+
+/* The test card of a slice in the Advanced Output's inspector. */
+.tc { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 14px 0 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--rule); }
+.tc > legend { float: left; width: 100%; margin: 0 0 10px; padding: 0; color: var(--ink-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+.tc > legend + * { clear: both; }
+.tc .vj-f { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
+.tc .vj-segs button { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 11.5px; }
+.tc-show { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.tc-chip { height: 24px; padding: 0 9px; color: var(--ink-dim); font: 600 11.5px var(--font-ui); background: var(--vj-well); border: 0; border-radius: 2px; cursor: pointer; }
+.tc-chip:hover { color: var(--ink); }
+.tc-chip[aria-pressed="true"] { color: var(--phosphor); background: oklch(0.3 0.04 128); box-shadow: inset 0 0 0 1px var(--phosphor-dim); }
+.tc-layers { display: flex; flex-wrap: wrap; gap: 4px; }
+.tc-modes { display: flex; gap: 2px; padding: 2px; background: var(--vj-well); border-radius: 2px; }
+.tc-modes button { flex: 1 1 0; display: flex; align-items: center; justify-content: center; min-width: 0; height: 22px; padding: 0; color: var(--ink-dim); font-size: 11.5px; background: none; border: 0; border-radius: 2px; cursor: pointer; }
+.tc-modes button.on { background: var(--vj-ctl-hi); box-shadow: inset 0 0 0 1px var(--phosphor-dim); }
+.tc-modes button:first-child { flex: 2.2 1 0; }
+.tc-modes i { width: 14px; height: 14px; border-radius: 1px; box-shadow: 0 0 0 1px oklch(1 0 0 / 0.25); }
+.tc-size { display: flex; align-items: center; gap: 6px; }
+.tc-size > span { color: var(--ink-faint); font-size: 12px; }
+.tc-size .field { flex: 1 1 0; min-width: 0; }
+.tc-select { min-width: 0; flex: 1; height: 24px; color: var(--ink); font: 500 11.5px var(--font-ui); background: var(--vj-well); border: 0; border-radius: 2px; }
+.tc-base { display: flex; align-items: center; gap: 6px; }
+.tc-range { width: 100%; accent-color: var(--phosphor); }

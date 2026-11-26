@@ -28,6 +28,47 @@ export interface Slice {
   hidden?: boolean;
   /** How far in from each edge it fades to black, as fractions of it, and the fade's curve. */
   softEdge?: SoftEdge;
+  testCard: TestCard;
+}
+
+export type CardMode = "pattern" | "red" | "green" | "blue" | "white" | "black" | "custom";
+
+export interface CardLayers {
+  grid: boolean;
+  numbers: boolean;
+  circle: boolean;
+  diagonals: boolean;
+  crosshair: boolean;
+  label: boolean;
+  bars: boolean;
+  motion: boolean;
+}
+
+/** How the test card is drawn on a slice, as the backend keeps it (flux-project/src/mapping.rs). */
+export interface TestCard {
+  show: boolean;
+  cabinetWidth: number;
+  cabinetHeight: number;
+  numbering: "alpha" | "dotted" | "sequence";
+  scheme: "vivid" | "dark" | "light" | "contrast";
+  guideWidth: number;
+  showName: boolean;
+  showResolution: boolean;
+  labelPlate: boolean;
+  labelY: number;
+  /** `#rrggbb`; empty takes a colour from the slice's place in the list. */
+  base: string;
+  layers: CardLayers;
+  mode: CardMode;
+  custom: string;
+  /** Draws the logo in a disc above the label. */
+  showLogo: boolean;
+  /** Id of an image of the project's media; empty for none. */
+  logo: string;
+  /** `#rrggbb`, the disc behind the logo. */
+  logoBack: string;
+  /** The disc's diameter in percent of the slice's short side, 10 to 60. */
+  logoSize: number;
 }
 
 export interface SoftEdge {
@@ -105,6 +146,8 @@ export type MappingOp =
       field: "left" | "right" | "top" | "bottom" | "gamma";
       text: string;
     }
+  | { op: "setTestCard"; id: string; card: TestCard }
+  | { op: "copyTestCard"; id: string }
   | { op: "resetCorners"; id: string }
   | { op: "setHidden"; id: string; hidden: boolean }
   | { op: "clear" };
