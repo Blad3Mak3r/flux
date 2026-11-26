@@ -58,7 +58,10 @@ export interface VjColumn {
   name?: string;
 }
 
-export type VjBlend = "alpha" | "add" | "subtract" | "multiply" | "screen" | "lighten" | "darken";
+export type VjBlend =
+  | "alpha" | "add" | "subtract" | "multiply" | "screen" | "lighten" | "darken"
+  | "difference" | "exclusion" | "overlay" | "softLight" | "hardLight" | "colorDodge" | "colorBurn"
+  | "linearLight" | "vividLight" | "pinLight" | "hue" | "saturation" | "color" | "luminosity";
 export type VjTransition = "alpha" | "add";
 export type VjSide = "a" | "b";
 

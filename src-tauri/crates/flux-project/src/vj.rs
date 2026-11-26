@@ -273,6 +273,34 @@ pub enum Blend {
     Lighten,
     /// Keeps the darker of the two.
     Darken,
+    /// The distance between the two lights.
+    Difference,
+    /// Like [`Self::Difference`], with less contrast.
+    Exclusion,
+    /// Multiplies where what is below is dark, screens where it is light.
+    Overlay,
+    /// A gentle [`Self::Overlay`]-like contrast, driven by the layer.
+    SoftLight,
+    /// [`Self::Overlay`] driven by the layer's light.
+    HardLight,
+    /// Brightens what is below by the layer, to overexposure (Resolume's Dodge).
+    ColorDodge,
+    /// Darkens what is below by the layer, with more contrast than multiply (Resolume's Burn).
+    ColorBurn,
+    /// Burns or dodges linearly by the layer's light.
+    LinearLight,
+    /// Burns or dodges by the layer's light, with more contrast than linear light.
+    VividLight,
+    /// Keeps the darker or the lighter of the two by the layer's light.
+    PinLight,
+    /// The layer's hue on the saturation and luminosity below.
+    Hue,
+    /// The layer's saturation on the hue and luminosity below.
+    Saturation,
+    /// The layer's hue and saturation on the luminosity below.
+    Color,
+    /// The layer's luminosity on the hue and saturation below.
+    Luminosity,
 }
 
 impl Blend {
@@ -2245,6 +2273,23 @@ mod tests {
         assert!(json.contains(r#""trigger":"piano""#));
         let back: Project = serde_json::from_str(&json).unwrap();
         assert_eq!(back, project);
+    }
+
+    #[test]
+    fn every_blend_should_keep_its_camel_case_name_and_old_names_should_still_load() {
+        for (blend, name) in [
+            (Blend::Alpha, "alpha"),
+            (Blend::Darken, "darken"),
+            (Blend::SoftLight, "softLight"),
+            (Blend::ColorDodge, "colorDodge"),
+            (Blend::VividLight, "vividLight"),
+            (Blend::Luminosity, "luminosity"),
+        ] {
+            let json = format!("\"{name}\"");
+            assert_eq!(serde_json::to_string(&blend).unwrap(), json);
+            assert_eq!(serde_json::from_str::<Blend>(&json).unwrap(), blend);
+        }
+        assert!(serde_json::from_str::<Blend>("\"nothing\"").is_err());
     }
 
     #[test]

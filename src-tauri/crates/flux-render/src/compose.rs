@@ -130,7 +130,7 @@ pub(crate) struct Compose {
     down: wgpu::RenderPipeline,
     up: wgpu::RenderPipeline,
     mix: wgpu::RenderPipeline,
-    /// The picture shader's pipelines drawing into the work textures, in the order of [`Blend::ALL`].
+    /// The picture shader's pipelines drawing into the work textures, in the order of [`Blend::slot`].
     pictures: Vec<wgpu::RenderPipeline>,
     params: wgpu::Buffer,
     /// The groups of the picture shader's second binding group: the pictures' own effects with no
@@ -290,8 +290,9 @@ impl Compose {
             down: pass("fs_down", None),
             up: pass("fs_up", Some(add)),
             mix: pass("fs_mix", None),
-            pictures: Blend::ALL
+            pictures: Blend::FIXED
                 .into_iter()
+                .chain([Blend::Hue])
                 .map(|blend| make(blend, format))
                 .collect(),
             params,
@@ -329,7 +330,7 @@ impl Compose {
                 device,
                 self.format,
                 size,
-                U::RENDER_ATTACHMENT | U::TEXTURE_BINDING | U::COPY_SRC,
+                U::RENDER_ATTACHMENT | U::TEXTURE_BINDING | U::COPY_SRC | U::COPY_DST,
                 &format!("composition {n}"),
             )
         });
@@ -450,31 +451,70 @@ impl Compose {
             clear(encoder, &targets.history.view);
         }
 
-        // 1. The pictures.
-        {
+        // 1. The pictures, one pass for each run of those the GPU blends by itself. A blend that
+        // reads the light below is a pass of its own: what is drawn so far is copied into the other
+        // texture, the picture is drawn there with the first as the light below, and the other
+        // texture is the current one from then on.
+        let mut current = 0;
+        if layers.first().is_none_or(|(_, blend, _)| !blend.is_fixed()) {
+            clear(encoder, &targets.work[0].view);
+        }
+        let mut fresh = true;
+        let mut at = 0;
+        while fresh || at < layers.len() {
+            let reads = layers
+                .get(at)
+                .is_some_and(|(_, blend, _)| !blend.is_fixed());
+            let target = if reads { 1 - current } else { current };
+            if reads {
+                encoder.copy_texture_to_texture(
+                    targets.work[current].texture.as_image_copy(),
+                    targets.work[target].texture.as_image_copy(),
+                    wgpu::Extent3d {
+                        width: size.0,
+                        height: size.1,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("composition pictures"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.work[0].view,
+                    view: &targets.work[target].view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: if fresh && !reads {
+                            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
+                        } else {
+                            wgpu::LoadOp::Load
+                        },
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 ..Default::default()
             });
+            fresh = false;
             pass.set_bind_group(1, &self.pictures_group, &[]);
             pass.set_vertex_buffer(0, vertices.slice(..));
-            for (group, blend, range) in layers {
-                let index = Blend::ALL.iter().position(|b| b == blend).unwrap_or(0);
-                pass.set_pipeline(&self.pictures[index]);
+            if reads {
+                pass.set_bind_group(2, &targets.as_picture[current], &[]);
+            }
+            while let Some((group, blend, range)) = layers.get(at) {
+                if blend.is_fixed() == reads {
+                    break;
+                }
+                pass.set_pipeline(&self.pictures[blend.slot()]);
                 pass.set_bind_group(0, *group, &[]);
                 pass.draw(range.clone(), 0..1);
+                at += 1;
+                if reads {
+                    break;
+                }
             }
+            drop(pass);
+            current = target;
         }
-        let mut current = 0;
 
         // 2. The history effects.
         for stage in &post.stages {
@@ -794,11 +834,7 @@ mod tests {
             label: None,
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[Some(&layout), Some(&masks_layout)],
-            immediate_size: 0,
-        });
+        let pipeline_layout = crate::pipeline_layouts(&device, &layout, &masks_layout);
         let uniform = |size| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
@@ -911,17 +947,20 @@ mod tests {
         };
         let row = size * texel;
         // Draws `frames` frames with `post` and reads the last one back, as its red.
-        let mut render = |post: &Post, frames: usize| -> Vec<f32> {
+        let mut render = |post: &Post,
+                          frames: usize,
+                          vertex_buffer: &wgpu::Buffer,
+                          layers: &[(&wgpu::BindGroup, Blend, Range<u32>)]|
+         -> Vec<f32> {
             for _ in 0..frames {
                 let mut encoder = device.create_command_encoder(&Default::default());
-                let layers = [(&picture, Blend::Alpha, 0..6)];
                 compose.run(
                     Inputs {
                         device: &device,
                         queue: &queue,
                         encoder: &mut encoder,
-                        vertices: &vertex_buffer,
-                        layers: &layers,
+                        vertices: vertex_buffer,
+                        layers,
                         program: 6..12,
                         post,
                         composition: (size, size),
@@ -979,7 +1018,8 @@ mod tests {
                 .collect()
         };
         let at = |image: &[f32], x: usize, y: usize| image[y * size as usize + x];
-        let image = render(&post, 3);
+        let alpha = [(&picture, Blend::Alpha, 0..6)];
+        let image = render(&post, 3, &vertex_buffer, &alpha);
         // The picture is lit, the bloom lights beyond it and the far corner stays dark.
         assert!(at(&image, 32, 32) > 0.5, "{}", at(&image, 32, 32));
         assert!(at(&image, 22, 32) > 0.0, "{}", at(&image, 22, 32));
@@ -992,9 +1032,139 @@ mod tests {
             kind: flux_project::vj_effects::EffectKind::Invert { amount: 1.0 },
         };
         let inverted = Post::new(&[invert], effects::Time::default(), 1.0 / 60.0);
-        let image = render(&inverted, 1);
+        let image = render(&inverted, 1, &vertex_buffer, &alpha);
         assert!(at(&image, 32, 32) < 0.01, "{}", at(&image, 32, 32));
         assert!(at(&image, 0, 0) > 0.99, "{}", at(&image, 0, 0));
+
+        // A blend that reads the light below: white over the white middle makes it black, over the
+        // black around it makes it white, whether it comes first, after a picture or before one.
+        let difference = |place: [f32; 4], shading: f32| -> Vec<Vertex> {
+            vertices(&whole_quad())
+                .into_iter()
+                .map(|v| Vertex {
+                    place,
+                    shading,
+                    ..v
+                })
+                .collect()
+        };
+        let middle = [0.375, 0.375, 0.25, 0.25];
+        let shading = Blend::Difference.shading();
+        let mut data = difference(middle, 0.0);
+        data.extend(difference([0.0, 0.0, 1.0, 1.0], shading));
+        data.extend(difference(middle, 0.0));
+        let blends = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: vertex_bytes(&data).len() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&blends, 0, &vertex_bytes(&data));
+        let none = Post::default();
+        let stack = [
+            (&picture, Blend::Alpha, 0..6),
+            (&picture, Blend::Difference, 6..12),
+        ];
+        let image = render(&none, 1, &blends, &stack);
+        assert!(at(&image, 30, 34) < 0.01, "{}", at(&image, 30, 34));
+        assert!(at(&image, 2, 2) > 0.99, "{}", at(&image, 2, 2));
+        let first = [(&picture, Blend::Difference, 6..12)];
+        let image = render(&none, 1, &blends, &first);
+        assert!(
+            at(&image, 30, 34) > 0.99 && at(&image, 2, 2) > 0.99,
+            "{} {}",
+            at(&image, 30, 34),
+            at(&image, 2, 2)
+        );
+        // The picture drawn after it covers the middle again, over the blended light.
+        let after = [
+            (&picture, Blend::Alpha, 0..6),
+            (&picture, Blend::Difference, 6..12),
+            (&picture, Blend::Alpha, 12..18),
+        ];
+        let image = render(&none, 1, &blends, &after);
+        assert!(
+            at(&image, 30, 34) > 0.99 && at(&image, 2, 2) > 0.99,
+            "{} {}",
+            at(&image, 30, 34),
+            at(&image, 2, 2)
+        );
+
+        // Every blend the shader does should come to what the monitor's CPU twin makes of it: a
+        // picture of half its colour covering over another, in a composition of nothing else.
+        let texel = |rgba: [u8; 4]| {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                texture.as_image_copy(),
+                &rgba,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4),
+                    rows_per_image: Some(1),
+                },
+                texture.size(),
+            );
+            let view = texture.create_view(&Default::default());
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            })
+        };
+        let (below, above) = ([200, 100, 50, 255], [60, 180, 220, 192]);
+        let (below_group, above_group) = (texel(below), texel(above));
+        let linear = |rgba: [u8; 4]| {
+            [0, 1, 2].map(|c| crate::composite::to_linear(f32::from(rgba[c]) / 255.0))
+        };
+        let cover = f32::from(above[3]) / 255.0;
+        // The red of the result is all it reads: one blend a row, each in its own run of rows.
+        let blends: Vec<Blend> = Blend::ALL.into_iter().filter(|b| !b.is_fixed()).collect();
+        for blend in blends {
+            let mut data = difference([0.0, 0.0, 1.0, 1.0], 0.0);
+            data.extend(difference([0.0, 0.0, 1.0, 1.0], blend.shading()));
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: vertex_bytes(&data).len() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            queue.write_buffer(&buffer, 0, &vertex_bytes(&data));
+            let layers = [
+                (&below_group, Blend::Alpha, 0..6),
+                (&above_group, blend, 6..12),
+            ];
+            let image = render(&none, 1, &buffer, &layers);
+            let expected =
+                crate::composite::blend_light(blend, linear(above), cover, linear(below));
+            assert!(
+                (at(&image, 10, 10) - expected[0]).abs() < 0.01,
+                "{blend:?}: {} against {}",
+                at(&image, 10, 10),
+                expected[0]
+            );
+        }
         assert_eq!(errors.lock().unwrap().as_slice(), &[] as &[String]);
     }
 }

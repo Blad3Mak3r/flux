@@ -1190,6 +1190,20 @@ fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
         B::Screen => flux_render::Blend::Screen,
         B::Lighten => flux_render::Blend::Lighten,
         B::Darken => flux_render::Blend::Darken,
+        B::Difference => flux_render::Blend::Difference,
+        B::Exclusion => flux_render::Blend::Exclusion,
+        B::Overlay => flux_render::Blend::Overlay,
+        B::SoftLight => flux_render::Blend::SoftLight,
+        B::HardLight => flux_render::Blend::HardLight,
+        B::ColorDodge => flux_render::Blend::ColorDodge,
+        B::ColorBurn => flux_render::Blend::ColorBurn,
+        B::LinearLight => flux_render::Blend::LinearLight,
+        B::VividLight => flux_render::Blend::VividLight,
+        B::PinLight => flux_render::Blend::PinLight,
+        B::Hue => flux_render::Blend::Hue,
+        B::Saturation => flux_render::Blend::Saturation,
+        B::Color => flux_render::Blend::Color,
+        B::Luminosity => flux_render::Blend::Luminosity,
     }
 }
 

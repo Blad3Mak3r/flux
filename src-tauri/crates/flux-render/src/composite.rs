@@ -98,11 +98,8 @@ pub fn composite_post(
             if cover <= 0.0 {
                 return;
             }
-            for (c, premultiplied) in [r, g, b].into_iter().enumerate() {
-                let colour = premultiplied / cover;
-                let dst = &mut light[at][c];
-                *dst = mix(picture.blend, colour, cover * opacity, *dst).clamp(0.0, 1.0);
-            }
+            let colour = [r, g, b].map(|premultiplied| premultiplied / cover);
+            light[at] = blend_light(picture.blend, colour, cover * opacity, light[at]);
         };
         let fx = &picture.effects;
         if fx.is_identity() {
@@ -167,19 +164,140 @@ pub fn composite_post(
 /// Entries of the table that turns linear light back into sRGB.
 const SRGB_STEPS: usize = 4096;
 
-/// One channel of `src`, covering `cover` of the pixel, mixed into `dst`.
-fn mix(blend: Blend, src: f32, cover: f32, dst: f32) -> f32 {
+/// `src` (straight light) covering `cover` of `below`, as the picture shader draws it: the
+/// picture is composited over the light below, `mix(below, blend(below, src), cover)`.
+pub(crate) fn blend_light(blend: Blend, src: [f32; 3], cover: f32, below: [f32; 3]) -> [f32; 3] {
+    if blend.is_fixed() {
+        return std::array::from_fn(|c| fixed(blend, src[c], cover, below[c]).clamp(0.0, 1.0));
+    }
+    let b = below.map(|v| v.clamp(0.0, 1.0));
+    let s = src.map(|v| v.clamp(0.0, 1.0));
+    let mixed = match blend {
+        Blend::Hue => set_lum(set_sat(s, sat(b)), lum(b)),
+        Blend::Saturation => set_lum(set_sat(b, sat(s)), lum(b)),
+        Blend::Color => set_lum(s, lum(b)),
+        Blend::Luminosity => set_lum(b, lum(s)),
+        _ => std::array::from_fn(|c| separable(blend, b[c], s[c])),
+    };
+    std::array::from_fn(|c| (b[c] + (mixed[c] - b[c]) * cover).clamp(0.0, 1.0))
+}
+
+/// One channel of `src`, covering `cover` of the pixel, mixed into `dst` as the GPU's own blending
+/// does it for the blends of [`Blend::is_fixed`].
+fn fixed(blend: Blend, src: f32, cover: f32, dst: f32) -> f32 {
     let over_black = src * cover;
     let over_white = src * cover + (1.0 - cover);
     match blend {
-        Blend::Alpha => over_black + dst * (1.0 - cover),
         Blend::Add => dst + over_black,
         Blend::Subtract => dst - over_black,
         Blend::Multiply => dst * over_white,
         Blend::Screen => over_black + dst * (1.0 - over_black),
-        Blend::Lighten => dst.max(over_black),
-        Blend::Darken => dst.min(over_white),
+        _ => over_black + dst * (1.0 - cover),
     }
+}
+
+/// The W3C Compositing and Blending formula of a separable blend, of the light below `b` and the
+/// picture's `s`, as the shader has it.
+fn separable(blend: Blend, b: f32, s: f32) -> f32 {
+    let hard = |b: f32, s: f32| {
+        if s <= 0.5 {
+            2.0 * b * s
+        } else {
+            1.0 - 2.0 * (1.0 - b) * (1.0 - s)
+        }
+    };
+    let dodge = |b: f32, s: f32| {
+        if b <= 0.0 {
+            0.0
+        } else if s >= 1.0 {
+            1.0
+        } else {
+            (b / (1.0 - s)).min(1.0)
+        }
+    };
+    let burn = |b: f32, s: f32| {
+        if b >= 1.0 {
+            1.0
+        } else if s <= 0.0 {
+            0.0
+        } else {
+            1.0 - ((1.0 - b) / s).min(1.0)
+        }
+    };
+    match blend {
+        Blend::Lighten => b.max(s),
+        Blend::Darken => b.min(s),
+        Blend::Difference => (b - s).abs(),
+        Blend::Exclusion => b + s - 2.0 * b * s,
+        Blend::Overlay => hard(s, b),
+        Blend::HardLight => hard(b, s),
+        Blend::SoftLight => {
+            if s <= 0.5 {
+                b - (1.0 - 2.0 * s) * b * (1.0 - b)
+            } else {
+                let d = if b <= 0.25 {
+                    ((16.0 * b - 12.0) * b + 4.0) * b
+                } else {
+                    b.sqrt()
+                };
+                b + (2.0 * s - 1.0) * (d - b)
+            }
+        }
+        Blend::ColorDodge => dodge(b, s),
+        Blend::ColorBurn => burn(b, s),
+        Blend::LinearLight => (b + 2.0 * s - 1.0).clamp(0.0, 1.0),
+        Blend::VividLight => {
+            if s <= 0.5 {
+                burn(b, 2.0 * s)
+            } else {
+                dodge(b, 2.0 * s - 1.0)
+            }
+        }
+        Blend::PinLight => {
+            if s <= 0.5 {
+                b.min(2.0 * s)
+            } else {
+                b.max(2.0 * s - 1.0)
+            }
+        }
+        _ => s,
+    }
+}
+
+fn lum(c: [f32; 3]) -> f32 {
+    0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+}
+
+fn clip_colour(c: [f32; 3]) -> [f32; 3] {
+    let l = lum(c);
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    let mut out = c;
+    if n < 0.0 {
+        out = out.map(|v| l + (v - l) * l / (l - n));
+    }
+    if x > 1.0 {
+        out = out.map(|v| l + (v - l) * (1.0 - l) / (x - l));
+    }
+    out
+}
+
+fn set_lum(c: [f32; 3], l: f32) -> [f32; 3] {
+    let d = l - lum(c);
+    clip_colour(c.map(|v| v + d))
+}
+
+fn sat(c: [f32; 3]) -> f32 {
+    c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])
+}
+
+fn set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
+    let n = c[0].min(c[1]).min(c[2]);
+    let x = c[0].max(c[1]).max(c[2]);
+    if x <= n {
+        return [0.0; 3];
+    }
+    c.map(|v| (v - n) * s / (x - n))
 }
 
 pub(crate) fn to_linear(v: f32) -> f32 {
@@ -719,5 +837,127 @@ mod tests {
         draw(&[dot(&WHITE, 2, 2)], &Post::default(), &mut history);
         let back = draw(&[dot(&WHITE, 6, 6)], &post, &mut history);
         assert_eq!(pixel(&back, 8, 2, 2)[0], 0);
+    }
+
+    fn near(a: [f32; 3], b: [f32; 3]) {
+        assert!(
+            a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-4),
+            "{a:?} != {b:?}"
+        );
+    }
+
+    #[test]
+    fn every_blend_should_leave_what_is_below_where_the_picture_is_clear() {
+        let below = [0.2, 0.5, 0.9];
+        for blend in Blend::ALL {
+            near(blend_light(blend, [0.7, 0.1, 0.4], 0.0, below), below);
+        }
+    }
+
+    #[test]
+    fn a_blend_should_fade_from_what_is_below_to_the_blended_light_by_its_cover() {
+        // Lighten of 0.2 and 0.8 is 0.8; half covered, it is half way there.
+        near(
+            blend_light(Blend::Lighten, [0.8; 3], 0.5, [0.2; 3]),
+            [0.5; 3],
+        );
+        near(
+            blend_light(Blend::Darken, [0.2; 3], 0.5, [0.8; 3]),
+            [0.5; 3],
+        );
+        near(
+            blend_light(Blend::Multiply, [0.5; 3], 0.5, [0.8; 3]),
+            [0.6; 3],
+        );
+        near(
+            blend_light(Blend::Difference, [0.3; 3], 1.0, [0.8; 3]),
+            [0.5; 3],
+        );
+    }
+
+    #[test]
+    fn the_separable_blends_should_follow_the_w3c_formulas() {
+        let at = |blend, below: f32, picture: f32| separable(blend, below, picture);
+        assert!((at(Blend::Exclusion, 0.8, 0.3) - 0.62).abs() < 1e-5);
+        assert!((at(Blend::Overlay, 0.25, 0.8) - 0.4).abs() < 1e-5);
+        assert!((at(Blend::HardLight, 0.25, 0.8) - 0.7).abs() < 1e-5);
+        assert!((at(Blend::HardLight, 0.8, 0.25) - 0.4).abs() < 1e-5);
+        assert!((at(Blend::SoftLight, 0.5, 0.5) - 0.5).abs() < 1e-5);
+        assert!((at(Blend::ColorDodge, 0.25, 0.5) - 0.5).abs() < 1e-5);
+        assert_eq!(at(Blend::ColorDodge, 0.0, 1.0), 0.0);
+        assert!((at(Blend::ColorBurn, 0.75, 0.5) - 0.5).abs() < 1e-5);
+        assert_eq!(at(Blend::ColorBurn, 1.0, 0.0), 1.0);
+        assert!((at(Blend::LinearLight, 0.4, 0.7) - 0.8).abs() < 1e-5);
+        assert!((at(Blend::VividLight, 0.75, 0.25) - 0.5).abs() < 1e-5);
+        assert!((at(Blend::PinLight, 0.5, 0.2) - 0.4).abs() < 1e-5);
+        assert!((at(Blend::PinLight, 0.5, 0.9) - 0.8).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_non_separable_blends_should_take_their_parts_from_the_right_layer() {
+        let (below, picture) = ([0.8, 0.2, 0.2], [0.1, 0.5, 0.9]);
+        // Luminosity is the picture's luminosity, and colour keeps the luminosity below.
+        let l = blend_light(Blend::Luminosity, picture, 1.0, below);
+        assert!((lum(l) - lum(picture)).abs() < 1e-4);
+        let c = blend_light(Blend::Color, picture, 1.0, below);
+        assert!((lum(c) - lum(below)).abs() < 1e-4);
+        // A grey picture has no saturation to give.
+        let g = blend_light(Blend::Saturation, [0.5; 3], 1.0, below);
+        assert!(sat(g) < 1e-4);
+        // The picture over itself changes nothing.
+        for blend in [
+            Blend::Hue,
+            Blend::Saturation,
+            Blend::Color,
+            Blend::Luminosity,
+        ] {
+            near(blend_light(blend, below, 1.0, below), below);
+        }
+    }
+
+    #[test]
+    fn a_text_over_an_empty_layer_over_a_video_should_blend_only_where_the_text_is() {
+        // Two pixels of text, the first black and solid and the second clear (white, alpha 0),
+        // over a flat video; the empty layer between draws no picture at all.
+        let text = [0, 0, 0, 255, 255, 255, 255, 0];
+        let video = [200, 120, 40, 255];
+        let layer = |rgba, width, blend| Picture {
+            width,
+            ..picture(rgba, [0.0, 0.0, 1.0, 1.0], 1.0, blend)
+        };
+        let plain = composite(&[layer(&video, 1, Blend::Alpha)], 2, 1);
+        for blend in Blend::ALL.into_iter().filter(|b| *b != Blend::Alpha) {
+            let out = composite(
+                &[layer(&video, 1, Blend::Alpha), layer(&text, 2, blend)],
+                2,
+                1,
+            );
+            assert_eq!(pixel(&out, 2, 1, 0), pixel(&plain, 2, 1, 0), "{blend:?}");
+        }
+        let multiplied = composite(
+            &[
+                layer(&video, 1, Blend::Alpha),
+                layer(&text, 2, Blend::Multiply),
+            ],
+            2,
+            1,
+        );
+        assert_eq!(pixel(&multiplied, 2, 0, 0), [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn a_blend_at_half_opacity_should_fade_between_what_is_below_and_the_blend() {
+        let (video, light) = ([100, 100, 100, 255], [255, 255, 255, 255]);
+        let at = |opacity| {
+            let layer = picture(&light, [0.0, 0.0, 1.0, 1.0], opacity, Blend::Difference);
+            let below = picture(&video, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha);
+            pixel(&composite(&[below, layer], 1, 1), 1, 0, 0)[0]
+        };
+        // White against the video is brighter than the video, and half of it sits between.
+        let (none, half, full) = (at(0.0), at(0.5), at(1.0));
+        assert!(
+            none == 100 && none < half && half < full,
+            "{none} {half} {full}"
+        );
     }
 }

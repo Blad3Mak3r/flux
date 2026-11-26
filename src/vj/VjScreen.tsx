@@ -85,7 +85,28 @@ function VideoState({ state, asset }: { state: "importing" | "processing" | "fai
   );
 }
 
-const BLENDS: VjBlend[] = ["alpha", "add", "subtract", "multiply", "screen", "lighten", "darken"];
+// Grouped as Resolume lists them.
+const BLEND_GROUPS: { group: "general" | "darken" | "lighten" | "contrast" | "comparative" | "colour"; blends: VjBlend[] }[] = [
+  { group: "general", blends: ["alpha"] },
+  { group: "darken", blends: ["darken", "multiply", "colorBurn"] },
+  { group: "lighten", blends: ["lighten", "screen", "colorDodge"] },
+  { group: "contrast", blends: ["overlay", "softLight", "hardLight", "linearLight", "vividLight", "pinLight"] },
+  { group: "comparative", blends: ["add", "subtract", "difference", "exclusion"] },
+  { group: "colour", blends: ["hue", "saturation", "color", "luminosity"] },
+];
+
+function BlendOptions() {
+  const t = useT();
+  return (
+    <>
+      {BLEND_GROUPS.map(({ group, blends }) => (
+        <optgroup key={group} label={t(`vj.blend.group.${group}`)}>
+          {blends.map((blend) => <option key={blend} value={blend}>{t(`vj.blend.${blend}`)}</option>)}
+        </optgroup>
+      ))}
+    </>
+  );
+}
 const TRANSITIONS: VjTransition[] = ["alpha", "add"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
@@ -332,7 +353,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         {bs}
         <select className="vj-select" value={layer.blend ?? "alpha"} title={t("vj.layer.blend")} aria-label={t("vj.layer.blend")}
           onChange={(event) => void edit({ op: "layerBlend", layer: layer.id, blend: event.target.value as VjBlend })}>
-          {BLENDS.map((blend) => <option key={blend} value={blend}>{t(`vj.blend.${blend}`)}</option>)}
+          <BlendOptions />
         </select>
       </div>
       <div className="vj-faders">
@@ -875,7 +896,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
           <label className="vj-f"><span>{t("vj.layer.blend")}</span>
             <select className="vj-select wide" value={layer.blend ?? "alpha"}
               onChange={(event) => void edit({ op: "layerBlend", layer: layer.id, blend: event.target.value as VjBlend })}>
-              {BLENDS.map((blend) => <option key={blend} value={blend}>{t(`vj.blend.${blend}`)}</option>)}
+              <BlendOptions />
             </select>
           </label>
           <div className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>

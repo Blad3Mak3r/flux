@@ -56,6 +56,9 @@ struct Fx {
 };
 @group(1) @binding(1) var<uniform> effects: array<Fx, 16>;
 
+// The light drawn so far, for the blends that read it (`fs_blend`).
+@group(2) @binding(0) var backdrop: texture_2d<f32>;
+
 const TAU: f32 = 6.2831853;
 const TAPS: u32 = 32u;
 const LUMA: vec3f = vec3f(0.2126, 0.7152, 0.0722);
@@ -443,10 +446,17 @@ fn ramp(t: f32, width: f32) -> f32 {
     return s * s * (3.0 - 2.0 * s);
 }
 
+// The picture at this fragment: its straight colour, its cover (its alpha times its opacity, 0
+// outside its place) and how much of it the soft edge and the masks leave.
+struct Layer {
+    colour: vec3f,
+    cover: f32,
+    shown: f32,
+};
+
 // Dividing by the weight here, after the interpolation, keeps straight lines of the picture
 // straight across a quad seen in perspective.
-@fragment
-fn fs(in: Out) -> @location(0) vec4f {
+fn layer(in: Out) -> Layer {
     // The slice's texture coordinate is in the composition; the picture sits at `place` in it.
     let at = (in.uvq.xy / in.uvq.z - in.place.xy) / in.place.zw;
     let colour = shade(u32(in.fx), at);
@@ -471,13 +481,119 @@ fn fs(in: Out) -> @location(0) vec4f {
     if within {
         cover = colour.a * in.opacity;
     }
-    let rgb = colour.rgb * shown;
-    if in.shading < 0.5 {
-        return vec4f(rgb, cover);
-    }
-    if in.shading < 1.5 {
-        return vec4f(rgb * cover, 1.0);
-    }
-    return vec4f(mix(vec3f(1.0), rgb, cover), 1.0);
+    return Layer(colour.rgb, cover, shown);
 }
 
+// The blends the GPU does by itself.
+@fragment
+fn fs(in: Out) -> @location(0) vec4f {
+    let l = layer(in);
+    let rgb = l.colour * l.shown;
+    if in.shading < 0.5 {
+        return vec4f(rgb, l.cover);
+    }
+    if in.shading < 1.5 {
+        return vec4f(rgb * l.cover, 1.0);
+    }
+    return vec4f(mix(vec3f(1.0), rgb, l.cover), 1.0);
+}
+
+// The W3C Compositing and Blending formulas, per channel, of the light below `b` and the
+// picture's `s`.
+fn hard_light(b: vec3f, s: vec3f) -> vec3f {
+    return select(1.0 - 2.0 * (1.0 - b) * (1.0 - s), 2.0 * b * s, s <= vec3f(0.5));
+}
+
+fn soft_light(b: vec3f, s: vec3f) -> vec3f {
+    let d = select(sqrt(b), ((16.0 * b - 12.0) * b + 4.0) * b, b <= vec3f(0.25));
+    return select(b + (2.0 * s - 1.0) * (d - b), b - (1.0 - 2.0 * s) * b * (1.0 - b), s <= vec3f(0.5));
+}
+
+fn dodge(b: vec3f, s: vec3f) -> vec3f {
+    let q = min(vec3f(1.0), b / max(1.0 - s, vec3f(0.00001)));
+    return select(select(q, vec3f(1.0), s >= vec3f(1.0)), vec3f(0.0), b <= vec3f(0.0));
+}
+
+fn burn(b: vec3f, s: vec3f) -> vec3f {
+    let q = 1.0 - min(vec3f(1.0), (1.0 - b) / max(s, vec3f(0.00001)));
+    return select(select(q, vec3f(0.0), s <= vec3f(0.0)), vec3f(1.0), b >= vec3f(1.0));
+}
+
+fn lum(c: vec3f) -> f32 {
+    return dot(c, vec3f(0.3, 0.59, 0.11));
+}
+
+fn clip_colour(c: vec3f) -> vec3f {
+    let l = lum(c);
+    let n = min(c.r, min(c.g, c.b));
+    let x = max(c.r, max(c.g, c.b));
+    var out = c;
+    if n < 0.0 {
+        out = l + (out - l) * l / (l - n);
+    }
+    if x > 1.0 {
+        out = l + (out - l) * (1.0 - l) / (x - l);
+    }
+    return out;
+}
+
+fn set_lum(c: vec3f, l: f32) -> vec3f {
+    return clip_colour(c + (l - lum(c)));
+}
+
+fn sat(c: vec3f) -> f32 {
+    return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+}
+
+fn set_sat(c: vec3f, s: f32) -> vec3f {
+    let n = min(c.r, min(c.g, c.b));
+    let x = max(c.r, max(c.g, c.b));
+    if x <= n {
+        return vec3f(0.0);
+    }
+    return (c - n) * s / (x - n);
+}
+
+// What blend `mode` (its place in `Blend::ALL`, see `Blend::shading`) makes of the light below `b`
+// and the picture's `s`.
+fn blend_mode(mode: u32, b: vec3f, s: vec3f) -> vec3f {
+    switch mode {
+        case 5u: { return max(b, s); }
+        case 6u: { return min(b, s); }
+        case 7u: { return abs(b - s); }
+        case 8u: { return b + s - 2.0 * b * s; }
+        case 9u: { return hard_light(s, b); }
+        case 10u: { return soft_light(b, s); }
+        case 11u: { return hard_light(b, s); }
+        case 12u: { return dodge(b, s); }
+        case 13u: { return burn(b, s); }
+        case 14u: { return clamp(b + 2.0 * s - 1.0, vec3f(0.0), vec3f(1.0)); }
+        case 15u: {
+            let lo = burn(b, 2.0 * s);
+            let hi = dodge(b, 2.0 * s - 1.0);
+            return select(hi, lo, s <= vec3f(0.5));
+        }
+        case 16u: {
+            let lo = min(b, 2.0 * s);
+            let hi = max(b, 2.0 * s - 1.0);
+            return select(hi, lo, s <= vec3f(0.5));
+        }
+        case 17u: { return set_lum(set_sat(s, sat(b)), lum(b)); }
+        case 18u: { return set_lum(set_sat(b, sat(s)), lum(b)); }
+        case 19u: { return set_lum(s, lum(b)); }
+        case 20u: { return set_lum(b, lum(s)); }
+        default: { return s; }
+    }
+}
+
+// The blends that read the light below: the picture composited over it, so where it is clear or
+// shown less the light below stays as it is.
+@fragment
+fn fs_blend(in: Out) -> @location(0) vec4f {
+    let l = layer(in);
+    let below = textureLoad(backdrop, vec2i(in.pos.xy), 0);
+    let b = clamp(below.rgb, vec3f(0.0), vec3f(1.0));
+    let s = clamp(l.colour, vec3f(0.0), vec3f(1.0));
+    let mode = u32(in.shading + 0.5) - 3u;
+    return vec4f(mix(b, blend_mode(mode, b, s), l.cover * l.shown), below.a);
+}
