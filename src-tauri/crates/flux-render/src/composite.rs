@@ -38,7 +38,7 @@ fn taps(out: usize, start: f32, size: f32, pixels: usize) -> Vec<Option<Tap>> {
 
 /// Draws `pictures`, the first at the bottom, over black into `width` x `height` pixels of 8-bit
 /// sRGB RGBA. Each output pixel blends the four pixels of each picture around it (bilinear), and
-/// the light is mixed in linear light as the GPU mixes it.
+/// the layers are mixed in encoded (gamma) values as the GPU mixes them, as Resolume does.
 pub fn composite(pictures: &[Picture], width: u32, height: u32) -> Vec<u8> {
     composite_post(
         pictures,
@@ -64,7 +64,9 @@ pub fn composite_post(
         .map(|v| to_linear(f32::from(v) / 255.0))
         .collect();
     let (w, h) = (width as usize, height as usize);
+    // The layers' mix, in encoded values; it is turned into linear light only for the effects.
     let mut light = vec![[0.0f32; 3]; w * h];
+    let gamma = gamma_table();
     for picture in pictures {
         let [px, py, pw, ph] = picture.place;
         let (sw, sh) = (picture.width as usize, picture.height as usize);
@@ -98,7 +100,7 @@ pub fn composite_post(
             if cover <= 0.0 {
                 return;
             }
-            let colour = [r, g, b].map(|premultiplied| premultiplied / cover);
+            let colour = [r, g, b].map(|premultiplied| gamma.of(premultiplied / cover));
             light[at] = blend_light(picture.blend, colour, cover * opacity, light[at]);
         };
         let fx = &picture.effects;
@@ -147,29 +149,46 @@ pub fn composite_post(
     if post.is_empty() {
         history.clear();
     } else {
+        for c in light.iter_mut().flatten() {
+            *c = to_linear(*c);
+        }
         crate::post::apply(post, &mut light, w, h, history);
+        for c in light.iter_mut().flatten() {
+            *c = gamma.of(*c);
+        }
     }
-    // Linear light back to sRGB through a table, finer in the dark where sRGB is.
-    let srgb: Vec<u8> = (0..=SRGB_STEPS)
-        .map(|i| to_srgb((i as f32 / SRGB_STEPS as f32).powi(2)))
-        .collect();
-    let encode = |v: f32| srgb[(v.sqrt() * SRGB_STEPS as f32 + 0.5) as usize];
     let mut rgba = Vec::with_capacity(w * h * 4);
     for [r, g, b] in light {
-        rgba.extend_from_slice(&[encode(r), encode(g), encode(b), 255]);
+        let byte = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        rgba.extend_from_slice(&[byte(r), byte(g), byte(b), 255]);
     }
     rgba
 }
 
-/// Entries of the table that turns linear light back into sRGB.
+/// Linear light to its encoded value through a table, finer in the dark where sRGB is.
+struct GammaTable(Vec<f32>);
+
+fn gamma_table() -> GammaTable {
+    GammaTable(
+        (0..=SRGB_STEPS)
+            .map(|i| to_srgb((i as f32 / SRGB_STEPS as f32).powi(2)))
+            .collect(),
+    )
+}
+
+impl GammaTable {
+    fn of(&self, linear: f32) -> f32 {
+        self.0[(linear.clamp(0.0, 1.0).sqrt() * SRGB_STEPS as f32 + 0.5) as usize]
+    }
+}
+
+/// Entries of the table that turns linear light into its encoded value.
 const SRGB_STEPS: usize = 4096;
 
-/// `src` (straight light) covering `cover` of `below`, as the picture shader draws it: the
-/// picture is composited over the light below, `mix(below, blend(below, src), cover)`.
+/// `src` (a straight, encoded colour) covering `cover` of `below` (encoded too), as the picture
+/// shader draws it: the picture is composited over the light below,
+/// `mix(below, blend(below, src), cover)`.
 pub(crate) fn blend_light(blend: Blend, src: [f32; 3], cover: f32, below: [f32; 3]) -> [f32; 3] {
-    if blend.is_fixed() {
-        return std::array::from_fn(|c| fixed(blend, src[c], cover, below[c]).clamp(0.0, 1.0));
-    }
     let b = below.map(|v| v.clamp(0.0, 1.0));
     let s = src.map(|v| v.clamp(0.0, 1.0));
     let mixed = match blend {
@@ -180,20 +199,6 @@ pub(crate) fn blend_light(blend: Blend, src: [f32; 3], cover: f32, below: [f32; 
         _ => std::array::from_fn(|c| separable(blend, b[c], s[c])),
     };
     std::array::from_fn(|c| (b[c] + (mixed[c] - b[c]) * cover).clamp(0.0, 1.0))
-}
-
-/// One channel of `src`, covering `cover` of the pixel, mixed into `dst` as the GPU's own blending
-/// does it for the blends of [`Blend::is_fixed`].
-fn fixed(blend: Blend, src: f32, cover: f32, dst: f32) -> f32 {
-    let over_black = src * cover;
-    let over_white = src * cover + (1.0 - cover);
-    match blend {
-        Blend::Add => dst + over_black,
-        Blend::Subtract => dst - over_black,
-        Blend::Multiply => dst * over_white,
-        Blend::Screen => over_black + dst * (1.0 - over_black),
-        _ => over_black + dst * (1.0 - cover),
-    }
 }
 
 /// The W3C Compositing and Blending formula of a separable blend, of the light below `b` and the
@@ -225,6 +230,10 @@ fn separable(blend: Blend, b: f32, s: f32) -> f32 {
         }
     };
     match blend {
+        Blend::Add => (b + s).min(1.0),
+        Blend::Subtract => (b - s).max(0.0),
+        Blend::Multiply => b * s,
+        Blend::Screen => b + s - b * s,
         Blend::Lighten => b.max(s),
         Blend::Darken => b.min(s),
         Blend::Difference => (b - s).abs(),
@@ -308,13 +317,13 @@ pub(crate) fn to_linear(v: f32) -> f32 {
     }
 }
 
-fn to_srgb(v: f32) -> u8 {
+fn to_srgb(v: f32) -> f32 {
     let v = if v <= 0.003_130_8 {
         v * 12.92
     } else {
         1.055 * v.powf(1.0 / 2.4) - 0.055
     };
-    (v * 255.0).round().clamp(0.0, 255.0) as u8
+    v.clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -371,12 +380,14 @@ mod tests {
     }
 
     #[test]
-    fn opacity_and_blends_should_mix_in_linear_light() {
+    fn opacity_and_blends_should_mix_encoded_values_as_resolume_does() {
         let white = [255, 255, 255, 255];
-        let grey = [188, 188, 188, 255]; // about half the light of white
+        let grey = [100, 100, 100, 255];
+        let mid = [128, 128, 128, 255];
         let whole = [0.0, 0.0, 1.0, 1.0];
+        // Half of white over black is the middle of the encoded values, not of the light.
         let half = composite(&[picture(&white, whole, 0.5, Blend::Alpha)], 1, 1);
-        assert!(half[0].abs_diff(188) <= 1, "{}", half[0]);
+        assert!(half[0].abs_diff(128) <= 1, "{}", half[0]);
         let added = composite(
             &[
                 picture(&grey, whole, 1.0, Blend::Alpha),
@@ -385,16 +396,27 @@ mod tests {
             1,
             1,
         );
-        assert_eq!(added[0], 255);
+        assert!(added[0].abs_diff(200) <= 1, "{}", added[0]);
+        // 128 times 128 in encoded values is 64, where light would make it 38 (a much darker one).
         let darker = composite(
             &[
-                picture(&white, whole, 1.0, Blend::Alpha),
-                picture(&grey, whole, 1.0, Blend::Multiply),
+                picture(&mid, whole, 1.0, Blend::Alpha),
+                picture(&mid, whole, 1.0, Blend::Multiply),
             ],
             1,
             1,
         );
-        assert!(darker[0].abs_diff(188) <= 1, "{}", darker[0]);
+        assert!(darker[0].abs_diff(64) <= 1, "{}", darker[0]);
+        // Screen of two 128s is 192.
+        let screened = composite(
+            &[
+                picture(&mid, whole, 1.0, Blend::Alpha),
+                picture(&mid, whole, 1.0, Blend::Screen),
+            ],
+            1,
+            1,
+        );
+        assert!(screened[0].abs_diff(192) <= 1, "{}", screened[0]);
     }
 
     fn kinds(chain: &[EffectKind]) -> Vec<Effect> {

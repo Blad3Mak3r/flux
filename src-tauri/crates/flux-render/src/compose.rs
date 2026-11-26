@@ -130,8 +130,10 @@ pub(crate) struct Compose {
     down: wgpu::RenderPipeline,
     up: wgpu::RenderPipeline,
     mix: wgpu::RenderPipeline,
-    /// The picture shader's pipelines drawing into the work textures, in the order of [`Blend::slot`].
-    pictures: Vec<wgpu::RenderPipeline>,
+    /// The picture shader's pipeline drawing into the work textures with the light below, and the
+    /// one drawing a picture plainly over a cleared one.
+    picture: wgpu::RenderPipeline,
+    plain: wgpu::RenderPipeline,
     params: wgpu::Buffer,
     /// The groups of the picture shader's second binding group: the pictures' own effects with no
     /// masks, the program's with no masks, and the masks of the window with no effects.
@@ -158,7 +160,7 @@ impl Compose {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         shared: &Shared<'_>,
-        make: impl Fn(Blend, wgpu::TextureFormat) -> wgpu::RenderPipeline,
+        make: impl Fn(wgpu::TextureFormat, bool) -> wgpu::RenderPipeline,
     ) -> Self {
         let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
@@ -290,11 +292,8 @@ impl Compose {
             down: pass("fs_down", None),
             up: pass("fs_up", Some(add)),
             mix: pass("fs_mix", None),
-            pictures: Blend::FIXED
-                .into_iter()
-                .chain([Blend::Hue])
-                .map(|blend| make(blend, format))
-                .collect(),
+            picture: make(format, true),
+            plain: make(format, false),
             params,
             pictures_group: group("composition pictures", &no_masks, shared.effects),
             program_group: group("composition program", &no_masks, &program_effects),
@@ -451,32 +450,22 @@ impl Compose {
             clear(encoder, &targets.history.view);
         }
 
-        // 1. The pictures, one pass for each run of those the GPU blends by itself. A blend that
-        // reads the light below is a pass of its own: what is drawn so far is copied into the other
+        // 1. The pictures, one pass for each: what is drawn so far is copied into the other
         // texture, the picture is drawn there with the first as the light below, and the other
         // texture is the current one from then on.
         let mut current = 0;
-        if layers.first().is_none_or(|(_, blend, _)| !blend.is_fixed()) {
-            clear(encoder, &targets.work[0].view);
-        }
-        let mut fresh = true;
-        let mut at = 0;
-        while fresh || at < layers.len() {
-            let reads = layers
-                .get(at)
-                .is_some_and(|(_, blend, _)| !blend.is_fixed());
-            let target = if reads { 1 - current } else { current };
-            if reads {
-                encoder.copy_texture_to_texture(
-                    targets.work[current].texture.as_image_copy(),
-                    targets.work[target].texture.as_image_copy(),
-                    wgpu::Extent3d {
-                        width: size.0,
-                        height: size.1,
-                        depth_or_array_layers: 1,
-                    },
-                );
-            }
+        clear(encoder, &targets.work[0].view);
+        for (group, _, range) in layers {
+            let target = 1 - current;
+            encoder.copy_texture_to_texture(
+                targets.work[current].texture.as_image_copy(),
+                targets.work[target].texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width: size.0,
+                    height: size.1,
+                    depth_or_array_layers: 1,
+                },
+            );
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("composition pictures"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -484,34 +473,18 @@ impl Compose {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: if fresh && !reads {
-                            wgpu::LoadOp::Clear(wgpu::Color::BLACK)
-                        } else {
-                            wgpu::LoadOp::Load
-                        },
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 ..Default::default()
             });
-            fresh = false;
             pass.set_bind_group(1, &self.pictures_group, &[]);
             pass.set_vertex_buffer(0, vertices.slice(..));
-            if reads {
-                pass.set_bind_group(2, &targets.as_picture[current], &[]);
-            }
-            while let Some((group, blend, range)) = layers.get(at) {
-                if blend.is_fixed() == reads {
-                    break;
-                }
-                pass.set_pipeline(&self.pictures[blend.slot()]);
-                pass.set_bind_group(0, *group, &[]);
-                pass.draw(range.clone(), 0..1);
-                at += 1;
-                if reads {
-                    break;
-                }
-            }
+            pass.set_bind_group(2, &targets.as_picture[current], &[]);
+            pass.set_pipeline(&self.picture);
+            pass.set_bind_group(0, *group, &[]);
+            pass.draw(range.clone(), 0..1);
             drop(pass);
             current = target;
         }
@@ -568,7 +541,7 @@ impl Compose {
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pictures[0]);
+            pass.set_pipeline(&self.plain);
             pass.set_bind_group(0, &targets.as_picture[current], &[]);
             pass.set_bind_group(1, &self.program_group, &[]);
             pass.set_vertex_buffer(0, vertices.slice(..));
@@ -849,8 +822,8 @@ mod tests {
             masks: &masks,
             effects: &effects,
         };
-        let mut compose = Compose::new(&device, format, &shared, |blend, format| {
-            picture_pipeline(&device, &shader, &pipeline_layout, format, blend)
+        let mut compose = Compose::new(&device, format, &shared, |format, reads| {
+            picture_pipeline(&device, &shader, &pipeline_layout, format, reads)
         });
 
         // One white pixel as a picture, in the middle of the composition.
@@ -1135,12 +1108,11 @@ mod tests {
         };
         let (below, above) = ([200, 100, 50, 255], [60, 180, 220, 192]);
         let (below_group, above_group) = (texel(below), texel(above));
-        let linear = |rgba: [u8; 4]| {
-            [0, 1, 2].map(|c| crate::composite::to_linear(f32::from(rgba[c]) / 255.0))
-        };
+        // The blends work on the encoded values, which are the bytes; the composition holds light.
+        let encoded = |rgba: [u8; 4]| [0, 1, 2].map(|c| f32::from(rgba[c]) / 255.0);
         let cover = f32::from(above[3]) / 255.0;
-        // The red of the result is all it reads: one blend a row, each in its own run of rows.
-        let blends: Vec<Blend> = Blend::ALL.into_iter().filter(|b| !b.is_fixed()).collect();
+        // The red of the result is all it reads, in light: each blend over the same below.
+        let blends: Vec<Blend> = Blend::ALL.into_iter().collect();
         for blend in blends {
             let mut data = difference([0.0, 0.0, 1.0, 1.0], 0.0);
             data.extend(difference([0.0, 0.0, 1.0, 1.0], blend.shading()));
@@ -1156,13 +1128,14 @@ mod tests {
                 (&above_group, blend, 6..12),
             ];
             let image = render(&none, 1, &buffer, &layers);
-            let expected =
-                crate::composite::blend_light(blend, linear(above), cover, linear(below));
+            let expected = crate::composite::to_linear(
+                crate::composite::blend_light(blend, encoded(above), cover, encoded(below))[0],
+            );
             assert!(
-                (at(&image, 10, 10) - expected[0]).abs() < 0.01,
+                (at(&image, 10, 10) - expected).abs() < 0.01,
                 "{blend:?}: {} against {}",
                 at(&image, 10, 10),
-                expected[0]
+                expected
             );
         }
         assert_eq!(errors.lock().unwrap().as_slice(), &[] as &[String]);

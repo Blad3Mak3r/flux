@@ -53,13 +53,12 @@ pub struct Picture<'a> {
 
 /// How a picture mixes with what is drawn below it, as Resolume's layer blends do: the picture
 /// (its own alpha times its opacity) is composited over the layers below, where it is clear what
-/// is below shows, and `mix(below, blend(below, picture), alpha * opacity)` is what results. The
-/// light is mixed in linear light.
+/// is below shows, and `mix(below, blend(below, picture), alpha * opacity)` is what results.
+/// Resolume blends the encoded (gamma) values, not the light, so the formulas and the mix work on
+/// sRGB-encoded values, every blend alike.
 ///
-/// The first five are exactly a GPU's fixed-function blending of the picture over black or white,
-/// so they are drawn straight onto the window. The others need the light below as the picture
-/// is drawn, which the shader reads from a copy of it: they are drawn into the textures of the
-/// composition (see [`compose`]).
+/// Every blend needs the light below as the picture is drawn, which the shader reads from a copy
+/// of it: the pictures are drawn into the textures of the composition (see [`compose`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Blend {
     /// Covers what is below.
@@ -133,62 +132,9 @@ impl Blend {
         Self::Luminosity,
     ];
 
-    /// The blends the GPU does by itself, one pipeline each.
-    const FIXED: [Self; 5] = [
-        Self::Alpha,
-        Self::Add,
-        Self::Subtract,
-        Self::Multiply,
-        Self::Screen,
-    ];
-
-    /// Whether the GPU's own blending does it exactly, without the light below being read.
-    pub(crate) fn is_fixed(self) -> bool {
-        Self::FIXED.contains(&self)
-    }
-
-    /// The place of its pipeline: its own among [`Self::FIXED`], the shader's one after them.
-    pub(crate) fn slot(self) -> usize {
-        Self::FIXED
-            .iter()
-            .position(|b| *b == self)
-            .unwrap_or(Self::FIXED.len())
-    }
-
-    /// What the shader gives for it: the colour and its cover (0), the colour scaled by its cover
-    /// over black (1), or the colour scaled by its cover over white (2), each what leaves the
-    /// picture below as it is where nothing covers it; for the others, 3 plus the blend's place
-    /// in [`Self::ALL`], with the colour and its cover as they are.
+    /// What the shader gets for it: the blend's place in [`Self::ALL`].
     fn shading(self) -> f32 {
-        match self {
-            Self::Alpha => 0.0,
-            Self::Add | Self::Subtract | Self::Screen => 1.0,
-            Self::Multiply => 2.0,
-            other => 3.0 + Self::ALL.iter().position(|b| *b == other).unwrap_or(0) as f32,
-        }
-    }
-
-    fn state(self) -> Option<wgpu::BlendState> {
-        use wgpu::{BlendComponent, BlendFactor as F, BlendOperation as O};
-        let colour = |src_factor, dst_factor, operation| BlendComponent {
-            src_factor,
-            dst_factor,
-            operation,
-        };
-        let color = match self {
-            Self::Alpha => return Some(wgpu::BlendState::ALPHA_BLENDING),
-            Self::Add => colour(F::One, F::One, O::Add),
-            Self::Subtract => colour(F::One, F::One, O::ReverseSubtract),
-            Self::Multiply => colour(F::Dst, F::Zero, O::Add),
-            Self::Screen => colour(F::OneMinusDst, F::One, O::Add),
-            // The shader writes what results.
-            _ => return None,
-        };
-        Some(wgpu::BlendState {
-            color,
-            // The window's alpha stays as the first picture left it.
-            alpha: colour(F::Zero, F::One, O::Add),
-        })
+        Self::ALL.iter().position(|b| *b == self).unwrap_or(0) as f32
     }
 }
 
@@ -307,12 +253,11 @@ pub struct Screen {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    /// One per [`Blend::FIXED`], in their order.
-    pipelines: Vec<wgpu::RenderPipeline>,
+    /// Draws the composition onto the window.
+    present: wgpu::RenderPipeline,
     vertices: wgpu::Buffer,
     masks: wgpu::Buffer,
     effects: wgpu::Buffer,
-    masks_group: wgpu::BindGroup,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     /// The texture of each layer, from the bottom.
@@ -353,19 +298,18 @@ fn pipeline_layouts(
     ]
 }
 
-/// The pipeline that draws pictures blended by `blend` into a target of `format`; the blends that
-/// are not [`Blend::is_fixed`] share one, whichever is asked for.
+/// The pipeline that draws a picture into a target of `format`: with `reads`, blended with the
+/// light below it (a third group, `fs_blend`); else plainly over the target (`fs`).
 fn picture_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
     layouts: &[wgpu::PipelineLayout; 2],
     format: wgpu::TextureFormat,
-    blend: Blend,
+    reads: bool,
 ) -> wgpu::RenderPipeline {
-    let fixed = blend.is_fixed();
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("picture"),
-        layout: Some(&layouts[usize::from(!fixed)]),
+        layout: Some(&layouts[usize::from(reads)]),
         vertex: wgpu::VertexState {
             module: shader,
             entry_point: Some("vs"),
@@ -391,11 +335,11 @@ fn picture_pipeline(
         multisample: wgpu::MultisampleState::default(),
         fragment: Some(wgpu::FragmentState {
             module: shader,
-            entry_point: Some(if fixed { "fs" } else { "fs_blend" }),
+            entry_point: Some(if reads { "fs_blend" } else { "fs" }),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: blend.state(),
+                blend: (!reads).then_some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -535,25 +479,8 @@ impl Screen {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let masks_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("masks"),
-            layout: &masks_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: masks.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: effects.as_entire_binding(),
-                },
-            ],
-        });
         let pipeline_layouts = pipeline_layouts(&device, &layout, &masks_layout);
-        let pipelines = Blend::FIXED
-            .into_iter()
-            .map(|blend| picture_pipeline(&device, &shader, &pipeline_layouts, format, blend))
-            .collect();
+        let present = picture_pipeline(&device, &shader, &pipeline_layouts, format, false);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("picture"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -571,11 +498,10 @@ impl Screen {
             device,
             queue,
             config,
-            pipelines,
+            present,
             vertices,
             masks,
             effects,
-            masks_group,
             layout,
             sampler,
             pictures: (0..MAX_LAYERS).map(|_| None).collect(),
@@ -608,10 +534,9 @@ impl Screen {
     /// `masks` hiding parts of it; black for no picture. Waits for the display's next refresh, so
     /// a loop calling it runs at the display's rate.
     ///
-    /// With no effect in `post` the pictures are drawn straight onto the window. With some they
-    /// are drawn into a texture of the composition's size first, which the effects change (and
-    /// remember, for the next frame) and which is then drawn onto the window through the quads and
-    /// masks as if it were a picture.
+    /// The pictures are drawn into a texture of the composition's size first, which the effects
+    /// change (and remember, for the next frame) and which is then drawn onto the window through
+    /// the quads and masks as if it were a picture.
     pub fn draw(
         &mut self,
         pictures: &[Picture<'_>],
@@ -636,17 +561,15 @@ impl Screen {
         } else {
             &quads[..quads.len().min(MAX_QUADS)]
         };
-        // A blend that reads the light below is drawn into the composition's textures, effects or not.
-        let composed = !post.is_empty()
-            || pictures
-                .iter()
-                .any(|p| p.opacity > 0.0 && !p.blend.is_fixed());
-        if !composed && let Some(compose) = &mut self.compose {
+        // The pictures always go into the composition's textures, each over the whole of it: every
+        // blend reads the light below, and the quads and masks cut the result afterwards.
+        if post.is_empty()
+            && let Some(compose) = &mut self.compose
+        {
             compose.forget();
         }
-        // With effects the pictures go into the composition, each over the whole of it.
         let whole = [whole_quad()];
-        let into = if composed { &whole[..] } else { quads };
+        let into = &whole[..];
         // Each layer's vertices, and the range of them it draws.
         let mut data: Vec<Vertex> = Vec::new();
         let mut layers = Vec::new();
@@ -668,15 +591,12 @@ impl Screen {
         }
         // The composition's program and the composition on the window: one picture the size of
         // the composition each.
-        let (mut program, mut result) = (0..0, 0..0);
-        if composed {
-            let first = data.len() as u32;
-            data.extend(vertices(&whole[0]));
-            program = first..data.len() as u32;
-            let first = data.len() as u32;
-            data.extend(quads.iter().flat_map(vertices));
-            result = first..data.len() as u32;
-        }
+        let first = data.len() as u32;
+        data.extend(vertices(&whole[0]));
+        let program = first..data.len() as u32;
+        let first = data.len() as u32;
+        data.extend(quads.iter().flat_map(vertices));
+        let result = first..data.len() as u32;
         self.queue
             .write_buffer(&self.effects, 0, &effect_bytes(&effects));
         if !data.is_empty() {
@@ -697,9 +617,7 @@ impl Screen {
         };
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        if composed {
-            self.draw_composition(&mut encoder, &layers, program, post, composition);
-        }
+        self.draw_composition(&mut encoder, &layers, program, post, composition);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("picture"),
@@ -715,25 +633,13 @@ impl Screen {
                 ..Default::default()
             });
             pass.set_vertex_buffer(0, self.vertices.slice(..));
-            match self.compose.as_ref().filter(|_| composed) {
-                Some(compose) => {
-                    if let Some(group) = compose.result() {
-                        pass.set_bind_group(1, &compose.window_group, &[]);
-                        pass.set_pipeline(&self.pipelines[0]);
-                        pass.set_bind_group(0, group, &[]);
-                        pass.draw(result, 0..1);
-                    }
-                }
-                None => {
-                    pass.set_bind_group(1, &self.masks_group, &[]);
-                    for (slot, blend, range) in layers {
-                        pass.set_pipeline(&self.pipelines[blend.slot()]);
-                        if let Some(uploaded) = &self.pictures[slot] {
-                            pass.set_bind_group(0, &uploaded.bind_group, &[]);
-                            pass.draw(range, 0..1);
-                        }
-                    }
-                }
+            if let Some(compose) = &self.compose
+                && let Some(group) = compose.result()
+            {
+                pass.set_bind_group(1, &compose.window_group, &[]);
+                pass.set_pipeline(&self.present);
+                pass.set_bind_group(0, group, &[]);
+                pass.draw(result, 0..1);
             }
         }
         self.queue.submit([encoder.finish()]);
@@ -761,7 +667,7 @@ impl Screen {
                 device,
                 self.composition_format,
                 &shared,
-                |blend, format| picture_pipeline(device, shader, layouts, format, blend),
+                |format, reads| picture_pipeline(device, shader, layouts, format, reads),
             ));
         }
         let Some(compose) = self.compose.as_mut() else {

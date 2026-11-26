@@ -484,18 +484,23 @@ fn layer(in: Out) -> Layer {
     return Layer(colour.rgb, cover, shown);
 }
 
-// The blends the GPU does by itself.
+// A picture drawn plainly over what is there (the composition on the window).
 @fragment
 fn fs(in: Out) -> @location(0) vec4f {
     let l = layer(in);
-    let rgb = l.colour * l.shown;
-    if in.shading < 0.5 {
-        return vec4f(rgb, l.cover);
-    }
-    if in.shading < 1.5 {
-        return vec4f(rgb * l.cover, 1.0);
-    }
-    return vec4f(mix(vec3f(1.0), rgb, l.cover), 1.0);
+    return vec4f(l.colour * l.shown, l.cover);
+}
+
+// Light to the sRGB-encoded values Resolume blends, and back (the exact transfer, as an sRGB
+// texture's own).
+fn to_gamma(v: vec3f) -> vec3f {
+    let c = clamp(v, vec3f(0.0), vec3f(1.0));
+    return select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3f(0.0031308));
+}
+
+fn from_gamma(v: vec3f) -> vec3f {
+    let c = clamp(v, vec3f(0.0), vec3f(1.0));
+    return select(pow((c + 0.055) / 1.055, vec3f(2.4)), c / 12.92, c <= vec3f(0.04045));
 }
 
 // The W3C Compositing and Blending formulas, per channel, of the light below `b` and the
@@ -554,10 +559,14 @@ fn set_sat(c: vec3f, s: f32) -> vec3f {
     return (c - n) * s / (x - n);
 }
 
-// What blend `mode` (its place in `Blend::ALL`, see `Blend::shading`) makes of the light below `b`
+// What blend `mode` (its place in `Blend::ALL`, see `Blend::shading`; 0 is the picture itself) makes of the light below `b`
 // and the picture's `s`.
 fn blend_mode(mode: u32, b: vec3f, s: vec3f) -> vec3f {
     switch mode {
+        case 1u: { return min(b + s, vec3f(1.0)); }
+        case 2u: { return max(b - s, vec3f(0.0)); }
+        case 3u: { return b * s; }
+        case 4u: { return b + s - b * s; }
         case 5u: { return max(b, s); }
         case 6u: { return min(b, s); }
         case 7u: { return abs(b - s); }
@@ -586,14 +595,15 @@ fn blend_mode(mode: u32, b: vec3f, s: vec3f) -> vec3f {
     }
 }
 
-// The blends that read the light below: the picture composited over it, so where it is clear or
-// shown less the light below stays as it is.
+// A picture composited over the light below, in encoded (gamma) values as Resolume does: where it
+// is clear or shown less the light below stays as it is.
 @fragment
 fn fs_blend(in: Out) -> @location(0) vec4f {
     let l = layer(in);
     let below = textureLoad(backdrop, vec2i(in.pos.xy), 0);
-    let b = clamp(below.rgb, vec3f(0.0), vec3f(1.0));
-    let s = clamp(l.colour, vec3f(0.0), vec3f(1.0));
-    let mode = u32(in.shading + 0.5) - 3u;
-    return vec4f(mix(b, blend_mode(mode, b, s), l.cover * l.shown), below.a);
+    let b = to_gamma(below.rgb);
+    let s = to_gamma(l.colour);
+    let mode = u32(in.shading + 0.5);
+    let mixed = mix(b, blend_mode(mode, b, s), l.cover * l.shown);
+    return vec4f(from_gamma(mixed), below.a);
 }
