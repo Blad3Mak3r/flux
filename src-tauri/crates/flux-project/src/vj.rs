@@ -68,6 +68,14 @@ pub struct Vj {
     /// Where the show's timecode clock comes from; absent is [`ClockSource::Internal`].
     #[serde(default, skip_serializing_if = "ClockSource::is_internal")]
     pub clock: ClockSource,
+    /// The composition's effects, applied to the final mix of the layers before the output mapping,
+    /// the first applied first. Only here the kinds that need the frames before them (feedback,
+    /// trails, bloom) are allowed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub composition_effects: Vec<Effect>,
+    /// Draws the composition without its effects; they keep their place and settings.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub composition_bypass: bool,
 }
 
 /// Where the timecode clock of a VJ show comes from: Flux's own transport, or timecode coming in
@@ -751,11 +759,16 @@ pub enum VjOp {
         y: f32,
     },
     /// Puts a new effect of the kind called `kind` (see [`crate::vj_effects::catalog`]), with the settings
-    /// it starts with, at the end of the stack of a clip or of a layer; a stack holds at most
-    /// [`MAX_EFFECTS`].
+    /// it starts with, at the end of the stack of a clip, of a layer or of the composition; a stack
+    /// holds at most [`MAX_EFFECTS`]. The kinds that are for the composition only are refused on a
+    /// clip or a layer.
     AddEffect {
         target: EffectTarget,
         kind: String,
+    },
+    /// Skips (or brings back) the whole composition stack, whatever each effect's own bypass says.
+    CompositionBypass {
+        bypass: bool,
     },
     RemoveEffect {
         effect: String,
@@ -793,7 +806,7 @@ pub enum VjOp {
 
 impl Vj {
     pub(crate) fn is_empty(&self) -> bool {
-        self.layers.is_empty() && self.decks.is_empty()
+        self.layers.is_empty() && self.decks.is_empty() && self.composition_effects.is_empty()
     }
 
     /// The grid of a new VJ project: [`DEFAULT_LAYERS`] layers and one deck of [`DEFAULT_COLUMNS`]
@@ -808,6 +821,8 @@ impl Vj {
             deck: deck.id.clone(),
             decks: vec![deck],
             clock: ClockSource::Internal,
+            composition_effects: Vec::new(),
+            composition_bypass: false,
         }
     }
 
@@ -887,14 +902,15 @@ impl Vj {
             .ok_or_else(|| ProjectError::Invalid(format!("no clip {id}")))
     }
 
-    /// The stack holding the effect `id` (of a layer or of a clip), and the effect's place in it.
+    /// The stack holding the effect `id` (of a layer, of a clip or of the composition), and the
+    /// effect's place in it.
     fn effect_mut(&mut self, id: &str) -> Result<(&mut Vec<Effect>, usize)> {
-        self.layers
-            .iter_mut()
-            .flat_map(|layer| {
-                std::iter::once(&mut layer.effects)
-                    .chain(layer.clips.iter_mut().map(|clip| &mut clip.effects))
-            })
+        let layers = self.layers.iter_mut().flat_map(|layer| {
+            std::iter::once(&mut layer.effects)
+                .chain(layer.clips.iter_mut().map(|clip| &mut clip.effects))
+        });
+        std::iter::once(&mut self.composition_effects)
+            .chain(layers)
             .find_map(|stack| {
                 let at = stack.iter().position(|effect| effect.id == id)?;
                 Some((stack, at))
@@ -1193,9 +1209,16 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         }
         VjOp::AddEffect { target, kind } => {
             let kind = EffectKind::default_of(&kind)?;
+            if kind.composition_only() && target != EffectTarget::Composition {
+                return Err(ProjectError::Invalid(format!(
+                    "a {} effect only works on the composition",
+                    kind.name()
+                )));
+            }
             let stack = match target {
                 EffectTarget::Clip(clip) => &mut vj.clip_mut(&clip)?.effects,
                 EffectTarget::Layer(layer) => &mut vj.layer_mut(&layer)?.effects,
+                EffectTarget::Composition => &mut vj.composition_effects,
             };
             if stack.len() >= MAX_EFFECTS {
                 return Err(ProjectError::Invalid(format!(
@@ -1209,6 +1232,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                 kind,
             });
         }
+        VjOp::CompositionBypass { bypass } => vj.composition_bypass = bypass,
         VjOp::RemoveEffect { effect } => {
             let (stack, at) = vj.effect_mut(&effect)?;
             stack.remove(at);
@@ -1415,6 +1439,7 @@ pub(crate) fn validate<'a>(
             check_name(column.name.as_deref())?;
         }
     }
+    crate::vj_effects::validate_stack(&vj.composition_effects, true, item_ids)?;
     for layer in &vj.layers {
         unique(&mut ids, &layer.id)?;
         check_name(layer.name.as_deref())?;
@@ -1427,7 +1452,7 @@ pub(crate) fn validate<'a>(
                 layer.id
             )));
         }
-        crate::vj_effects::validate_stack(&layer.effects, item_ids)?;
+        crate::vj_effects::validate_stack(&layer.effects, false, item_ids)?;
         crate::vj_modulation::validate_map(&layer.modulation, crate::vj_modulation::layer_range)?;
         let mut cells = HashSet::new();
         for clip in &layer.clips {
@@ -1469,7 +1494,7 @@ pub(crate) fn validate<'a>(
             }
             check_name(clip.name.as_deref())?;
             check_transport(clip)?;
-            crate::vj_effects::validate_stack(&clip.effects, item_ids)?;
+            crate::vj_effects::validate_stack(&clip.effects, false, item_ids)?;
             crate::vj_modulation::validate_map(&clip.modulation, crate::vj_modulation::clip_range)?;
             if !(0.0..=MAX_SCALE).contains(&clip.scale)
                 || clip
@@ -2241,6 +2266,143 @@ mod tests {
     }
 
     #[test]
+    fn the_composition_should_take_every_effect_and_the_history_ones_only_there() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(!json.contains("compositionEffects") && !json.contains("compositionBypass"));
+        // The kinds that need the frames before them are refused on a clip and on a layer.
+        for kind in ["feedback", "trails", "bloom"] {
+            for target in [
+                EffectTarget::Clip("g13".into()),
+                EffectTarget::Layer("g1".into()),
+            ] {
+                let op = VjOp::AddEffect {
+                    target,
+                    kind: kind.into(),
+                };
+                assert!(apply(&mut project, op, &mut new_id).is_err(), "{kind}");
+            }
+        }
+        // Every kind goes on the composition, up to the limit of a stack.
+        let names: Vec<&str> = EffectKind::names().collect();
+        for kind in names.iter().take(MAX_EFFECTS) {
+            add_effect(&mut project, EffectTarget::Composition, kind, &mut new_id);
+        }
+        let seventeenth = VjOp::AddEffect {
+            target: EffectTarget::Composition,
+            kind: "bloom".into(),
+        };
+        assert!(apply(&mut project, seventeenth, &mut new_id).is_err());
+        // A stack of the composition is its own: the layers' are not counted in it.
+        assert_eq!(project.vj.composition_effects.len(), MAX_EFFECTS);
+        let hand_made = Effect {
+            id: "z1".into(),
+            bypass: false,
+            modulation: Default::default(),
+            kind: EffectKind::default_of("feedback").unwrap(),
+        };
+        project.vj.layers[0].effects.push(hand_made);
+        assert!(project.validate().is_err(), "feedback on a layer");
+    }
+
+    #[test]
+    fn composition_effects_should_be_edited_like_any_other() {
+        let (mut project, mut new_id) = vj_project();
+        let composition = || EffectTarget::Composition;
+        add_effect(&mut project, composition(), "feedback", &mut new_id); // g13
+        add_effect(&mut project, composition(), "bloom", &mut new_id); // g14
+        add_effect(&mut project, composition(), "invert", &mut new_id); // g15
+        let ids = |project: &Project| -> Vec<String> {
+            project
+                .vj
+                .composition_effects
+                .iter()
+                .map(|e| e.id.clone())
+                .collect()
+        };
+        assert_eq!(ids(&project), ["g13", "g14", "g15"]);
+        let move_to = VjOp::MoveEffect {
+            effect: "g15".into(),
+            index: 0,
+        };
+        run(&mut project, move_to, &mut new_id);
+        assert_eq!(ids(&project), ["g15", "g13", "g14"]);
+        // Settings are brought into range and keep their kind.
+        let params = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::Feedback {
+                amount: 3.0,
+                zoom: 9.0,
+                rotate: 10.0,
+                x: 0.0,
+                y: 0.0,
+                hue: -500.0,
+                blend: crate::vj_effects::FeedbackBlend::Add,
+            },
+        };
+        run(&mut project, params, &mut new_id);
+        let EffectKind::Feedback {
+            amount, zoom, hue, ..
+        } = project.vj.composition_effects[1].kind
+        else {
+            unreachable!()
+        };
+        assert_eq!((amount, zoom, hue), (1.0, 2.0, -180.0));
+        let wrong = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::default_of("trails").unwrap(),
+        };
+        assert!(apply(&mut project, wrong, &mut new_id).is_err());
+        // Bypass, duplicate, reset, modulation and removal find the effect in the composition.
+        let bypass = VjOp::EffectBypass {
+            effect: "g14".into(),
+            bypass: true,
+        };
+        run(&mut project, bypass, &mut new_id);
+        let duplicate = VjOp::DuplicateEffect {
+            effect: "g14".into(),
+        };
+        run(&mut project, duplicate, &mut new_id); // g16
+        assert_eq!(ids(&project), ["g15", "g13", "g14", "g16"]);
+        let modulate = VjOp::SetModulation {
+            target: ModTarget::Effect {
+                effect: "g13".into(),
+                param: "amount".into(),
+            },
+            modulation: Some(sine(0.2, 0.8)),
+        };
+        run(&mut project, modulate, &mut new_id);
+        assert!(project.vj.is_modulated());
+        let reset = VjOp::ResetEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, reset, &mut new_id);
+        assert!(project.vj.composition_effects[1].modulation.is_empty());
+        let remove = VjOp::RemoveEffect {
+            effect: "g15".into(),
+        };
+        run(&mut project, remove, &mut new_id);
+        assert_eq!(ids(&project), ["g13", "g14", "g16"]);
+        // The stack, its bypass and its effects are in the file, and only when there are any.
+        let bypass_all = VjOp::CompositionBypass { bypass: true };
+        run(&mut project, bypass_all, &mut new_id);
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(json.contains(r#""compositionBypass":true"#), "{json}");
+        assert!(json.contains(r#""compositionEffects":[{"id":"g13","effect":"feedback""#));
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.vj, project.vj);
+        back.validate().unwrap();
+        let off = VjOp::CompositionBypass { bypass: false };
+        run(&mut project, off, &mut new_id);
+        assert!(
+            !serde_json::to_string(&project)
+                .unwrap()
+                .contains("compositionBypass")
+        );
+    }
+
+    #[test]
     fn validate_should_refuse_a_repeated_effect_id_and_a_setting_out_of_range() {
         let (mut project, mut new_id) = vj_project();
         add_effect(
@@ -2273,7 +2435,9 @@ mod tests {
         assert!(!json.contains("effects"), "{json}");
         let clip = || EffectTarget::Clip("g13".into());
         // Every kind goes on the clip, its layer or another layer, 16 to each.
-        let names: Vec<&str> = EffectKind::names().collect();
+        let names: Vec<&str> = EffectKind::names()
+            .filter(|name| !crate::vj_effects::spec_of(name).unwrap().composition_only)
+            .collect();
         for (at, kind) in names.iter().enumerate() {
             let target = match at / MAX_EFFECTS {
                 0 => clip(),

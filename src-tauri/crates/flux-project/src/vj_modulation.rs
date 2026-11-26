@@ -388,14 +388,17 @@ impl Modulator {
 impl Vj {
     /// Whether anything of the grid is modulated.
     pub fn is_modulated(&self) -> bool {
-        self.layers.iter().any(|layer| {
-            !layer.modulation.is_empty()
-                || layer.effects.iter().any(|e| !e.modulation.is_empty())
-                || layer.clips.iter().any(|clip| {
-                    !clip.modulation.is_empty()
-                        || clip.effects.iter().any(|e| !e.modulation.is_empty())
-                })
-        })
+        self.composition_effects
+            .iter()
+            .any(|e| !e.modulation.is_empty())
+            || self.layers.iter().any(|layer| {
+                !layer.modulation.is_empty()
+                    || layer.effects.iter().any(|e| !e.modulation.is_empty())
+                    || layer.clips.iter().any(|clip| {
+                        !clip.modulation.is_empty()
+                            || clip.effects.iter().any(|e| !e.modulation.is_empty())
+                    })
+            })
     }
 
     /// Whether a clip lasts a number of beats, so that its sound follows the tempo.
@@ -449,6 +452,9 @@ pub fn modulate<'a>(
         return Cow::Borrowed(vj);
     }
     let mut out = vj.clone();
+    for effect in &mut out.composition_effects {
+        modulate_effect(effect, modulator, clock, bands);
+    }
     for layer in &mut out.layers {
         let id = layer.id.clone();
         for (field, m) in &layer.modulation {
@@ -509,6 +515,7 @@ pub fn values(vj: &Vj, modulator: &mut Modulator, clock: Clock, bands: Bands) ->
             out.effects.insert(effect.id.clone(), map);
         }
     };
+    effects(&vj.composition_effects, modulator);
     for layer in &vj.layers {
         effects(&layer.effects, modulator);
         for clip in &layer.clips {
@@ -850,6 +857,29 @@ mod tests {
         assert_eq!(segments, 17.0);
         let list = values(&vj, &mut modulator, at(0.0, 0.5), Bands::default());
         near(list.effects["k"]["segments"], 17.0);
+    }
+
+    #[test]
+    fn the_effects_of_the_composition_should_be_modulated_too() {
+        let mut vj = grid_with_clip();
+        vj.composition_effects.push(Effect {
+            id: "f".into(),
+            bypass: false,
+            kind: EffectKind::default_of("feedback").unwrap(),
+            modulation: BTreeMap::from([(
+                "amount".to_owned(),
+                lfo(Shape::SawUp, beats(1.0), 0.0, 0.0, 1.0),
+            )]),
+        });
+        assert!(vj.is_modulated());
+        let mut modulator = Modulator::default();
+        let out = modulate(&vj, &mut modulator, at(0.0, 0.5), Bands::default());
+        let EffectKind::Feedback { amount, .. } = out.composition_effects[0].kind else {
+            panic!("a feedback");
+        };
+        near(amount, 0.5);
+        let list = values(&vj, &mut modulator, at(0.0, 0.5), Bands::default());
+        near(list.effects["f"]["amount"], 0.5);
     }
 
     #[test]

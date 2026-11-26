@@ -1,6 +1,10 @@
 //! The effects of a VJ grid: an ordered stack on each clip and on each layer, applied to the
-//! clip's picture. A clip's stack goes first and then its layer's, each from the top down; a
-//! bypassed effect is skipped. The screens and the editor's monitor draw them (`flux-render`).
+//! clip's picture, and one more on the composition, applied to the final mix before the output
+//! mapping. A clip's stack goes first and then its layer's, each from the top down; a bypassed
+//! effect is skipped. The screens and the editor's monitor draw them (`flux-render`).
+//!
+//! Three kinds (feedback, trails and bloom) need the picture of the frames before or around the
+//! pixel, so they only exist on the composition's stack: [`EffectSpec::composition_only`].
 //!
 //! Every kind is described once, in [`catalog`]: its category, and each setting with its range and
 //! its default. The ops take their defaults and ranges from it, and the inspector draws its
@@ -90,6 +94,32 @@ pub enum StrobeMode {
     Flash,
     /// Black.
     Blackout,
+}
+
+/// How the feedback of a [`EffectKind::Feedback`] meets the new frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FeedbackBlend {
+    /// The new frame and the old one are mixed, `amount` of the way to the old.
+    #[default]
+    Mix,
+    /// The old frame, scaled by `amount`, is added to the new.
+    Add,
+    /// The lighter of the new frame and the old one scaled by `amount`.
+    Lighten,
+}
+
+/// How the trail of a [`EffectKind::Trails`] meets the new frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrailMode {
+    /// The new frame and the trail are mixed, `decay` of the way to the trail.
+    #[default]
+    Blend,
+    /// The lighter of the new frame and the trail scaled by `decay`.
+    Lighten,
+    /// The trail scaled by `decay` is added to the new frame.
+    Add,
 }
 
 /// What an edge detect shows.
@@ -284,6 +314,29 @@ pub enum EffectKind {
         #[serde(flatten)]
         pace: Pace,
     },
+    /// Draws the previous output again under (or over) the new frame, zoomed by `zoom` and turned
+    /// by `rotate` degrees a second, moved by `x` and `y` of its size a second and its hue turned
+    /// by `hue` degrees a second: tunnels and spirals. `amount` is the share of the old frame kept
+    /// every 60th of a second. Only on the composition.
+    Feedback {
+        amount: f32,
+        zoom: f32,
+        rotate: f32,
+        x: f32,
+        y: f32,
+        hue: f32,
+        blend: FeedbackBlend,
+    },
+    /// Keeps `decay` of the previous output every 60th of a second under the new frame: the
+    /// trails of whatever moves. Only on the composition.
+    Trails { decay: f32, mode: TrailMode },
+    /// Adds back a glow of what is brighter than `threshold`, `intensity` times, spread over
+    /// `radius`. Only on the composition.
+    Bloom {
+        threshold: f32,
+        intensity: f32,
+        radius: f32,
+    },
 }
 
 /// A setting of an effect: its key in the file, and what it takes.
@@ -392,7 +445,9 @@ impl ParamSpec {
 }
 
 /// The groups the inspector lists effects in, in order.
-pub const CATEGORIES: [&str; 6] = ["colour", "distort", "blur", "glitch", "stylise", "time"];
+pub const CATEGORIES: [&str; 7] = [
+    "colour", "distort", "blur", "glitch", "stylise", "time", "feedback",
+];
 
 /// What one kind of effect is: its name, its category and its settings.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -402,6 +457,9 @@ pub struct EffectSpec {
     pub category: &'static str,
     /// Whether it moves with time, and so has a sync, a rate and a beat length.
     pub animated: bool,
+    /// Whether it needs the frames before it or the pixels around it, and so can only be on the
+    /// composition's stack, never a clip's or a layer's.
+    pub composition_only: bool,
     pub params: Vec<ParamSpec>,
 }
 
@@ -487,7 +545,27 @@ fn kind(
         name,
         category,
         animated: paced.is_some(),
+        composition_only: category == "feedback",
         params,
+    }
+}
+
+/// A number setting counted in `unit`.
+fn num_in(
+    key: &'static str,
+    unit: &'static str,
+    (min, max, step, default): (f32, f32, f32, f32),
+) -> ParamSpec {
+    ParamSpec::Number {
+        key,
+        min,
+        max,
+        step,
+        default,
+        whole: false,
+        unit,
+        snap: Vec::new(),
+        modulatable: true,
     }
 }
 
@@ -797,6 +875,39 @@ pub fn catalog() -> &'static [EffectSpec] {
                 vec![num("jitter", 0.0, 1.0, 0.01, 0.2)],
                 Some((0.3, 4.0)),
             ),
+            kind(
+                "feedback",
+                "feedback",
+                vec![
+                    num("amount", 0.0, 1.0, 0.01, 0.6),
+                    num_in("zoom", "×", (0.5, 2.0, 0.001, 1.02)),
+                    num_in("rotate", "°/s", (-180.0, 180.0, 1.0, 0.0)),
+                    num_in("x", "%", (-1.0, 1.0, 0.01, 0.0)),
+                    num_in("y", "%", (-1.0, 1.0, 0.01, 0.0)),
+                    num_in("hue", "°/s", (-180.0, 180.0, 1.0, 0.0)),
+                    choice("blend", &["mix", "add", "lighten"], "mix"),
+                ],
+                None,
+            ),
+            kind(
+                "trails",
+                "feedback",
+                vec![
+                    num("decay", 0.0, 1.0, 0.01, 0.9),
+                    choice("mode", &["blend", "lighten", "add"], "blend"),
+                ],
+                None,
+            ),
+            kind(
+                "bloom",
+                "feedback",
+                vec![
+                    num("threshold", 0.0, 1.0, 0.01, 0.6),
+                    num_in("intensity", "%", (0.0, 4.0, 0.01, 1.0)),
+                    num("radius", 0.0, 1.0, 0.01, 0.5),
+                ],
+                None,
+            ),
         ]
     })
 }
@@ -845,6 +956,11 @@ impl EffectKind {
             Some(Value::String(name)) => name.clone(),
             _ => String::new(),
         }
+    }
+
+    /// Whether it can only be on the composition's stack (see [`EffectSpec::composition_only`]).
+    pub fn composition_only(&self) -> bool {
+        spec_of(&self.name()).is_ok_and(|spec| spec.composition_only)
     }
 
     /// Whether `other` is the same kind of effect, possibly with other settings.
@@ -919,12 +1035,16 @@ pub enum EffectTarget {
     Clip(String),
     /// The layer with this id.
     Layer(String),
+    /// The composition: the final mix, before the output mapping.
+    Composition,
 }
 
 /// Checks one stack: at most [`MAX_EFFECTS`], each valid and with an id no other effect has
-/// (`seen` holds those met so far).
+/// (`seen` holds those met so far). The kinds that are for the composition only are refused unless
+/// this is its stack (`composition`).
 pub(crate) fn validate_stack<'a>(
     stack: &'a [Effect],
+    composition: bool,
     seen: &mut std::collections::HashSet<&'a str>,
 ) -> Result<()> {
     if stack.len() > MAX_EFFECTS {
@@ -937,6 +1057,12 @@ pub(crate) fn validate_stack<'a>(
             return Err(ProjectError::Invalid(format!(
                 "duplicate effect id: {}",
                 effect.id
+            )));
+        }
+        if effect.kind.composition_only() && !composition {
+            return Err(ProjectError::Invalid(format!(
+                "a {} effect only works on the composition",
+                effect.kind.name()
             )));
         }
         effect.kind.validate()?;
@@ -955,7 +1081,7 @@ mod tests {
     #[test]
     fn every_kind_should_start_with_its_defaults_and_be_valid() {
         let names: Vec<&str> = EffectKind::names().collect();
-        assert_eq!(names.len(), 36);
+        assert_eq!(names.len(), 39);
         for name in &names {
             let kind = EffectKind::default_of(name).unwrap();
             assert_eq!(kind.name(), *name);
