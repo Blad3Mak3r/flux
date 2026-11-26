@@ -447,8 +447,8 @@ fn bloom_pass(bloom: &Bloom, light: &mut [[f32; 3]], w: usize, h: usize) {
     }
     // The smallest level is added into the one above it, and so on up to the first.
     for up in (0..levels - 1).rev() {
-        let small = chain.pop().expect("a level");
-        chain[up].add_smaller(&small, gains[up]);
+        let (above, below) = chain.split_at_mut(up + 1);
+        above[up].add_smaller(&below[0], gains[up]);
     }
     let first = &chain[0];
     for y in 0..h {

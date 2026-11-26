@@ -885,16 +885,13 @@ impl VideoOutputs {
         let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
         picture.extend_from_slice(&(width as u16).to_le_bytes());
         picture.extend_from_slice(&(height as u16).to_le_bytes());
-        let post = {
-            let mut frames = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
-            let at = Instant::now();
-            let dt = frames
-                .last
-                .replace(at)
-                .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
-            composition_post(&drawn, clock, dt)
-        };
         let mut frames = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
+        let at = Instant::now();
+        let dt = frames
+            .last
+            .replace(at)
+            .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
+        let post = composition_post(&drawn, clock, dt);
         picture.extend(flux_render::composite_post(
             &pictures(&shown, size, beats),
             width,
