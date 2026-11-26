@@ -287,16 +287,12 @@ impl GridPlayer {
             return;
         };
         let frames = left.len();
-        for slot in &mut self.tails {
-            if let Some(tail) = slot.take() {
-                let voice = &tail.mix.voices[tail.index];
-                voice.add(now, (tail.gain, 0.0), left, right);
-            }
-        }
         if crate::analysis::grid_tap_on() && frames <= MIX_CHUNK && right.len() == frames {
-            // The grid's own sound, apart from what it is added to, is what the analysis hears.
+            // The grid's own sound, apart from what it is added to, is what the analysis hears:
+            // the voices and the tails fading out, the same mix that is played.
             let mut own_left = [0.0f32; MIX_CHUNK];
             let mut own_right = [0.0f32; MIX_CHUNK];
+            self.add_tails(now, &mut own_left[..frames], &mut own_right[..frames]);
             self.mix.mix(
                 now,
                 &mut self.applied,
@@ -309,10 +305,22 @@ impl GridPlayer {
                 right[at] += own_right[at];
             }
         } else {
+            self.add_tails(now, left, right);
             self.mix.mix(now, &mut self.applied, left, right);
         }
         self.clock =
             Some(now + Duration::from_secs_f64(left.len() as f64 / f64::from(ENGINE_RATE)));
+    }
+
+    /// Adds the fading voices for this chunk, once: a tail is spent by it.
+    fn add_tails(&mut self, now: Duration, left: &mut [f32], right: &mut [f32]) {
+        for slot in &mut self.tails {
+            if let Some(tail) = slot.take()
+                && let Some(voice) = tail.mix.voices.get(tail.index)
+            {
+                voice.add(now, (tail.gain, 0.0), left, right);
+            }
+        }
     }
 
     pub fn is_silent(&self) -> bool {
