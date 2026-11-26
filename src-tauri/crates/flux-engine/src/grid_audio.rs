@@ -293,7 +293,7 @@ impl GridPlayer {
                 voice.add(now, (tail.gain, 0.0), left, right);
             }
         }
-        if frames <= MIX_CHUNK && right.len() == frames {
+        if crate::analysis::grid_tap_on() && frames <= MIX_CHUNK && right.len() == frames {
             // The grid's own sound, apart from what it is added to, is what the analysis hears.
             let mut own_left = [0.0f32; MIX_CHUNK];
             let mut own_right = [0.0f32; MIX_CHUNK];

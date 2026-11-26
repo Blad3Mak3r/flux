@@ -4292,5 +4292,4 @@ input:disabled {
 .setup-analysis-bar { display: flex; align-items: center; gap: 8px; }
 .setup-analysis-track { flex: 1; height: 8px; background: var(--panel-lo); border: 1px solid var(--rule); border-radius: 1px; }
 .setup-analysis-track i { display: block; height: 100%; background: var(--phosphor); }
-.setup-analysis-bar[data-band="level"] .setup-analysis-track i { background: var(--amber); }
 .setup-analysis-bar .field-note { min-width: 48px; margin: 0; }

@@ -750,9 +750,9 @@ pub enum VjOp {
         x: f32,
         y: f32,
     },
-    /// Puts a new effect of the kind called `kind` (see [`crate::vj_effects::catalog`]), with the settings
-    /// it starts with, at the end of the stack of a clip or of a layer; a stack holds at most
-    /// [`MAX_EFFECTS`].
+    /// Puts a new effect of the kind called `kind` (see [`crate::vj_effects::catalog`]), with the
+    /// settings it starts with, at the end of the stack of a clip or of a layer; a stack holds at
+    /// most [`MAX_EFFECTS`].
     AddEffect {
         target: EffectTarget,
         kind: String,
