@@ -178,16 +178,18 @@ launched when. A clip's speed is not modulatable.
 shows only): the show's own sound (the default), one channel of an audio input, or nothing. A small meter of the four
 readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page.
 
-## Map mode: MIDI and OSC
+## Map mode: MIDI, OSC, DMX and keys
 
-**Composition > View > Map MIDI / OSC** or **Ctrl+M** turns on the map mode, as Resolume's "Edit MIDI / OSC". Every
+**Composition > View > Map MIDI / OSC / DMX / keys** or **Ctrl+M** turns on the map mode, as Resolume's "Edit MIDI / OSC". Every
 control that can be mapped gets an outline: **dashed** when nothing drives it, **solid phosphor** with the name of its
-source (`CC 7 · ch 1`, `Note C2 · ch 1`, `Pitch bend · ch 1` or the OSC address) when something does. The grid shows a
-**MAP MODE** strip with the state of the MIDI and OSC inputs.
+source (`CC 7 · ch 1`, `Note C2 · ch 1`, `Pitch bend · ch 1`, the OSC address, `DMX 1:37` or `Key Shift+Q`) when something does.
+The grid shows a **MAP MODE** strip with the state of the MIDI, OSC and DMX inputs.
 
 1. Click a control. Its outline turns thick amber and reads **LEARN**.
-2. Move a MIDI control, press a pad or send an OSC message. The first one heard becomes the source, and the outline
-   turns solid. Learn again to replace it: the latest wins, and a source drives one target at a time.
+2. Move a MIDI control, press a pad, send an OSC message, **move a channel on a lighting console (Art-Net)** or **press
+   a key**. The first one heard becomes the source (for DMX, the channel that moved most: see
+   [Remote control](remote-control.md#art-net)), and the outline turns solid. A key the app uses itself (Space, B, S, X, the
+   digits, anything with Ctrl) is refused with a message and the learn goes on. Learn again to replace it: the latest wins, and a source drives one target at a time.
 3. **Right-click** an outline to clear its mapping. **Esc** cancels a learn, and then leaves the mode (so does **Ctrl+M**
    or the Exit button). While the mode is on, a click on a control chooses it and does not use it.
 
@@ -219,6 +221,13 @@ The **Mappings** tab of the inspector lists every mapping: its source, what it d
 | **Trigger** | Buttons | A press runs the action or turns the switch on. |
 | **Toggle** | Switches | A press flips the switch. |
 | **Hold** | Buttons | On while the button is held, off when released. On a clip, Hold plays it while the pad is down, as the Piano trigger does. |
+
+| **By position** / **This one** | Clips, layers, columns, decks, effects | What the mapping keeps hold of, as Resolume's shortcut modes. **This one** follows that clip, layer or effect by id wherever it moves, and deleting it removes the mapping. **By position** follows the slot (layer N, column M, effect K): if clips are moved or swapped, or layers reordered, it drives whatever is in the slot now, and if the slot is emptied the mapping waits (shown as "Empty slot") until something is put there. New mappings of **clips and effects** start as **This one**, those of **layers, columns and decks** as **By position**; mappings of older files stay **This one**. |
+| **16-bit** | DMX sources | The channel of the low byte, to read a 16-bit value from two channels. |
+
+The **All / MIDI / OSC / DMX / Key** buttons above the list filter it by kind of source. **Import / Export** read and
+write the mappings as a `.flxmap` file for another show (see [Remote control](remote-control.md#mapping-files)); an
+import that would overwrite mappings asks, per mapping or for all at once.
 
 The trash button deletes a mapping. The mappings are part of the show and go through undo like any other edit. One
 sweep of a fader is **one** undo step, however many values it sent. A mapping whose target is removed (a deleted clip,
@@ -262,7 +271,7 @@ properties of the selected item on the right. It is the same mapping described i
 | B, S, X | Bypass, solo or stop the selected layer. |
 | Del | Remove the selected clip. |
 | Ctrl+I | Import media. |
-| Ctrl+M | Map mode (MIDI and OSC); Esc cancels a learn, then leaves it. |
+| Ctrl+M | Map mode (MIDI, OSC, DMX and keys); Esc cancels a learn, then leaves it. |
 | Ctrl+Shift+A | Open the advanced output. |
 | Space | Play or pause the timecode clock (internal source). |
 
