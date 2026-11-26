@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
 use crate::commands::SharedSession;
@@ -21,7 +21,16 @@ pub struct Grid {
     started: Instant,
     /// Where the beats were counted to, and how many there were by then.
     beat: (Duration, f64),
+    /// The beat count holds while it is paused: only the beats stop, the seconds go on.
+    paused: bool,
+    /// How much faster (or slower) than the tempo the beats run: 1, except while a nudge is held.
+    pace: f64,
 }
+
+/// How far a nudge moves the pace of the beats, as a fraction of the tempo.
+const NUDGE: f64 = 0.1;
+/// Beats in a bar, which a resync lands on the first of.
+const BAR: f64 = 4.0;
 
 impl Default for Grid {
     fn default() -> Self {
@@ -29,6 +38,8 @@ impl Default for Grid {
             play: GridPlay::default(),
             started: Instant::now(),
             beat: (Duration::ZERO, 0.0),
+            paused: false,
+            pace: 1.0,
         }
     }
 }
@@ -44,6 +55,34 @@ impl Grid {
         self.started.elapsed()
     }
 
+    /// How many beats the count moves for one at the tempo: none while paused.
+    fn rate(&self) -> f64 {
+        if self.paused { 0.0 } else { self.pace }
+    }
+
+    pub fn paused(&self) -> bool {
+        self.paused
+    }
+
+    /// Holds the beat count, or lets it go on from where it stopped, so a beat-synced clip keeps its phase.
+    pub fn set_paused(&mut self, on: bool, bpm: f64) {
+        self.beats(bpm);
+        self.paused = on;
+    }
+
+    /// Puts the beat count on the first beat of a bar now, the nearest one.
+    pub fn resync(&mut self, bpm: f64) {
+        let beats = self.beats(bpm);
+        self.beat.1 = (beats / BAR).round() * BAR;
+    }
+
+    /// Runs the beats a little faster (`direction` above 0), slower (below 0) or at the tempo (0), to
+    /// move their phase against the music without changing the tempo.
+    pub fn nudge(&mut self, direction: i8, bpm: f64) {
+        self.beats(bpm);
+        self.pace = 1.0 + NUDGE * f64::from(direction.signum());
+    }
+
     /// The beats the grid's clock has counted, at `bpm` beats a minute now: a count that keeps its
     /// phase when the tempo changes, as the beats before it were counted at the tempo they had.
     /// Every screen asks for it, each a little after the last.
@@ -55,7 +94,7 @@ impl Grid {
         let (at, beats) = self.beat;
         self.beat = (
             now.max(at),
-            beats + now.saturating_sub(at).as_secs_f64() * bpm / 60.0,
+            beats + now.saturating_sub(at).as_secs_f64() * bpm / 60.0 * self.rate(),
         );
         self.beat.1
     }
@@ -90,6 +129,9 @@ pub struct GridState {
     /// The column launched last, while nothing was launched or stopped by hand since.
     pub column: Option<String>,
     pub crossfader: f32,
+    /// The beats the grid's clock has counted, and whether they are held.
+    pub beats: f64,
+    pub beats_paused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -263,6 +305,8 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid, tick: Tick, bpm: f64) ->
         playing,
         column: grid.play.column().map(str::to_owned),
         crossfader: grid.play.crossfader(),
+        beats: tick.beats,
+        beats_paused: grid.paused(),
     }
 }
 
@@ -415,6 +459,41 @@ pub async fn vj_preview_frame(
     Ok(tauri::ipc::Response::new(picture))
 }
 
+/// What the operator does to the beat clock: runtime state of the grid, never saved.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "op")]
+pub enum BeatOp {
+    /// Holds the beats, or lets them go on.
+    Pause { on: bool },
+    /// Puts the beats on the first of a bar now.
+    Resync,
+    /// Runs the beats faster (1), slower (-1) or at the tempo (0) while a nudge is held.
+    Nudge { direction: i8 },
+}
+
+/// Pauses, resyncs or nudges the beat clock, and answers with what the grid plays.
+#[tauri::command]
+pub fn vj_beat(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    grid: State<'_, SharedGrid>,
+    op: BeatOp,
+) -> Result<GridState> {
+    let bpm = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .tempo_bpm();
+    {
+        let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
+        match op {
+            BeatOp::Pause { on } => grid.set_paused(on, bpm),
+            BeatOp::Resync => grid.resync(bpm),
+            BeatOp::Nudge { direction } => grid.nudge(direction, bpm),
+        }
+    }
+    play(&app, &session, &grid, |_, _, _| Ok(()))
+}
+
 /// What the grid plays now.
 #[tauri::command]
 pub fn vj_play_state(
@@ -428,6 +507,66 @@ pub fn vj_play_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn secs(seconds: f64) -> Duration {
+        Duration::from_secs_f64(seconds)
+    }
+
+    #[test]
+    fn beats_should_hold_while_paused_and_go_on_from_there() {
+        let mut grid = Grid::default();
+        assert_eq!(grid.count(secs(1.0), 120.0), 2.0);
+        grid.paused = true;
+        assert_eq!(grid.count(secs(5.0), 120.0), 2.0, "held");
+        grid.paused = false;
+        assert_eq!(
+            grid.count(secs(5.0), 120.0),
+            2.0,
+            "from the time it resumed"
+        );
+        assert_eq!(grid.count(secs(6.0), 120.0), 4.0);
+    }
+
+    fn running(seconds: u64) -> Grid {
+        Grid {
+            started: Instant::now() - Duration::from_secs(seconds),
+            ..Grid::default()
+        }
+    }
+
+    #[test]
+    fn set_paused_should_hold_the_count_of_the_clock_that_runs() {
+        let mut grid = running(1);
+        grid.set_paused(true, 120.0);
+        let held = grid.beats(120.0);
+        assert!((2.0..2.1).contains(&held));
+        assert_eq!(grid.beats(120.0), held);
+    }
+
+    #[test]
+    fn resync_should_land_on_the_nearest_bar() {
+        let mut grid = running(3);
+        grid.resync(120.0);
+        assert_eq!(
+            grid.beat.1, 8.0,
+            "six beats and a bit is nearer eight than four"
+        );
+    }
+
+    #[test]
+    fn nudge_should_change_the_pace_only_while_held() {
+        let mut grid = Grid {
+            pace: 1.0 + NUDGE,
+            ..Grid::default()
+        };
+        assert!((grid.count(secs(1.0), 120.0) - 2.2).abs() < 1e-9);
+        grid.pace = 1.0;
+        assert!((grid.count(secs(2.0), 120.0) - 4.2).abs() < 1e-9);
+        grid.nudge(-1, 120.0);
+        assert_eq!(grid.pace, 1.0 - NUDGE);
+        grid.nudge(0, 120.0);
+        assert_eq!(grid.pace, 1.0);
+    }
     use flux_project::playhead::Motion;
     use flux_project::vj::{Direction, Tempo};
 

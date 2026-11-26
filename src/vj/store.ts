@@ -7,6 +7,7 @@ import { dispatch, useDoc } from "../state/store";
 import { say, sayError } from "../state/ui";
 import { probeVideos } from "../state/video";
 import {
+  vjBeat,
   vjCrossfader,
   vjCue,
   vjEdit,
@@ -22,7 +23,7 @@ import {
   vjModulationValues,
   vjStop,
 } from "./api";
-import type { GridState, ModValues, VjOp } from "./api";
+import type { GridState, ModValues, VjBeatOp, VjOp } from "./api";
 
 /** A video file being copied into the project, shown where it will land until it is there. */
 export interface Importing {
@@ -61,7 +62,7 @@ const NO_MOD: ModValues = { effects: {}, layers: {}, clips: {} };
 export type MediaKind = "all" | "video" | "image";
 
 export const useVj = create<VjState>()(() => ({
-  play: { playing: [], column: null, crossfader: 0.5 },
+  play: { playing: [], column: null, crossfader: 0.5, beats: 0, beatsPaused: false },
   importing: [],
   clip: null,
   layer: null,
@@ -148,6 +149,7 @@ export const launch = (clip: string, layer: string) => {
 export const release = (clip: string) => played(() => vjRelease(clip));
 export const launchColumn = (column: string) => played(() => vjLaunchColumn(column));
 export const stopLayer = (layer: string | null) => played(() => vjStop(layer));
+export const beatClock = (op: VjBeatOp) => played(() => vjBeat(op));
 export const cue = (clip: string, index: number) => played(() => vjCue(clip, index));
 
 /**

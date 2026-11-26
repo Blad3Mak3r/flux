@@ -119,7 +119,14 @@ export interface GridState {
   column: string | null;
   /** 0 is all side A, 1 all side B. */
   crossfader: number;
+  /** The beats the grid's clock has counted, and whether they are held. */
+  beats: number;
+  beatsPaused: boolean;
 }
+
+/** What the operator does to the beat clock; none of it is saved. */
+export type VjBeatOp = { op: "pause"; on: boolean } | { op: "resync" } | { op: "nudge"; direction: -1 | 0 | 1 };
+export const vjBeat = (op: VjBeatOp) => invoke<GridState>("vj_beat", { op });
 
 export const vjLaunch = (clip: string) => invoke<GridState>("vj_launch", { clip });
 export const vjRelease = (clip: string) => invoke<GridState>("vj_release", { clip });

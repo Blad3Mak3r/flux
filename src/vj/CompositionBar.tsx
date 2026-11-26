@@ -15,7 +15,7 @@ import { pause, play, seek, stop } from "../transport/playback";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
 import { vjAnalysisLevels } from "./api";
 import type { AnalysisLevels } from "./api";
-import { edit } from "./store";
+import { beatClock, edit, useVj } from "./store";
 import { closeTimecodeIn, useTimecodeIn } from "./timecodeIn";
 import type { TimecodeInStatus } from "./timecodeIn";
 
@@ -29,11 +29,42 @@ const SOURCES: VjClockSource[] = ["internal", "ltc", "mtc"];
 /** The taps the backend reads the tempo from: the last ones are enough. */
 const TAPS = 8;
 
-/** The show's tempo: typed, nudged, halved, doubled or tapped. */
+/** The beat in its bar of four and a square that flashes on each beat; dim while the beats are held. Its beat is the backend's count. */
+function BeatLights() {
+  const beat = useVj((vj) => Math.floor(vj.play.beats));
+  const paused = useVj((vj) => vj.play.beatsPaused);
+  const t = useT();
+  const inBar = ((beat % 4) + 4) % 4;
+  return (
+    <div className={`vj-beat${paused ? " held" : ""}`} role="img" aria-label={t("vj.beat.label", { n: inBar + 1 })}>
+      <i key={beat} className="vj-beat-flash" />
+      {[0, 1, 2, 3].map((n) => <i key={n} className={`vj-beat-n${n === inBar ? " on" : ""}`} />)}
+    </div>
+  );
+}
+
+/** A key that holds the beats a little faster or slower for as long as it is held, by pointer or keyboard. */
+function NudgeKey({ direction, label, children }: { direction: -1 | 1; label: string; children: string }) {
+  const release = () => void beatClock({ op: "nudge", direction: 0 });
+  return (
+    <button type="button" title={label} aria-label={label}
+      onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); void beatClock({ op: "nudge", direction }); }}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !event.repeat) void beatClock({ op: "nudge", direction }); }}
+      onKeyUp={(event) => { if (event.key === "Enter" || event.key === " ") release(); }}
+      onBlur={release}>
+      {children}
+    </button>
+  );
+}
+
+/** The show's tempo: typed, nudged, halved, doubled or tapped; its beats paused, resynced or nudged. */
 export function Tempo() {
   const t = useT();
   const bpm = useDoc((doc) => activeTimeline(doc).tempo.bpm);
   const [draft, setDraft] = useState<string | null>(null);
+  const paused = useVj((vj) => vj.play.beatsPaused);
   const taps = useRef<number[]>([]);
   const commit = () => {
     if (draft !== null && draft.trim() !== "") void edit({ op: "setBpm", bpm: Number(draft.replace(",", ".")) });
@@ -45,6 +76,7 @@ export function Tempo() {
   };
   return (
     <div className="vj-bpm" role="group" aria-label={t("vj.tempo.label")}>
+      <BeatLights />
       <span className="vj-lbl">BPM</span>
       <input
         className="vj-bpm-v"
@@ -68,8 +100,18 @@ export function Tempo() {
         <button type="button" title={t("vj.tempo.half")} aria-label={t("vj.tempo.half")} onClick={() => void edit({ op: "scaleBpm", factor: 0.5 })}>÷2</button>
         <button type="button" title={t("vj.tempo.double")} aria-label={t("vj.tempo.double")} onClick={() => void edit({ op: "scaleBpm", factor: 2 })}>×2</button>
       </div>
+      <div className="vj-bpm-k">
+        <NudgeKey direction={-1} label={t("vj.beat.nudgeBack")}>|◀</NudgeKey>
+        <NudgeKey direction={1} label={t("vj.beat.nudgeForward")}>▶|</NudgeKey>
+      </div>
       <button type="button" className="vj-tap" title={t("vj.tempo.tapNote")} onPointerDown={tap}>
         {t("vj.tempo.tap")}
+      </button>
+      <button type="button" className="vj-tap" title={t("vj.beat.resyncNote")} onClick={() => void beatClock({ op: "resync" })}>
+        {t("vj.beat.resync")}
+      </button>
+      <button type="button" className="vj-tap vj-hold" aria-pressed={paused} title={t("vj.beat.pauseNote")} onClick={() => void beatClock({ op: "pause", on: !paused })}>
+        {t("vj.beat.pause")}
       </button>
     </div>
   );
