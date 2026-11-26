@@ -84,7 +84,7 @@ pub struct Quad {
 /// Most quads drawn at once.
 pub const MAX_QUADS: usize = 64;
 /// Pictures drawn one over another at most; more are left out from the bottom.
-pub const MAX_LAYERS: usize = 4;
+pub const MAX_LAYERS: usize = 16;
 
 /// A shape on the window, as `[x, y]` points from 0 to 1 of its width and height, that hides the
 /// picture inside it, or outside it when `invert`.

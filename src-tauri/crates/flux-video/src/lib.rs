@@ -6,6 +6,7 @@
 mod audio;
 mod deck;
 mod decode;
+mod grid;
 mod hap;
 mod layers;
 mod mapping;
@@ -15,6 +16,7 @@ mod thumbs;
 pub use audio::audio_wav;
 pub use deck::{PRELOAD_FRAMES, Shown, VideoDeck};
 pub use decode::{Decoding, Frame, VideoError, VideoFile, VideoInfo};
+pub use grid::{GridPlay, Launched, grid_frame};
 pub use hap::{convert_to_hap, hap_available};
 pub use layers::{Cue, Layer, Probe, layers, upcoming};
 pub use mapping::{Rate, source_frame, timeline_frames};

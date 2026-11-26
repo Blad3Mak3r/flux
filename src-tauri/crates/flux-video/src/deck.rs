@@ -2,9 +2,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use std::time::Duration;
+
+use flux_project::vj::Vj;
 use flux_project::{Timeline, TrackKind};
 
 use crate::decode::Frame;
+use crate::grid::GridPlay;
 use crate::layers::{Cue, Layer, layers, upcoming};
 use crate::player::VideoPlayer;
 
@@ -74,6 +78,11 @@ impl VideoDeck {
                 }
             }
         }
+        self.pictures(shown)
+    }
+
+    /// Asks each layer's player for its frame and pairs the layer with the newest one decoded.
+    fn pictures(&self, shown: Vec<Layer>) -> Vec<Shown> {
         shown
             .into_iter()
             .map(|layer| {
@@ -84,6 +93,30 @@ impl VideoDeck {
                 Shown { layer, frame }
             })
             .collect()
+    }
+
+    /// The layers of the VJ grid to draw `now` on the grid's clock, topmost first: it keeps a player
+    /// for each clip playing and closes the rest.
+    pub fn show_grid(&mut self, vj: &Vj, play: &GridPlay, now: Duration) -> Vec<Shown> {
+        let playing: Vec<(&str, &str)> = vj
+            .layers
+            .iter()
+            .filter_map(|layer| {
+                let launched = play.playing().get(&layer.id)?;
+                let clip = layer.clips.iter().find(|c| c.id == launched.clip)?;
+                Some((clip.id.as_str(), clip.asset.as_str()))
+            })
+            .collect();
+        self.keep_players(&playing);
+        let players = &self.players;
+        let probe = |asset: &str| {
+            players
+                .values()
+                .find(|player| player.asset() == asset)
+                .map(|player| (player.info().rate, player.info().frames))
+        };
+        let shown = play.layers(vj, now, &probe);
+        self.pictures(shown)
     }
 
     /// Clips whose file failed to open, with the path tried, for Show check to report.
@@ -112,9 +145,14 @@ impl VideoDeck {
             })
             .map(|clip| (clip.id.as_str(), clip.asset.as_str()))
             .collect();
+        self.keep_players(&near);
+    }
+
+    /// Keeps a player open for each `(clip, asset)` and closes the others.
+    fn keep_players(&mut self, near: &[(&str, &str)]) {
         self.players
             .retain(|clip, _| near.iter().any(|(id, _)| id == clip));
-        for (clip, asset) in near {
+        for &(clip, asset) in near {
             if self.players.contains_key(clip) || self.failed.contains_key(clip) {
                 continue;
             }
