@@ -10,8 +10,9 @@ import { openSetup, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import { closeDocument, newDocument, openDocument, saveDocument } from "../state/workflows";
 import { hasNativeWindow } from "../components/WindowControls";
+import { stop, toggle } from "../transport/playback";
 import { MOD_KEY, helpMenu } from "../components/menus";
-import { edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
+import { cue, edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
 
 const mod = (keys: string) => `${MOD_KEY}+${keys}`;
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -73,6 +74,12 @@ export function launchSelected(): void {
   if (found) void launch(found.clip.id, found.layer.id);
 }
 
+/** Jumps the selected clip to its `n`-th cue (from 0), launching it there if it is not playing; nothing when the cue is empty. */
+export function cueSelected(n: number): void {
+  const found = selectedClip();
+  if (found?.clip.cues?.[n] != null) void cue(found.clip.id, n);
+}
+
 export function removeSelected(): void {
   const found = selectedClip();
   if (!found) return;
@@ -124,10 +131,18 @@ function editMenu(t: Translate): MenuItem[] {
   ];
 }
 
+/** The timecode runs from here only on the internal clock. */
+const internalClock = () => (grid()?.clock ?? "internal") === "internal";
+
 function compositionMenu(t: Translate): MenuItem[] {
   const crossfader = useVj.getState().play.crossfader;
+  const external = !internalClock();
   return [
     { label: t("vj.menu.stopAll"), shortcut: mod("."), run: stopAll },
+    "-",
+    { heading: t("vj.menu.timecode") },
+    { label: t("vj.menu.playPause"), shortcut: "Space", disabled: external, run: () => void toggle() },
+    { label: t("vj.menu.toStart"), disabled: external, run: () => void stop() },
     "-",
     { heading: t("vj.menu.crossfader") },
     { label: t("vj.menu.crossA"), checked: crossfader === 0, run: () => void moveCrossfader(0) },
@@ -274,6 +289,13 @@ export function vjKeyDown(event: KeyboardEvent, t: Translate): boolean {
       : key === "pageup" ? () => stepDeck(-1)
       : key === "pagedown" ? () => stepDeck(1)
       : null;
+  } else if (event.shiftKey && !event.altKey && /^Digit[1-8]$/.test(event.code)) {
+    // Shift and 1 to 8 jump to the cues of the selected clip, as the digits alone launch columns.
+    run = () => cueSelected(Number(event.code.slice(5)) - 1);
+  } else if (event.key === " " && !onButton) {
+    run = () => {
+      if (internalClock()) void toggle();
+    };
   } else if (/^[1-9]$/.test(event.key)) {
     run = () => launchColumnAt(Number(event.key) - 1);
   } else if (event.key === "Enter" && !onButton) {

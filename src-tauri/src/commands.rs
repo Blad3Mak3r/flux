@@ -414,25 +414,65 @@ fn check_video(path: &Path) -> Result<()> {
 /// the edit made.
 #[tauri::command]
 pub async fn vj_edit(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     project: Project,
     op: flux_project::VjOp,
 ) -> Result<ProjectState> {
-    run(&session, move |s| {
+    let state = run(&session, move |s| {
         s.update(project);
         s.edit_vj(op)
     })
-    .await
+    .await?;
+    // A level, a side, a bypass or a solo changes how loud the playing clips are.
+    crate::modulation::wake();
+    crate::vj_audio::refresh(&app);
+    Ok(state)
 }
 
 /// Moves a level or a clip's transform as a fader or a drag goes, without the project going back
 /// and forth; `vj_edit` keeps the value when the hand lets go.
 #[tauri::command]
-pub fn vj_preview(session: State<'_, SharedSession>, op: flux_project::VjOp) -> Result<()> {
+pub fn vj_preview(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    op: flux_project::VjOp,
+) -> Result<()> {
     session
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-        .preview_vj(op)
+        .preview_vj(op)?;
+    crate::vj_audio::refresh(&app);
+    Ok(())
+}
+
+/// What the inspector and the effects browser are drawn from: how many effects a stack holds, the
+/// categories effects are listed in, and every kind with its category and each setting's range,
+/// unit and default; and what a modulation is made of (shapes, bands, limits and the fields of a
+/// layer and a clip that can be modulated).
+#[tauri::command]
+pub fn vj_effect_catalog() -> serde_json::Value {
+    serde_json::json!({
+        "max": flux_project::vj_effects::MAX_EFFECTS,
+        "categories": flux_project::vj_effects::CATEGORIES,
+        "effects": flux_project::vj_effects::catalog(),
+        "modulation": flux_project::vj_modulation::catalog(),
+    })
+}
+
+/// The font families a text block can use, each with the names of its faces: those the machine has,
+/// and the bundled one. Reading the system's fonts takes a moment the first time, so it is off the
+/// UI thread.
+#[tauri::command]
+pub async fn vj_fonts() -> Vec<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(|| {
+        flux_text::families()
+            .into_iter()
+            .map(|f| serde_json::json!({ "name": f.name, "styles": f.styles }))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[tauri::command]

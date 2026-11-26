@@ -1,8 +1,9 @@
 //! The VJ grid of a project, played like a media server's clip deck: layers stacked one over the
 //! other, columns across them, and in each cell at most one clip, a video the user launches by hand.
-//! A project is of one kind for good, chosen when it is created: a timeline project has no grid, and
-//! a VJ project plays its grid. A VJ project still holds a timeline, so that one day its grid can
-//! follow the clock.
+//! A project is of one kind for good, chosen when it is created: a timeline (cue) project has no
+//! grid, and a VJ project plays its grid. The two are apps of their own in one: a VJ project holds
+//! none of a cue project's content (no tracks, setlists or timecode outputs), only one timeline that
+//! carries the tempo and timecode of its clock.
 //!
 //! The columns come in decks: sets of columns of their own, one of which the grid shows. The layers
 //! are the same in every deck, and a deck holds the clips its columns have on each layer. A global
@@ -13,12 +14,16 @@
 //! blend, transition and crossfader side of a layer are stored with the project; which clip is
 //! playing is not, it belongs to the show running.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
 pub use crate::generator::Generator;
-use crate::model::{MAX_CLIP_NAME, Project, VideoFit};
+use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit};
+pub use crate::vj_effects::{
+    Effect, EffectKind, EffectSpec, EffectTarget, MAX_EFFECTS, MirrorAxis, ParamSpec, Sync,
+};
+pub use crate::vj_modulation::{ModTarget, Modulation};
 use crate::{ProjectError, Result};
 
 /// Most layers a grid has.
@@ -60,6 +65,72 @@ pub struct Vj {
     /// Id of the deck the grid shows.
     #[serde(default)]
     pub deck: String,
+    /// Where the show's timecode clock comes from; absent is [`ClockSource::Internal`].
+    #[serde(default, skip_serializing_if = "ClockSource::is_internal")]
+    pub clock: ClockSource,
+    /// The composition's effects, applied to the final mix of the layers before the output mapping,
+    /// the first applied first. Only here the kinds that need the frames before them (feedback,
+    /// trails, bloom) are allowed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub composition_effects: Vec<Effect>,
+    /// Draws the composition without its effects; they keep their place and settings.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub composition_bypass: bool,
+}
+
+/// Where the timecode clock of a VJ show comes from: Flux's own transport, or timecode coming in
+/// by LTC or MTC, which the clock follows and the operator cannot move.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClockSource {
+    #[default]
+    Internal,
+    Ltc,
+    Mtc,
+}
+
+impl ClockSource {
+    fn is_internal(&self) -> bool {
+        *self == Self::Internal
+    }
+}
+
+/// Taps further apart than this start a new count.
+const TAP_GAP_MS: f64 = 2000.0;
+/// How many of the last taps make the tempo.
+const TAP_COUNT: usize = 8;
+
+/// The tempo of `taps` (milliseconds, oldest first): the mean time between the last run of taps
+/// that are closer than [`TAP_GAP_MS`], at most [`TAP_COUNT`] of them. `None` before two taps.
+pub fn tapped_bpm(taps: &[f64]) -> Option<f64> {
+    let mut run = taps.len().checked_sub(1)?;
+    while run > 0 && taps.len() - run < TAP_COUNT {
+        let gap = taps[run] - taps[run - 1];
+        if !(gap > 0.0 && gap <= TAP_GAP_MS) {
+            break;
+        }
+        run -= 1;
+    }
+    let taps = &taps[run..];
+    if taps.len() < 2 {
+        return None;
+    }
+    let mean = (taps[taps.len() - 1] - taps[0]) / (taps.len() - 1) as f64;
+    (mean > 0.0).then(|| 60_000.0 / mean)
+}
+
+/// Sets the tempo of the show to `change` of the one it has. It is kept in the show's timeline, so
+/// the metronome and the engine follow it, brought into range and to two decimals.
+fn set_bpm(timelines: &mut [Timeline], change: impl FnOnce(f64) -> f64) -> Result<()> {
+    let timeline = timelines
+        .first_mut()
+        .ok_or_else(|| ProjectError::Invalid("a VJ project keeps one timeline".into()))?;
+    let bpm = change(timeline.tempo.bpm);
+    if !bpm.is_finite() {
+        return Err(ProjectError::Invalid("a tempo is a number".into()));
+    }
+    timeline.tempo.bpm = (bpm.clamp(MIN_BPM, MAX_BPM) * 100.0).round() / 100.0;
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,6 +195,14 @@ pub struct Layer {
     /// Folded to a thin row on the grid, as in Resolume; it plays as before.
     #[serde(default, skip_serializing_if = "is_false")]
     pub collapsed: bool,
+    /// The layer's effects, drawn on each of its clips' pictures after the clip's own; the first
+    /// is applied first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
+    /// What drives `master`, `opacity` or `volume` by itself (see [`crate::vj_modulation`]), by
+    /// field. The stored value is the one the fader stands at.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modulation: BTreeMap<String, Modulation>,
     /// At most one per column of each deck (per slot on a global layer), in no particular order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<Clip>,
@@ -161,6 +240,8 @@ impl Layer {
             bypass: false,
             solo: false,
             collapsed: false,
+            effects: Vec::new(),
+            modulation: BTreeMap::new(),
             clips: Vec::new(),
         }
     }
@@ -260,6 +341,31 @@ pub struct Clip {
     /// What a press on the clip does; absent is [`Trigger::Normal`].
     #[serde(default, skip_serializing_if = "Trigger::is_normal")]
     pub trigger: Trigger,
+    /// How fast the clip plays when its [`tempo`](Self::tempo) is free: 1 is its own speed, from
+    /// [`MIN_SPEED`] to [`MAX_SPEED`]. Absent is 1.
+    #[serde(default = "full_speed", skip_serializing_if = "is_full_speed")]
+    pub speed: f32,
+    /// How long a still image or a generator lasts, in seconds, from [`MIN_DURATION`] to
+    /// [`MAX_DURATION`]: the length its transport (region, cues, loop, once, tempo) runs over, as
+    /// a video's file does for a video, which ignores it. Absent is [`DEFAULT_DURATION`].
+    #[serde(
+        default = "default_duration",
+        skip_serializing_if = "is_default_duration"
+    )]
+    pub duration: f32,
+    /// Which way the clip plays; absent is [`Direction::Forward`].
+    #[serde(default, skip_serializing_if = "Direction::is_forward")]
+    pub direction: Direction,
+    /// Whether a pass lasts as long as the clip says or a number of beats; absent is
+    /// [`Tempo::Free`].
+    #[serde(default, skip_serializing_if = "Tempo::is_free")]
+    pub tempo: Tempo,
+    /// The part of the clip that plays and repeats, as fractions of its length; absent is all of it.
+    #[serde(default, skip_serializing_if = "Region::is_whole")]
+    pub region: Region,
+    /// Places the clip jumps to, as fractions of its length; absent are all empty.
+    #[serde(default, skip_serializing_if = "no_cues")]
+    pub cues: [Option<f32>; CUES],
     /// How the video is sized into the composition; absent is [`VideoFit::Fit`].
     #[serde(default, skip_serializing_if = "is_fit")]
     pub fit: VideoFit,
@@ -270,6 +376,13 @@ pub struct Clip {
     /// width and height, right and down. Absent is not moved.
     #[serde(default, skip_serializing_if = "is_centred")]
     pub position: [f32; 2],
+    /// The clip's effects, first applied first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
+    /// What drives `scale`, `positionX` or `positionY` by itself (see [`crate::vj_modulation`]), by
+    /// field.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modulation: BTreeMap<String, Modulation>,
 }
 
 fn is_fit(fit: &VideoFit) -> bool {
@@ -286,6 +399,135 @@ fn is_full_scale(scale: &f32) -> bool {
 
 fn is_centred(position: &[f32; 2]) -> bool {
     *position == [0.0, 0.0]
+}
+
+fn default_duration() -> f32 {
+    DEFAULT_DURATION
+}
+
+fn is_default_duration(duration: &f32) -> bool {
+    *duration == DEFAULT_DURATION
+}
+
+fn full_speed() -> f32 {
+    1.0
+}
+
+fn is_full_speed(speed: &f32) -> bool {
+    *speed == 1.0
+}
+
+fn no_cues(cues: &[Option<f32>; CUES]) -> bool {
+    cues.iter().all(Option::is_none)
+}
+
+/// Slowest and fastest a clip plays, times its own speed.
+pub const MIN_SPEED: f32 = 0.05;
+pub const MAX_SPEED: f32 = 8.0;
+/// The length of a still image or a generator, in seconds: the shortest, the longest and the one a
+/// new clip has.
+pub const MIN_DURATION: f32 = 0.1;
+pub const MAX_DURATION: f32 = 3600.0;
+pub const DEFAULT_DURATION: f32 = 10.0;
+/// The shortest region of a clip, as a fraction of its length.
+pub const MIN_REGION: f32 = 0.001;
+/// How many cues a clip has.
+pub const CUES: usize = 8;
+/// The lengths, in beats, that one pass of a clip can be made to last.
+pub const TEMPO_BEATS: [u32; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
+
+/// Which way a clip plays through its region.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Direction {
+    #[default]
+    Forward,
+    Reverse,
+    /// Holds the picture where it is, and is silent.
+    Pause,
+}
+
+impl Direction {
+    fn is_forward(&self) -> bool {
+        *self == Self::Forward
+    }
+
+    /// 1 forwards, -1 backwards, 0 paused.
+    pub fn sign(self) -> f64 {
+        match self {
+            Self::Forward => 1.0,
+            Self::Reverse => -1.0,
+            Self::Pause => 0.0,
+        }
+    }
+}
+
+/// How long one pass through a clip's region lasts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Tempo {
+    /// As long as the clip's speed makes it.
+    #[default]
+    Free,
+    /// Exactly this many beats of the composition's tempo, one of [`TEMPO_BEATS`]; the speed does
+    /// not count.
+    Beats { beats: u32 },
+}
+
+impl Tempo {
+    fn is_free(&self) -> bool {
+        *self == Self::Free
+    }
+}
+
+/// The part of a clip that plays, as fractions of its length: `start` below `end`.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Region {
+    pub start: f32,
+    pub end: f32,
+}
+
+impl Default for Region {
+    fn default() -> Self {
+        Self {
+            start: 0.0,
+            end: 1.0,
+        }
+    }
+}
+
+impl Region {
+    fn is_whole(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The region with both ends brought into 0 to 1 and at least [`MIN_REGION`] apart: the start
+    /// is kept unless there is no room for the end after it, and the end gives way to it.
+    pub fn tidy(start: f32, end: f32) -> Result<Self> {
+        if !start.is_finite() || !end.is_finite() {
+            return Err(ProjectError::Invalid("a region is made of numbers".into()));
+        }
+        let start = start.clamp(0.0, 1.0 - MIN_REGION);
+        let end = end.clamp(start + MIN_REGION, 1.0);
+        Ok(Self { start, end })
+    }
+
+    /// Its length, as a fraction of the clip's.
+    pub fn span(&self) -> f32 {
+        self.end - self.start
+    }
+
+    fn valid(&self) -> bool {
+        self.start.is_finite()
+            && self.end.is_finite()
+            && self.start >= 0.0
+            && self.end <= 1.0
+            && self.end - self.start >= MIN_REGION * 0.999
+    }
 }
 
 /// Largest scale of a clip: 1000%.
@@ -401,6 +643,26 @@ pub enum VjOp {
         layer: String,
         on: bool,
     },
+    /// The tempo of the show, in beats a minute.
+    SetBpm {
+        bpm: f64,
+    },
+    /// The tempo moved by `by` beats a minute.
+    NudgeBpm {
+        by: f64,
+    },
+    /// The tempo times `factor`, as the ×2 and ÷2 buttons.
+    ScaleBpm {
+        factor: f64,
+    },
+    /// The tempo of the taps on the tap button, in milliseconds (see [`tapped_bpm`]).
+    TapBpm {
+        taps: Vec<f64>,
+    },
+    /// Where the timecode clock comes from.
+    SetClock {
+        source: ClockSource,
+    },
     /// A new deck with [`DEFAULT_COLUMNS`] empty columns, after the others, which the grid shows.
     AddDeck,
     /// Takes the deck, its columns and their clips away; the last deck stays.
@@ -465,10 +727,49 @@ pub enum VjOp {
         clip: String,
         playback: Playback,
     },
+    /// How fast the clip plays, times its own speed, from [`MIN_SPEED`] to [`MAX_SPEED`].
+    ClipSpeed {
+        clip: String,
+        value: f32,
+    },
+    /// How long a still image or a generator lasts, in seconds, from [`MIN_DURATION`] to
+    /// [`MAX_DURATION`]; a video keeps the length of its file.
+    ClipDuration {
+        clip: String,
+        value: f32,
+    },
+    ClipDirection {
+        clip: String,
+        direction: Direction,
+    },
+    /// Free, or a pass of so many beats; the beats go to the nearest of [`TEMPO_BEATS`].
+    ClipTempo {
+        clip: String,
+        tempo: Tempo,
+    },
+    /// The part of the clip that plays, as fractions of its length; cues stay where they are.
+    ClipRegion {
+        clip: String,
+        start: f32,
+        end: f32,
+    },
+    /// Puts cue `index` (0 to 7) of the clip at `position`, a fraction of its length, or empties
+    /// it with `None`.
+    ClipCue {
+        clip: String,
+        index: usize,
+        position: Option<f32>,
+    },
     /// Changes what a generator clip draws; a video clip stays a video.
     ClipGenerator {
         clip: String,
         generator: Generator,
+    },
+    /// Moves the line a text block shows (its `line`) by `step` lines, skipping the empty ones and
+    /// wrapping round. A video clip or another generator refuses it.
+    TextLine {
+        clip: String,
+        step: i32,
     },
     ClipTrigger {
         clip: String,
@@ -490,11 +791,55 @@ pub enum VjOp {
         x: f32,
         y: f32,
     },
+    /// Puts a new effect of the kind called `kind` (see [`crate::vj_effects::catalog`]), with the settings
+    /// it starts with, at the end of the stack of a clip, of a layer or of the composition; a stack
+    /// holds at most [`MAX_EFFECTS`]. The kinds that are for the composition only are refused on a
+    /// clip or a layer.
+    AddEffect {
+        target: EffectTarget,
+        kind: String,
+    },
+    /// Skips (or brings back) the whole composition stack, whatever each effect's own bypass says.
+    CompositionBypass {
+        bypass: bool,
+    },
+    RemoveEffect {
+        effect: String,
+    },
+    /// Puts the effect at `index` of its stack, 0 being the first applied.
+    MoveEffect {
+        effect: String,
+        index: usize,
+    },
+    /// Sets the effect's settings; `kind` is the kind it already is.
+    EffectParams {
+        effect: String,
+        kind: EffectKind,
+    },
+    EffectBypass {
+        effect: String,
+        bypass: bool,
+    },
+    /// Puts a copy of the effect, with a new id and the same settings, right after it; a stack
+    /// holds at most [`MAX_EFFECTS`].
+    DuplicateEffect {
+        effect: String,
+    },
+    /// Gives the effect the settings its kind starts with, and takes its modulation away.
+    ResetEffect {
+        effect: String,
+    },
+    /// Sets what drives a numeric setting by itself (see [`crate::vj_modulation`]), or with `None`
+    /// takes it away. The values are brought into the setting's range.
+    SetModulation {
+        target: ModTarget,
+        modulation: Option<Modulation>,
+    },
 }
 
 impl Vj {
     pub(crate) fn is_empty(&self) -> bool {
-        self.layers.is_empty() && self.decks.is_empty()
+        self.layers.is_empty() && self.decks.is_empty() && self.composition_effects.is_empty()
     }
 
     /// The grid of a new VJ project: [`DEFAULT_LAYERS`] layers and one deck of [`DEFAULT_COLUMNS`]
@@ -508,6 +853,9 @@ impl Vj {
             layers,
             deck: deck.id.clone(),
             decks: vec![deck],
+            clock: ClockSource::Internal,
+            composition_effects: Vec::new(),
+            composition_bypass: false,
         }
     }
 
@@ -587,6 +935,22 @@ impl Vj {
             .ok_or_else(|| ProjectError::Invalid(format!("no clip {id}")))
     }
 
+    /// The stack holding the effect `id` (of a layer, of a clip or of the composition), and the
+    /// effect's place in it.
+    fn effect_mut(&mut self, id: &str) -> Result<(&mut Vec<Effect>, usize)> {
+        let layers = self.layers.iter_mut().flat_map(|layer| {
+            std::iter::once(&mut layer.effects)
+                .chain(layer.clips.iter_mut().map(|clip| &mut clip.effects))
+        });
+        std::iter::once(&mut self.composition_effects)
+            .chain(layers)
+            .find_map(|stack| {
+                let at = stack.iter().position(|effect| effect.id == id)?;
+                Some((stack, at))
+            })
+            .ok_or_else(|| ProjectError::Invalid(format!("no effect {id}")))
+    }
+
     fn deck_index(&self, id: &str) -> Result<usize> {
         self.decks
             .iter()
@@ -646,6 +1010,14 @@ fn within(value: f32, min: f32, max: f32) -> Result<f32> {
     }
 }
 
+/// The length in [`TEMPO_BEATS`] nearest to `beats`.
+fn nearest_beats(beats: u32) -> u32 {
+    TEMPO_BEATS
+        .into_iter()
+        .min_by_key(|length| length.abs_diff(beats))
+        .unwrap_or(1)
+}
+
 /// Applies `op` to a VJ project; `new_id` names whatever it creates. The caller validates the result.
 pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String) -> Result<()> {
     if project.mode != ProjectMode::Vj {
@@ -688,6 +1060,15 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::LayerBypass { layer, on } => vj.layer_mut(&layer)?.bypass = on,
         VjOp::LayerSolo { layer, on } => vj.layer_mut(&layer)?.solo = on,
         VjOp::LayerCollapse { layer, on } => vj.layer_mut(&layer)?.collapsed = on,
+        VjOp::SetClock { source } => vj.clock = source,
+        VjOp::SetBpm { bpm } => set_bpm(&mut project.timelines, |_| bpm)?,
+        VjOp::NudgeBpm { by } => set_bpm(&mut project.timelines, |now| now + by)?,
+        VjOp::ScaleBpm { factor } => set_bpm(&mut project.timelines, |now| now * factor)?,
+        VjOp::TapBpm { taps } => {
+            let tapped = tapped_bpm(&taps)
+                .ok_or_else(|| ProjectError::Invalid("tap at least twice".into()))?;
+            set_bpm(&mut project.timelines, |_| tapped)?;
+        }
         VjOp::AddDeck => {
             if vj.decks.len() >= MAX_DECKS {
                 return Err(ProjectError::Invalid(format!(
@@ -813,6 +1194,36 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         }
         VjOp::RenameClip { clip, name } => vj.clip_mut(&clip)?.name = typed_name(&name)?,
         VjOp::ClipPlayback { clip, playback } => vj.clip_mut(&clip)?.playback = playback,
+        VjOp::ClipSpeed { clip, value } => {
+            vj.clip_mut(&clip)?.speed = within(value, MIN_SPEED, MAX_SPEED)?;
+        }
+        VjOp::ClipDuration { clip, value } => {
+            vj.clip_mut(&clip)?.duration = within(value, MIN_DURATION, MAX_DURATION)?;
+        }
+        VjOp::ClipDirection { clip, direction } => vj.clip_mut(&clip)?.direction = direction,
+        VjOp::ClipTempo { clip, tempo } => {
+            vj.clip_mut(&clip)?.tempo = match tempo {
+                Tempo::Free => Tempo::Free,
+                Tempo::Beats { beats } => Tempo::Beats {
+                    beats: nearest_beats(beats),
+                },
+            };
+        }
+        VjOp::ClipRegion { clip, start, end } => {
+            vj.clip_mut(&clip)?.region = Region::tidy(start, end)?;
+        }
+        VjOp::ClipCue {
+            clip,
+            index,
+            position,
+        } => {
+            let clip = vj.clip_mut(&clip)?;
+            let slot = clip
+                .cues
+                .get_mut(index)
+                .ok_or_else(|| ProjectError::Invalid(format!("a clip has {CUES} cues")))?;
+            *slot = position.map(|p| within(p, 0.0, 1.0)).transpose()?;
+        }
         VjOp::ClipGenerator { clip, generator } => {
             let clip = vj.clip_mut(&clip)?;
             if clip.generator.is_none() {
@@ -821,7 +1232,24 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                     clip.id
                 )));
             }
-            clip.generator = Some(generator.tidy());
+            let generator = generator.tidy();
+            // A modulation of a number the new kind of generator does not have goes with it.
+            clip.modulation.retain(|field, _| {
+                field
+                    .strip_prefix(crate::vj_modulation::GENERATOR_FIELD)
+                    .is_none_or(|name| generator.numbers().contains(&name))
+            });
+            clip.generator = Some(generator);
+        }
+        VjOp::TextLine { clip, step } => {
+            let clip = vj.clip_mut(&clip)?;
+            let Some(Generator::Text { text, line, .. }) = &mut clip.generator else {
+                return Err(ProjectError::Invalid(format!(
+                    "clip {} is not a text block",
+                    clip.id
+                )));
+            };
+            *line = crate::generator::step_line(text, *line, step);
         }
         VjOp::ClipTrigger { clip, trigger } => vj.clip_mut(&clip)?.trigger = trigger,
         VjOp::ClipFit { clip, fit } => vj.clip_mut(&clip)?.fit = fit,
@@ -832,11 +1260,80 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             let offset = |v| within(v, -MAX_OFFSET, MAX_OFFSET);
             vj.clip_mut(&clip)?.position = [offset(x)?, offset(y)?];
         }
+        VjOp::AddEffect { target, kind } => {
+            let kind = EffectKind::default_of(&kind)?;
+            if kind.composition_only() && target != EffectTarget::Composition {
+                return Err(ProjectError::Invalid(format!(
+                    "a {} effect only works on the composition",
+                    kind.name()
+                )));
+            }
+            let stack = match target {
+                EffectTarget::Clip(clip) => &mut vj.clip_mut(&clip)?.effects,
+                EffectTarget::Layer(layer) => &mut vj.layer_mut(&layer)?.effects,
+                EffectTarget::Composition => &mut vj.composition_effects,
+            };
+            if stack.len() >= MAX_EFFECTS {
+                return Err(ProjectError::Invalid(format!(
+                    "a stack has at most {MAX_EFFECTS} effects"
+                )));
+            }
+            stack.push(Effect {
+                id: new_id(),
+                bypass: false,
+                modulation: BTreeMap::new(),
+                kind,
+            });
+        }
+        VjOp::CompositionBypass { bypass } => vj.composition_bypass = bypass,
+        VjOp::RemoveEffect { effect } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            stack.remove(at);
+        }
+        VjOp::MoveEffect { effect, index } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            let moved = stack.remove(at);
+            stack.insert(index.min(stack.len()), moved);
+        }
+        VjOp::EffectParams { effect, kind } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            if !stack[at].kind.same_kind(&kind) {
+                return Err(ProjectError::Invalid(format!(
+                    "effect {effect} is a {}, not a {}",
+                    stack[at].kind.name(),
+                    kind.name()
+                )));
+            }
+            stack[at].kind = kind.tidy()?;
+        }
+        VjOp::EffectBypass { effect, bypass } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            stack[at].bypass = bypass;
+        }
+        VjOp::DuplicateEffect { effect } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            if stack.len() >= MAX_EFFECTS {
+                return Err(ProjectError::Invalid(format!(
+                    "a stack has at most {MAX_EFFECTS} effects"
+                )));
+            }
+            let copy = Effect {
+                id: new_id(),
+                ..stack[at].clone()
+            };
+            stack.insert(at + 1, copy);
+        }
+        VjOp::ResetEffect { effect } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            stack[at].kind = EffectKind::default_of(&stack[at].kind.name())?;
+            stack[at].modulation.clear();
+        }
+        VjOp::SetModulation { target, modulation } => set_modulation(vj, target, modulation)?,
     }
     Ok(())
 }
 
-fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
+pub(crate) fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
     Clip {
         id,
         column: None,
@@ -846,9 +1343,17 @@ fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
         name: None,
         playback: Playback::Loop,
         trigger: Trigger::Normal,
+        speed: 1.0,
+        duration: DEFAULT_DURATION,
+        direction: Direction::Forward,
+        tempo: Tempo::Free,
+        region: Region::default(),
+        cues: [None; CUES],
         fit: VideoFit::Fit,
         scale: 1.0,
         position: [0.0, 0.0],
+        effects: Vec::new(),
+        modulation: BTreeMap::new(),
     }
 }
 
@@ -875,6 +1380,37 @@ fn take_clip(vj: &mut Vj, layer: &str, which: impl Fn(&Clip) -> bool) -> Option<
     let layer = vj.layers.iter_mut().find(|l| l.id == layer)?;
     let index = layer.clips.iter().position(which)?;
     Some(layer.clips.remove(index))
+}
+
+/// Sets or takes away the modulation `target` names, brought into the range of the setting.
+fn set_modulation(vj: &mut Vj, target: ModTarget, modulation: Option<Modulation>) -> Result<()> {
+    let (map, key, (lo, hi)) = match target {
+        ModTarget::Effect { effect, param } => {
+            let (stack, at) = vj.effect_mut(&effect)?;
+            let range = stack[at].kind.modulatable_range(&param)?;
+            (&mut stack[at].modulation, param, range)
+        }
+        ModTarget::Layer { layer, field } => {
+            let range = crate::vj_modulation::layer_range(&field)
+                .ok_or_else(|| ProjectError::Invalid(format!("{field} cannot be modulated")))?;
+            (&mut vj.layer_mut(&layer)?.modulation, field, range)
+        }
+        ModTarget::Clip { clip, field } => {
+            let clip = vj.clip_mut(&clip)?;
+            let range = crate::vj_modulation::clip_field_range(clip, &field)
+                .ok_or_else(|| ProjectError::Invalid(format!("{field} cannot be modulated")))?;
+            (&mut clip.modulation, field, range)
+        }
+    };
+    match modulation {
+        Some(modulation) => {
+            map.insert(key, modulation.tidy(lo, hi)?);
+        }
+        None => {
+            map.remove(&key);
+        }
+    }
+    Ok(())
 }
 
 /// A typed name, or `None` for an empty one (the default name).
@@ -911,6 +1447,27 @@ pub(crate) fn validate<'a>(
         ProjectMode::Vj if vj.shown_deck().is_none() => {
             return Err(ProjectError::Invalid(format!("no deck {}", vj.deck)));
         }
+        // A VJ show is an app of its own: none of a cue show's content, so its clock plays nothing
+        // but the grid. Its one timeline only carries the clock's tempo and timecode.
+        ProjectMode::Vj
+            if project.timelines.len() != 1
+                || project
+                    .timelines
+                    .iter()
+                    .any(|t| !t.tracks.is_empty() || !t.controls.is_empty())
+                || !project.setlists.is_empty()
+                || !project.assets.is_empty()
+                || project.voice.is_some()
+                || !project.output.ltc.is_empty()
+                || !project.output.mtc.is_empty()
+                || !project.output.osc.is_empty()
+                || !project.output.audio.is_empty()
+                || project.output.metronome.is_some() =>
+        {
+            return Err(ProjectError::Invalid(
+                "a VJ show has no timeline tracks, audio, setlists or timecode outputs".into(),
+            ));
+        }
         ProjectMode::Timeline if !vj.is_empty() => {
             return Err(ProjectError::Invalid(
                 "a timeline project has no VJ grid".into(),
@@ -937,6 +1494,7 @@ pub(crate) fn validate<'a>(
             check_name(column.name.as_deref())?;
         }
     }
+    crate::vj_effects::validate_stack(&vj.composition_effects, true, item_ids)?;
     for layer in &vj.layers {
         unique(&mut ids, &layer.id)?;
         check_name(layer.name.as_deref())?;
@@ -949,6 +1507,8 @@ pub(crate) fn validate<'a>(
                 layer.id
             )));
         }
+        crate::vj_effects::validate_stack(&layer.effects, false, item_ids)?;
+        crate::vj_modulation::validate_map(&layer.modulation, crate::vj_modulation::layer_range)?;
         let mut cells = HashSet::new();
         for clip in &layer.clips {
             if !item_ids.insert(&clip.id) {
@@ -988,6 +1548,11 @@ pub(crate) fn validate<'a>(
                 None => {}
             }
             check_name(clip.name.as_deref())?;
+            check_transport(clip)?;
+            crate::vj_effects::validate_stack(&clip.effects, false, item_ids)?;
+            crate::vj_modulation::validate_map(&clip.modulation, |field| {
+                crate::vj_modulation::clip_field_range(clip, field)
+            })?;
             if !(0.0..=MAX_SCALE).contains(&clip.scale)
                 || clip
                     .position
@@ -1000,6 +1565,31 @@ pub(crate) fn validate<'a>(
                 )));
             }
         }
+    }
+    Ok(())
+}
+
+/// The speed, tempo, region and cues of a clip are within their ranges.
+fn check_transport(clip: &Clip) -> Result<()> {
+    let tempo = match clip.tempo {
+        Tempo::Free => true,
+        Tempo::Beats { beats } => TEMPO_BEATS.contains(&beats),
+    };
+    let cues = clip
+        .cues
+        .iter()
+        .flatten()
+        .all(|cue| (0.0..=1.0).contains(cue));
+    if !(MIN_SPEED..=MAX_SPEED).contains(&clip.speed)
+        || !(MIN_DURATION..=MAX_DURATION).contains(&clip.duration)
+        || !tempo
+        || !clip.region.valid()
+        || !cues
+    {
+        return Err(ProjectError::Invalid(format!(
+            "clip {} needs a speed of {MIN_SPEED} to {MAX_SPEED}, a duration of {MIN_DURATION} to {MAX_DURATION} seconds, a length of 1 to 128 beats, a region of at least {MIN_REGION} inside the clip and cues inside the clip",
+            clip.id
+        )));
     }
     Ok(())
 }
@@ -1038,7 +1628,8 @@ mod tests {
 
     /// A VJ project with the starting grid (layers g1 to g3, deck g4 with columns g5 to g12).
     fn vj_project() -> (Project, impl FnMut() -> String) {
-        let mut project = video_project();
+        let mut project = Project::new("Show", crate::FrameRate::Fps25);
+        project.videos = video_project().videos;
         let mut new_id = ids();
         project.mode = ProjectMode::Vj;
         project.vj = Vj::starting(&mut new_id);
@@ -1156,6 +1747,39 @@ mod tests {
     }
 
     #[test]
+    fn text_line_should_step_a_text_block_and_refuse_anything_else() {
+        let (mut project, mut new_id) = vj_project();
+        let text: Generator = serde_json::from_value(
+            serde_json::json!({ "kind": "text", "text": "a\n\nb", "lines": "one" }),
+        )
+        .unwrap();
+        let op = VjOp::PlaceGenerator {
+            generator: text,
+            layer: "g1".into(),
+            column: "g5".into(),
+        };
+        run(&mut project, op, &mut new_id);
+        let clip = project.vj.layers[0].clips[0].id.clone();
+        let step = |project: &mut Project, new_id: &mut dyn FnMut() -> String, step: i32| {
+            let op = VjOp::TextLine {
+                clip: clip.clone(),
+                step,
+            };
+            apply(project, op, new_id).unwrap();
+            match &project.vj.layers[0].clips[0].generator {
+                Some(Generator::Text { line, .. }) => *line,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(step(&mut project, &mut new_id, 1), 2);
+        assert_eq!(step(&mut project, &mut new_id, 1), 0, "wraps");
+        assert_eq!(step(&mut project, &mut new_id, -1), 2);
+        project.vj.layers[0].clips[0].generator = Some(Generator::Bars);
+        let op = VjOp::TextLine { clip, step: 1 };
+        assert!(apply(&mut project, op, &mut new_id).is_err());
+    }
+
+    #[test]
     fn a_global_layer_should_keep_its_clips_in_slots_across_decks() {
         let (mut project, mut new_id) = vj_project();
         run(&mut project, VjOp::AddLayer { global: true }, &mut new_id); // g13
@@ -1205,6 +1829,183 @@ mod tests {
         );
         let back: Clip = serde_json::from_value(json).unwrap();
         assert_eq!(back, clip(&project));
+    }
+
+    fn transport(project: &Project) -> &Clip {
+        project.vj.find_clip("g13").unwrap().1
+    }
+
+    #[test]
+    fn a_clip_should_start_with_the_transport_of_a_plain_clip_and_store_none_of_it() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let clip = transport(&project);
+        assert_eq!(clip.speed, 1.0);
+        assert_eq!(clip.direction, Direction::Forward);
+        assert_eq!(clip.tempo, Tempo::Free);
+        assert_eq!(clip.region, Region::default());
+        assert_eq!(clip.cues, [None; CUES]);
+        let json = serde_json::to_value(clip).unwrap();
+        assert_eq!(clip.duration, DEFAULT_DURATION);
+        for field in ["speed", "duration", "direction", "tempo", "region", "cues"] {
+            assert!(json.get(field).is_none(), "{field} is left out");
+        }
+        // A clip written before the transport has the same.
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, clip);
+    }
+
+    #[test]
+    fn the_transport_ops_should_set_bring_into_range_and_round_trip() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let clip = || "g13".to_owned();
+        run(
+            &mut project,
+            VjOp::ClipSpeed {
+                clip: clip(),
+                value: 50.0,
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).speed, MAX_SPEED);
+        run(
+            &mut project,
+            VjOp::ClipSpeed {
+                clip: clip(),
+                value: 0.0,
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).speed, MIN_SPEED);
+        assert!(
+            apply(
+                &mut project,
+                VjOp::ClipSpeed {
+                    clip: clip(),
+                    value: f32::NAN
+                },
+                &mut new_id
+            )
+            .is_err()
+        );
+        run(
+            &mut project,
+            VjOp::ClipDirection {
+                clip: clip(),
+                direction: Direction::Reverse,
+            },
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            VjOp::ClipTempo {
+                clip: clip(),
+                tempo: Tempo::Beats { beats: 5 },
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).tempo, Tempo::Beats { beats: 4 });
+        run(
+            &mut project,
+            VjOp::ClipRegion {
+                clip: clip(),
+                start: 0.3,
+                end: 0.2,
+            },
+            &mut new_id,
+        );
+        let region = transport(&project).region;
+        assert_eq!(region.start, 0.3);
+        assert!(region.span() >= MIN_REGION * 0.999, "a minimum span");
+        run(
+            &mut project,
+            VjOp::ClipRegion {
+                clip: clip(),
+                start: -2.0,
+                end: 9.0,
+            },
+            &mut new_id,
+        );
+        assert_eq!(transport(&project).region, Region::default());
+        for (index, position) in [(0, Some(0.25)), (7, Some(7.0)), (3, None)] {
+            let op = VjOp::ClipCue {
+                clip: clip(),
+                index,
+                position,
+            };
+            run(&mut project, op, &mut new_id);
+        }
+        let cues = transport(&project).cues;
+        assert_eq!((cues[0], cues[7], cues[3]), (Some(0.25), Some(1.0), None));
+        let outside = VjOp::ClipCue {
+            clip: clip(),
+            index: CUES,
+            position: Some(0.5),
+        };
+        assert!(apply(&mut project, outside, &mut new_id).is_err());
+        // What was set is stored, and read back the same.
+        let json = serde_json::to_value(transport(&project)).unwrap();
+        assert_eq!(json["direction"], "reverse");
+        assert_eq!(json["tempo"]["kind"], "beats");
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, transport(&project));
+    }
+
+    #[test]
+    fn the_duration_op_should_bring_into_range_round_trip_and_refuse_what_is_not_a_number() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let duration = |value| VjOp::ClipDuration {
+            clip: "g13".into(),
+            value,
+        };
+        run(&mut project, duration(3.0), &mut new_id);
+        assert_eq!(transport(&project).duration, 3.0);
+        run(&mut project, duration(0.0), &mut new_id);
+        assert_eq!(transport(&project).duration, MIN_DURATION);
+        run(&mut project, duration(1e9), &mut new_id);
+        assert_eq!(transport(&project).duration, MAX_DURATION);
+        assert!(apply(&mut project, duration(f32::NAN), &mut new_id).is_err());
+        run(&mut project, duration(2.5), &mut new_id);
+        let json = serde_json::to_value(transport(&project)).unwrap();
+        assert_eq!(json["duration"].as_f64(), Some(2.5));
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, transport(&project));
+        let mut without = serde_json::to_value(transport(&project)).unwrap();
+        without.as_object_mut().unwrap().remove("duration");
+        let old: Clip = serde_json::from_value(without).unwrap();
+        assert_eq!(
+            old.duration, DEFAULT_DURATION,
+            "an old file has the default"
+        );
+    }
+
+    #[test]
+    fn validate_should_refuse_a_transport_out_of_range() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let broken = |change: &dyn Fn(&mut Clip)| {
+            let mut project = project.clone();
+            change(project.vj.clip_mut("g13").unwrap());
+            project.validate().is_err()
+        };
+        assert!(broken(&|c| c.speed = 9.0));
+        assert!(broken(&|c| c.speed = 0.0));
+        assert!(broken(&|c| c.duration = 0.0));
+        assert!(broken(&|c| c.duration = MAX_DURATION + 1.0));
+        assert!(broken(&|c| c.duration = f32::NAN));
+        assert!(broken(&|c| c.tempo = Tempo::Beats { beats: 3 }));
+        assert!(broken(&|c| c.region = Region {
+            start: 0.5,
+            end: 0.5
+        }));
+        assert!(broken(&|c| c.region = Region {
+            start: 0.1,
+            end: 1.5
+        }));
+        assert!(broken(&|c| c.cues[2] = Some(1.5)));
+        assert!(!broken(&|c| c.tempo = Tempo::Beats { beats: 128 }));
     }
 
     #[test]
@@ -1312,6 +2113,52 @@ mod tests {
     }
 
     #[test]
+    fn the_tempo_should_be_set_nudged_scaled_and_kept_in_range() {
+        let (mut project, mut new_id) = vj_project();
+        let bpm = |p: &Project| p.timelines[0].tempo.bpm;
+        run(&mut project, VjOp::SetBpm { bpm: 128.456 }, &mut new_id);
+        assert_eq!(bpm(&project), 128.46);
+        run(&mut project, VjOp::NudgeBpm { by: -1.0 }, &mut new_id);
+        assert_eq!(bpm(&project), 127.46);
+        run(&mut project, VjOp::ScaleBpm { factor: 0.5 }, &mut new_id);
+        assert_eq!(bpm(&project), 63.73);
+        run(&mut project, VjOp::ScaleBpm { factor: 100.0 }, &mut new_id);
+        assert_eq!(bpm(&project), MAX_BPM);
+        let nan = VjOp::SetBpm { bpm: f64::NAN };
+        assert!(apply(&mut project, nan, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn tapping_should_give_the_tempo_of_the_last_run_of_taps() {
+        assert_eq!(tapped_bpm(&[]), None);
+        assert_eq!(tapped_bpm(&[1000.0]), None);
+        // Half a second apart is 120 BPM; the tap long before starts no run with them.
+        assert_eq!(
+            tapped_bpm(&[0.0, 5000.0, 5500.0, 6000.0, 6500.0]),
+            Some(120.0)
+        );
+        let (mut project, mut new_id) = vj_project();
+        let taps = VjOp::TapBpm {
+            taps: vec![0.0, 400.0, 800.0],
+        };
+        run(&mut project, taps, &mut new_id);
+        assert_eq!(project.timelines[0].tempo.bpm, 150.0);
+    }
+
+    #[test]
+    fn the_clock_source_should_be_kept_in_the_file() {
+        let (mut project, mut new_id) = vj_project();
+        let json = serde_json::to_string(&project.vj).unwrap();
+        assert!(!json.contains("clock"), "internal is absent: {json}");
+        let ltc = VjOp::SetClock {
+            source: ClockSource::Ltc,
+        };
+        run(&mut project, ltc, &mut new_id);
+        let json = serde_json::to_string(&project.vj).unwrap();
+        assert!(json.contains(r#""clock":"ltc""#), "{json}");
+    }
+
+    #[test]
     fn rename_should_take_an_empty_name_back_to_the_default() {
         let (mut project, mut new_id) = vj_project();
         for (name, expected) in [(" Intro ", Some("Intro")), ("  ", None)] {
@@ -1365,11 +2212,15 @@ mod tests {
     }
 
     #[test]
-    fn validate_should_refuse_a_clip_id_used_by_a_timeline_clip() {
-        let (mut project, mut new_id) = vj_project();
-        place(&mut project, "g1", "g5", &mut new_id);
-        project.vj.layers[0].clips[0].id = "cv".into();
-        assert!(project.validate().is_err());
+    fn validate_should_refuse_cue_content_in_a_vj_show() {
+        let (project, _) = vj_project();
+        let mut with_track = project.clone();
+        with_track.timelines[0].tracks = video_project().timelines[0].tracks.clone();
+        assert!(with_track.validate().is_err());
+        let mut two = project.clone();
+        two.timelines
+            .push(Timeline::new("Other", crate::FrameRate::Fps25));
+        assert!(two.validate().is_err());
     }
 
     #[test]
@@ -1399,8 +2250,692 @@ mod tests {
     #[test]
     fn used_assets_should_count_the_clips_of_the_grid() {
         let (mut project, mut new_id) = vj_project();
-        project.timelines[0].tracks.clear();
         place(&mut project, "g1", "g5", &mut new_id);
         assert!(project.used_assets().contains("v1"));
+    }
+
+    fn add_effect(
+        project: &mut Project,
+        target: EffectTarget,
+        kind: &str,
+        new_id: impl FnMut() -> String,
+    ) {
+        let op = VjOp::AddEffect {
+            target,
+            kind: kind.into(),
+        };
+        run(project, op, new_id);
+    }
+
+    #[test]
+    fn effects_should_be_added_moved_bypassed_and_removed_on_clips_and_layers() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let clip = || EffectTarget::Clip("g13".into());
+        add_effect(&mut project, clip(), "brightness", &mut new_id); // g14
+        add_effect(&mut project, clip(), "mirror", &mut new_id); // g15
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "blur",
+            &mut new_id,
+        ); // g16
+        let names = |project: &Project| -> Vec<String> {
+            project.vj.layers[0].clips[0]
+                .effects
+                .iter()
+                .map(|e| e.kind.name())
+                .collect()
+        };
+        assert_eq!(names(&project), ["brightness", "mirror"]);
+        assert_eq!(project.vj.layers[0].effects[0].id, "g16");
+
+        let move_to = |effect: &str, index| VjOp::MoveEffect {
+            effect: effect.into(),
+            index,
+        };
+        run(&mut project, move_to("g15", 0), &mut new_id);
+        assert_eq!(names(&project), ["mirror", "brightness"]);
+        run(&mut project, move_to("g15", 99), &mut new_id);
+        assert_eq!(names(&project), ["brightness", "mirror"]);
+
+        let bypass = VjOp::EffectBypass {
+            effect: "g14".into(),
+            bypass: true,
+        };
+        run(&mut project, bypass, &mut new_id);
+        assert!(project.vj.layers[0].clips[0].effects[0].bypass);
+
+        let remove = |effect: &str| VjOp::RemoveEffect {
+            effect: effect.into(),
+        };
+        run(&mut project, remove("g14"), &mut new_id);
+        run(&mut project, remove("g16"), &mut new_id);
+        assert_eq!(names(&project), ["mirror"]);
+        assert!(project.vj.layers[0].effects.is_empty());
+        assert!(apply(&mut project, remove("g14"), &mut new_id).is_err());
+    }
+
+    #[test]
+    fn an_effect_should_take_its_settings_in_range_and_keep_its_kind() {
+        let (mut project, mut new_id) = vj_project();
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "zoom",
+            &mut new_id,
+        ); // g13
+        let params = |kind| VjOp::EffectParams {
+            effect: "g13".into(),
+            kind,
+        };
+        run(
+            &mut project,
+            params(EffectKind::Zoom { amount: 50.0 }),
+            &mut new_id,
+        );
+        assert_eq!(
+            project.vj.layers[0].effects[0].kind,
+            EffectKind::Zoom {
+                amount: crate::vj_effects::MAX_ZOOM
+            }
+        );
+        let other = params(EffectKind::Hue { degrees: 10.0 });
+        assert!(apply(&mut project, other, &mut new_id).is_err());
+        let nan = params(EffectKind::Zoom { amount: f32::NAN });
+        assert!(apply(&mut project, nan, &mut new_id).is_err());
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "tint",
+            &mut new_id,
+        ); // g14
+        let bad = VjOp::EffectParams {
+            effect: "g14".into(),
+            kind: EffectKind::Tint {
+                colour: "orange".into(),
+                amount: 0.5,
+            },
+        };
+        assert!(apply(&mut project, bad, &mut new_id).is_err());
+        let unknown = VjOp::AddEffect {
+            target: EffectTarget::Layer("g1".into()),
+            kind: "sparkle".into(),
+        };
+        assert!(apply(&mut project, unknown, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn a_stack_should_hold_at_most_sixteen_effects() {
+        let (mut project, mut new_id) = vj_project();
+        for _ in 0..MAX_EFFECTS {
+            add_effect(
+                &mut project,
+                EffectTarget::Layer("g1".into()),
+                "invert",
+                &mut new_id,
+            );
+        }
+        let seventeenth = VjOp::AddEffect {
+            target: EffectTarget::Layer("g1".into()),
+            kind: "invert".into(),
+        };
+        assert!(apply(&mut project, seventeenth, &mut new_id).is_err());
+        // Another stack is its own.
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g2".into()),
+            "invert",
+            &mut new_id,
+        );
+        let repeated = project.vj.layers[0].effects[0].clone();
+        project.vj.layers[0].effects.push(repeated);
+        assert!(project.validate().is_err(), "seventeen, and a repeated id");
+    }
+
+    #[test]
+    fn the_composition_should_take_every_effect_and_the_history_ones_only_there() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(!json.contains("compositionEffects") && !json.contains("compositionBypass"));
+        // The kinds that need the frames before them are refused on a clip and on a layer.
+        for kind in ["feedback", "trails", "bloom"] {
+            for target in [
+                EffectTarget::Clip("g13".into()),
+                EffectTarget::Layer("g1".into()),
+            ] {
+                let op = VjOp::AddEffect {
+                    target,
+                    kind: kind.into(),
+                };
+                assert!(apply(&mut project, op, &mut new_id).is_err(), "{kind}");
+            }
+        }
+        // Every kind goes on the composition, up to the limit of a stack.
+        let names: Vec<&str> = EffectKind::names().collect();
+        for kind in names.iter().take(MAX_EFFECTS) {
+            add_effect(&mut project, EffectTarget::Composition, kind, &mut new_id);
+        }
+        let seventeenth = VjOp::AddEffect {
+            target: EffectTarget::Composition,
+            kind: "bloom".into(),
+        };
+        assert!(apply(&mut project, seventeenth, &mut new_id).is_err());
+        // A stack of the composition is its own: the layers' are not counted in it.
+        assert_eq!(project.vj.composition_effects.len(), MAX_EFFECTS);
+        let hand_made = Effect {
+            id: "z1".into(),
+            bypass: false,
+            modulation: Default::default(),
+            kind: EffectKind::default_of("feedback").unwrap(),
+        };
+        project.vj.layers[0].effects.push(hand_made);
+        assert!(project.validate().is_err(), "feedback on a layer");
+    }
+
+    #[test]
+    fn composition_effects_should_be_edited_like_any_other() {
+        let (mut project, mut new_id) = vj_project();
+        let composition = || EffectTarget::Composition;
+        add_effect(&mut project, composition(), "feedback", &mut new_id); // g13
+        add_effect(&mut project, composition(), "bloom", &mut new_id); // g14
+        add_effect(&mut project, composition(), "invert", &mut new_id); // g15
+        let ids = |project: &Project| -> Vec<String> {
+            project
+                .vj
+                .composition_effects
+                .iter()
+                .map(|e| e.id.clone())
+                .collect()
+        };
+        assert_eq!(ids(&project), ["g13", "g14", "g15"]);
+        let move_to = VjOp::MoveEffect {
+            effect: "g15".into(),
+            index: 0,
+        };
+        run(&mut project, move_to, &mut new_id);
+        assert_eq!(ids(&project), ["g15", "g13", "g14"]);
+        // Settings are brought into range and keep their kind.
+        let params = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::Feedback {
+                amount: 3.0,
+                zoom: 9.0,
+                rotate: 10.0,
+                x: 0.0,
+                y: 0.0,
+                hue: -500.0,
+                blend: crate::vj_effects::FeedbackBlend::Add,
+            },
+        };
+        run(&mut project, params, &mut new_id);
+        let EffectKind::Feedback {
+            amount, zoom, hue, ..
+        } = project.vj.composition_effects[1].kind
+        else {
+            unreachable!()
+        };
+        assert_eq!((amount, zoom, hue), (1.0, 2.0, -180.0));
+        let wrong = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::default_of("trails").unwrap(),
+        };
+        assert!(apply(&mut project, wrong, &mut new_id).is_err());
+        // Bypass, duplicate, reset, modulation and removal find the effect in the composition.
+        let bypass = VjOp::EffectBypass {
+            effect: "g14".into(),
+            bypass: true,
+        };
+        run(&mut project, bypass, &mut new_id);
+        let duplicate = VjOp::DuplicateEffect {
+            effect: "g14".into(),
+        };
+        run(&mut project, duplicate, &mut new_id); // g16
+        assert_eq!(ids(&project), ["g15", "g13", "g14", "g16"]);
+        let modulate = VjOp::SetModulation {
+            target: ModTarget::Effect {
+                effect: "g13".into(),
+                param: "amount".into(),
+            },
+            modulation: Some(sine(0.2, 0.8)),
+        };
+        run(&mut project, modulate, &mut new_id);
+        assert!(project.vj.is_modulated());
+        let reset = VjOp::ResetEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, reset, &mut new_id);
+        assert!(project.vj.composition_effects[1].modulation.is_empty());
+        let remove = VjOp::RemoveEffect {
+            effect: "g15".into(),
+        };
+        run(&mut project, remove, &mut new_id);
+        assert_eq!(ids(&project), ["g13", "g14", "g16"]);
+        // The stack, its bypass and its effects are in the file, and only when there are any.
+        let bypass_all = VjOp::CompositionBypass { bypass: true };
+        run(&mut project, bypass_all, &mut new_id);
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(json.contains(r#""compositionBypass":true"#), "{json}");
+        assert!(json.contains(r#""compositionEffects":[{"id":"g13","effect":"feedback""#));
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.vj, project.vj);
+        back.validate().unwrap();
+        let off = VjOp::CompositionBypass { bypass: false };
+        run(&mut project, off, &mut new_id);
+        assert!(
+            !serde_json::to_string(&project)
+                .unwrap()
+                .contains("compositionBypass")
+        );
+    }
+
+    #[test]
+    fn validate_should_refuse_a_repeated_effect_id_and_a_setting_out_of_range() {
+        let (mut project, mut new_id) = vj_project();
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "blur",
+            &mut new_id,
+        ); // g13
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g2".into()),
+            "blur",
+            &mut new_id,
+        ); // g14
+        project.vj.layers[1].effects[0].id = "g13".into();
+        assert!(project.validate().is_err());
+        project.vj.layers[1].effects[0].id = "g14".into();
+        project.validate().unwrap();
+        project.vj.layers[1].effects[0].kind = EffectKind::Blur { radius: 2.0 };
+        assert!(project.validate().is_err());
+        project.vj.layers[1].effects[0].kind = EffectKind::Blur { radius: f32::NAN };
+        assert!(project.validate().is_err());
+    }
+
+    #[test]
+    fn effects_should_round_trip_in_the_file_and_be_absent_when_there_are_none() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(!json.contains("effects"), "{json}");
+        let clip = || EffectTarget::Clip("g13".into());
+        // Every kind goes on the clip, its layer or another layer, 16 to each.
+        let names: Vec<&str> = EffectKind::names()
+            .filter(|name| !crate::vj_effects::spec_of(name).unwrap().composition_only)
+            .collect();
+        for (at, kind) in names.iter().enumerate() {
+            let target = match at / MAX_EFFECTS {
+                0 => clip(),
+                1 => EffectTarget::Layer("g1".into()),
+                _ => EffectTarget::Layer("g2".into()),
+            };
+            add_effect(&mut project, target, kind, &mut new_id);
+        }
+        // The tint is the fifth of the clip: g14 is the first effect.
+        let tint = VjOp::EffectParams {
+            effect: "g18".into(),
+            kind: EffectKind::Tint {
+                colour: "#102030".into(),
+                amount: 0.25,
+            },
+        };
+        run(&mut project, tint, &mut new_id);
+        let bypass = VjOp::EffectBypass {
+            effect: "g14".into(),
+            bypass: true,
+        };
+        run(&mut project, bypass, &mut new_id);
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(
+            json.contains(r##"{"id":"g18","effect":"tint","colour":"#102030","amount":0.25}"##),
+            "{json}"
+        );
+        assert!(
+            json.contains(r#"{"id":"g14","bypass":true,"effect":"brightness","amount":0.0}"#),
+            "{json}"
+        );
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.vj, project.vj);
+        back.validate().unwrap();
+        let on_clip = back.vj.layers[0].clips[0].effects.len();
+        let on_layers: usize = back.vj.layers.iter().map(|l| l.effects.len()).sum();
+        assert_eq!(on_clip + on_layers, names.len());
+    }
+
+    #[test]
+    fn an_effect_should_be_duplicated_after_itself_and_reset_to_its_defaults() {
+        let (mut project, mut new_id) = vj_project();
+        let layer = || EffectTarget::Layer("g1".into());
+        add_effect(&mut project, layer(), "twirl", &mut new_id); // g13
+        add_effect(&mut project, layer(), "hue", &mut new_id); // g14
+        let twirl = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::Twirl {
+                angle: 40.0,
+                radius: 0.2,
+                x: 0.1,
+                y: 0.9,
+            },
+        };
+        run(&mut project, twirl.clone(), &mut new_id);
+        let duplicate = VjOp::DuplicateEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, duplicate, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert_eq!(stack.len(), 3);
+        assert_eq!(stack[1].kind, stack[0].kind);
+        assert_ne!(stack[1].id, stack[0].id);
+        assert_eq!(stack[2].id, "g14");
+        let reset = VjOp::ResetEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, reset, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert_eq!(stack[0].kind, EffectKind::default_of("twirl").unwrap());
+        assert_ne!(stack[1].kind, stack[0].kind);
+        // A full stack takes no copy.
+        while project.vj.layers[0].effects.len() < MAX_EFFECTS {
+            add_effect(&mut project, layer(), "invert", &mut new_id);
+        }
+        let again = VjOp::DuplicateEffect {
+            effect: "g13".into(),
+        };
+        assert!(apply(&mut project, again, &mut new_id).is_err());
+        let missing = VjOp::ResetEffect {
+            effect: "nope".into(),
+        };
+        assert!(apply(&mut project, missing, &mut new_id).is_err());
+    }
+
+    fn sine(min: f32, max: f32) -> Modulation {
+        use crate::vj_effects::Pace;
+        use crate::vj_modulation::{Shape, Source};
+        Modulation {
+            source: Source::Lfo {
+                shape: Shape::Sine,
+                pace: Pace {
+                    sync: Sync::Beats,
+                    rate: 0.5,
+                    beats: 1.0,
+                },
+                phase: 0.0,
+            },
+            min,
+            max,
+        }
+    }
+
+    fn set(target: ModTarget, modulation: Option<Modulation>) -> VjOp {
+        VjOp::SetModulation { target, modulation }
+    }
+
+    #[test]
+    fn set_modulation_should_store_and_remove_it_on_effects_layers_and_clips() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        add_effect(
+            &mut project,
+            EffectTarget::Clip("g13".into()),
+            "blur",
+            &mut new_id,
+        ); // g14
+        let effect = || ModTarget::Effect {
+            effect: "g14".into(),
+            param: "radius".into(),
+        };
+        let layer = |field: &str| ModTarget::Layer {
+            layer: "g1".into(),
+            field: field.into(),
+        };
+        let clip = |field: &str| ModTarget::Clip {
+            clip: "g13".into(),
+            field: field.into(),
+        };
+        run(
+            &mut project,
+            set(effect(), Some(sine(0.0, 1.0))),
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            set(layer("opacity"), Some(sine(1.0, 0.2))),
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            set(clip("positionX"), Some(sine(-1.0, 1.0))),
+            &mut new_id,
+        );
+        let layer0 = &project.vj.layers[0];
+        assert_eq!(
+            layer0.clips[0].effects[0].modulation["radius"],
+            sine(0.0, 1.0)
+        );
+        assert_eq!(
+            layer0.modulation["opacity"].min, 1.0,
+            "min may be above max"
+        );
+        assert!(layer0.clips[0].modulation.contains_key("positionX"));
+        // The stored values stay as they were.
+        assert_eq!(layer0.opacity, 1.0);
+
+        // Out of range is brought into it; a number that is not one is refused.
+        run(
+            &mut project,
+            set(layer("master"), Some(sine(-3.0, 9.0))),
+            &mut new_id,
+        );
+        let master = project.vj.layers[0].modulation["master"];
+        assert_eq!((master.min, master.max), (0.0, 1.0));
+        let mut nan = sine(0.0, 1.0);
+        nan.max = f32::NAN;
+        assert!(apply(&mut project, set(layer("master"), Some(nan)), &mut new_id).is_err());
+
+        // Null removes.
+        run(&mut project, set(layer("master"), None), &mut new_id);
+        assert!(!project.vj.layers[0].modulation.contains_key("master"));
+    }
+
+    #[test]
+    fn a_generator_number_should_be_modulated_and_go_when_the_generator_changes_kind() {
+        let (mut project, mut new_id) = vj_project();
+        let op = VjOp::PlaceGenerator {
+            generator: Generator::Text {
+                text: "FLUX".into(),
+                font: "Inter".into(),
+                style: "Bold".into(),
+                size: 0.12,
+                colour: "#ffffff".into(),
+                opacity: 1.0,
+                align: Default::default(),
+                position_x: 0.5,
+                position_y: 0.5,
+                rotation: 0.0,
+                tracking: 0.0,
+                leading: 0.0,
+                lines: Default::default(),
+                line: 0,
+                advance: 0,
+            },
+            layer: "g1".into(),
+            column: "g5".into(),
+        };
+        run(&mut project, op, &mut new_id);
+        let id = project.vj.layers[0].clips[0].id.clone();
+        let target = |field: &str| ModTarget::Clip {
+            clip: id.clone(),
+            field: field.into(),
+        };
+        run(
+            &mut project,
+            set(target("generator.rotation"), Some(sine(-9999.0, 90.0))),
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            set(target("generator.size"), Some(sine(0.1, 0.3))),
+            &mut new_id,
+        );
+        let stored = &project.vj.layers[0].clips[0].modulation;
+        assert_eq!(
+            stored["generator.rotation"].min, -360.0,
+            "brought into range"
+        );
+        // A strobe's rate is not a text block's number.
+        assert!(
+            apply(
+                &mut project,
+                set(target("generator.rate"), Some(sine(1.0, 2.0))),
+                &mut new_id
+            )
+            .is_err()
+        );
+        assert!(
+            apply(
+                &mut project,
+                set(target("generator.colour"), Some(sine(0.0, 1.0))),
+                &mut new_id
+            )
+            .is_err()
+        );
+        project.validate().unwrap();
+        // Another kind of generator keeps what it has too, and drops what it does not.
+        let strobe = VjOp::ClipGenerator {
+            clip: id.clone(),
+            generator: Generator::Strobe {
+                colour: "#ffffff".into(),
+                rate: 8.0,
+                width: 0.5,
+            },
+        };
+        run(&mut project, strobe, &mut new_id);
+        assert!(project.vj.layers[0].clips[0].modulation.is_empty());
+        project.validate().unwrap();
+    }
+
+    #[test]
+    fn set_modulation_should_refuse_what_cannot_be_modulated() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        add_effect(
+            &mut project,
+            EffectTarget::Clip("g13".into()),
+            "kaleidoscope",
+            &mut new_id,
+        ); // g14
+        add_effect(
+            &mut project,
+            EffectTarget::Clip("g13".into()),
+            "mirror",
+            &mut new_id,
+        ); // g15
+        let effect = |id: &str, param: &str| ModTarget::Effect {
+            effect: id.into(),
+            param: param.into(),
+        };
+        let mut refused = |target: ModTarget| {
+            assert!(apply(&mut project, set(target, Some(sine(0.0, 1.0))), &mut new_id).is_err());
+        };
+        // A choice, a rate, a length of beats, a setting the kind lacks, an unknown effect.
+        refused(effect("g15", "axis"));
+        refused(effect("g14", "rate"));
+        refused(effect("g14", "beats"));
+        refused(effect("g14", "nope"));
+        refused(effect("nope", "x"));
+        refused(ModTarget::Layer {
+            layer: "g1".into(),
+            field: "transition".into(),
+        });
+        refused(ModTarget::Clip {
+            clip: "g13".into(),
+            field: "opacity".into(),
+        });
+        refused(ModTarget::Layer {
+            layer: "nope".into(),
+            field: "master".into(),
+        });
+    }
+
+    #[test]
+    fn modulation_should_follow_duplicate_and_clear_on_reset_and_survive_a_round_trip() {
+        let (mut project, mut new_id) = vj_project();
+        add_effect(
+            &mut project,
+            EffectTarget::Layer("g1".into()),
+            "zoom",
+            &mut new_id,
+        ); // g13
+        let target = ModTarget::Effect {
+            effect: "g13".into(),
+            param: "amount".into(),
+        };
+        run(&mut project, set(target, Some(sine(0.5, 2.0))), &mut new_id);
+        let duplicate = VjOp::DuplicateEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, duplicate, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert_eq!(stack[1].modulation, stack[0].modulation);
+        assert_eq!(stack[1].modulation.len(), 1);
+
+        // Changing the setting keeps the modulation; the stored value is the base.
+        let params = VjOp::EffectParams {
+            effect: "g13".into(),
+            kind: EffectKind::Zoom { amount: 1.5 },
+        };
+        run(&mut project, params, &mut new_id);
+        assert_eq!(project.vj.layers[0].effects[0].modulation.len(), 1);
+
+        let json = serde_json::to_string(&project).unwrap();
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.vj, project.vj);
+        back.validate().unwrap();
+        // A plain effect writes no modulation key.
+        let plain = serde_json::to_value(&project.vj.layers[1]).unwrap();
+        assert!(plain.get("modulation").is_none());
+
+        let reset = VjOp::ResetEffect {
+            effect: "g13".into(),
+        };
+        run(&mut project, reset, &mut new_id);
+        let stack = &project.vj.layers[0].effects;
+        assert!(stack[0].modulation.is_empty());
+        assert_eq!(
+            stack[1].modulation.len(),
+            1,
+            "only the reset effect is cleared"
+        );
+    }
+
+    #[test]
+    fn validate_should_refuse_a_modulation_out_of_range_or_on_a_wrong_field() {
+        let (mut project, _) = vj_project();
+        project.vj.layers[0]
+            .modulation
+            .insert("opacity".into(), sine(0.0, 2.0));
+        assert!(project.validate().is_err());
+        project.vj.layers[0].modulation.clear();
+        project.vj.layers[0]
+            .modulation
+            .insert("blend".into(), sine(0.0, 1.0));
+        assert!(project.validate().is_err());
+        project.vj.layers[0].modulation.clear();
+        project.vj.layers[0]
+            .modulation
+            .insert("volume".into(), sine(0.0, 1.0));
+        project.validate().unwrap();
+    }
+
+    #[test]
+    fn a_project_saved_before_modulation_should_load_without_any() {
+        let (project, _) = vj_project();
+        let json = serde_json::to_string(&project).unwrap();
+        assert!(!json.contains("modulation"));
+        let back: Project = serde_json::from_str(&json).unwrap();
+        assert!(!back.vj.is_modulated());
     }
 }

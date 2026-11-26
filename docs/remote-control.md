@@ -2,6 +2,8 @@
 
 Flux can be run from a MIDI controller (an AKAI APC, any pad or button surface) and from OSC (a Stream Deck, QLab, a
 console). Flux stays the **master clock**: remote control starts, stops and moves it, it never follows another timecode.
+The one exception is the clock of a VJ show, which can show the LTC or MTC another machine sends; its input is chosen in
+**Preferences > Remote control > Timecode input** (see [Video](video.md)), and Flux's own transport still does not chase it.
 
 It is set up in **Preferences > Remote control**. The choices belong to the machine (a pad layout follows the
 controller, not the show), so they are **not** in the `.flx`: they live in `control.json` in the app data folder

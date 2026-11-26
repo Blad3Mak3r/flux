@@ -1,21 +1,26 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use std::time::Duration;
+
+use flux_project::playhead::Tick;
 
 use flux_project::generator::Generator;
 use flux_project::vj::Vj;
 use flux_project::{Timeline, TrackKind};
 
 use crate::decode::Frame;
-use crate::generate;
+use crate::generate::{self, Moment};
 use crate::grid::GridPlay;
 use crate::layers::{Cue, Layer, layers, upcoming};
 use crate::player::VideoPlayer;
 
 /// How far ahead a clip's file is opened and its first frame decoded: two seconds at 30 fps.
 pub const PRELOAD_FRAMES: u64 = 60;
+
+/// How many pictures of a generator clip the deck keeps.
+const KEPT_PICTURES: usize = 4;
 
 /// Gives the file on disk of a video asset id.
 type Resolve = Box<dyn Fn(&str) -> Option<PathBuf> + Send>;
@@ -39,8 +44,10 @@ pub struct VideoDeck {
     players: HashMap<String, VideoPlayer>,
     /// Clips whose file could not be opened, kept so it is not retried on every call.
     failed: HashMap<String, PathBuf>,
-    /// The last picture of each generator clip shown, made again only when it changes.
-    generated: HashMap<String, Arc<Frame>>,
+    /// The last few pictures of each generator clip shown, made again only when it changes. More
+    /// than one, so that screens asking a moment apart for a modulated generator, and the monitor
+    /// and the screens, find the picture another of them made instead of making it again.
+    generated: HashMap<String, VecDeque<Arc<Frame>>>,
 }
 
 impl VideoDeck {
@@ -83,19 +90,26 @@ impl VideoDeck {
                 }
             }
         }
-        self.pictures(shown)
+        self.pictures(shown, (0, 0))
     }
 
     /// Asks each layer's player for its frame and pairs the layer with the newest one decoded.
-    /// A generator's layer gets the picture it makes at its time.
-    fn pictures(&mut self, shown: Vec<Layer>) -> Vec<Shown> {
+    /// A generator's layer gets the picture it makes at its time, for a composition of `size`.
+    fn pictures(&mut self, shown: Vec<Layer>, size: (u32, u32)) -> Vec<Shown> {
         self.generated
             .retain(|clip, _| shown.iter().any(|layer| &layer.clip == clip));
         shown
             .into_iter()
             .map(|layer| {
                 let frame = match &layer.generator {
-                    Some(generator) => self.generate(&layer.clip, generator, layer.frame),
+                    Some(generator) => {
+                        let moment = Moment {
+                            elapsed: Duration::from_millis(layer.frame),
+                            beats: layer.beats,
+                            size,
+                        };
+                        self.generate(&layer.clip, generator, moment)
+                    }
                     None => self.players.get(&layer.clip).and_then(|player| {
                         player.request(layer.frame);
                         player.latest()
@@ -106,26 +120,36 @@ impl VideoDeck {
             .collect()
     }
 
-    /// The picture of `generator`, the clip `clip`, `elapsed_ms` after it was launched.
+    /// The picture of `generator`, the clip `clip`, at `moment`.
     fn generate(
         &mut self,
         clip: &str,
         generator: &Generator,
-        elapsed_ms: u64,
+        moment: Moment,
     ) -> Option<Arc<Frame>> {
-        let index = generate::index(generator, Duration::from_millis(elapsed_ms))?;
-        if let Some(frame) = self.generated.get(clip).filter(|f| f.index == index) {
+        let index = generate::index(generator, moment)?;
+        let made = self.generated.entry(clip.to_owned()).or_default();
+        if let Some(frame) = made.iter().find(|f| f.index == index) {
             return Some(Arc::clone(frame));
         }
-        let frame = Arc::new(generate::picture(generator, index));
-        self.generated.insert(clip.to_owned(), Arc::clone(&frame));
+        let frame = Arc::new(generate::picture(generator, index, moment));
+        if made.len() >= KEPT_PICTURES {
+            made.pop_front();
+        }
+        made.push_back(Arc::clone(&frame));
         Some(frame)
     }
 
-    /// The layers of the VJ grid to draw `now` on the grid's clock, topmost first: it keeps a player
-    /// for each clip playing and closes the rest.
-    pub fn show_grid(&mut self, vj: &Vj, play: &GridPlay, now: Duration) -> Vec<Shown> {
-        let playing = play.clips(vj, now);
+    /// The layers of the VJ grid to draw `now` on the grid's clock, topmost first, in a composition
+    /// of `size` pixels: it keeps a player for each clip playing and closes the rest.
+    pub fn show_grid(
+        &mut self,
+        vj: &Vj,
+        play: &GridPlay,
+        now: Tick,
+        size: (u32, u32),
+    ) -> Vec<Shown> {
+        let playing = play.clips(vj, now.time);
         self.keep_players(&playing);
         let players = &self.players;
         let probe = |asset: &str| {
@@ -135,7 +159,7 @@ impl VideoDeck {
                 .map(|player| (player.info().rate, player.info().frames))
         };
         let shown = play.layers(vj, now, &probe);
-        self.pictures(shown)
+        self.pictures(shown, size)
     }
 
     /// Clips whose file failed to open, with the path tried, for Show check to report.

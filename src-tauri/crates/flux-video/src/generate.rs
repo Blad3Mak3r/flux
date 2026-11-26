@@ -6,7 +6,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
-use flux_project::generator::{Generator, rgb};
+use flux_project::generator::{Generator, TextAlign, rgb};
 
 use crate::decode::Frame;
 
@@ -28,10 +28,25 @@ const BARS: [[u8; 3]; 7] = [
     [0, 0, 255],
 ];
 
-/// Which picture `generator` shows `elapsed` after it was launched: the same index for the same
-/// picture, and a new one each time it changes. `None` between a strobe's flashes, when it shows
-/// nothing.
-pub fn index(generator: &Generator, elapsed: Duration) -> Option<u64> {
+/// The widest a text block's picture is made: a larger composition gets the same picture, stretched.
+const TEXT_WIDTH: u32 = 1920;
+
+/// When a generator's picture is wanted.
+#[derive(Debug, Clone, Copy)]
+pub struct Moment {
+    /// How long ago the clip was launched.
+    pub elapsed: Duration,
+    /// The beats the grid's clock has counted, which a text block's lines step on.
+    pub beats: f64,
+    /// The composition's size in pixels, which a text block is drawn to the shape of.
+    pub size: (u32, u32),
+}
+
+/// Which picture `generator` shows at `moment`: the same index for the same picture, and a new
+/// one each time it changes. `None` between a strobe's flashes, and for a text block with nothing
+/// to show, when it shows nothing.
+pub fn index(generator: &Generator, moment: Moment) -> Option<u64> {
+    let elapsed = moment.elapsed;
     let step = |rate: f32| (elapsed.as_secs_f64() * f64::from(rate)) as u64;
     let phase = match *generator {
         Generator::Strobe { rate, width, .. } => {
@@ -48,11 +63,20 @@ pub fn index(generator: &Generator, elapsed: Duration) -> Option<u64> {
     let mut hash = DefaultHasher::new();
     format!("{generator:?}").hash(&mut hash);
     phase.hash(&mut hash);
+    if matches!(generator, Generator::Text { .. }) {
+        // What it draws, and the shape it draws it to: the same picture for the same pair.
+        generator.shown_text(moment.beats)?.hash(&mut hash);
+        moment.size.hash(&mut hash);
+    }
     Some(hash.finish())
 }
 
-/// The picture `generator` shows for `index` (from [`index`]), opaque.
-pub fn picture(generator: &Generator, index: u64) -> Frame {
+/// The picture `generator` shows for `index` (from [`index`] at the same `moment`): opaque, but
+/// for a text block, whose background is clear.
+pub fn picture(generator: &Generator, index: u64, moment: Moment) -> Frame {
+    if let Generator::Text { .. } = generator {
+        return text(generator, index, moment);
+    }
     let colour = |hex: &str| rgb(hex).unwrap_or([0, 0, 0]);
     let (width, height, rgb) = match generator {
         Generator::Solid { colour: c } | Generator::Strobe { colour: c, .. } => {
@@ -74,6 +98,7 @@ pub fn picture(generator: &Generator, index: u64) -> Frame {
             let (w, h) = NOISE;
             (w, h, noise(colour(c), index, (w, h)))
         }
+        Generator::Text { .. } => unreachable!("drawn above"),
     };
     let rgba = rgb
         .as_chunks::<3>()
@@ -87,6 +112,55 @@ pub fn picture(generator: &Generator, index: u64) -> Frame {
         height,
         rgba,
         alpha: false,
+    }
+}
+
+/// A text block's picture: the shape of the composition, with the glyphs over a clear background.
+fn text(generator: &Generator, index: u64, moment: Moment) -> Frame {
+    let (full_w, full_h) = (moment.size.0.max(1), moment.size.1.max(1));
+    let width = full_w.min(TEXT_WIDTH);
+    let height = (u64::from(full_h) * u64::from(width) / u64::from(full_w)).max(1) as u32;
+    let Generator::Text {
+        font,
+        style,
+        size,
+        colour,
+        opacity,
+        align,
+        position_x,
+        position_y,
+        rotation,
+        tracking,
+        leading,
+        ..
+    } = generator
+    else {
+        unreachable!("only a text block is drawn here")
+    };
+    let shown = generator.shown_text(moment.beats).unwrap_or_default();
+    let block = flux_text::Block {
+        text: &shown,
+        family: font,
+        style,
+        size: size * height as f32,
+        colour: rgb(colour).unwrap_or([255, 255, 255]),
+        opacity: *opacity,
+        align: match align {
+            TextAlign::Left => flux_text::Align::Left,
+            TextAlign::Center => flux_text::Align::Center,
+            TextAlign::Right => flux_text::Align::Right,
+        },
+        centre: [position_x * width as f32, position_y * height as f32],
+        rotation: *rotation,
+        tracking: *tracking,
+        leading: *leading,
+    };
+    Frame {
+        index,
+        width,
+        height,
+        rgba: flux_text::rasterise(&block, width, height),
+        alpha: true,
     }
 }
 
@@ -130,8 +204,20 @@ fn noise(colour: [u8; 3], seed: u64, size: (u32, u32)) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    fn at(ms: u64) -> Duration {
-        Duration::from_millis(ms)
+    fn at(ms: u64) -> Moment {
+        Moment {
+            elapsed: Duration::from_millis(ms),
+            beats: 0.0,
+            size: (160, 90),
+        }
+    }
+
+    fn on_beat(beats: f64) -> Moment {
+        Moment { beats, ..at(0) }
+    }
+
+    fn text(json: serde_json::Value) -> Generator {
+        serde_json::from_value(json).unwrap()
     }
 
     #[test]
@@ -141,7 +227,7 @@ mod tests {
         };
         let index = index(&solid, at(0)).unwrap();
         assert_eq!(super::index(&solid, at(5000)), Some(index));
-        let frame = picture(&solid, index);
+        let frame = picture(&solid, index, at(0));
         assert_eq!((frame.width, frame.height), (1, 1));
         assert_eq!(frame.rgba, [255, 128, 0, 255]);
         let other = Generator::Solid {
@@ -186,7 +272,7 @@ mod tests {
         let first = index(&noise, at(0));
         assert_eq!(index(&noise, at(90)), first);
         assert_ne!(index(&noise, at(110)), first);
-        let a = picture(&noise, first.unwrap());
+        let a = picture(&noise, first.unwrap(), at(0));
         assert_eq!(a.rgba.len(), (NOISE.0 * NOISE.1 * 4) as usize);
         assert!(
             a.rgba.chunks(4).any(|p| p[0] != a.rgba[0]),
@@ -196,9 +282,89 @@ mod tests {
 
     #[test]
     fn the_bars_should_have_sharp_edges() {
-        let bars = picture(&Generator::Bars, 0);
+        let bars = picture(&Generator::Bars, 0, at(0));
         assert_eq!(bars.width, BAR * 7);
         let red = |x: u32| bars.rgba[(x * 4) as usize];
         assert_eq!((red(BAR - 1), red(BAR * 3)), (255, 0), "white then cyan");
+    }
+
+    #[test]
+    fn a_static_text_should_keep_its_index_and_a_changed_one_get_a_new_one() {
+        let block = text(serde_json::json!({ "kind": "text", "text": "FLUX" }));
+        let first = index(&block, at(0)).unwrap();
+        assert_eq!(
+            index(&block, at(9000)),
+            Some(first),
+            "drawn once, not each frame"
+        );
+        assert_eq!(
+            index(&block, on_beat(40.0)),
+            Some(first),
+            "beats mean nothing to all lines"
+        );
+        let other = text(serde_json::json!({ "kind": "text", "text": "FLUX!" }));
+        assert_ne!(index(&other, at(0)), Some(first));
+        let bigger = Moment {
+            size: (320, 180),
+            ..at(0)
+        };
+        assert_ne!(
+            index(&block, bigger),
+            Some(first),
+            "another composition, another picture"
+        );
+        assert_eq!(
+            index(
+                &text(serde_json::json!({ "kind": "text", "text": " " })),
+                at(0)
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_text_block_should_draw_clear_pixels_in_the_shape_of_the_composition() {
+        let block = text(serde_json::json!({
+            "kind": "text", "text": "Canción", "colour": "#ff8000", "font": "No Such Family 7"
+        }));
+        let frame = picture(&block, index(&block, at(0)).unwrap(), at(0));
+        assert_eq!((frame.width, frame.height, frame.alpha), (160, 90, true));
+        assert_eq!(frame.rgba[..4], [255, 128, 0, 0], "a corner is clear");
+        assert!(
+            frame.rgba.chunks(4).any(|p| p[3] > 200),
+            "and the glyphs are lit"
+        );
+        let huge = Moment {
+            size: (3840, 2160),
+            ..at(0)
+        };
+        let frame = picture(&block, 0, huge);
+        assert_eq!(
+            (frame.width, frame.height),
+            (TEXT_WIDTH, 1080),
+            "capped, with the same shape"
+        );
+    }
+
+    #[test]
+    fn a_text_block_in_one_line_mode_should_draw_the_line_of_the_beat() {
+        let block = text(serde_json::json!({
+            "kind": "text", "text": "WWWWWW\nii", "lines": "one", "advance": 1
+        }));
+        let (first, second) = (index(&block, on_beat(0.0)), index(&block, on_beat(1.0)));
+        assert_ne!(first, second);
+        assert_eq!(
+            index(&block, on_beat(2.0)),
+            first,
+            "wraps to the first line"
+        );
+        let ink = |m: Moment| {
+            let frame = picture(&block, index(&block, m).unwrap(), m);
+            frame.rgba.chunks(4).filter(|p| p[3] > 0).count()
+        };
+        assert!(
+            ink(on_beat(0.0)) > ink(on_beat(1.0)) * 2,
+            "a wide line, then a narrow one"
+        );
     }
 }

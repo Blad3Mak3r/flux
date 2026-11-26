@@ -36,7 +36,7 @@ code is `src-tauri/crates/flux-project/`.
 
 The backend writes a rotating `flux.log` in the app's log folder and the Help menu opens that folder or exports a zip
 with the logs and a report of the system and devices. Use `log::info!`/`warn!`/`error!` for events, and **never log
-from an audio callback or `flux-audio`/`flux-ltc`/`flux-click`/`flux-mtc`/`flux-midi`/`flux-osc`/`flux-video`/`flux-render`**: count in an atomic and let the `flux-log`
+from an audio callback or `flux-audio`/`flux-ltc`/`flux-click`/`flux-mtc`/`flux-midi`/`flux-osc`/`flux-video`/`flux-render`/`flux-text`**: count in an atomic and let the `flux-log`
 lane write it. See [docs/diagnostics.md](docs/diagnostics.md).
 
 ## Stack
@@ -70,6 +70,7 @@ The logic lives in `src-tauri/crates/`, none of which depends on Tauri:
 | `flux-engine` | Transport, LTC/MTC, mixer, cues, outputs, device lookup, cue firing (MIDI/OSC). |
 | `flux-video` | Video files through FFmpeg: probing, frame-exact decoding on a thread, timecode-to-frame mapping. |
 | `flux-render` | The GPU (wgpu) drawing of video frames on the output window. |
+| `flux-text` | Fonts (`fontdb`, a bundled fallback) and the CPU rasterising of text blocks (`ab_glyph`), for the Text Block generator. |
 
 New heavy or native dependencies (e.g. video) go in a crate of their own. The app crate only wires commands to them.
 

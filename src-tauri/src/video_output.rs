@@ -14,7 +14,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Monitor, State, Window, WindowEvent};
@@ -106,6 +106,20 @@ pub struct VideoOutputs {
     closing: AtomicBool,
     /// One sync at a time, so two never open the same window.
     syncing: Mutex<()>,
+    /// What the editor's monitor remembers of its last frame, for the composition's feedback.
+    monitor: Mutex<MonitorFrames>,
+    /// The editor's preview of the selected clip: its own clock, playhead and decoders.
+    preview: Arc<Mutex<Preview>>,
+}
+
+/// The editor's monitor draws on the CPU, and keeps its own history of the frames before.
+#[derive(Default)]
+struct MonitorFrames {
+    history: flux_render::History,
+    last: Option<Instant>,
+    /// The grid copied from the session, the revision it was copied at, and its modulated copy.
+    grid: Option<(u64, String, Option<flux_project::vj::Vj>)>,
+    drawn: Option<flux_project::vj::Vj>,
 }
 
 pub type SharedVideoOutput = Arc<VideoOutputs>;
@@ -287,6 +301,7 @@ impl VideoOutput {
         let (width, height) = unpack(size.load(Ordering::Relaxed));
         let transport = Arc::clone(&app.state::<SharedOutput>());
         let grid = Arc::clone(&app.state::<crate::vj_commands::SharedGrid>());
+        let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
         let render_stop = Arc::clone(&stop);
         let pattern = Arc::clone(&self.pattern);
         let screen_id = self.screen.clone();
@@ -311,7 +326,10 @@ impl VideoOutput {
             card_id: 0,
             decoding: None,
             grid,
+            modulation,
             vj: None,
+            drawn: None,
+            last_frame: None,
         };
         let thread = thread::Builder::new()
             .name("flux-video-output".into())
@@ -518,7 +536,13 @@ struct Render {
     /// What the VJ grid plays, and the grid copied from the session for a VJ project, which
     /// shows its grid instead of a timeline.
     grid: crate::vj_commands::SharedGrid,
+    /// Puts the modulated values in the grid it draws.
+    modulation: crate::modulation::SharedModulation,
     vj: Option<flux_project::vj::Vj>,
+    /// The grid with its modulated values, kept between frames and patched; reset with `vj`.
+    drawn: Option<flux_project::vj::Vj>,
+    /// When the last frame was drawn, to tell the effects with a history how long it has been.
+    last_frame: Option<Instant>,
 }
 
 /// The size the test card is made at when the project has no video; the GPU scales it to each
@@ -541,25 +565,42 @@ impl Render {
     /// Draws one refresh; `false` when it drew black or nothing.
     fn step(&mut self) -> bool {
         self.refresh();
-        let shown = match &self.vj {
+        let bpm = self.timeline.as_ref().map_or(120.0, |t| t.tempo.bpm);
+        let at = Instant::now();
+        let dt = self
+            .last_frame
+            .replace(at)
+            .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
+        let (shown, beats, post) = match &self.vj {
             Some(vj) => {
                 let (play, now) = {
-                    let grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
-                    (grid.play.clone(), grid.now())
+                    let mut grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
+                    let now = grid.tick(vj, bpm);
+                    (grid.play.clone(), now)
                 };
-                self.deck
+                let beats = now.beats;
+                // What is drawn is the grid with its modulated values; the stored one is not changed.
+                let clock = flux_project::vj_modulation::Clock {
+                    seconds: now.time.as_secs_f64(),
+                    beats,
+                };
+                let drawn = self.modulation.draw(vj, &mut self.drawn, clock);
+                let shown = self
+                    .deck
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .as_mut()
-                    .map(|deck| deck.show_grid(vj, &play, now))
-                    .unwrap_or_default()
+                    .map(|deck| deck.show_grid(drawn, &play, now, self.card_size))
+                    .unwrap_or_default();
+                let post = composition_post(drawn, clock, dt);
+                (shown, beats, post)
             }
-            None => self.timeline_pictures(),
+            None => (self.timeline_pictures(), 0.0, flux_render::Post::default()),
         };
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
         }
-        let mut pictures = pictures(&shown, self.card_size);
+        let mut pictures = pictures(&shown, self.card_size, beats);
         let card = pictures.is_empty() && self.sweep_card();
         if card {
             pictures.push(Picture {
@@ -570,12 +611,19 @@ impl Render {
                 place: [0.0, 0.0, 1.0, 1.0],
                 opacity: 1.0,
                 blend: flux_render::Blend::Alpha,
+                effects: Default::default(),
             });
         }
         let drawn = !pictures.is_empty();
+        // The test card is what the slices are lined up with: nothing changes it.
+        let post = if card {
+            flux_render::Post::default()
+        } else {
+            post
+        };
         // A lost surface draws nothing and is tried again on the next refresh.
         self.screen
-            .draw(&pictures, self.card_size, &self.quads, &self.masks)
+            .draw(&pictures, self.card_size, &self.quads, &self.masks, &post)
             .is_ok()
             && drawn
     }
@@ -664,6 +712,7 @@ impl Render {
         self.seen = (revision, active.to_owned());
         self.timeline = session.active_timeline_copy();
         self.vj = session.grid_copy();
+        self.drawn = None;
         let screens = session.video_screens();
         let this = screens.iter().find(|screen| screen.id == self.screen_id);
         let slices = this.map_or(&[][..], |screen| &screen.slices);
@@ -720,7 +769,7 @@ fn composition_size(session: &SharedSession) -> (u32, u32) {
 
 /// What to draw of `shown` (topmost first) in a composition of `composition` pixels, the bottom
 /// first: from the top down to the first picture that hides everything under it.
-fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture<'_>> {
+fn pictures(shown: &[flux_video::Shown], composition: (u32, u32), beats: f64) -> Vec<Picture<'_>> {
     let mut pictures = Vec::new();
     for shown in shown {
         let Some(frame) = &shown.frame else { continue };
@@ -732,6 +781,11 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture
             layer.scale,
             layer.position,
         );
+        let time = flux_render::Time {
+            seconds: layer.elapsed.as_secs_f64(),
+            beats,
+        };
+        let effects = flux_render::Effects::new(&layer.effects, time);
         pictures.push(Picture {
             id: hash.finish(),
             width: frame.width,
@@ -740,9 +794,12 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture
             place,
             opacity: layer.opacity,
             blend: blend(layer.blend),
+            effects,
         });
         let alpha = layer.blend == flux_project::vj::Blend::Alpha;
-        if alpha && layer.opacity >= 1.0 && !frame.alpha && covers(place) {
+        // Effects can leave parts of the picture clear (a zoom out, a blur's soft edge), so a
+        // picture with any hides nothing below it.
+        if alpha && layer.opacity >= 1.0 && !frame.alpha && covers(place) && effects.is_identity() {
             break;
         }
     }
@@ -750,24 +807,146 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture
     pictures
 }
 
+/// What the composition's effects of `vj` come to at `clock`, `dt` seconds after the last frame;
+/// none while they are bypassed.
+fn composition_post(
+    vj: &flux_project::vj::Vj,
+    clock: flux_project::vj_modulation::Clock,
+    dt: f32,
+) -> flux_render::Post {
+    if vj.composition_bypass {
+        return flux_render::Post::default();
+    }
+    let time = flux_render::Time {
+        seconds: clock.seconds,
+        beats: clock.beats,
+    };
+    flux_render::Post::new(&vj.composition_effects, time, dt)
+}
+
 /// The width of the composition the editor's monitor shows; its height keeps the shape.
 const MONITOR_WIDTH: u32 = 480;
+
+/// A deck that opens the videos of the open project.
+fn new_deck(app: &AppHandle) -> Result<VideoDeck, String> {
+    let cache = crate::video_commands::video_cache(app).map_err(|err| err.to_string())?;
+    let session = Arc::clone(&app.state::<SharedSession>());
+    Ok(VideoDeck::new(move |asset| {
+        session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .video_file(asset, &cache)
+            .ok()
+    }))
+}
 
 /// Makes the deck every screen draws from, when no window has yet.
 fn ensure_deck(deck: &SharedDeck, app: &AppHandle) -> Result<(), String> {
     let mut deck = deck.lock().unwrap_or_else(PoisonError::into_inner);
     if deck.is_none() {
-        let cache = crate::video_commands::video_cache(app).map_err(|err| err.to_string())?;
-        let session = Arc::clone(&app.state::<SharedSession>());
-        *deck = Some(VideoDeck::new(move |asset| {
-            session
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .video_file(asset, &cache)
-                .ok()
-        }));
+        *deck = Some(new_deck(app)?);
     }
     Ok(())
+}
+
+/// The monitor's picture of `shown` through the composition's effects: its width and height as
+/// two little-endian u16, then its RGBA pixels (no encoding to wait for on either side). The
+/// output and the preview monitors both come from here, so a clip looks the same in each.
+fn monitor_picture(
+    shown: &[flux_video::Shown],
+    vj: &flux_project::vj::Vj,
+    size: (u32, u32),
+    clock: flux_project::vj_modulation::Clock,
+    last: &mut Option<Instant>,
+    history: &mut flux_render::History,
+) -> Vec<u8> {
+    let (width, height) = (
+        MONITOR_WIDTH,
+        (MONITOR_WIDTH * size.1 / size.0.max(1)).max(1),
+    );
+    let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
+    picture.extend_from_slice(&(width as u16).to_le_bytes());
+    picture.extend_from_slice(&(height as u16).to_le_bytes());
+    let at = Instant::now();
+    let dt = last
+        .replace(at)
+        .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
+    let post = composition_post(vj, clock, dt);
+    picture.extend(flux_render::composite_post(
+        &pictures(shown, size, clock.beats),
+        width,
+        height,
+        &post,
+        history,
+    ));
+    picture
+}
+
+/// The grid cut down to `clip`'s layer, with that layer at full strength and its clip alone: what
+/// the preview plays, so the clip is drawn as it is placed and not as the layer is mixed.
+fn preview_grid(vj: &flux_project::vj::Vj, clip: &str) -> Option<flux_project::vj::Vj> {
+    let (layer, _) = vj.find_clip(clip)?;
+    let mut layer = layer.clone();
+    layer.clips.retain(|c| c.id == clip);
+    layer.master = 1.0;
+    layer.opacity = 1.0;
+    layer.blend = flux_project::vj::Blend::Alpha;
+    layer.transition = 0.0;
+    layer.crossfade = None;
+    layer.bypass = false;
+    layer.solo = false;
+    layer.modulation.clear();
+    let mut vj = vj.clone();
+    vj.layers = vec![layer];
+    Some(vj)
+}
+
+/// How long the preview goes on without being asked for a picture before it lets go of its decoders.
+const PREVIEW_IDLE: Duration = Duration::from_secs(1);
+
+/// What the editor's preview monitor plays: the selected clip alone, on a clock and decoders of its
+/// own, so previewing never changes what is on air.
+#[derive(Default)]
+struct Preview {
+    clip: Option<String>,
+    /// Its own clock and playhead (the grid's type, with only the clip launched).
+    grid: crate::vj_commands::Grid,
+    deck: Option<VideoDeck>,
+    /// The session's revision and the clip the cut-down grid was made for, and the grid.
+    cut: Option<(u64, String, String, flux_project::vj::Vj)>,
+    drawn: Option<flux_project::vj::Vj>,
+    history: flux_render::History,
+    last: Option<Instant>,
+    polled: Option<Instant>,
+    /// A thread is watching for the preview to go unasked.
+    watching: bool,
+}
+
+impl Preview {
+    /// Lets go of the clip and its decoders.
+    fn stop(&mut self) {
+        *self = Self {
+            watching: self.watching,
+            ..Self::default()
+        };
+    }
+}
+
+/// Stops `preview` once nobody has asked for a picture for [`PREVIEW_IDLE`]; ends with it.
+fn watch(preview: Arc<Mutex<Preview>>) {
+    let _ = thread::Builder::new()
+        .name("flux-vj-preview".into())
+        .spawn(move || {
+            loop {
+                thread::sleep(PREVIEW_IDLE / 2);
+                let mut preview = preview.lock().unwrap_or_else(PoisonError::into_inner);
+                if preview.polled.is_none_or(|at| at.elapsed() >= PREVIEW_IDLE) {
+                    preview.stop();
+                    preview.watching = false;
+                    return;
+                }
+            }
+        });
 }
 
 impl VideoOutputs {
@@ -777,42 +956,129 @@ impl VideoOutputs {
     /// so it shows them with no screen open too.
     pub fn composition(&self, app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
         let session = Arc::clone(&app.state::<SharedSession>());
-        let Some(vj) = session
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .grid_copy()
-        else {
+        // The grid is copied again only when the session moved.
+        let mut guard = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
+        let frames = &mut *guard;
+        {
+            let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+            let (revision, active) = session.revision();
+            if frames
+                .grid
+                .as_ref()
+                .is_none_or(|(r, a, _)| (*r, a.as_str()) != (revision, active))
+            {
+                frames.grid = Some((revision, active.to_owned(), session.grid_copy()));
+                frames.drawn = None;
+            }
+        }
+        let Some(vj) = frames.grid.as_ref().and_then(|(_, _, vj)| vj.as_ref()) else {
             return Ok(None);
         };
         ensure_deck(&self.deck, app)?;
+        let bpm = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .active_timeline_copy()
+            .map_or(120.0, |timeline| timeline.tempo.bpm);
         let (play, now) = {
             let grid = app.state::<crate::vj_commands::SharedGrid>();
-            let grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
-            (grid.play.clone(), grid.now())
+            let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
+            let now = grid.tick(vj, bpm);
+            (grid.play.clone(), now)
         };
+        let beats = now.beats;
+        let clock = flux_project::vj_modulation::Clock {
+            seconds: now.time.as_secs_f64(),
+            beats,
+        };
+        let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
+        let drawn = modulation.draw(vj, &mut frames.drawn, clock);
+        let size = composition_size(&session);
         let shown = self
             .deck
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_mut()
-            .map(|deck| deck.show_grid(&vj, &play, now))
+            .map(|deck| deck.show_grid(drawn, &play, now, size))
             .unwrap_or_default();
+        Ok(Some(monitor_picture(
+            &shown,
+            drawn,
+            size,
+            clock,
+            &mut frames.last,
+            &mut frames.history,
+        )))
+    }
+
+    /// What `clip` alone looks like in the composition (see [`Self::composition`]), as that
+    /// picture: its fit, scale, position and effects, at full strength on black. The clip plays on
+    /// a clock of its own from its start, whatever is on air. `None` stops the preview, and so
+    /// does going unasked for a second. Empty when there is no such clip.
+    pub fn preview(&self, app: &AppHandle, clip: Option<&str>) -> Result<Vec<u8>, String> {
+        let mut guard = self.preview.lock().unwrap_or_else(PoisonError::into_inner);
+        let preview = &mut *guard;
+        let Some(clip) = clip else {
+            preview.stop();
+            return Ok(Vec::new());
+        };
+        let session = Arc::clone(&app.state::<SharedSession>());
+        let bpm = {
+            let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+            let (revision, active) = session.revision();
+            let current = preview.cut.as_ref().is_some_and(|(r, a, c, _)| {
+                (*r, a.as_str(), c.as_str()) == (revision, active, clip)
+            });
+            if !current {
+                preview.cut = session
+                    .grid_ref()
+                    .and_then(|vj| preview_grid(vj, clip))
+                    .map(|vj| (revision, active.to_owned(), clip.to_owned(), vj));
+                preview.drawn = None;
+            }
+            session.tempo_bpm()
+        };
+        let Some((_, _, _, vj)) = preview.cut.as_ref() else {
+            preview.stop();
+            return Ok(Vec::new());
+        };
+        preview.polled = Some(Instant::now());
+        if !preview.watching {
+            preview.watching = true;
+            watch(Arc::clone(&self.preview));
+        }
+        let tick = preview.grid.tick(vj, bpm);
+        if preview.clip.as_deref() != Some(clip) {
+            preview.clip = Some(clip.to_owned());
+            // A new deck, so the last clip's decoders close and a file that failed to open is tried again.
+            preview.deck = None;
+            preview.history = flux_render::History::default();
+            preview.grid.play = flux_video::GridPlay::default();
+            preview.grid.play.launch(vj, clip, tick);
+        }
+        if preview.deck.is_none() {
+            preview.deck = Some(new_deck(app)?);
+        }
+        let clock = flux_project::vj_modulation::Clock {
+            seconds: tick.time.as_secs_f64(),
+            beats: tick.beats,
+        };
+        let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
+        let drawn = modulation.draw(vj, &mut preview.drawn, clock);
         let size = composition_size(&session);
-        let (width, height) = (
-            MONITOR_WIDTH,
-            (MONITOR_WIDTH * size.1 / size.0.max(1)).max(1),
-        );
-        // Its width and height as two little-endian u16, then its RGBA pixels: no encoding to
-        // wait for on either side.
-        let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
-        picture.extend_from_slice(&(width as u16).to_le_bytes());
-        picture.extend_from_slice(&(height as u16).to_le_bytes());
-        picture.extend(flux_render::composite(
-            &pictures(&shown, size),
-            width,
-            height,
-        ));
-        Ok(Some(picture))
+        let shown = preview
+            .deck
+            .as_mut()
+            .map(|deck| deck.show_grid(drawn, &preview.grid.play, tick, size))
+            .unwrap_or_default();
+        Ok(monitor_picture(
+            &shown,
+            drawn,
+            size,
+            clock,
+            &mut preview.last,
+            &mut preview.history,
+        ))
     }
 }
 
@@ -924,5 +1190,141 @@ fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
         B::Screen => flux_render::Blend::Screen,
         B::Lighten => flux_render::Blend::Lighten,
         B::Darken => flux_render::Blend::Darken,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flux_project::playhead::Tick;
+    use flux_project::vj::{Blend, Clip, Layer, Playback, Side, Trigger, Vj};
+    use flux_project::{VideoFit, vj::Direction};
+    use flux_video::{GridPlay, Rate, Shown};
+
+    fn clip(id: &str) -> Clip {
+        Clip {
+            id: id.into(),
+            column: Some("c1".into()),
+            slot: None,
+            asset: "v1".into(),
+            generator: None,
+            name: None,
+            playback: Playback::Loop,
+            trigger: Trigger::Normal,
+            speed: 1.0,
+            duration: flux_project::vj::DEFAULT_DURATION,
+            direction: Direction::default(),
+            tempo: Default::default(),
+            region: Default::default(),
+            cues: Default::default(),
+            fit: VideoFit::Fill,
+            scale: 0.5,
+            position: [0.1, 0.0],
+            effects: Vec::new(),
+            modulation: Default::default(),
+        }
+    }
+
+    fn layer(id: &str, clips: Vec<Clip>) -> Layer {
+        Layer {
+            id: id.into(),
+            name: None,
+            global: false,
+            master: 0.4,
+            opacity: 0.3,
+            volume: 1.0,
+            blend: Blend::Add,
+            transition: 2.0,
+            transition_effect: Default::default(),
+            crossfade: Some(Side::A),
+            bypass: true,
+            solo: false,
+            collapsed: false,
+            effects: Vec::new(),
+            modulation: Default::default(),
+            clips,
+        }
+    }
+
+    fn grid() -> Vj {
+        Vj {
+            layers: vec![
+                layer("l1", vec![clip("a"), clip("b")]),
+                layer("l2", vec![clip("c")]),
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn shown(vj: &Vj, play: &GridPlay, tick: Tick) -> Vec<Shown> {
+        let probe = |_: &str| Some((Rate::new(25, 1), 100));
+        play.layers(vj, tick, &probe)
+            .into_iter()
+            .map(|layer| Shown {
+                frame: Some(Arc::new(flux_video::Frame {
+                    index: layer.frame,
+                    width: 1920,
+                    height: 800,
+                    rgba: Vec::new(),
+                    alpha: false,
+                })),
+                layer,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn preview_grid_should_keep_only_the_clip_at_full_strength() {
+        let vj = preview_grid(&grid(), "a").unwrap();
+        assert_eq!(vj.layers.len(), 1);
+        assert_eq!(vj.layers[0].clips.len(), 1);
+        assert!(!vj.layers[0].bypass && vj.layers[0].crossfade.is_none());
+        assert!(preview_grid(&grid(), "nope").is_none());
+    }
+
+    #[test]
+    fn preview_should_place_a_clip_as_the_output_does() {
+        let size = (1920, 1080);
+        let tick = Tick::default();
+        let mut on_air = grid();
+        on_air.layers[0] = Layer {
+            bypass: false,
+            crossfade: None,
+            opacity: 1.0,
+            master: 1.0,
+            transition: 0.0,
+            blend: Blend::Alpha,
+            ..on_air.layers[0].clone()
+        };
+        let mut play = GridPlay::default();
+        play.launch(&on_air, "a", tick);
+        let output = shown(&on_air, &play, tick);
+
+        let cut = preview_grid(&grid(), "a").unwrap();
+        let mut preview_play = GridPlay::default();
+        preview_play.launch(&cut, "a", tick);
+        let preview = shown(&cut, &preview_play, tick);
+
+        assert_eq!(preview.len(), 1, "a bypassed layer still previews");
+        let (p, o) = (
+            &pictures(&preview, size, 0.0)[0],
+            &pictures(&output, size, 0.0)[0],
+        );
+        assert_eq!(p.place, o.place);
+        assert_eq!(p.opacity, 1.0);
+    }
+
+    #[test]
+    fn preview_should_start_at_the_clip_start_and_again_when_launched_again() {
+        let cut = preview_grid(&grid(), "a").unwrap();
+        let mut play = GridPlay::default();
+        let later = Tick {
+            time: Duration::from_secs(1),
+            beats: 2.0,
+        };
+        play.launch(&cut, "a", Tick::default());
+        assert!(shown(&cut, &play, later)[0].layer.frame > 0, "it plays");
+        play.launch(&cut, "a", later);
+        assert_eq!(shown(&cut, &play, later)[0].layer.frame, 0, "it restarts");
     }
 }

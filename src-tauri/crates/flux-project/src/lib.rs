@@ -18,10 +18,14 @@ mod preview;
 pub mod recovery;
 pub mod routing;
 pub use outputs::{ClickSettings, LtcSignal, MtcSignal, ShowOutputs, SignalOp, UNASSIGNED_DEVICE};
+pub mod playhead;
 mod session;
 pub mod show;
 mod video_clips;
 pub mod vj;
+pub mod vj_effects;
+mod vj_file;
+pub mod vj_modulation;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};

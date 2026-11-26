@@ -31,6 +31,7 @@ flux-audio = { path = "crates/flux-audio" }
 flux-engine = { path = "crates/flux-engine" }
 flux-video = { path = "crates/flux-video" }
 flux-render = { path = "crates/flux-render" }
+flux-text = { path = "crates/flux-text" }
 tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2.8.4"
@@ -59,6 +60,22 @@ tempfile = "3.27.0"
 # The output monitor draws and encodes a picture many times a second: unoptimized, that alone
 # takes most of a frame in `tauri dev`.
 [profile.dev.package.flux-render]
+opt-level = 3
+
+# A text block is drawn pixel by pixel when it changes: its glyphs are drawn by these.
+[profile.dev.package.flux-text]
+opt-level = 3
+
+[profile.dev.package.ab_glyph]
+opt-level = 3
+
+[profile.dev.package.ab_glyph_rasterizer]
+opt-level = 3
+
+[profile.dev.package.owned_ttf_parser]
+opt-level = 3
+
+[profile.dev.package.ttf-parser]
 opt-level = 3
 
 [profile.dev.package.jpeg-encoder]

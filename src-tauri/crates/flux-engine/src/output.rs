@@ -180,6 +180,8 @@ pub struct SharedClock {
     pending_plays: AtomicU64,
     operator_health: RwLock<Option<Arc<AtomicBool>>>,
     operator_invalid: AtomicBool,
+    /// The sound of the VJ grid, which plays whether the transport does or not.
+    grid_audio: crate::grid_audio::GridAudio,
 }
 
 /// What a [`SharedClock`] counts going wrong.
@@ -228,6 +230,7 @@ impl SharedClock {
             audio_health: RwLock::new(Vec::new()),
             operator_health: RwLock::new(None),
             operator_invalid: AtomicBool::new(false),
+            grid_audio: crate::grid_audio::GridAudio::default(),
             operator_set: Mutex::new(Arc::new(ClipSet::default())),
             operator_subscribers: Mutex::new(Vec::new()),
             pending_plays: AtomicU64::new(0),
@@ -538,6 +541,7 @@ pub struct Renderer {
     shared: Arc<SharedClock>,
     seen_epoch: u64,
     pace: PaceWatch,
+    grid: crate::grid_audio::GridPlayer,
 }
 
 impl Renderer {
@@ -565,6 +569,7 @@ impl Renderer {
             channels,
             shared,
             pace: PaceWatch::default(),
+            grid: crate::grid_audio::GridPlayer::default(),
         }
     }
 
@@ -618,6 +623,7 @@ impl Renderer {
             }
         }
         data.fill(T::EQUILIBRIUM);
+        self.grid.begin(&self.shared.grid_audio);
         let frames = (data.len() / self.channels) as u64;
         if self.show.is_some() {
             if self.shared.show_fault.load(Ordering::Acquire) {
@@ -650,6 +656,8 @@ impl Renderer {
                 let end = offset + count as usize * self.channels;
                 if playing {
                     self.mix(&mut data[offset..end]);
+                } else {
+                    self.mix_grid_alone(&mut data[offset..end]);
                 }
                 if let Some(sender) = self.shared.show_spans.get() {
                     let include_end = playing
@@ -692,6 +700,8 @@ impl Renderer {
             self.sync_ltc();
             if self.transport.state() == TransportState::Playing {
                 self.mix(data);
+            } else {
+                self.mix_grid_alone(data);
             }
             if self.transport.advance(frames) {
                 self.shared.shows_ended.fetch_add(1, Ordering::Relaxed);
@@ -729,6 +739,33 @@ impl Renderer {
         }
     }
 
+    /// While the transport is not playing, writes the sound of the VJ grid, if any, to the
+    /// programme's channels; `data` is silent then.
+    fn mix_grid_alone<T: Sample + FromSample<f32>>(&mut self, data: &mut [T]) {
+        if self.grid.is_silent() {
+            return;
+        }
+        for chunk in data.chunks_mut(self.channels * MIX_CHUNK) {
+            let frames = chunk.len() / self.channels;
+            let mut left = [0.0f32; MIX_CHUNK];
+            let mut right = [0.0f32; MIX_CHUNK];
+            self.grid.chunk(&mut left[..frames], &mut right[..frames]);
+            for (at, frame) in chunk.chunks_exact_mut(self.channels).enumerate() {
+                match self.programme.as_slice() {
+                    [] => {}
+                    [only] => {
+                        frame[*only] =
+                            T::from_sample(((left[at] + right[at]) * 0.5).clamp(-1.0, 1.0))
+                    }
+                    [first, second, ..] => {
+                        frame[*first] = T::from_sample(left[at].clamp(-1.0, 1.0));
+                        frame[*second] = T::from_sample(right[at].clamp(-1.0, 1.0));
+                    }
+                }
+            }
+        }
+    }
+
     /// Writes the programme, the metronome and LTC into `data`, which holds the buffer's frames.
     /// A metronome channel the programme also uses gets the click added to the programme; one it
     /// does not use carries the click alone.
@@ -748,8 +785,14 @@ impl Renderer {
             if self.audio_lanes.is_none() {
                 self.clips
                     .mix(at_chunk, &mut left[..frames], &mut right[..frames]);
+                self.grid.chunk(&mut left[..frames], &mut right[..frames]);
             }
+            // Routed audio has its own mix; the grid's sound goes to the programme's channels on top.
+            let mut grid_left = [0.0f32; MIX_CHUNK];
+            let mut grid_right = [0.0f32; MIX_CHUNK];
             if let Some(lanes) = &mut self.audio_lanes {
+                self.grid
+                    .chunk(&mut grid_left[..frames], &mut grid_right[..frames]);
                 for lane in lanes {
                     lane.mix(&self.clips, at_chunk, frames);
                 }
@@ -815,8 +858,15 @@ impl Renderer {
                 }
                 if let Some(lanes) = &self.audio_lanes {
                     for (channel, sample) in frame.iter_mut().enumerate() {
+                        let grid = match self.programme.as_slice() {
+                            [only] if *only == channel => (grid_left[at] + grid_right[at]) * 0.5,
+                            [first, ..] if *first == channel => grid_left[at],
+                            [_, second, ..] if *second == channel => grid_right[at],
+                            _ => 0.0,
+                        };
                         let sum = lanes.iter().map(|l| l.sample(channel, at)).sum::<f32>()
-                            + click_on(channel);
+                            + click_on(channel)
+                            + grid;
                         *sample = T::from_sample(sum.clamp(-1.0, 1.0));
                     }
                 }
@@ -2472,6 +2522,12 @@ impl Output {
 
     pub fn reader(&self) -> PositionReader {
         self.reader.clone()
+    }
+
+    /// Replaces the sound of the VJ grid, which plays on the programme whether the transport plays
+    /// or not. The callback takes it up on its next buffer, without waiting.
+    pub fn set_grid_audio(&self, mix: crate::grid_audio::GridMix) {
+        self.reader.shared.grid_audio.set(mix);
     }
 
     /// Where to move a track's fader and read its peak, whichever clip set is playing.

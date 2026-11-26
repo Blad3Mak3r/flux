@@ -7,18 +7,23 @@ import { dispatch, useDoc } from "../state/store";
 import { say, sayError } from "../state/ui";
 import { probeVideos } from "../state/video";
 import {
+  vjBeat,
   vjCrossfader,
+  vjCue,
   vjEdit,
   vjLaunch,
   vjLaunchColumn,
   vjOutputFrame,
+  vjPreviewFrame,
   vjPreview,
   vjPlayState,
   vjRelease,
+  vjScrub,
   vjImport,
+  vjModulationValues,
   vjStop,
 } from "./api";
-import type { GridState, VjOp } from "./api";
+import type { GridState, ModValues, VjBeatOp, VjOp } from "./api";
 
 /** A video file being copied into the project, shown where it will land until it is there. */
 export interface Importing {
@@ -37,25 +42,36 @@ interface VjState {
   clip: string | null;
   /** The layer the inspector shows. */
   layer: string | null;
-  tab: "clip" | "layer";
+  tab: "clip" | "layer" | "composition";
   /** Which media the browser lists. */
   media: MediaKind;
-  /** What the browser shows: the project's media or the generators. */
-  browser: "media" | "generators";
+  /** What the browser shows: the project's media, the generators or the effects. */
+  browser: "media" | "generators" | "effects";
+  /** The effects of the inspector folded shut; only the screen's, never the file's. */
+  folded: Record<string, true>;
+  /** The modulation sub-rows of the inspector that are open, by the setting's key; only the screen's. */
+  modOpen: Record<string, true>;
+  /** The modulated values now, while the inspector shows something modulated. */
+  mod: ModValues;
   /** Whether the Advanced Output is open. */
   output: boolean;
 }
 
+const NO_MOD: ModValues = { effects: {}, layers: {}, clips: {} };
+
 export type MediaKind = "all" | "video" | "image";
 
 export const useVj = create<VjState>()(() => ({
-  play: { playing: [], column: null, crossfader: 0.5 },
+  play: { playing: [], column: null, crossfader: 0.5, beats: 0, beatsPaused: false },
   importing: [],
   clip: null,
   layer: null,
   tab: "clip",
   media: "all",
   browser: "media",
+  folded: {},
+  modOpen: {},
+  mod: NO_MOD,
   output: false,
 }));
 
@@ -133,15 +149,50 @@ export const launch = (clip: string, layer: string) => {
 export const release = (clip: string) => played(() => vjRelease(clip));
 export const launchColumn = (column: string) => played(() => vjLaunchColumn(column));
 export const stopLayer = (layer: string | null) => played(() => vjStop(layer));
+export const beatClock = (op: VjBeatOp) => played(() => vjBeat(op));
+export const cue = (clip: string, index: number) => played(() => vjCue(clip, index));
+
+/**
+ * Moves the playhead of the clip on `layer` while the hand scrubs: one goes at a time, and moves made meanwhile are
+ * folded into the newest, as {@link preview} does.
+ */
+let nextScrub: { layer: string; position: number } | null = null;
+export function scrub(layer: string, position: number): void {
+  const idle = nextScrub === null;
+  nextScrub = { layer, position };
+  if (!idle) return;
+  scrubbing = scrubbing.then(async () => {
+    const to = nextScrub;
+    nextScrub = null;
+    if (to) await vjScrub(to.layer, to.position).then((play) => useVj.setState({ play })).catch(() => undefined);
+  });
+}
+let scrubbing: Promise<void> = Promise.resolve();
 export const moveCrossfader = (position: number) => played(() => vjCrossfader(position));
 
 export const selectClip = (clip: string, layer: string) => useVj.setState({ clip, layer, tab: "clip" });
 export const selectLayer = (layer: string) => useVj.setState({ layer, tab: "layer" });
 export const showTab = (tab: VjState["tab"]) => useVj.setState({ tab });
 export const showMedia = (media: MediaKind) => useVj.setState({ media });
+/** Folds an effect of the inspector shut, or opens it again. */
+export const foldEffect = (effect: string) =>
+  useVj.setState((vj) => {
+    const folded = { ...vj.folded };
+    if (folded[effect]) delete folded[effect];
+    else folded[effect] = true;
+    return { folded };
+  });
+/** Opens the modulation sub-row of a setting (`open`), closes it, or flips it with no `open`. */
+export const showModulation = (key: string, open?: boolean) =>
+  useVj.setState((vj) => {
+    const modOpen = { ...vj.modOpen };
+    if (open ?? !modOpen[key]) modOpen[key] = true;
+    else delete modOpen[key];
+    return { modOpen };
+  });
 export const showBrowser = (browser: VjState["browser"]) => useVj.setState({ browser });
 
-/** Asks the backend what plays, ten times a second, while the VJ screen is open and in sight. */
+/** Asks the backend what plays, twenty times a second, while the VJ screen is open and in sight. */
 export function bindPlayState(): () => void {
   let stopped = false;
   const tick = () => {
@@ -157,12 +208,43 @@ export function bindPlayState(): () => void {
       })
       .catch(() => undefined)
       .finally(() => {
-        if (!stopped) window.setTimeout(tick, 100);
+        if (!stopped) window.setTimeout(tick, PLAY_EVERY);
       });
   };
   tick();
   return () => {
     stopped = true;
+  };
+}
+
+/** How often the play state is asked for: the playhead of a clip moves with it. */
+const PLAY_EVERY = 50;
+
+/** How often the modulated values are asked for while the inspector shows something modulated: thirty times a second. */
+const MOD_EVERY = 1000 / 30;
+
+/** Asks the backend for the modulated values {@link MOD_EVERY}, to mark them on the controls. The UI never computes them. */
+export function bindModulation(): () => void {
+  let stopped = false;
+  const tick = () => {
+    if (stopped) return;
+    if (document.hidden) {
+      window.setTimeout(tick, 100);
+      return;
+    }
+    vjModulationValues()
+      .then((mod) => {
+        if (!stopped) useVj.setState({ mod });
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!stopped) window.setTimeout(tick, MOD_EVERY);
+      });
+  };
+  tick();
+  return () => {
+    stopped = true;
+    useVj.setState({ mod: NO_MOD });
   };
 }
 
@@ -184,6 +266,15 @@ const OUTPUT_EVERY = 1000 / 30;
  * none), while the VJ screen is open and in sight.
  */
 export function bindOutput(draw: (picture: ImageData | null) => void): () => void {
+  return bindFrames(vjOutputFrame, draw);
+}
+
+/** Like {@link bindOutput}, for the picture of one clip alone as the composition would show it. */
+export function bindPreview(clip: string, draw: (picture: ImageData | null) => void): () => void {
+  return bindFrames(() => vjPreviewFrame(clip), draw);
+}
+
+function bindFrames(frame: () => Promise<ArrayBuffer>, draw: (picture: ImageData | null) => void): () => void {
   let stopped = false;
   let pending = 0;
   let asked = 0;
@@ -192,7 +283,7 @@ export function bindOutput(draw: (picture: ImageData | null) => void): () => voi
     if (stopped || pending >= 2 || document.hidden) return;
     pending += 1;
     const number = ++asked;
-    vjOutputFrame()
+    frame()
       .then((bytes) => {
         if (stopped || number < drawn) return;
         drawn = number;

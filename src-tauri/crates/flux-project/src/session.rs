@@ -743,11 +743,16 @@ impl Session {
                 | Op::LayerTransition { .. }
                 | Op::ClipScale { .. }
                 | Op::ClipPosition { .. }
+                | Op::ClipSpeed { .. }
+                | Op::ClipRegion { .. }
                 | Op::ClipGenerator { .. }
+                | Op::EffectParams { .. }
+                | Op::SetModulation { .. }
         );
         if !level {
             return Err(ProjectError::Invalid(
-                "only a level, a transform or a generator is previewed".into(),
+                "only a level, a transform, a generator, an effect or a modulation is previewed"
+                    .into(),
             ));
         }
         if let Op::ClipGenerator { generator, .. } = &op {
@@ -969,6 +974,23 @@ impl Session {
     pub fn grid_copy(&self) -> Option<crate::vj::Vj> {
         let project = &self.document.as_ref()?.project;
         (project.mode == crate::ProjectMode::Vj).then(|| project.vj.clone())
+    }
+
+    /// The VJ grid of a VJ project, where it is held.
+    pub fn grid_ref(&self) -> Option<&crate::vj::Vj> {
+        let project = &self.document.as_ref()?.project;
+        (project.mode == crate::ProjectMode::Vj).then_some(&project.vj)
+    }
+
+    /// The tempo of the timeline being played, in beats a minute; 120 with no project.
+    pub fn tempo_bpm(&self) -> f64 {
+        let Some(document) = self.document.as_ref() else {
+            return 120.0;
+        };
+        document
+            .project
+            .timeline(&document.active)
+            .map_or(120.0, |timeline| timeline.tempo.bpm)
     }
 
     /// A copy of the project's video `id`.
@@ -1496,7 +1518,76 @@ mod tests {
         assert!(session.revision().0 > before, "the screens see it");
         let add = crate::VjOp::AddLayer { global: false };
         assert!(session.preview_vj(add).is_err());
+        let effect = session
+            .edit_vj(crate::VjOp::AddEffect {
+                target: crate::vj::EffectTarget::Layer(layer.clone()),
+                kind: "blur".into(),
+            })
+            .unwrap()
+            .project
+            .vj
+            .layers[0]
+            .effects[0]
+            .id
+            .clone();
+        let params = crate::VjOp::EffectParams {
+            effect,
+            kind: crate::vj::EffectKind::Blur { radius: 0.7 },
+        };
+        session.preview_vj(params).unwrap();
+        assert_eq!(
+            session.grid_copy().unwrap().layers[0].effects[0].kind,
+            crate::vj::EffectKind::Blur { radius: 0.7 }
+        );
+        let remove = crate::VjOp::RemoveEffect {
+            effect: session.grid_copy().unwrap().layers[0].effects[0].id.clone(),
+        };
+        assert!(session.preview_vj(remove).is_err());
         assert_eq!(session.grid_copy().unwrap().layers.len(), grid.layers.len());
+    }
+
+    #[test]
+    fn preview_vj_should_move_a_speed_and_a_region_but_not_a_direction_or_a_cue() {
+        let mut session = Session::default();
+        let project = session.new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj);
+        let layer = project.vj.layers[0].id.clone();
+        let column = project.vj.decks[0].columns[0].id.clone();
+        // A new project has no video: a generator is a clip too.
+        let state = session
+            .edit_vj(crate::VjOp::PlaceGenerator {
+                generator: crate::generator::Generator::Bars,
+                layer,
+                column,
+            })
+            .unwrap();
+        let clip = state.project.vj.layers[0].clips[0].id.clone();
+        session
+            .preview_vj(crate::VjOp::ClipSpeed {
+                clip: clip.clone(),
+                value: 2.0,
+            })
+            .unwrap();
+        session
+            .preview_vj(crate::VjOp::ClipRegion {
+                clip: clip.clone(),
+                start: 0.25,
+                end: 0.5,
+            })
+            .unwrap();
+        let held = session.grid_copy().unwrap().layers[0].clips[0].clone();
+        assert_eq!(held.speed, 2.0);
+        assert_eq!((held.region.start, held.region.end), (0.25, 0.5));
+        let direction = crate::VjOp::ClipDirection {
+            clip: clip.clone(),
+            direction: crate::vj::Direction::Reverse,
+        };
+        assert!(session.preview_vj(direction).is_err());
+        let cue = crate::VjOp::ClipCue {
+            clip,
+            index: 0,
+            position: Some(0.5),
+        };
+        assert!(session.preview_vj(cue).is_err());
     }
 
     #[test]

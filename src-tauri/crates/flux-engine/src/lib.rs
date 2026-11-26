@@ -2,6 +2,8 @@
 //! Live view and the output that opens the audio and MIDI devices. No Tauri in here, so it is
 //! testable without a window.
 
+pub mod analysis;
+pub mod chase;
 pub mod control;
 pub mod control_in;
 pub mod control_light;
@@ -10,6 +12,7 @@ pub mod cue_sheet;
 pub mod cues;
 pub mod devices;
 pub mod fire;
+pub mod grid_audio;
 pub mod ltc;
 pub mod metronome;
 pub mod midi_cue;

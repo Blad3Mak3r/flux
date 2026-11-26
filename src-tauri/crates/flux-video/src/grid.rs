@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use flux_project::VideoFit;
-use flux_project::vj::{Playback, Side, Transition, Trigger, Vj};
+use flux_project::playhead::{Motion, Playhead, Tick};
+use flux_project::vj::{Side, Transition, Trigger, Vj};
 
 use crate::layers::{Layer, Probe};
 use crate::mapping::Rate;
@@ -21,8 +22,19 @@ pub struct Launched {
     pub clip: Option<String>,
     /// When the clip was launched, on the grid's clock.
     pub at: Duration,
+    /// Where `clip` is in its video and how it moves; `None` with it.
+    pub head: Option<Playhead>,
     /// The layer's transition into `clip`, until it ends.
     pub fade: Option<Fade>,
+}
+
+/// The clip a transition leaves behind: it keeps playing, on its own playhead, as it fades.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Leaving {
+    pub clip: String,
+    /// When it was launched.
+    pub at: Duration,
+    pub head: Playhead,
 }
 
 /// A transition running on a layer: from the clip it played, or from nothing, to the one launched
@@ -30,8 +42,8 @@ pub struct Launched {
 /// it runs.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Fade {
-    /// The clip leaving and when it was launched; `None` when the layer fades in from nothing.
-    pub from: Option<(String, Duration)>,
+    /// The clip leaving; `None` when the layer fades in from nothing.
+    pub from: Option<Leaving>,
     /// When the fade started or last changed speed, and how far it was then, 0 to 1.
     pub since: Duration,
     pub done: f32,
@@ -56,15 +68,15 @@ impl Launched {
         self.fade.as_ref().filter(|fade| fade.progress(now) < 1.0)
     }
 
-    /// The clip the layer shows `now` most, and when it was launched: the one launched, or the one
-    /// leaving while the layer fades out.
-    pub fn shown(&self, now: Duration) -> Option<(&str, Duration)> {
+    /// The clip the layer shows `now` most, when it was launched and where it is: the one
+    /// launched, or the one leaving while the layer fades out.
+    pub fn shown(&self, now: Duration) -> Option<(&str, Duration, &Playhead)> {
         match &self.clip {
-            Some(clip) => Some((clip.as_str(), self.at)),
+            Some(clip) => Some((clip.as_str(), self.at, self.head.as_ref()?)),
             None => self
                 .fading(now)
                 .and_then(|fade| fade.from.as_ref())
-                .map(|(clip, at)| (clip.as_str(), *at)),
+                .map(|left| (left.clip.as_str(), left.at, &left.head)),
         }
     }
 }
@@ -101,26 +113,31 @@ impl GridPlay {
     /// Plays `clip` on its layer from its first frame, in place of what the layer played, over
     /// the layer's transition. A clip that is already playing starts again, at once. `false` when
     /// the grid has no such clip.
-    pub fn launch(&mut self, vj: &Vj, clip: &str, now: Duration) -> bool {
+    pub fn launch(&mut self, vj: &Vj, clip: &str, now: impl Into<Tick>) -> bool {
         let Some((layer, _)) = vj.find_clip(clip) else {
             return false;
         };
-        self.start(vj, &layer.id, Some(clip), now);
+        self.start(vj, &layer.id, Some(clip), now.into());
         self.column = None;
         true
     }
 
     /// Moves `layer` to `clip`, or to nothing, over the layer's transition: what it shows now
     /// leaves as the new clip comes in.
-    fn start(&mut self, vj: &Vj, layer: &str, clip: Option<&str>, now: Duration) {
+    fn start(&mut self, vj: &Vj, layer: &str, clip: Option<&str>, tick: Tick) {
+        let now = tick.time;
         let over = transition(vj, layer);
         let before = self.playing.get(layer);
+        let head = clip
+            .and_then(|clip| vj.find_clip(clip))
+            .map(|(_, clip)| Playhead::launch(Motion::of(clip), tick));
         if clip.is_some() && before.and_then(|b| b.clip.as_deref()) == clip {
             self.playing.insert(
                 layer.to_owned(),
                 Launched {
                     clip: clip.map(str::to_owned),
                     at: now,
+                    head,
                     fade: None,
                 },
             );
@@ -128,7 +145,11 @@ impl GridPlay {
         }
         let from = before
             .and_then(|before| before.shown(now))
-            .map(|(clip, at)| (clip.to_owned(), at));
+            .map(|(clip, at, head)| Leaving {
+                clip: clip.to_owned(),
+                at,
+                head: *head,
+            });
         if clip.is_none() && (from.is_none() || over.is_zero()) {
             self.playing.remove(layer);
             return;
@@ -142,6 +163,7 @@ impl GridPlay {
         let launched = Launched {
             clip: clip.map(str::to_owned),
             at: now,
+            head,
             fade,
         };
         self.playing.insert(layer.to_owned(), launched);
@@ -149,7 +171,7 @@ impl GridPlay {
 
     /// Lets go of `clip`: a clip triggered as a piano key stops, over the layer's transition, when
     /// it is let go, if it still plays. `false` when the grid has no such clip.
-    pub fn release(&mut self, vj: &Vj, clip: &str, now: Duration) -> bool {
+    pub fn release(&mut self, vj: &Vj, clip: &str, now: impl Into<Tick>) -> bool {
         let Some((layer, found)) = vj.find_clip(clip) else {
             return false;
         };
@@ -159,7 +181,7 @@ impl GridPlay {
                 .get(&layer.id)
                 .is_some_and(|l| l.clip.as_deref() == Some(clip))
         {
-            self.start(vj, &layer.id, None, now);
+            self.start(vj, &layer.id, None, now.into());
         }
         true
     }
@@ -167,19 +189,21 @@ impl GridPlay {
     /// Launches every clip of `column` of any deck, all on the same instant; a deck layer without
     /// a clip in it stops, so the column is the whole picture. Global layers play on. `false` when
     /// the grid has no such column.
-    pub fn launch_column(&mut self, vj: &Vj, column: &str, now: Duration) -> bool {
+    pub fn launch_column(&mut self, vj: &Vj, column: &str, now: impl Into<Tick>) -> bool {
         if vj.column_place(column).is_none() {
             return false;
         }
+        let tick = now.into();
         self.column = Some(column.to_owned());
         for (layer, clip) in vj.column_clips(column) {
-            self.start(vj, &layer.id, clip.map(|clip| clip.id.as_str()), now);
+            self.start(vj, &layer.id, clip.map(|clip| clip.id.as_str()), tick);
         }
         true
     }
 
     /// Stops the layer, or every layer with `None`, each over its transition.
-    pub fn stop(&mut self, vj: &Vj, layer: Option<&str>, now: Duration) {
+    pub fn stop(&mut self, vj: &Vj, layer: Option<&str>, now: impl Into<Tick>) {
+        let tick = now.into();
         self.column = None;
         let layers: Vec<String> = match layer {
             Some(layer) => vec![layer.to_owned()],
@@ -187,7 +211,83 @@ impl GridPlay {
         };
         for layer in layers {
             if self.playing.get(&layer).is_some_and(|l| l.clip.is_some()) {
-                self.start(vj, &layer, None, now);
+                self.start(vj, &layer, None, tick);
+            }
+        }
+    }
+
+    /// Moves the playhead of the clip playing on `layer` to `place`, a fraction of the clip's
+    /// length brought into its region. `false` when the layer plays no clip.
+    pub fn scrub(&mut self, layer: &str, place: f64, now: impl Into<Tick>) -> bool {
+        let Some(head) = self
+            .playing
+            .get_mut(layer)
+            .filter(|launched| launched.clip.is_some())
+            .and_then(|launched| launched.head.as_mut())
+        else {
+            return false;
+        };
+        head.jump(now.into(), place);
+        true
+    }
+
+    /// Plays `clip` from its cue number `index`: the playhead of the clip jumps there if it is
+    /// playing, and it is launched there if it is not. `None` when the grid has no such clip, or
+    /// the cue is empty.
+    pub fn cue(&mut self, vj: &Vj, clip: &str, index: usize, now: impl Into<Tick>) -> Option<()> {
+        let tick = now.into();
+        let (layer, found) = vj.find_clip(clip)?;
+        let place = found.cues.get(index).copied().flatten()?;
+        let playing = self
+            .playing
+            .get(&layer.id)
+            .is_some_and(|launched| launched.clip.as_deref() == Some(clip));
+        if !playing {
+            self.launch(vj, clip, tick);
+        }
+        self.scrub(&layer.id, f64::from(place), tick);
+        Some(())
+    }
+
+    /// Follows what the clips playing are now: a change of a clip's speed, direction, tempo,
+    /// region or playback anchors its playhead again from where it is, so it never jumps. `length`
+    /// says how many seconds a video lasts and whether it is a still image, by asset; the length
+    /// of a still image or a generator is the clip's duration. A clip whose video is not known yet
+    /// waits.
+    pub fn follow(&mut self, vj: &Vj, tick: Tick, length: &dyn Fn(&str) -> Option<(f64, bool)>) {
+        let seconds = |clip: &flux_project::vj::Clip| match clip.generator {
+            Some(_) => Some(f64::from(clip.duration)),
+            None => length(&clip.asset)
+                .map(|(seconds, still)| {
+                    if still {
+                        f64::from(clip.duration)
+                    } else {
+                        seconds
+                    }
+                })
+                .filter(|seconds| *seconds > 0.0),
+        };
+        for (layer, launched) in &mut self.playing {
+            let Some(layer) = vj.layers.iter().find(|l| &l.id == layer) else {
+                continue;
+            };
+            let mut heads = vec![];
+            if let (Some(id), Some(head)) = (&launched.clip, &mut launched.head) {
+                heads.push((id.as_str(), head));
+            }
+            if let Some(left) = launched.fade.as_mut().and_then(|f| f.from.as_mut()) {
+                heads.push((left.clip.as_str(), &mut left.head));
+            }
+            for (id, head) in heads {
+                let Some(clip) = layer.clips.iter().find(|c| c.id == id) else {
+                    continue;
+                };
+                let motion = Motion::of(clip);
+                if motion != *head.motion()
+                    && let Some(seconds) = seconds(clip)
+                {
+                    head.retime(motion, tick, seconds);
+                }
             }
         }
     }
@@ -240,7 +340,7 @@ impl GridPlay {
                 continue;
             };
             let leaving = launched.fading(now).and_then(|fade| fade.from.as_ref());
-            for id in launched.clip.iter().chain(leaving.map(|(clip, _)| clip)) {
+            for id in launched.clip.iter().chain(leaving.map(|left| &left.clip)) {
                 let found = layer.clips.iter().find(|c| &c.id == id);
                 if let Some(clip) = found.filter(|clip| clip.generator.is_none()) {
                     clips.push((clip.id.as_str(), clip.asset.as_str()));
@@ -258,7 +358,7 @@ impl GridPlay {
             };
             let has = |clip: &str| layer.clips.iter().any(|c| c.id == clip);
             if let Some(fade) = &mut launched.fade
-                && fade.from.as_ref().is_some_and(|(clip, _)| !has(clip))
+                && fade.from.as_ref().is_some_and(|left| !has(&left.clip))
             {
                 fade.from = None;
             }
@@ -274,7 +374,9 @@ impl GridPlay {
     /// once has ended, or it is faded out. While a transition runs, a layer shows its new clip over
     /// the one leaving it: with the `Alpha` effect the new one fades in over the old, with `Add`
     /// one fades out as the other fades in. A layer stopped or started from nothing fades.
-    pub fn layers(&self, vj: &Vj, now: Duration, probe: Probe<'_>) -> Vec<Layer> {
+    pub fn layers(&self, vj: &Vj, now: impl Into<Tick>, probe: Probe<'_>) -> Vec<Layer> {
+        let tick = now.into();
+        let now = tick.time;
         let mut shown = Vec::new();
         for layer in vj.layers.iter().rev() {
             let Some(launched) = self.playing.get(&layer.id) else {
@@ -284,15 +386,20 @@ impl GridPlay {
             if opacity <= 0.0 {
                 continue;
             }
-            let picture = |clip: &str, at: Duration, opacity: f32| {
+            let picture = |clip: &str, at: Duration, head: &Playhead, opacity: f32| {
                 let clip = layer.clips.iter().find(|c| c.id == clip)?;
                 let elapsed = now.saturating_sub(at);
-                // A generator fills the composition and never ends.
+                // A generator fills the composition and lasts its duration: its time is the place in
+                // it, in milliseconds, so a loop starts its strobe and noise over.
+                let length = f64::from(clip.duration);
                 let (frame, fit) = match &clip.generator {
-                    Some(_) => (elapsed.as_millis() as u64, VideoFit::Stretch),
+                    Some(_) => {
+                        let place = head.at(tick, length)?;
+                        ((place * length * 1000.0) as u64, VideoFit::Stretch)
+                    }
                     None => {
                         let (rate, frames) = probe(&clip.asset)?;
-                        (grid_frame(elapsed, rate, frames, clip.playback)?, clip.fit)
+                        (frame_at(head, tick, rate, frames, length)?, clip.fit)
                     }
                 };
                 (opacity > 0.0).then(|| Layer {
@@ -306,19 +413,28 @@ impl GridPlay {
                     blend: layer.blend,
                     scale: clip.scale,
                     position: clip.position,
+                    effects: clip
+                        .effects
+                        .iter()
+                        .chain(&layer.effects)
+                        .filter(|effect| !effect.bypass)
+                        .cloned()
+                        .collect(),
+                    elapsed,
+                    beats: tick.beats,
                 })
             };
             let fading = launched.fading(now);
             let t = fading.map_or(1.0, |fade| fade.progress(now));
-            if let Some(clip) = &launched.clip {
-                shown.extend(picture(clip, launched.at, opacity * t));
+            if let (Some(clip), Some(head)) = (&launched.clip, &launched.head) {
+                shown.extend(picture(clip, launched.at, head, opacity * t));
             }
-            if let Some((clip, at)) = fading.and_then(|fade| fade.from.as_ref()) {
+            if let Some(left) = fading.and_then(|fade| fade.from.as_ref()) {
                 let old = match layer.transition_effect {
                     Transition::Alpha if launched.clip.is_some() => opacity,
                     _ => opacity * (1.0 - t),
                 };
-                shown.extend(picture(clip, *at, old));
+                shown.extend(picture(&left.clip, left.at, &left.head, old));
             }
         }
         shown
@@ -334,6 +450,16 @@ impl GridPlay {
         layer.master * layer.opacity * self.side_level(layer.crossfade)
     }
 
+    /// How loud the sound of `layer` is, 0 to 1: its volume, master and crossfader side, or nothing
+    /// when it is bypassed or another layer is soloed and it is not. The opacity is the picture's.
+    pub fn sound_level(&self, vj: &Vj, layer: &flux_project::vj::Layer) -> f32 {
+        let solo = vj.layers.iter().any(|layer| layer.solo);
+        if layer.bypass || (solo && !layer.solo) {
+            return 0.0;
+        }
+        layer.volume * layer.master * self.side_level(layer.crossfade)
+    }
+
     /// How much the crossfader lets a layer on `side` through: each side is full from its end to
     /// the middle and fades out over the other half.
     fn side_level(&self, side: Option<Side>) -> f32 {
@@ -345,35 +471,30 @@ impl GridPlay {
     }
 }
 
-/// Which frame of a video of `frames` at `rate` a clip shows `elapsed` after it was launched, or
-/// `None` once a clip played once has ended. On integers, so it never drifts. A still image (one
-/// frame) never ends: it shows until it is stopped, whatever its playback.
-pub fn grid_frame(elapsed: Duration, rate: Rate, frames: u64, playback: Playback) -> Option<u64> {
+/// How many seconds a video of `frames` at `rate` lasts.
+pub fn video_seconds(rate: Rate, frames: u64) -> f64 {
+    frames as f64 * f64::from(rate.den) / f64::from(rate.num.max(1))
+}
+
+/// Which frame of a video of `frames` at `rate` the playhead shows at `tick`, or `None` once a
+/// clip played once has ended. A still image (one frame) lasts `still` seconds, and shows its one
+/// frame until then.
+pub fn frame_at(head: &Playhead, tick: Tick, rate: Rate, frames: u64, still: f64) -> Option<u64> {
     if frames == 0 || rate.num == 0 || rate.den == 0 {
         return None;
     }
     if frames == 1 {
-        return Some(0);
+        return head.at(tick, still).map(|_| 0);
     }
-    let played = elapsed.as_nanos() * u128::from(rate.num) / (u128::from(rate.den) * 1_000_000_000);
-    let frames = u128::from(frames);
-    let index = match playback {
-        Playback::Once => (played < frames).then_some(played)?,
-        Playback::Loop => played % frames,
-        Playback::PingPong => {
-            // Forwards over frames 0 to last, then back over last - 1 to 1.
-            let period = 2 * (frames - 1);
-            let at = played % period;
-            if at < frames { at } else { period - at }
-        }
-    };
-    u64::try_from(index).ok()
+    let place = head.at(tick, video_seconds(rate, frames))?;
+    // A little over, so that a place that is a whole frame in theory is not the frame before it.
+    Some(((place * frames as f64 + 1e-6).floor() as u64).min(frames - 1))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flux_project::vj::{Blend, Clip, Column, Deck, Layer as GridLayer};
+    use flux_project::vj::{Blend, Clip, Column, Deck, Layer as GridLayer, Playback};
 
     const RATE: Rate = Rate::new(25, 1);
 
@@ -391,9 +512,17 @@ mod tests {
             name: None,
             playback,
             trigger: Trigger::Normal,
+            speed: 1.0,
+            duration: flux_project::vj::DEFAULT_DURATION,
+            direction: Default::default(),
+            tempo: Default::default(),
+            region: Default::default(),
+            cues: Default::default(),
             fit: Default::default(),
             scale: 1.0,
             position: [0.0, 0.0],
+            effects: Vec::new(),
+            modulation: Default::default(),
         }
     }
 
@@ -412,6 +541,8 @@ mod tests {
             bypass: false,
             solo: false,
             collapsed: false,
+            effects: Vec::new(),
+            modulation: Default::default(),
             clips,
         }
     }
@@ -440,6 +571,8 @@ mod tests {
                 columns: vec![column("c1"), column("c2")],
             }],
             deck: "d1".into(),
+            clock: Default::default(),
+            ..Default::default()
         }
     }
 
@@ -448,26 +581,99 @@ mod tests {
     }
 
     #[test]
-    fn grid_frame_should_loop_stop_or_bounce_at_the_end() {
-        let at = |seconds, playback| grid_frame(secs(seconds), RATE, 100, playback);
-        assert_eq!(at(1.0, Playback::Loop), Some(25));
-        assert_eq!(at(4.4, Playback::Loop), Some(10));
-        assert_eq!(at(3.96, Playback::Once), Some(99));
-        assert_eq!(at(4.0, Playback::Once), None);
-        assert_eq!(at(4.0, Playback::PingPong), Some(98));
-        assert_eq!(at(7.92, Playback::PingPong), Some(0));
-        assert_eq!(at(8.0, Playback::PingPong), Some(2));
-        for playback in [Playback::Once, Playback::Loop, Playback::PingPong] {
-            let still = grid_frame(Duration::from_secs(60), Rate::new(25, 1), 1, playback);
-            assert_eq!(still, Some(0), "a still image shows until it is stopped");
-        }
+    fn sound_level_should_follow_volume_master_sides_bypass_and_solo() {
+        let mut vj = grid();
+        let mut play = GridPlay::default();
+        play.set_crossfader(0.5);
+        vj.layers[0].volume = 0.5;
+        vj.layers[0].master = 0.5;
+        vj.layers[0].opacity = 0.1;
+        assert_eq!(
+            play.sound_level(&vj, &vj.layers[0]),
+            0.25,
+            "not the opacity"
+        );
+        play.set_crossfader(1.0);
+        assert_eq!(play.sound_level(&vj, &vj.layers[0]), 0.0, "side A is out");
+        assert_eq!(play.sound_level(&vj, &vj.layers[1]), 1.0);
+        play.set_crossfader(0.75);
+        assert_eq!(play.sound_level(&vj, &vj.layers[0]), 0.125);
+        vj.layers[1].bypass = true;
+        assert_eq!(play.sound_level(&vj, &vj.layers[1]), 0.0);
+        vj.layers[1].bypass = false;
+        vj.layers[1].solo = true;
+        assert_eq!(
+            play.sound_level(&vj, &vj.layers[0]),
+            0.0,
+            "another is soloed"
+        );
+        assert_eq!(play.sound_level(&vj, &vj.layers[1]), 1.0);
+    }
+
+    fn frame(seconds: f64, playback: Playback) -> Option<u64> {
+        let head = Playhead::launch(
+            Motion {
+                speed: 1.0,
+                direction: Default::default(),
+                tempo: Default::default(),
+                region: Default::default(),
+                playback,
+            },
+            Tick::default(),
+        );
+        frame_at(&head, secs(seconds).into(), RATE, 100, 10.0)
     }
 
     #[test]
-    fn grid_frame_should_follow_a_fractional_rate() {
-        let ntsc = Rate::new(30000, 1001);
-        let played = grid_frame(Duration::from_secs(1001), ntsc, 100_000, Playback::Loop);
-        assert_eq!(played, Some(30_000));
+    fn frame_at_should_loop_stop_or_bounce_at_the_end() {
+        assert_eq!(frame(1.0, Playback::Loop), Some(25));
+        assert_eq!(frame(4.4, Playback::Loop), Some(10));
+        assert_eq!(frame(3.96, Playback::Once), Some(99));
+        assert_eq!(frame(4.0, Playback::Once), None);
+        assert_eq!(frame(3.0, Playback::PingPong), Some(75));
+        assert_eq!(frame(4.2, Playback::PingPong), Some(95), "back again");
+        assert_eq!(frame(7.92, Playback::PingPong), Some(2));
+        assert_eq!(frame(8.0, Playback::PingPong), Some(0));
+        assert_eq!(frame(8.2, Playback::PingPong), Some(5));
+    }
+
+    #[test]
+    fn a_still_image_should_last_its_duration_and_then_follow_its_playback() {
+        let still = |playback, seconds: f64| {
+            let head = Playhead::launch(
+                Motion {
+                    speed: 1.0,
+                    direction: Default::default(),
+                    tempo: Default::default(),
+                    region: Default::default(),
+                    playback,
+                },
+                Tick::default(),
+            );
+            frame_at(&head, secs(seconds).into(), Rate::new(25, 1), 1, 3.0)
+        };
+        assert_eq!(still(Playback::Once, 2.9), Some(0));
+        assert_eq!(still(Playback::Once, 3.1), None, "ends after its duration");
+        assert_eq!(still(Playback::Loop, 100.0), Some(0), "restarts for ever");
+        assert_eq!(still(Playback::PingPong, 100.0), Some(0));
+    }
+
+    #[test]
+    fn a_generator_should_last_its_duration_then_end_or_start_over() {
+        let mut vj = grid();
+        let generator = &mut vj.layers[0].clips[1];
+        generator.generator = Some(flux_project::generator::Generator::Bars);
+        generator.asset = String::new();
+        generator.duration = 3.0;
+        generator.playback = Playback::Once;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "b", secs(0.0));
+        assert_eq!(play.layers(&vj, secs(2.0), &probe)[0].frame, 2000);
+        assert!(play.layers(&vj, secs(3.5), &probe).is_empty());
+        vj.layers[0].clips[1].playback = Playback::Loop;
+        play.follow(&vj, secs(3.5).into(), &|_| None);
+        let frame = play.layers(&vj, secs(3.5), &probe)[0].frame;
+        assert!((499..=500).contains(&frame), "a loop starts over: {frame}");
     }
 
     #[test]
@@ -505,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn a_generator_should_play_with_no_video_and_never_end() {
+    fn a_generator_should_play_with_no_video() {
         let mut vj = grid();
         let clip = &mut vj.layers[0].clips[1];
         clip.asset.clear();
@@ -514,9 +720,9 @@ mod tests {
         play.launch(&vj, "b", secs(0.0));
         assert!(play.clips(&vj, secs(1.0)).is_empty(), "no video to open");
         let none = |_: &str| None;
-        let shown = play.layers(&vj, secs(3600.0), &none);
-        assert_eq!(shown.len(), 1, "played once, yet still showing");
-        assert_eq!(shown[0].frame, 3_600_000);
+        let shown = play.layers(&vj, secs(4.0), &none);
+        assert_eq!(shown.len(), 1, "played once, still within its duration");
+        assert_eq!(shown[0].frame, 4000);
         assert_eq!(shown[0].fit, VideoFit::Stretch);
     }
 
@@ -560,6 +766,50 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_should_carry_its_clips_effects_then_its_layers_without_the_bypassed() {
+        use flux_project::vj::{Effect, EffectKind};
+        let effect = |id: &str, kind, bypass| Effect {
+            id: id.into(),
+            bypass,
+            modulation: Default::default(),
+            kind,
+        };
+        let mut vj = grid();
+        vj.layers[0].effects = vec![
+            effect("e3", EffectKind::Invert { amount: 1.0 }, false),
+            effect("e4", EffectKind::Blur { radius: 0.5 }, true),
+        ];
+        vj.layers[0].clips[0].effects = vec![
+            effect("e1", EffectKind::Brightness { amount: 0.2 }, false),
+            effect("e2", EffectKind::Zoom { amount: 2.0 }, true),
+        ];
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        play.launch(&vj, "b", secs(0.0));
+        let shown = play.layers(&vj, secs(1.0), &probe);
+        let kinds = |layer: &crate::Layer| -> Vec<EffectKind> {
+            layer.effects.iter().map(|e| e.kind.clone()).collect()
+        };
+        assert_eq!(
+            kinds(&shown[0]),
+            [EffectKind::Invert { amount: 1.0 }],
+            "the layer's effects reach a clip with none of its own"
+        );
+        assert_eq!(shown[0].elapsed, secs(1.0));
+        play.launch(&vj, "a", secs(1.0));
+        let shown = play.layers(&vj, secs(1.5), &probe);
+        assert_eq!(
+            kinds(&shown[0]),
+            [
+                EffectKind::Brightness { amount: 0.2 },
+                EffectKind::Invert { amount: 1.0 }
+            ]
+        );
+        // The effects carry their ids, which seed their randomness.
+        assert_eq!(shown[0].effects[0].id, "e1");
+    }
+
+    #[test]
     fn launch_should_cross_over_the_layer_transition() {
         let mut vj = grid();
         vj.layers[0].transition = 2.0;
@@ -593,10 +843,8 @@ mod tests {
         assert_eq!(opacity(&play, 2.0), [("a".to_owned(), 1.0)]);
         play.stop(&vj, Some("l1"), secs(10.0));
         assert_eq!(opacity(&play, 11.5), [("a".to_owned(), 0.25)]);
-        assert_eq!(
-            play.playing()["l1"].shown(secs(11.5)),
-            Some(("a", secs(0.0)))
-        );
+        let shown = play.playing()["l1"].shown(secs(11.5)).unwrap();
+        assert_eq!((shown.0, shown.1), ("a", secs(0.0)));
         play.retime(&vj, secs(12.0));
         assert!(play.playing().is_empty());
     }
@@ -661,5 +909,164 @@ mod tests {
         play.launch_column(&vj, "c2", secs(1.0));
         assert_eq!(play.playing()["g"].clip.as_deref(), Some("logo"));
         assert!(!play.playing().contains_key("l2"));
+    }
+
+    #[test]
+    fn a_modulated_grid_should_draw_the_modulated_values_and_leave_the_stored_ones() {
+        use flux_project::vj::{Effect, EffectKind};
+        use flux_project::vj_effects::{Pace, Sync};
+        use flux_project::vj_modulation::{
+            self as modulation, Bands, Clock, Modulation, Shape, Source,
+        };
+        let ramp = |min, max| Modulation {
+            source: Source::Lfo {
+                shape: Shape::SawUp,
+                pace: Pace {
+                    sync: Sync::Beats,
+                    rate: 0.0,
+                    beats: 1.0,
+                },
+                phase: 0.0,
+            },
+            min,
+            max,
+        };
+        let mut vj = grid();
+        vj.layers[0]
+            .modulation
+            .insert("opacity".into(), ramp(0.0, 1.0));
+        vj.layers[0].clips[0]
+            .modulation
+            .insert("scale".into(), ramp(1.0, 3.0));
+        vj.layers[0].clips[0].effects = vec![Effect {
+            id: "e1".into(),
+            bypass: false,
+            modulation: [("radius".to_owned(), ramp(0.0, 1.0))].into(),
+            kind: EffectKind::Blur { radius: 0.1 },
+        }];
+        let stored = vj.clone();
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        let clock = Clock {
+            seconds: 1.0,
+            beats: 0.5,
+        };
+        let drawn = modulation::modulate(&vj, &mut Default::default(), clock, Bands::default());
+        let shown = play.layers(&drawn, secs(1.0), &probe);
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].opacity, 0.5);
+        assert_eq!(shown[0].scale, 2.0);
+        assert_eq!(shown[0].effects[0].kind, EffectKind::Blur { radius: 0.5 });
+        assert_eq!(vj, stored, "what is stored is never changed by modulation");
+        // Drawn from the stored grid, the stored values show.
+        let plain = play.layers(&vj, secs(1.0), &probe);
+        assert_eq!((plain[0].opacity, plain[0].scale), (1.0, 1.0));
+    }
+
+    fn frames(play: &GridPlay, vj: &Vj, tick: Tick) -> Vec<(String, u64)> {
+        play.layers(vj, tick, &probe)
+            .into_iter()
+            .map(|l| (l.clip, l.frame))
+            .collect()
+    }
+
+    fn beat(seconds: f64, beats: f64) -> Tick {
+        Tick {
+            time: secs(seconds),
+            beats,
+        }
+    }
+
+    #[test]
+    fn a_clip_should_play_reverse_paused_and_fast_without_jumping_when_it_changes() {
+        let mut vj = grid();
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        let length = |_: &str| Some((4.0, false));
+        assert_eq!(frames(&play, &vj, secs(1.0).into()), [("a".into(), 25)]);
+        // Twice as fast from 1 s on: no jump at 1 s.
+        vj.layers[0].clips[0].speed = 2.0;
+        play.follow(&vj, secs(1.0).into(), &length);
+        assert_eq!(frames(&play, &vj, secs(1.0).into()), [("a".into(), 25)]);
+        assert_eq!(frames(&play, &vj, secs(1.5).into()), [("a".into(), 50)]);
+        vj.layers[0].clips[0].direction = flux_project::vj::Direction::Reverse;
+        play.follow(&vj, secs(1.5).into(), &length);
+        assert_eq!(frames(&play, &vj, secs(1.5).into()), [("a".into(), 50)]);
+        assert_eq!(frames(&play, &vj, secs(2.0).into()), [("a".into(), 25)]);
+        vj.layers[0].clips[0].direction = flux_project::vj::Direction::Pause;
+        play.follow(&vj, secs(2.0).into(), &length);
+        assert_eq!(frames(&play, &vj, secs(60.0).into()), [("a".into(), 25)]);
+    }
+
+    #[test]
+    fn a_clip_launched_in_reverse_should_start_at_the_end_of_its_region() {
+        let mut vj = grid();
+        let clip = &mut vj.layers[0].clips[0];
+        clip.direction = flux_project::vj::Direction::Reverse;
+        clip.region = flux_project::vj::Region {
+            start: 0.25,
+            end: 0.5,
+        };
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        assert_eq!(frames(&play, &vj, secs(0.0).into()), [("a".into(), 50)]);
+        assert_eq!(frames(&play, &vj, secs(0.5).into()), [("a".into(), 37)]);
+        // The pass is 1 s long: it wraps to the end.
+        assert_eq!(frames(&play, &vj, secs(1.02).into()), [("a".into(), 49)]);
+    }
+
+    #[test]
+    fn a_pass_of_beats_should_follow_the_beat_count() {
+        let mut vj = grid();
+        vj.layers[0].clips[0].tempo = flux_project::vj::Tempo::Beats { beats: 4 };
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", beat(0.0, 0.0));
+        // The first two beats take 1 s; the tempo then halves, so the next two take 4 s.
+        assert_eq!(frames(&play, &vj, beat(1.0, 2.0)), [("a".into(), 50)]);
+        assert_eq!(frames(&play, &vj, beat(3.0, 3.0)), [("a".into(), 75)]);
+        assert_eq!(frames(&play, &vj, beat(5.0, 4.0)), [("a".into(), 0)]);
+    }
+
+    #[test]
+    fn scrub_and_cue_should_move_the_playhead_and_launch_a_clip_that_is_not_playing() {
+        let mut vj = grid();
+        vj.layers[0].clips[0].cues[1] = Some(0.8);
+        let mut play = GridPlay::default();
+        assert!(!play.scrub("l1", 0.5, secs(0.0)), "nothing plays there");
+        assert_eq!(play.cue(&vj, "a", 0, secs(0.0)), None, "an empty cue");
+        assert_eq!(play.cue(&vj, "nope", 1, secs(0.0)), None);
+        assert_eq!(play.cue(&vj, "a", 1, secs(10.0)), Some(()));
+        assert_eq!(frames(&play, &vj, secs(10.0).into()), [("a".into(), 80)]);
+        assert!(play.scrub("l1", 0.1, secs(11.0)));
+        assert_eq!(frames(&play, &vj, secs(11.0).into()), [("a".into(), 10)]);
+        assert_eq!(frames(&play, &vj, secs(12.0).into()), [("a".into(), 35)]);
+        assert_eq!(play.cue(&vj, "a", 1, secs(12.0)), Some(()));
+        assert_eq!(frames(&play, &vj, secs(12.0).into()), [("a".into(), 80)]);
+    }
+
+    #[test]
+    fn a_generator_should_run_on_the_speed_and_direction_of_its_playhead() {
+        let mut vj = grid();
+        vj.layers[0].clips[1].generator = Some(flux_project::generator::Generator::Bars);
+        vj.layers[0].clips[1].asset = String::new();
+        vj.layers[0].clips[1].speed = 2.0;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "b", secs(1.0));
+        let shown = play.layers(&vj, secs(3.0), &probe);
+        assert_eq!(shown[0].frame, 4000, "milliseconds of its own time");
+        assert_eq!(shown[0].elapsed, secs(2.0), "effects keep real time");
+    }
+
+    #[test]
+    fn the_clip_a_transition_leaves_should_keep_its_playhead() {
+        let mut vj = grid();
+        vj.layers[0].transition = 4.0;
+        vj.layers[0].clips[0].speed = 1.5;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        play.launch(&vj, "b", secs(1.0));
+        let shown = play.layers(&vj, secs(2.0), &probe);
+        let old = shown.iter().find(|l| l.clip == "a").unwrap();
+        assert_eq!(old.frame, 75, "1.5 times as fast for 2 s of a 4 s video");
     }
 }
