@@ -10,7 +10,17 @@ export interface RecentShow {
   /** `false` when the file was moved or deleted outside Flux. */
   exists: boolean;
   /** `null` when the file is missing or is not a readable show. */
-  meta: { name: string; frameRate: FrameRate; trackCount: number } | null;
+  meta: {
+    name: string;
+    frameRate: FrameRate;
+    trackCount: number;
+    /** A cue show (`timeline`) or a VJ show. */
+    mode: ProjectMode;
+    /** A VJ show's grid. */
+    layerCount: number;
+    deckCount: number;
+    clipCount: number;
+  } | null;
 }
 
 export type StepId = "audio" | "midi" | "ltc" | "mtc";

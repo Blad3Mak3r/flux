@@ -15,7 +15,7 @@ import {
   saveProject,
 } from "../project/api";
 import type { BackendDocument } from "../project/api";
-import type { Project, ProjectState } from "../project/types";
+import type { Project, ProjectMode, ProjectState } from "../project/types";
 import { closeEditor } from "../welcome/api";
 import { flushDocumentSync } from "./persist";
 import { currentFrame } from "../transport/store";
@@ -106,10 +106,11 @@ export function startDocument(t: Translate, phase: (value: EditorPhase) => void)
   return started;
 }
 
-export const newDocument = (t: Translate) =>
+/** A new show of the kind `mode`: a cue show with a timeline, or a VJ show with a grid. */
+export const newDocument = (t: Translate, mode: ProjectMode = "timeline") =>
   replaceDoc(async () => {
     await flushDocumentSync();
-    const fresh = await newProject(t("project.untitled"), "fps25").catch(() => offlineProject(t));
+    const fresh = await newProject(t("project.untitled"), "fps25", mode).catch(() => offlineProject(t));
     load(fresh, null);
     say("status.ready");
   });

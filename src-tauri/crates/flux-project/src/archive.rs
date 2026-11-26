@@ -110,6 +110,12 @@ pub struct ProjectMeta {
     pub name: String,
     pub frame_rate: FrameRate,
     pub track_count: usize,
+    /// A cue show with timelines or a VJ show with a grid.
+    pub mode: crate::ProjectMode,
+    /// For a VJ show, its grid: how many layers, decks and clips.
+    pub layer_count: usize,
+    pub deck_count: usize,
+    pub clip_count: usize,
 }
 
 /// Reads the summary of a `.fxtc` without validating the project or looking at its audio. It shows
@@ -127,6 +133,22 @@ pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
         timecode: Option<RawTimecode>,
         #[serde(default)]
         tracks: Vec<serde::de::IgnoredAny>,
+        #[serde(default)]
+        mode: crate::ProjectMode,
+        #[serde(default)]
+        vj: RawGrid,
+    }
+    #[derive(Deserialize, Default)]
+    struct RawGrid {
+        #[serde(default)]
+        layers: Vec<RawLayer>,
+        #[serde(default)]
+        decks: Vec<serde::de::IgnoredAny>,
+    }
+    #[derive(Deserialize)]
+    struct RawLayer {
+        #[serde(default)]
+        clips: Vec<serde::de::IgnoredAny>,
     }
     #[derive(Deserialize)]
     struct RawTimeline {
@@ -161,6 +183,10 @@ pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
         name: raw.name,
         frame_rate,
         track_count,
+        mode: raw.mode,
+        layer_count: raw.vj.layers.len(),
+        deck_count: raw.vj.decks.len(),
+        clip_count: raw.vj.layers.iter().map(|layer| layer.clips.len()).sum(),
     })
 }
 
@@ -527,6 +553,28 @@ mod tests {
         assert_eq!(meta.name, project.name);
         assert_eq!(meta.frame_rate, project.timelines[0].timecode.frame_rate);
         assert_eq!(meta.track_count, project.timelines[0].tracks.len());
+    }
+
+    #[test]
+    fn read_meta_should_tell_a_vj_show_and_count_its_grid() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("vj.flx");
+        let mut project = Project::new("Gira", FrameRate::Fps25);
+        project.mode = crate::ProjectMode::Vj;
+        let mut n = 0;
+        project.vj = crate::vj::Vj::starting(|| {
+            n += 1;
+            format!("g{n}")
+        });
+        save(&path, &project, &HashMap::new(), &HashMap::new()).unwrap();
+
+        let meta = read_meta(&path).unwrap();
+
+        assert_eq!(meta.mode, crate::ProjectMode::Vj);
+        assert_eq!(
+            (meta.layer_count, meta.deck_count, meta.clip_count),
+            (crate::vj::DEFAULT_LAYERS, 1, 0)
+        );
     }
 
     #[test]
