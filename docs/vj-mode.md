@@ -8,7 +8,7 @@ are in three reference pages:
 - [VJ generators](vj-generators.md): the six clips FLUX draws itself, with the Text Block in depth.
 - [VJ blend modes](vj-blend-modes.md): all 29 ways a layer mixes with what is below.
 
-For mapping the composition onto projectors and screens see [Video and projection mapping](video-output.md).
+For mapping the composition onto projectors and screens see [Video and projection mapping](video-output.md). For driving the show from a MIDI controller or OSC see [Map mode](#map-mode-midi-and-osc) and [Remote control](remote-control.md#vj-shows).
 
 ## A VJ show is a kind of project
 
@@ -178,6 +178,64 @@ launched when. A clip's speed is not modulatable.
 shows only): the show's own sound (the default), one channel of an audio input, or nothing. A small meter of the four
 readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page.
 
+## Map mode: MIDI and OSC
+
+**Composition > View > Map MIDI / OSC** or **Ctrl+M** turns on the map mode, as Resolume's "Edit MIDI / OSC". Every
+control that can be mapped gets an outline: **dashed** when nothing drives it, **solid phosphor** with the name of its
+source (`CC 7 · ch 1`, `Note C2 · ch 1`, `Pitch bend · ch 1` or the OSC address) when something does. The grid shows a
+**MAP MODE** strip with the state of the MIDI and OSC inputs.
+
+1. Click a control. Its outline turns thick amber and reads **LEARN**.
+2. Move a MIDI control, press a pad or send an OSC message. The first one heard becomes the source, and the outline
+   turns solid. Learn again to replace it: the latest wins, and a source drives one target at a time.
+3. **Right-click** an outline to clear its mapping. **Esc** cancels a learn, and then leaves the mode (so does **Ctrl+M**
+   or the Exit button). While the mode is on, a click on a control chooses it and does not use it.
+
+What can be mapped:
+
+| Kind | Targets |
+| --- | --- |
+| Launch | A clip, a column. |
+| Layer | Master, Audio, Video (opacity) and Transition faders; bypass, solo, stop; the autopilot (each press steps off, next, previous, random). |
+| Composition | The crossfader, a deck's tab, next and previous deck (the arrows beside the tabs), stop all. |
+| Tempo | The BPM, tap, resync, pause, +1, -1, ×2, ÷2 and the two nudge keys. |
+| Numbers | Every number of an effect (clip, layer or composition), a clip's speed, every number of a generator. |
+| Switches | An effect's bypass. |
+| Dashboard | Each of the eight knobs. |
+
+A fader, a knob or pitch bend sets a level from **Min** (source at 0) to **Max** (source at its top). A note, or a control
+change above 0, presses a button: it runs an action, sets a switch, or, on a level, jumps it to the value the velocity
+gives (and to Min on release with Hold). A fader mapped to an action or a switch presses it when it leaves 0 and
+releases it on return. Pitch bend presses past its centre.
+
+### The Mappings tab
+
+The **Mappings** tab of the inspector lists every mapping: its source, what it drives, and its options.
+
+| Option | For | Does |
+| --- | --- | --- |
+| **Min**, **Max** | Levels | Where the target goes with the source at its lowest and highest. Min can be above Max. |
+| **Invert** | Levels | Turns the source round, on top of the range. |
+| **Trigger** | Buttons | A press runs the action or turns the switch on. |
+| **Toggle** | Switches | A press flips the switch. |
+| **Hold** | Buttons | On while the button is held, off when released. On a clip, Hold plays it while the pad is down, as the Piano trigger does. |
+
+The trash button deletes a mapping. The mappings are part of the show and go through undo like any other edit. One
+sweep of a fader is **one** undo step, however many values it sent. A mapping whose target is removed (a deleted clip,
+layer or effect) is removed with it; a file that holds a mapping to something that is not there is refused.
+
+### Dashboard
+
+The **Composition** tab of the inspector holds a **dashboard** of eight knobs, as in Resolume. Drag a knob up or down
+(Shift for fine steps, double click for 0, arrow keys for steps), and everything linked to it moves.
+
+- **Link numbers** turns on the map mode and waits for you to click numbers (a fader, an effect's setting, a
+  generator's number, a clip's speed, the BPM...). Each link has its own **0** and **100** values: the number goes from
+  one to the other as the knob turns, and the first can be above the second.
+- A knob has a name (the field above its links) and can be mapped to a controller like any other control, so one fader
+  can move many things at once.
+- The dashboard is saved with the show. A knob is not modulated by an LFO.
+
 ## Composition effects
 
 The composition has an effect stack of its own, in the **Composition** tab of the inspector. It applies to the final mix
@@ -204,6 +262,7 @@ properties of the selected item on the right. It is the same mapping described i
 | B, S, X | Bypass, solo or stop the selected layer. |
 | Del | Remove the selected clip. |
 | Ctrl+I | Import media. |
+| Ctrl+M | Map mode (MIDI and OSC); Esc cancels a learn, then leaves it. |
 | Ctrl+Shift+A | Open the advanced output. |
 | Space | Play or pause the timecode clock (internal source). |
 

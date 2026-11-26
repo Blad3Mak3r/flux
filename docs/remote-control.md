@@ -49,6 +49,57 @@ Numbers can be sent as an integer, a float (rounded) or a string. Actions withou
 a button usually sends a `1`. Bundles are accepted and their time tags ignored. In a Stream Deck, use an OSC / UDP plugin
 pointed at this computer's address and the port, with one of the addresses above on each button.
 
+## VJ shows
+
+In a VJ show the same two inputs drive the grid. The mappings are **part of the show** (unlike the cue bindings above,
+which belong to the machine): they are learned in the [map mode](vj-mode.md#map-mode-midi-and-osc) (Ctrl+M), listed in
+the Mappings tab and saved in the `.flx`. What is heard is checked against the mappings **first**; a message with no
+mapping falls through to the cue bindings and the `/flux/...` addresses, so a show without mappings behaves as before.
+The `/flux/v1/...` addresses are not mappable.
+
+**MIDI sources.** A note (press above velocity 0, release at 0), a control change (value 0 to 127) or **pitch bend**
+(14 bits, 0 to 16383, centre at 8192), on one channel. A source with a port is matched to that port by name; one without
+accepts any. A continuous source goes to `min` through `max` of the target; a button is down for any value above 0 (a note with velocity above 0, a control change above 0) and, for pitch bend, past
+the centre.
+
+**OSC.** Any address can be learned, and the arguments read are the first number (an integer, a float, a boolean or a
+string that parses). The addresses below also work without learning, as in Resolume; they count from **1** by position.
+Layers count from the **bottom** of the grid; columns and clips are those of the deck shown (a global layer's clips by
+their slot).
+
+| Address | Value | Does |
+| --- | --- | --- |
+| `/composition/layers/{n}/clips/{m}/connect` | 1 press, 0 release | Launches the clip at layer `n`, column `m` (a piano clip stops on release). No value is a press. |
+| `/composition/columns/{m}/connect` | 1 | Launches column `m`. |
+| `/composition/layers/{n}/video/opacity` | 0 to 1 | The layer's Video fader. |
+| `/composition/layers/{n}/master` | 0 to 1 | The layer's Master. |
+| `/composition/layers/{n}/audio/volume` | 0 to 1 | The layer's Audio level. |
+| `/composition/layers/{n}/transition/duration` | 0 to 1 | The transition time, scaled over 0 to 10 s. |
+| `/composition/layers/{n}/bypassed` | 0 or 1 | Sets the layer's bypass (1 and above 0.5 is on). |
+| `/composition/layers/{n}/solo` | 0 or 1 | Sets the layer's solo. |
+| `/composition/layers/{n}/clear` | 1 | Stops the layer. |
+| `/composition/crossfader/phase` | 0 to 1 | The crossfader, 0 all side A, 1 all side B. |
+| `/composition/tempocontroller/tempo` | beats a minute | The tempo, held to 20 to 400. |
+| `/composition/tempocontroller/tempotap`, `resync`, `plus`, `minus`, `double`, `half` | 1 | The tempo buttons (tap, resync, +1, -1, ×2, ÷2). |
+| `/composition/tempocontroller/pause` | 0 or 1 | Holds the beats while 1. |
+| `/composition/decks/{d}/select` | 1 | Shows deck `d`. |
+| `/composition/decks/next`, `/composition/decks/prev` | 1 | Next or previous deck. |
+| `/composition/disconnectall` | 1 | Stops every layer. |
+| `/composition/dashboard/link{k}` | 0 to 1 | Turns dashboard knob `k` (1 to 8). |
+
+The tempo addresses also work as `/tempocontroller/...`. A message to a layer, column or deck that does not exist is
+ignored.
+
+**Execution.** The `flux-control` thread resolves a message to an edit of the show through the same operations the
+window uses (`flux_project::vj_mapping::plan`), so a mapped control does exactly what its on-screen twin does. Fast
+moves are coalesced: the thread applies every value as it comes but sends the window a state at most every 33 ms
+(`vj-control`), and the whole sweep, which ends 500 ms after the last value, is one undo step. A button press is its
+own step. Learning is `vj_learn` (the target waited for, `null` to stop); the learned source arrives as `vj-learned`.
+Nothing is logged from the MIDI callback or the socket thread.
+
+**Not done.** The pads of a controller are not lit from the state of the grid (the light feedback below is for cue
+bindings only).
+
 ## How it works
 
 - `flux-engine/src/control.rs` decodes MIDI and OSC, maps them to a `ControlAction` and finds the frame of a cue action. It
