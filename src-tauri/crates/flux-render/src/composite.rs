@@ -392,6 +392,7 @@ mod tests {
             opacity,
             blend,
             effects: Default::default(),
+            nearest: false,
         }
     }
 

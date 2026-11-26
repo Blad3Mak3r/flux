@@ -10,6 +10,7 @@
 mod compose;
 mod composite;
 pub mod effects;
+pub mod palette;
 pub mod pattern;
 pub mod post;
 
@@ -49,6 +50,9 @@ pub struct Picture<'a> {
     pub blend: Blend,
     /// What is done to its colours and shape before it is drawn.
     pub effects: Effects,
+    /// Read texel by texel with no smoothing, so a one pixel line stays one pixel: a test card's.
+    /// The window is then drawn without smoothing too, wherever any picture asks for it.
+    pub nearest: bool,
 }
 
 /// How a picture mixes with what is drawn below it, as Resolume's layer blends do: the picture
@@ -261,6 +265,7 @@ struct Uploaded {
     id: u64,
     width: u32,
     height: u32,
+    nearest: bool,
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
 }
@@ -284,6 +289,8 @@ pub struct Screen {
     effects: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
+    /// The same without smoothing, for the pictures that ask for it.
+    nearest: wgpu::Sampler,
     /// The texture of each layer, from the bottom.
     pictures: Vec<Option<Uploaded>>,
     errors: Errors,
@@ -511,6 +518,10 @@ impl Screen {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let nearest = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("picture crisp"),
+            ..Default::default()
+        });
         let vertices = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("quads"),
             size: VERTEX_SIZE * 6 * (MAX_QUADS * MAX_LAYERS) as u64,
@@ -528,6 +539,7 @@ impl Screen {
             effects,
             layout,
             sampler,
+            nearest,
             pictures: (0..MAX_LAYERS).map(|_| None).collect(),
             errors,
             shader,
@@ -658,7 +670,7 @@ impl Screen {
             });
             pass.set_vertex_buffer(0, self.vertices.slice(..));
             if let Some(compose) = &self.compose
-                && let Some(group) = compose.result()
+                && let Some(group) = compose.result(pictures.iter().any(|p| p.nearest))
             {
                 pass.set_bind_group(1, &compose.window_group, &[]);
                 pass.set_pipeline(&self.present);
@@ -737,9 +749,9 @@ impl Screen {
             height: picture.height,
             depth_or_array_layers: 1,
         };
-        let reuse = self.pictures[slot]
-            .take()
-            .filter(|p| (p.width, p.height) == (picture.width, picture.height));
+        let reuse = self.pictures[slot].take().filter(|p| {
+            (p.width, p.height, p.nearest) == (picture.width, picture.height, picture.nearest)
+        });
         let uploaded = reuse.unwrap_or_else(|| {
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("picture"),
@@ -762,7 +774,11 @@ impl Screen {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        resource: wgpu::BindingResource::Sampler(if picture.nearest {
+                            &self.nearest
+                        } else {
+                            &self.sampler
+                        }),
                     },
                 ],
             });
@@ -770,6 +786,7 @@ impl Screen {
                 id: picture.id,
                 width: picture.width,
                 height: picture.height,
+                nearest: picture.nearest,
                 texture,
                 bind_group,
             }
