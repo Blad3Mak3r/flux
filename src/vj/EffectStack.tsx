@@ -17,6 +17,7 @@ import {
   RefreshIcon,
 } from "../components/icons";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n";
 import type { VjEffect, VjEffectKind, VjParamValue } from "../project/types";
 import type { VjEffectSpec, VjParamSpec } from "./api";
 import { ColourField, Scrub, Segments } from "./controls";
@@ -141,9 +142,11 @@ function EffectRow({ effect, index, stack, full }: { effect: VjEffect; index: nu
   const kind = rest as VjEffectKind;
   const spec = specOf(catalog, kind.effect);
   const count = stack.length;
-  const button = (label: string, run: () => void, icon: ReactNode, disabled = false, pressed?: boolean) => (
-    <button type="button" className="vj-fx-b" disabled={disabled} aria-pressed={pressed} title={label} aria-label={label} onClick={run}>{icon}</button>
-  );
+  const name = t(effectKey(kind.effect));
+  const button = (action: MessageKey, run: () => void, icon: ReactNode, disabled = false, pressed?: boolean) => {
+    const label = `${t(action)}: ${name}`;
+    return <button type="button" className="vj-fx-b" disabled={disabled} aria-pressed={pressed} title={label} aria-label={label} onClick={run}>{icon}</button>;
+  };
   // A row dragged here goes before or after this one, by which half it is dropped on.
   const over = (event: DragEvent<HTMLLIElement>) => {
     if (!event.dataTransfer.types.includes(DRAG_ROW)) return;
@@ -175,14 +178,14 @@ function EffectRow({ effect, index, stack, full }: { effect: VjEffect; index: nu
         <button type="button" className="vj-fx-n" aria-expanded={!folded} title={t(folded ? "vj.effect.open" : "vj.effect.fold")}
           onClick={() => foldEffect(id)}>
           {folded ? <ChevronRightIcon /> : <ChevronDownIcon />}
-          <span>{t(effectKey(kind.effect))}</span>
+          <span>{name}</span>
         </button>
-        {button(t("vj.effect.bypass"), () => void edit({ op: "effectBypass", effect: id, bypass: !bypass }), bypass ? <EyeOffIcon /> : <EyeIcon />, false, !!bypass)}
-        {button(t("vj.effect.duplicate"), () => void edit({ op: "duplicateEffect", effect: id }), <DuplicateIcon />, full)}
-        {button(t("vj.effect.reset"), () => void edit({ op: "resetEffect", effect: id }), <RefreshIcon />)}
-        {button(t("vj.effect.up"), () => void edit({ op: "moveEffect", effect: id, index: index - 1 }), <ArrowUpIcon />, index === 0)}
-        {button(t("vj.effect.down"), () => void edit({ op: "moveEffect", effect: id, index: index + 1 }), <ArrowDownIcon />, index === count - 1)}
-        {button(t("vj.effect.remove"), () => void edit({ op: "removeEffect", effect: id }), <CloseIcon />)}
+        {button("vj.effect.bypass", () => void edit({ op: "effectBypass", effect: id, bypass: !bypass }), bypass ? <EyeOffIcon /> : <EyeIcon />, false, !!bypass)}
+        {button("vj.effect.duplicate", () => void edit({ op: "duplicateEffect", effect: id }), <DuplicateIcon />, full)}
+        {button("vj.effect.reset", () => void edit({ op: "resetEffect", effect: id }), <RefreshIcon />)}
+        {button("vj.effect.up", () => void edit({ op: "moveEffect", effect: id, index: index - 1 }), <ArrowUpIcon />, index === 0)}
+        {button("vj.effect.down", () => void edit({ op: "moveEffect", effect: id, index: index + 1 }), <ArrowDownIcon />, index === count - 1)}
+        {button("vj.effect.remove", () => void edit({ op: "removeEffect", effect: id }), <CloseIcon />)}
       </div>
       {!folded && spec && <Settings id={id} spec={spec} kind={kind} />}
     </li>
@@ -253,7 +256,7 @@ export function EffectBrowser({ target }: { target: EffectTarget | null }) {
                 }}
                 onDoubleClick={() => { if (target) void edit({ op: "addEffect", target, kind: spec.name }); }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && target) void edit({ op: "addEffect", target, kind: spec.name });
+                  if ((event.key === "Enter" || event.key === " ") && target) void edit({ op: "addEffect", target, kind: spec.name });
                 }}>
                 <b>{t(effectKey(spec.name))}{spec.animated && <i className="vj-fxt" title={t("vj.effect.animated")}>↻</i>}</b>
                 <span>{t(effectKey(spec.name, "hint"))}</span>
