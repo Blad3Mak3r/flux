@@ -84,6 +84,10 @@ pub struct Vj {
     /// it is linked to; a knob not listed is at 0 with no links.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dashboard: Vec<Knob>,
+    /// The colours a controller's pads get for each state when a mapping has none of its own;
+    /// absent is the controller's preset (see [`crate::vj_feedback`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lights: Option<crate::vj_feedback::Lights>,
 }
 
 /// Where the timecode clock of a VJ show comes from: Flux's own transport, or timecode coming in
@@ -985,6 +989,17 @@ pub enum VjOp {
         mapping: String,
         fine: Option<u16>,
     },
+    /// Sets the values a mapping's pad is sent for its states, or with `None` takes them away so
+    /// the grid's colours apply.
+    SetMappingLights {
+        mapping: String,
+        lights: Option<crate::vj_feedback::Lights>,
+    },
+    /// Sets the colours the pads of mappings with none of their own get, or with `None` goes
+    /// back to the controller's preset.
+    SetLights {
+        lights: Option<crate::vj_feedback::Lights>,
+    },
     /// Sets how a mapping of a clip, layer, column, deck or effect follows it: by id, or by the
     /// slot it is in.
     SetMappingFollow {
@@ -1060,6 +1075,7 @@ impl Vj {
             && self.composition_effects.is_empty()
             && self.mappings.is_empty()
             && self.dashboard.is_empty()
+            && self.lights.is_none()
     }
 
     /// The grid of a new VJ project: [`DEFAULT_LAYERS`] layers and one deck of [`DEFAULT_COLUMNS`]
@@ -1078,6 +1094,7 @@ impl Vj {
             composition_bypass: false,
             mappings: Vec::new(),
             dashboard: Vec::new(),
+            lights: None,
         }
     }
 
@@ -1187,14 +1204,14 @@ impl Vj {
         })
     }
 
-    fn layer_mut(&mut self, id: &str) -> Result<&mut Layer> {
+    pub(crate) fn layer_mut(&mut self, id: &str) -> Result<&mut Layer> {
         self.layers
             .iter_mut()
             .find(|layer| layer.id == id)
             .ok_or_else(|| ProjectError::Invalid(format!("no layer {id}")))
     }
 
-    fn clip_mut(&mut self, id: &str) -> Result<&mut Clip> {
+    pub(crate) fn clip_mut(&mut self, id: &str) -> Result<&mut Clip> {
         self.layers
             .iter_mut()
             .flat_map(|layer| &mut layer.clips)
@@ -1204,7 +1221,7 @@ impl Vj {
 
     /// The stack holding the effect `id` (of a layer, of a clip or of the composition), and the
     /// effect's place in it.
-    fn effect_mut(&mut self, id: &str) -> Result<(&mut Vec<Effect>, usize)> {
+    pub(crate) fn effect_mut(&mut self, id: &str) -> Result<(&mut Vec<Effect>, usize)> {
         let layers = self.layers.iter_mut().flat_map(|layer| {
             std::iter::once(&mut layer.effects)
                 .chain(layer.clips.iter_mut().map(|clip| &mut clip.effects))
@@ -1613,6 +1630,15 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::SetMappingFollow { mapping, follow } => {
             crate::vj_mapping::set_mapping_follow(vj, &mapping, follow)?;
         }
+        VjOp::SetMappingLights { mapping, lights } => {
+            crate::vj_mapping::set_mapping_lights(vj, &mapping, lights)?;
+        }
+        VjOp::SetLights { lights } => {
+            if let Some(lights) = lights {
+                lights.validate()?;
+            }
+            vj.lights = lights;
+        }
         VjOp::SetMappingFine { mapping, fine } => {
             crate::vj_mapping::set_mapping_fine(vj, &mapping, fine)?;
         }
@@ -1692,6 +1718,9 @@ fn take_clip(vj: &mut Vj, layer: &str, which: impl Fn(&Clip) -> bool) -> Option<
 
 /// Sets or takes away the modulation `target` names, brought into the range of the setting.
 fn set_modulation(vj: &mut Vj, target: ModTarget, modulation: Option<Modulation>) -> Result<()> {
+    if let ModTarget::Knob { knob } = target {
+        return crate::vj_mapping::modulate_knob(vj, knob, modulation);
+    }
     let (map, key, (lo, hi)) = match target {
         ModTarget::Effect { effect, param } => {
             let (stack, at) = vj.effect_mut(&effect)?;
@@ -1709,6 +1738,7 @@ fn set_modulation(vj: &mut Vj, target: ModTarget, modulation: Option<Modulation>
                 .ok_or_else(|| ProjectError::Invalid(format!("{field} cannot be modulated")))?;
             (&mut clip.modulation, field, range)
         }
+        ModTarget::Knob { .. } => unreachable!("a knob is handled above"),
     };
     match modulation {
         Some(modulation) => {
@@ -3292,5 +3322,17 @@ mod tests {
         assert_eq!(Autopilot::Random.pick(&[false, true], Some(1), 5), Some(1));
         assert_eq!(Autopilot::Next.pick(&[false, false], None, 0), None);
         assert_eq!(Autopilot::Next.pick(&[], None, 0), None);
+    }
+
+    #[test]
+    fn set_modulation_should_set_and_clear_a_knob_and_refuse_a_ninth() {
+        let (mut project, new_id) = vj_project();
+        let m = sine(0.1, 0.9);
+        let knob = |n| ModTarget::Knob { knob: n };
+        run(&mut project, set(knob(7), Some(m)), new_id);
+        assert_eq!(project.vj.dashboard[7].modulation, Some(m));
+        assert!(apply(&mut project, set(knob(8), Some(m)), String::new).is_err());
+        run(&mut project, set(knob(7), None), String::new);
+        assert_eq!(project.vj.dashboard[7].modulation, None);
     }
 }

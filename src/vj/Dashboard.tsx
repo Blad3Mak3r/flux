@@ -12,19 +12,25 @@ import { Scrub } from "./controls";
 import { useEffectCatalog } from "./effects";
 import { linkKnob, useMap } from "./mapping";
 import { mappable, targetKey, targetLabel, targetUnits } from "./mapModel";
-import { edit, preview } from "./store";
+import { ModButton, ModPanel } from "./Modulation";
+import type { ModRange } from "./Modulation";
+import { edit, preview, useVj } from "./store";
 
 const KNOBS = 8;
 const NO_VIDEOS: VideoAsset[] = [];
 /** How far a drag of the whole travel is, in pixels. */
 const TRAVEL = 160;
 const EMPTY: VjKnob = { value: 0 };
+/** A knob is 0 to 100, and a new modulation of it sweeps all of it. */
+const KNOB_RANGE: ModRange = { min: 0, max: 1, start: [0, 1], shown: 100, unit: "%", decimals: 0 };
 
 /** A rotary knob: its arc is the value, its pointer the same, and the number is printed under it. */
 function Knob({ index, knob, picked, onPick }: { index: number; knob: VjKnob; picked: boolean; onPick: () => void }) {
   const t = useT();
   const [held, setHeld] = useState<{ y: number; from: number; v: number } | null>(null);
-  const value = held?.v ?? knob.value;
+  // A modulated knob shows where the backend says it is now.
+  const modulated = useVj((vj) => (knob.modulation ? vj.mod.knobs[index] : undefined));
+  const value = held?.v ?? modulated ?? knob.value;
   const label = t("vj.dashboard.knobNamed", { n: index + 1, name: knob.name ?? "" }).trim();
   const dragged = (event: PointerEvent<HTMLElement>, from: { y: number; from: number }) =>
     Math.min(1, Math.max(0, from.from + ((from.y - event.clientY) / TRAVEL) * (event.shiftKey ? 0.1 : 1)));
@@ -46,7 +52,7 @@ function Knob({ index, knob, picked, onPick }: { index: number; knob: VjKnob; pi
   const [px, py] = at(5, angle);
   const [qx, qy] = at(13, angle);
   return (
-    <div className={`vj-knob${picked ? " picked" : ""}${knob.links?.length ? " linked" : ""}`} {...mappable({ kind: "dashboard", knob: index })}>
+    <div className={`vj-knob${picked ? " picked" : ""}${knob.links?.length ? " linked" : ""}${knob.modulation ? " modulated" : ""}`} {...mappable({ kind: "dashboard", knob: index })}>
       <div className="vj-knob-dial" role="slider" tabIndex={0} aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)}
         title={`${label} ${Math.round(value * 100)}`}
         onKeyDown={onKeyDown}
@@ -115,6 +121,7 @@ export function Dashboard({ grid }: { grid: VjGrid }) {
   const [picked, setPicked] = useState(0);
   const linking = useMap((state) => state.linking);
   const knob = grid.dashboard?.[picked] ?? EMPTY;
+  const label = t("vj.dashboard.knobNamed", { n: picked + 1, name: knob.name ?? "" }).trim();
   const links = knob.links ?? [];
   const [draft, setDraft] = useState<string | null>(null);
   const rename = () => {
@@ -141,7 +148,9 @@ export function Dashboard({ grid }: { grid: VjGrid }) {
           title={t("vj.dashboard.linkNote")} onClick={() => linkKnob(linking === picked ? null : picked)}>
           {t(linking === picked ? "vj.dashboard.linking" : "vj.dashboard.link")}
         </button>
+        <ModButton target={{ knob: picked }} modulation={knob.modulation} range={KNOB_RANGE} name={label} />
       </div>
+      <ModPanel target={{ knob: picked }} modulation={knob.modulation} range={KNOB_RANGE} />
       {links.length === 0 ? (
         <p className="vj-dim vj-fx-empty">{t("vj.dashboard.noLinks")}</p>
       ) : (

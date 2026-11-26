@@ -44,6 +44,15 @@ export interface VjGrid {
   mappings?: VjMapping[];
   /** The composition dashboard's knobs; one not listed is at 0 with no links. */
   dashboard?: VjKnob[];
+  /** The colours the pads of mappings with none of their own get; absent is the controller's preset. */
+  lights?: VjLights;
+}
+
+/** What a MIDI pad is sent for each state, 0 to 127 (a colour on controllers like the APC40). */
+export interface VjLights {
+  off: number;
+  loaded: number;
+  on: number;
 }
 
 // Mirrors `flux-project/src/vj_mapping.rs`.
@@ -90,11 +99,15 @@ export interface VjMapping {
   follow?: VjFollow;
   /** A position mapping whose slot is empty: kept, and it drives nothing until something fills the slot. */
   parked?: boolean;
+  /** The colours of the pad of a MIDI source; absent uses the grid's, then the controller's. */
+  lights?: VjLights;
 }
 
 export interface VjKnob {
   /** 0 to 1. */
   value: number;
+  /** What turns the knob by itself. */
+  modulation?: VjModulation;
   name?: string;
   links?: VjLink[];
 }

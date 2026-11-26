@@ -13,6 +13,7 @@
 //! the execution. Executing needs the running output, the session and the window, so it is done on
 //! a thread of its own (`flux-control`), the only one that logs.
 
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -30,16 +31,18 @@ use crate::graphics::IDENTIFIER;
 use crate::transport_commands::{
     SharedOutput, TIMELINE_ADVANCED, is_playing, light_snapshot, release, snapshot,
 };
+use crate::vj_commands::SharedGrid;
 use crate::vj_control::{SharedLearn, VjRunner};
 use flux_engine::control::KeyMsg;
 use flux_engine::control::{
     Binding, ControlAction, Feedback, MidiTrigger, action_for, dedup, osc_action, seek_target,
 };
 use flux_engine::control_in::{ARTNET_UDP_PORT, ArtnetListener, Input, ListenError, MidiListener};
-use flux_engine::control_light::{Facts, Lamps, LightPort};
+use flux_engine::control_light::{Facts, Lamps, LightPort, by_port};
 use flux_engine::devices::{self, MidiPort};
 use flux_engine::output::OutputError;
 use flux_engine::transport::{Command, TransportState};
+use flux_project::vj_feedback::{self, Lights as PadLights, Pad};
 use flux_project::vj_mapping::{Command as VjCommand, Target};
 
 const FILE_NAME: &str = "control.json";
@@ -503,6 +506,99 @@ impl Drop for Lights {
     }
 }
 
+/// A port the pads of the VJ mappings are lit through, found by the name of the input the control
+/// was learned on.
+struct PadPort {
+    port: Option<LightPort>,
+    lamps: Lamps,
+    retry_at: Instant,
+}
+
+/// The pads of the VJ mappings with what they show now, and the colours of the grid. Empty with no
+/// VJ project open, which puts every pad out. The playing clips are read first and the session
+/// is only tried, so the window never waits for the lights.
+fn vj_pads(app: &AppHandle) -> (Vec<Pad>, Option<PadLights>) {
+    let (playing, paused) = {
+        let grid = app.state::<SharedGrid>();
+        let grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
+        let clips: HashSet<String> = grid
+            .play
+            .playing()
+            .values()
+            .filter_map(|launched| launched.clip.clone())
+            .collect();
+        (clips, grid.paused())
+    };
+    let session = app.state::<SharedSession>();
+    let Ok(session) = session.try_lock() else {
+        return (Vec::new(), None);
+    };
+    session.vj_project().map_or((Vec::new(), None), |project| {
+        (
+            vj_feedback::pads(&project.vj, &|id| playing.contains(id), paused),
+            project.vj.lights,
+        )
+    })
+}
+
+/// Lights the pads of the VJ mappings on every port they were learned on, writing only what
+/// changed. A port is opened when a pad needs it and closed, its pads put out, when none does; one
+/// that fails is reopened after [`LIGHTS_RETRY`] and gets the whole state again.
+fn light_vj_pads(
+    app: &AppHandle,
+    default_port: &str,
+    ports: &mut HashMap<String, PadPort>,
+    failed_sends: &mut u64,
+) {
+    let (pads, grid_lights) = vj_pads(app);
+    let groups = by_port(&pads, default_port);
+    for (hint, group) in &groups {
+        let entry = ports.entry(hint.clone()).or_insert_with(|| PadPort {
+            port: None,
+            lamps: Lamps::default(),
+            retry_at: Instant::now(),
+        });
+        if entry.port.is_none() && Instant::now() >= entry.retry_at {
+            match LightPort::open(hint, 0) {
+                Ok(opened) => {
+                    log::info!(
+                        "remote control: lighting the VJ pads through {}",
+                        opened.name()
+                    );
+                    entry.lamps.forget();
+                    entry.port = Some(opened);
+                }
+                Err(err) => {
+                    log::warn!("remote control: the VJ pads cannot be lit on {hint}: {err}");
+                    entry.retry_at = Instant::now() + LIGHTS_RETRY;
+                }
+            }
+        }
+        let Some(open) = entry.port.as_mut() else {
+            continue;
+        };
+        let base = grid_lights.unwrap_or_else(|| PadLights::preset(hint));
+        let failed = entry.lamps.update_pads(group, base, open);
+        if failed > 0 {
+            *failed_sends += failed as u64;
+            log::warn!(
+                "remote control: {failed} VJ lights could not be sent ({failed_sends} so far), reopening {hint}"
+            );
+            entry.port = None;
+            entry.retry_at = Instant::now() + LIGHTS_RETRY;
+        }
+    }
+    ports.retain(|hint, entry| {
+        if groups.contains_key(hint) {
+            return true;
+        }
+        if let Some(open) = entry.port.as_mut() {
+            entry.lamps.clear(open);
+        }
+        false
+    });
+}
+
 /// Looks at the state of the show, from the same sources as the Live view, and writes to the
 /// controller the pads that changed. It never touches the clock: it only reads the output's
 /// published state, and a port that fails is counted, logged here (off the output path, and not
@@ -513,6 +609,7 @@ fn run_lights(app: &AppHandle, name: &str, index: usize, bindings: &[Binding], s
     let mut port: Option<LightPort> = None;
     let mut retry_at = Instant::now();
     let mut failed_sends = 0_u64;
+    let mut vj_ports: HashMap<String, PadPort> = HashMap::new();
     let started = Instant::now();
     // The session is only tried: if the window holds it, the last known values do.
     let mut timeline = None;
@@ -568,11 +665,17 @@ fn run_lights(app: &AppHandle, name: &str, index: usize, bindings: &[Binding], s
                 retry_at = Instant::now() + LIGHTS_RETRY;
             }
         }
+        light_vj_pads(app, name, &mut vj_ports, &mut failed_sends);
         thread::sleep(LIGHTS_INTERVAL);
     }
 
     if let Some(open) = port.as_mut() {
         lamps.clear(open);
+    }
+    for entry in vj_ports.values_mut() {
+        if let Some(open) = entry.port.as_mut() {
+            entry.lamps.clear(open);
+        }
     }
 }
 

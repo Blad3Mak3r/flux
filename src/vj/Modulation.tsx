@@ -18,6 +18,7 @@ import { edit, preview, showModulation, useVj } from "./store";
 export function modKey(target: ModTarget): string {
   if ("effect" in target) return `e:${target.effect}:${target.param}`;
   if ("layer" in target) return `l:${target.layer}:${target.field}`;
+  if ("knob" in target) return `k:${target.knob}:value`;
   return `c:${target.clip}:${target.field}`;
 }
 
@@ -47,6 +48,7 @@ export function useModMarker(target: ModTarget, modulation: VjModulation | undef
   const value = useVj((vj) =>
     "effect" in target ? vj.mod.effects[target.effect]?.[target.param]
     : "layer" in target ? vj.mod.layers[target.layer]?.[target.field]
+    : "knob" in target ? vj.mod.knobs[target.knob]
     : vj.mod.clips[target.clip]?.[target.field],
   );
   if (!modulation || value === undefined || range.max === range.min) return undefined;
