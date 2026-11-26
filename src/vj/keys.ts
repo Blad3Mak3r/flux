@@ -16,14 +16,13 @@ const send = (code: string, mods: { ctrl: boolean; alt: boolean; shift: boolean;
 
 /**
  * A key went down in a VJ show with nothing being typed and no dialog open. `true` when it was taken (only while a
- * mapping waits for a key): the app's own shortcuts must not also run. Esc is never taken, so it still cancels.
- */
+ * mapping waits for a key): the app's own shortcuts must not also run. Esc is never taken, so it still cancels. */
 export function forwardKeyDown(event: KeyboardEvent): boolean {
   if (event.repeat || event.code === "Escape" || MODIFIERS.test(event.code)) return false;
   const mods = { ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey, meta: event.metaKey };
   const learning = useMap.getState().learn !== null;
-  // Ctrl and Cmd belong to the app, also while learning.
-  if (learning && !mods.ctrl && !mods.meta) {
+  // Every key goes to the backend while learning; it refuses the few the app uses (`shortcuts.ts`).
+  if (learning) {
     down.set(event.code, mods);
     send(event.code, mods, true);
     return true;

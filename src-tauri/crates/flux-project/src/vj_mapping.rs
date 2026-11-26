@@ -16,6 +16,7 @@
 //! it, each into the range of its link, in a single edit.
 
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -103,48 +104,46 @@ pub const MAX_UNIVERSE: u16 = 0x7FFF;
 /// Longest key code a mapping keeps.
 const MAX_CODE: usize = 32;
 
+/// A key the app uses itself: `cmd` is Ctrl (Cmd on macOS); the file's `action` is the window's.
+#[derive(Deserialize)]
+struct AppShortcut {
+    code: String,
+    cmd: bool,
+    shift: bool,
+}
+
+/// The list the window reads too, so the menus, the keys and the refusal cannot drift apart.
+fn app_shortcuts() -> &'static [AppShortcut] {
+    static LIST: OnceLock<Vec<AppShortcut>> = OnceLock::new();
+    LIST.get_or_init(|| serde_json::from_str(include_str!("vj_shortcuts.json")).unwrap_or_default())
+}
+
 impl Source {
-    /// Whether this is a key the app uses itself, so a mapping would fight its shortcuts: every
-    /// combination with Ctrl or Cmd, the keys that act on their own (Space, Enter, Delete,
-    /// Escape, Tab, the arrows and page keys), the grid's letters (B, S, X), the digits that
-    /// launch columns and cues (1 to 9, and Shift with 1 to 8), and a modifier alone.
+    /// Whether this is a key the app uses itself, so a mapping would fight its shortcuts: one of
+    /// the combinations in `vj_shortcuts.json` (the list the window reads too; Resolume's
+    /// defaults: Ctrl or Cmd with N, O, S, Z, Y, K, L, T, Ctrl or Cmd and Shift with S, C, K, M,
+    /// O, X, A, and Esc), or a modifier alone. Every other key is free.
     pub fn is_app_shortcut(&self) -> bool {
         let Self::Key {
             code,
             ctrl,
+            alt,
             shift,
             meta,
-            ..
         } = self
         else {
             return false;
         };
-        if *ctrl || *meta {
-            return true;
-        }
         if ["Control", "Meta", "Shift", "Alt", "OS"]
             .iter()
             .any(|modifier| code.starts_with(modifier))
         {
             return true;
         }
-        match code.as_str() {
-            "Space" | "Enter" | "NumpadEnter" | "Delete" | "Backspace" | "Escape" | "Tab"
-            | "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Home" | "End" | "PageUp"
-            | "PageDown" | "KeyB" | "KeyS" | "KeyX" => true,
-            c => {
-                let digit = c
-                    .strip_prefix("Digit")
-                    .or_else(|| c.strip_prefix("Numpad"))
-                    .and_then(|d| d.parse::<u8>().ok());
-                // Digits 1 to 9 launch columns; with Shift, 1 to 8 jump to the cues of a clip.
-                // The numpad digit is the same key to the app when Num Lock is on.
-                match digit {
-                    Some(1..=9) => !*shift || c.starts_with("Numpad") || digit <= Some(8),
-                    _ => false,
-                }
-            }
-        }
+        !*alt
+            && app_shortcuts()
+                .iter()
+                .any(|s| s.code == *code && s.cmd == (*ctrl || *meta) && s.shift == *shift)
     }
 
     /// Whether what was heard (`heard`, with the port it came from) is this source. A mapping
@@ -2332,41 +2331,47 @@ mod tests {
 
     #[test]
     fn the_keys_the_app_uses_should_be_refused_and_the_others_taken() {
-        let ctrl = |code: &str| Source::Key {
+        let combo = |code: &str, ctrl: bool, shift: bool| Source::Key {
             code: code.into(),
-            ctrl: true,
+            ctrl,
             alt: false,
-            shift: false,
+            shift,
             meta: false,
         };
         for used in [
-            ctrl("KeyM"),
-            ctrl("KeyZ"),
-            ctrl("Digit1"),
+            combo("KeyS", true, false),
+            combo("KeyS", true, true),
+            combo("KeyM", true, true),
+            combo("KeyK", true, true),
+            combo("KeyY", true, false),
+            combo("KeyL", true, false),
+            key("Escape", false),
+            key("ShiftLeft", false),
+        ] {
+            assert!(used.is_app_shortcut(), "{used:?}");
+        }
+        // Resolume leaves these free by default, so a user can map them.
+        for free in [
+            combo("KeyM", true, false),
+            combo("KeyZ", true, true),
+            combo("Digit1", true, false),
+            combo("KeyQ", true, false),
+            combo("KeyK", false, true),
             key("Space", false),
             key("Enter", false),
-            key("Escape", false),
             key("Delete", false),
+            key("Tab", false),
+            key("ArrowLeft", false),
+            key("PageUp", false),
             key("KeyB", false),
             key("KeyS", true),
             key("KeyX", false),
             key("Digit1", false),
             key("Digit9", false),
             key("Digit1", true),
-            key("Digit8", true),
             key("Numpad3", false),
-            key("ArrowLeft", false),
-            key("ShiftLeft", false),
-        ] {
-            assert!(used.is_app_shortcut(), "{used:?}");
-        }
-        for free in [
             key("KeyQ", false),
-            key("KeyQ", true),
-            key("KeyA", false),
             key("F5", false),
-            key("Digit9", true),
-            key("Digit0", false),
             key("Backquote", false),
         ] {
             assert!(!free.is_app_shortcut(), "{free:?}");
@@ -2384,14 +2389,14 @@ mod tests {
         let refused = apply(
             &mut project,
             VjOp::AddMapping {
-                source: key("Space", false),
+                source: key("Escape", false),
                 target: target.clone(),
             },
         );
         let taken = apply(
             &mut project,
             VjOp::AddMapping {
-                source: key("KeyQ", false),
+                source: key("Space", false),
                 target,
             },
         );

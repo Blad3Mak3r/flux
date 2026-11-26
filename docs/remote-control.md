@@ -52,7 +52,7 @@ pointed at this computer's address and the port, with one of the addresses above
 ## VJ shows
 
 In a VJ show the same two inputs drive the grid. The mappings are **part of the show** (unlike the cue bindings above,
-which belong to the machine): they are learned in the [map mode](vj-mode.md#map-mode-midi-and-osc) (Ctrl+M), listed in
+which belong to the machine): they are learned in the [map mode](vj-mode.md#map-mode-midi-osc-dmx-and-keys) (Ctrl+Shift+M), listed in
 the Mappings tab and saved in the `.flx`. What is heard is checked against the mappings **first**; a message with no
 mapping falls through to the cue bindings and the `/flux/...` addresses, so a show without mappings behaves as before.
 The `/flux/v1/...` addresses are not mappable.
@@ -141,12 +141,11 @@ backend runs the mapping; Hold uses the release, so a Piano clip stops when the 
   in map mode (where keys edit). The window forwards a key only when the show has a key mapping (and while a learn waits).
 - To learn, click a control in map mode and **press the key**. **Esc** cancels the learn and is never a source.
 - **Keys the app uses cannot be learned.** The choice is to refuse rather than let a mapping win only outside map mode,
-  because a key that does one thing in map mode and another in the show is a surprise on stage. Refused: every
-  combination with **Ctrl or Cmd** (Ctrl+M, Ctrl+Z, Ctrl+S...), **Space**, **Enter**, **Delete**, **Backspace**,
-  **Escape**, **Tab**, the arrows, Home, End, Page Up and Down, **B**, **S** and **X** (bypass, solo, eject, with any
-  modifier), the digits **1 to 9** (columns) and **Shift with 1 to 8** (cues), the numpad digits, and a modifier on its own.
-  The learn says "X is used by FLUX. Press another key." and goes on waiting. Alt combinations, Shift with letters, F-keys,
-  0 and symbols are free.
+  because a key that does one thing in map mode and another in the show is a surprise on stage. Refused are
+  only the keys Resolume also has by default (see [Keys](vj-mode.md#keys)): **Ctrl or Cmd** with N, O, S, Z, Y, K, L or T,
+  **Ctrl or Cmd and Shift** with S, C, K, M, O, X or A, **Escape**, and a modifier on its own.
+  The learn says "X is used by FLUX. Press another key." and goes on waiting. Everything else is free: plain keys (Space, Enter, B, S, X, the digits, the arrows...),
+  Shift and Alt combinations, other Ctrl combinations, F-keys and symbols.
 
 ## Mapping files
 

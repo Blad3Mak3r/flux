@@ -1292,7 +1292,7 @@ export const en = {
   "setup.control.artnet.packets": "{n} packets received",
   "setup.control.artnet.note": "Listens on UDP port 6454 and shares it with other programs. A console's channels can be learned in the VJ map mode: move the fader on the console. Only changes count.",
   "vj.mappings.count": "{n} mapped",
-  "vj.mappings.empty": "Nothing is mapped yet. Turn on map mode (Ctrl+M), click a control, then move a MIDI control, send an OSC message, move a DMX channel or press a key.",
+  "vj.mappings.empty": "Nothing is mapped yet. Turn on map mode (Ctrl+Shift+M), click a control, then move a MIDI control, send an OSC message, move a DMX channel or press a key.",
   "vj.mappings.source": "Source",
   "vj.mappings.target": "Drives",
   "vj.mappings.options": "Range or button",

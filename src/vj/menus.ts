@@ -4,23 +4,23 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MessageKey, Translate } from "../i18n/messages";
 import { errorMessage, pickMediaPaths } from "../project/api";
-import type { VjClip, VjDeck, VjGrid, VjLayer, VjSide } from "../project/types";
+import type { VjClip, VjGrid, VjLayer, VjSide } from "../project/types";
 import { dispatch, useDoc } from "../state/store";
 import { openSetup, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import { closeDocument, newDocument, openDocument, saveDocument } from "../state/workflows";
 import { hasNativeWindow } from "../components/WindowControls";
 import { stop, toggle } from "../transport/playback";
-import { MOD_KEY, helpMenu } from "../components/menus";
+import { helpMenu } from "../components/menus";
 import { escapeMap, toggleMapMode, useMap } from "./mapping";
+import { acceleratorOf, shortcutOf } from "./shortcuts";
+import type { ShortcutAction } from "./shortcuts";
 import { exportMappings, importMappings } from "./mapFile";
-import { cue, edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
+import { edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
 
-const mod = (keys: string) => `${MOD_KEY}+${keys}`;
 const fail = (err: unknown) => sayError(errorMessage(err));
 
 const grid = (): VjGrid | undefined => useDoc.getState().project.vj;
-const shownDeck = (vj: VjGrid): VjDeck | undefined => vj.decks.find((deck) => deck.id === vj.deck);
 
 /** The layer the inspector shows, or none. */
 function selectedLayer(): VjLayer | undefined {
@@ -62,24 +62,11 @@ export function stepDeck(step: number): void {
   if (deck) void edit({ op: "selectDeck", deck: deck.id });
 }
 
-/** Launches the `n`-th column (from 0) of the deck shown. */
-export function launchColumnAt(n: number): void {
-  const vj = grid();
-  const column = vj && shownDeck(vj)?.columns[n];
-  if (column) void launchColumn(column.id);
-}
-
 export const stopAll = () => void stopLayer(null);
 
 export function launchSelected(): void {
   const found = selectedClip();
   if (found) void launch(found.clip.id, found.layer.id);
-}
-
-/** Jumps the selected clip to its `n`-th cue (from 0), launching it there if it is not playing; nothing when the cue is empty. */
-export function cueSelected(n: number): void {
-  const found = selectedClip();
-  if (found?.clip.cues?.[n] != null) void cue(found.clip.id, n);
 }
 
 export function removeSelected(): void {
@@ -104,17 +91,17 @@ export const closeOutput = () => useVj.setState({ output: false });
 
 function fileMenu(t: Translate): MenuItem[] {
   return [
-    { label: t("vj.menu.newVj"), shortcut: mod("N"), run: () => newDocument(t, "vj") },
+    { label: t("vj.menu.newVj"), shortcut: acceleratorOf("new"), run: () => newDocument(t, "vj") },
     { label: t("vj.menu.newCue"), run: () => newDocument(t, "timeline") },
-    { label: t("menu.open"), shortcut: mod("O"), run: openDocument },
+    { label: t("menu.open"), shortcut: acceleratorOf("open"), run: openDocument },
     "-",
-    { label: t("menu.save"), shortcut: mod("S"), run: () => void saveDocument(false) },
-    { label: t("menu.saveAs"), shortcut: mod("⇧+S"), run: () => void saveDocument(true) },
-    { label: t("menu.close"), shortcut: mod("W"), run: closeDocument },
+    { label: t("menu.save"), shortcut: acceleratorOf("save"), run: () => void saveDocument(false) },
+    { label: t("menu.saveAs"), shortcut: acceleratorOf("saveAs"), run: () => void saveDocument(true) },
+    { label: t("menu.close"), run: closeDocument },
     "-",
-    { label: t("vj.menu.importMedia"), shortcut: mod("I"), run: () => void importMedia() },
+    { label: t("vj.menu.importMedia"), run: () => void importMedia() },
     "-",
-    { label: t("menu.setup"), shortcut: mod(","), run: () => openSetup() },
+    { label: t("menu.setup"), run: () => openSetup() },
     ...(hasNativeWindow()
       ? ["-" as const, { label: t("menu.exit"), run: () => void getCurrentWindow().close() }]
       : []),
@@ -125,11 +112,11 @@ function editMenu(t: Translate): MenuItem[] {
   const doc = useDoc.getState();
   const clip = selectedClip();
   return [
-    { label: t("menu.undo"), shortcut: mod("Z"), disabled: doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
-    { label: t("menu.redo"), shortcut: mod("⇧+Z"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
+    { label: t("menu.undo"), shortcut: acceleratorOf("undo"), disabled: doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
+    { label: t("menu.redo"), shortcut: acceleratorOf("redo"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
     "-",
-    { label: t("vj.clip.remove"), shortcut: "Del", disabled: !clip, run: removeSelected },
-    { label: t("menu.deselect"), shortcut: "Esc", disabled: !clip, run: () => useVj.setState({ clip: null }) },
+    { label: t("vj.clip.remove"), disabled: !clip, run: removeSelected },
+    { label: t("menu.deselect"), disabled: !clip, run: () => useVj.setState({ clip: null }) },
   ];
 }
 
@@ -140,10 +127,10 @@ function compositionMenu(t: Translate): MenuItem[] {
   const crossfader = useVj.getState().play.crossfader;
   const external = !internalClock();
   return [
-    { label: t("vj.menu.stopAll"), shortcut: mod("."), run: stopAll },
+    { label: t("vj.menu.stopAll"), run: stopAll },
     "-",
     { heading: t("vj.menu.timecode") },
-    { label: t("vj.menu.playPause"), shortcut: "Space", disabled: external, run: () => void toggle() },
+    { label: t("vj.menu.playPause"), disabled: external, run: () => void toggle() },
     { label: t("vj.menu.toStart"), disabled: external, run: () => void stop() },
     "-",
     { heading: t("vj.menu.crossfader") },
@@ -160,11 +147,11 @@ function deckMenu(t: Translate): MenuItem[] {
   const deck = decks[at];
   const columns = deck?.columns ?? [];
   return [
-    { label: t("vj.deck.add"), run: () => void edit({ op: "addDeck" }) },
-    { label: t("vj.menu.addColumn"), run: () => void edit({ op: "addColumn" }) },
+    { label: t("vj.deck.add"), shortcut: acceleratorOf("newDeck"), run: () => void edit({ op: "addDeck" }) },
+    { label: t("vj.menu.addColumn"), shortcut: acceleratorOf("newColumn"), run: () => void edit({ op: "addColumn" }) },
     "-",
-    { label: t("vj.menu.previousDeck"), shortcut: mod("PgUp"), disabled: at < 1, run: () => stepDeck(-1) },
-    { label: t("vj.menu.nextDeck"), shortcut: mod("PgDn"), disabled: at === -1 || at === decks.length - 1, run: () => stepDeck(1) },
+    { label: t("vj.menu.previousDeck"), disabled: at < 1, run: () => stepDeck(-1) },
+    { label: t("vj.menu.nextDeck"), disabled: at === -1 || at === decks.length - 1, run: () => stepDeck(1) },
     {
       label: t("vj.menu.goToDeck"),
       disabled: decks.length < 2,
@@ -180,7 +167,6 @@ function deckMenu(t: Translate): MenuItem[] {
       disabled: columns.length === 0,
       submenu: columns.map((column, i) => ({
         label: `${i + 1}  ${column.name ?? ""}`.trim(),
-        shortcut: i < 9 ? String(i + 1) : undefined,
         run: () => void launchColumn(column.id),
       })),
     },
@@ -201,13 +187,13 @@ function layerMenu(t: Translate): MenuItem[] {
     run: () => layer && void edit({ op: "layerCrossfade", layer: layer.id, side: value }),
   });
   return [
-    { label: t("vj.menu.addLayer"), run: () => void edit({ op: "addLayer", global: false }) },
+    { label: t("vj.menu.addLayer"), shortcut: acceleratorOf("newLayer"), run: () => void edit({ op: "addLayer", global: false }) },
     { label: t("vj.menu.addGlobalLayer"), run: () => void edit({ op: "addLayer", global: true }) },
     "-",
     { heading: layer ? layer.name ?? t("vj.layer.default", { n: index + 1 }) : t("vj.menu.noLayer") },
-    { label: t("vj.menu.bypass"), shortcut: "B", checked: !!layer?.bypass, disabled: !layer, run: () => toggleLayer("layerBypass") },
-    { label: t("vj.menu.solo"), shortcut: "S", checked: !!layer?.solo, disabled: !layer, run: () => toggleLayer("layerSolo") },
-    { label: t("vj.layer.eject"), shortcut: "X", disabled: !layer, run: () => layer && void stopLayer(layer.id) },
+    { label: t("vj.menu.bypass"), checked: !!layer?.bypass, disabled: !layer, run: () => toggleLayer("layerBypass") },
+    { label: t("vj.menu.solo"), checked: !!layer?.solo, disabled: !layer, run: () => toggleLayer("layerSolo") },
+    { label: t("vj.layer.eject"), disabled: !layer, run: () => layer && void stopLayer(layer.id) },
     {
       label: t(layer?.collapsed ? "vj.layer.expand" : "vj.layer.collapse"),
       disabled: !layer,
@@ -229,14 +215,14 @@ function layerMenu(t: Translate): MenuItem[] {
 function clipMenu(t: Translate): MenuItem[] {
   const found = selectedClip();
   return [
-    { label: t("vj.menu.launchClip"), shortcut: "Enter", disabled: !found, run: launchSelected },
-    { label: t("vj.clip.remove"), shortcut: "Del", disabled: !found, run: removeSelected },
+    { label: t("vj.menu.launchClip"), disabled: !found, run: launchSelected },
+    { label: t("vj.clip.remove"), disabled: !found, run: removeSelected },
   ];
 }
 
 function outputMenu(t: Translate): MenuItem[] {
   return [
-    { label: t("vj.menu.advancedOutput"), shortcut: mod("⇧+A"), run: openOutput },
+    { label: t("vj.menu.advancedOutput"), shortcut: acceleratorOf("output"), run: openOutput },
   ];
 }
 
@@ -246,11 +232,11 @@ function viewMenu(t: Translate): MenuItem[] {
     { heading: t("vj.menu.inspector") },
     { label: t("vj.inspector.clip"), checked: tab === "clip", run: () => showTab("clip") },
     { label: t("vj.inspector.layer"), checked: tab === "layer", run: () => showTab("layer") },
-    { label: t("vj.inspector.composition"), checked: tab === "composition", run: () => showTab("composition") },
+    { label: t("vj.inspector.composition"), shortcut: acceleratorOf("composition"), checked: tab === "composition", run: () => showTab("composition") },
     { label: t("vj.inspector.mappings"), checked: tab === "mappings", run: () => showTab("mappings") },
     "-",
     { heading: t("vj.menu.control") },
-    { label: t("vj.map.mode"), shortcut: mod("M"), checked: useMap.getState().on, run: toggleMapMode },
+    { label: t("vj.map.mode"), shortcut: acceleratorOf("mapMidi"), checked: useMap.getState().on, run: toggleMapMode },
     { label: t("vj.mapfile.import"), run: () => void importMappings() },
     { label: t("vj.mapfile.export"), run: () => void exportMappings() },
     "-",
@@ -274,58 +260,35 @@ export const VJ_MENUS: { id: string; label: MessageKey; items: (t: Translate) =>
 
 // ---- Keys ----
 
+/** What each shortcut of `vj_shortcuts.json` does; the four map shortcuts all turn on the one map mode, as the source is learned from whatever is heard. */
+const KEYS: Record<ShortcutAction, (t: Translate) => void> = {
+  new: (t) => newDocument(t, "vj"),
+  open: () => openDocument(),
+  save: () => void saveDocument(false),
+  saveAs: () => void saveDocument(true),
+  undo: () => dispatch({ type: "undo" }),
+  redo: () => dispatch({ type: "redo" }),
+  newDeck: () => void edit({ op: "addDeck" }),
+  newLayer: () => void edit({ op: "addLayer", global: false }),
+  newColumn: () => void edit({ op: "addColumn" }),
+  composition: () => showTab("composition"),
+  mapKeys: toggleMapMode,
+  mapMidi: toggleMapMode,
+  mapOsc: toggleMapMode,
+  mapDmx: toggleMapMode,
+  output: openOutput,
+  escape: () => void escapeMap(),
+};
+
 /**
- * The keys of a VJ show, called with no dialog open and nothing being typed in; `true` when it used
- * the key. The timeline's keys (transport, notes, split, snap) mean nothing here.
+ * The keys of a VJ show, called with no dialog open and nothing being typed in; `true` when it used the key. Only
+ * Resolume's defaults are bound (`shortcuts.ts`); the timeline's keys mean nothing here, and every other key is the
+ * user's to map.
  */
 export function vjKeyDown(event: KeyboardEvent, t: Translate): boolean {
-  const mod = event.ctrlKey || event.metaKey;
-  const key = event.key.toLowerCase();
-  const onButton = event.target instanceof Element && event.target.closest("button, select, [role='button']");
-  let run: (() => void) | null = null;
-  if (mod) {
-    run =
-      key === "z" ? () => dispatch({ type: event.shiftKey ? "redo" : "undo" })
-      : key === "y" ? () => dispatch({ type: "redo" })
-      : key === "s" ? () => void saveDocument(event.shiftKey)
-      : key === "o" ? openDocument
-      : key === "n" ? () => newDocument(t, "vj")
-      : key === "w" ? closeDocument
-      : key === "," ? () => openSetup()
-      : key === "i" ? () => void importMedia()
-      : key === "m" ? toggleMapMode
-      : key === "." ? stopAll
-      : key === "a" && event.shiftKey ? openOutput
-      : key === "pageup" ? () => stepDeck(-1)
-      : key === "pagedown" ? () => stepDeck(1)
-      : null;
-  } else if (event.shiftKey && !event.altKey && /^Digit[1-8]$/.test(event.code)) {
-    // Shift and 1 to 8 jump to the cues of the selected clip, as the digits alone launch columns.
-    run = () => cueSelected(Number(event.code.slice(5)) - 1);
-  } else if (event.key === " " && !onButton) {
-    run = () => {
-      if (internalClock()) void toggle();
-    };
-  } else if (/^[1-9]$/.test(event.key)) {
-    run = () => launchColumnAt(Number(event.key) - 1);
-  } else if (event.key === "Enter" && !onButton) {
-    run = launchSelected;
-  } else if (event.key === "Delete" || event.key === "Backspace") {
-    run = removeSelected;
-  } else if (event.key === "Escape") {
-    run = () => { if (!escapeMap()) useVj.setState({ clip: null }); };
-  } else if (key === "b") {
-    run = () => toggleLayer("layerBypass");
-  } else if (key === "s") {
-    run = () => toggleLayer("layerSolo");
-  } else if (key === "x") {
-    run = () => {
-      const layer = selectedLayer();
-      if (layer) void stopLayer(layer.id);
-    };
-  }
-  if (!run) return false;
+  const action = shortcutOf(event);
+  if (!action) return false;
   event.preventDefault();
-  run();
+  KEYS[action]?.(t);
   return true;
 }
