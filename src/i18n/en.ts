@@ -1137,6 +1137,7 @@ export const en = {
   "vj.clip.remove": "Remove clip",
   "vj.clip.name": "Name",
   "vj.clip.select": "Select the clip without launching it",
+  "vj.clip.launchNamed": "Launch {clip}",
   "vj.clip.trigger": "Trigger",
   "vj.clip.playback": "At the end",
   "vj.clip.fit": "Fit",

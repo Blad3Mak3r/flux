@@ -848,8 +848,17 @@
 .vj-lh.folded .vj-bs button { height: 20px; }
 .vj-lh.folded .vj-lname { grid-column: auto; }
 .vj-row.folded .vj-cm { display: none; }
+.vj-row.folded .vj-pick { left: 28px; height: 100%; }
+.vj-go { position: absolute; z-index: 2; left: 0; top: 0; bottom: 0; width: 28px; padding: 0; background: oklch(0.1 0.01 250 / 0.55); border: 0; cursor: pointer; }
+.vj-go::before { content: ""; position: absolute; inset: 8px; border: 2px solid var(--ink-dim); border-radius: 1px; }
+.vj-go:hover::before { border-color: var(--phosphor); }
+.vj-go.on::before { background: var(--phosphor); border-color: var(--phosphor); }
+.vj-go:focus-visible { outline: 2px solid var(--phosphor); outline-offset: -2px; }
 .vj-row.folded .vj-air { left: auto; right: 4px; top: 50%; height: 16px; transform: translateY(-50%); }
 .vj-row.folded .vj-cn { bottom: 50%; transform: translateY(50%); }
+/* The time badge keeps its width at the right: the name ends before it. */
+.vj-row.folded .vj-clip.on-air .vj-cn { right: 52px; }
+.vj-row.folded .vj-air .icon { display: none; }
 
 .vj-fold {
   display: grid;

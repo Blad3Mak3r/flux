@@ -1141,6 +1141,7 @@ export const es: Record<MessageKey, string> = {
   "vj.clip.remove": "Quitar clip",
   "vj.clip.name": "Nombre",
   "vj.clip.select": "Selecciona el clip sin lanzarlo",
+  "vj.clip.launchNamed": "Lanzar {clip}",
   "vj.clip.trigger": "Disparo",
   "vj.clip.playback": "Al terminar",
   "vj.clip.fit": "Ajuste",

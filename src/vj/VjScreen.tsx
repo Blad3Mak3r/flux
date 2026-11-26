@@ -430,6 +430,13 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
       <EffectBadge count={clip.effects?.length ?? 0} />
       {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
       {state && <VideoState state={state} asset={clip.asset} />}
+      {/* A folded row has no room to click the cell: its square launches the clip, as the cell does (the pointer reaches the cell). */}
+      {layer.collapsed && (
+        <button type="button" className={`vj-go${live ? " on" : ""}`} aria-pressed={live}
+          title={t("vj.clip.launchNamed", { clip: name })} aria-label={t("vj.clip.launchNamed", { clip: name })}
+          onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !event.repeat) { event.preventDefault(); void launch(clip.id, layer.id); } }}
+          onKeyUp={(event) => { if (piano && (event.key === "Enter" || event.key === " ")) void release(clip.id); }} />
+      )}
       {/* The name strip selects the clip without launching it. */}
       <div className="vj-pick" aria-label={t("vj.clip.select")}
         onPointerDown={(event) => { event.stopPropagation(); if (event.button === 0) selectClip(clip.id, layer.id); }}
