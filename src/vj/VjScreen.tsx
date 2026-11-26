@@ -57,6 +57,7 @@ import type { EffectTarget } from "./EffectStack";
 import { loadEffectCatalog, useEffectCatalog } from "./effects";
 import { AnalysisMeter, Tempo, TimecodeClock } from "./CompositionBar";
 import { ModPanel, ModScrub, fieldRange, inspectorModulated } from "./Modulation";
+import { TextFields } from "./TextFields";
 import { Transport } from "./Transport";
 import "./vj.css";
 
@@ -746,6 +747,8 @@ function GeneratorFields({ clip, generator }: { clip: string; generator: VjGener
           {number("rate", generator.rate ?? 30, { label: "↻", name: t("vj.gen.rate"), shown: 1, reset: 30, unit: "Hz", decimals: 1, hint: t("vj.gen.noiseRateHint") })}
         </>
       );
+    case "text":
+      return <TextFields clip={clip} generator={generator} />;
     case "bars":
       return null;
   }

@@ -10,6 +10,7 @@ import type {
   VjAudioBand,
   VjLfoShape,
   VjModSource,
+  VjFont,
   VjGenerator,
   VjModulation,
   VjDirection,
@@ -46,6 +47,8 @@ export type VjOp =
   | { op: "placeVideo"; asset: string; layer: string; column: string }
   | { op: "placeGenerator"; generator: VjGenerator; layer: string; column: string }
   | { op: "clipGenerator"; clip: string; generator: VjGenerator }
+  /** Moves the line a text block shows by `step` lines, skipping the empty ones and wrapping round. */
+  | { op: "textLine"; clip: string; step: number }
   | { op: "moveClip"; clip: string; layer: string; column: string }
   | { op: "removeClip"; clip: string }
   | { op: "setBpm"; bpm: number }
@@ -77,6 +80,9 @@ export type VjOp =
 
 /** What a modulation is set on: a numeric setting of an effect, or a field of a layer or a clip. */
 export type ModTarget = { effect: string; param: string } | { layer: string; field: string } | { clip: string; field: string };
+
+/** The font families a text block can use. */
+export const vjFonts = () => invoke<VjFont[]>("vj_fonts");
 
 export const vjEdit = (project: Project, op: VjOp) => invoke<ProjectState>("vj_edit", { project, op });
 /** Moves a level or a clip's transform in the backend while the hand moves it, without the project going back and forth. */

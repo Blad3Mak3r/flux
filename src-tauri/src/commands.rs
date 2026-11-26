@@ -460,6 +460,21 @@ pub fn vj_effect_catalog() -> serde_json::Value {
     })
 }
 
+/// The font families a text block can use, each with the names of its faces: those the machine has,
+/// and the bundled one. Reading the system's fonts takes a moment the first time, so it is off the
+/// UI thread.
+#[tauri::command]
+pub async fn vj_fonts() -> Vec<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(|| {
+        flux_text::families()
+            .into_iter()
+            .map(|f| serde_json::json!({ "name": f.name, "styles": f.styles }))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
 #[tauri::command]
 pub async fn project_save(
     app: AppHandle,

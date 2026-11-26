@@ -1631,7 +1631,9 @@ dependencies = [
  "flux-audio",
  "flux-core",
  "flux-project",
+ "flux-text",
  "jpeg-encoder",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
 ]

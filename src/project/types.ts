@@ -154,7 +154,35 @@ export type VjGenerator =
   | { kind: "gradient"; from?: string; to?: string; angle?: number }
   | { kind: "bars" }
   /** New snow `rate` times a second. */
-  | { kind: "noise"; colour?: string; rate?: number };
+  | { kind: "noise"; colour?: string; rate?: number }
+  /** A block of text over a clear background. `size` is a fraction of the composition's height, the position the
+   * block's centre as fractions of it, `tracking` and `leading` extra space in ems. With `lines` `one`, `line` is the
+   * line shown and `advance` steps it every that many beats (0 is by hand). */
+  | {
+      kind: "text";
+      text?: string;
+      font?: string;
+      style?: string;
+      size?: number;
+      colour?: string;
+      opacity?: number;
+      align?: VjTextAlign;
+      positionX?: number;
+      positionY?: number;
+      rotation?: number;
+      tracking?: number;
+      leading?: number;
+      lines?: VjTextLines;
+      line?: number;
+      advance?: number;
+    };
+export type VjTextAlign = "left" | "center" | "right";
+export type VjTextLines = "all" | "one";
+/** A font family the machine has, with the names of its faces. */
+export interface VjFont {
+  name: string;
+  styles: string[];
+}
 export type VjGeneratorKind = VjGenerator["kind"];
 
 export interface VjClip {

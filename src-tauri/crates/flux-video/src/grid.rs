@@ -406,6 +406,7 @@ impl GridPlay {
                         .cloned()
                         .collect(),
                     elapsed,
+                    beats: tick.beats,
                 })
             };
             let fading = launched.fading(now);

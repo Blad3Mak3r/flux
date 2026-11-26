@@ -72,6 +72,8 @@ pub fn run() {
             if let Err(err) = video_commands::video_cache(app.handle()) {
                 log::warn!("no video cache folder: {err}");
             }
+            // The fonts a text block can use, read before the first one is drawn.
+            flux_text::warm();
             analysis::start(app.handle());
             modulation::start(app.handle());
             let app = app.handle().clone();
@@ -141,6 +143,7 @@ pub fn run() {
             commands::vj_edit,
             commands::vj_preview,
             commands::vj_effect_catalog,
+            commands::vj_fonts,
             vj_commands::vj_launch,
             vj_commands::vj_launch_column,
             vj_commands::vj_scrub,

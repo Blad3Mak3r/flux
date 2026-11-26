@@ -590,7 +590,7 @@ impl Render {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .as_mut()
-                    .map(|deck| deck.show_grid(drawn, &play, now))
+                    .map(|deck| deck.show_grid(drawn, &play, now, self.card_size))
                     .unwrap_or_default();
                 let post = composition_post(drawn, clock, dt);
                 (shown, beats, post)
@@ -993,14 +993,14 @@ impl VideoOutputs {
         };
         let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
         let drawn = modulation.draw(vj, &mut frames.drawn, clock);
+        let size = composition_size(&session);
         let shown = self
             .deck
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_mut()
-            .map(|deck| deck.show_grid(drawn, &play, now))
+            .map(|deck| deck.show_grid(drawn, &play, now, size))
             .unwrap_or_default();
-        let size = composition_size(&session);
         Ok(Some(monitor_picture(
             &shown,
             drawn,
@@ -1065,12 +1065,12 @@ impl VideoOutputs {
         };
         let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
         let drawn = modulation.draw(vj, &mut preview.drawn, clock);
+        let size = composition_size(&session);
         let shown = preview
             .deck
             .as_mut()
-            .map(|deck| deck.show_grid(drawn, &preview.grid.play, tick))
+            .map(|deck| deck.show_grid(drawn, &preview.grid.play, tick, size))
             .unwrap_or_default();
-        let size = composition_size(&session);
         Ok(monitor_picture(
             &shown,
             drawn,

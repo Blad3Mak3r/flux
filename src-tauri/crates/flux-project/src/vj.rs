@@ -738,6 +738,12 @@ pub enum VjOp {
         clip: String,
         generator: Generator,
     },
+    /// Moves the line a text block shows (its `line`) by `step` lines, skipping the empty ones and
+    /// wrapping round. A video clip or another generator refuses it.
+    TextLine {
+        clip: String,
+        step: i32,
+    },
     ClipTrigger {
         clip: String,
         trigger: Trigger,
@@ -1197,6 +1203,16 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                 )));
             }
             clip.generator = Some(generator.tidy());
+        }
+        VjOp::TextLine { clip, step } => {
+            let clip = vj.clip_mut(&clip)?;
+            let Some(Generator::Text { text, line, .. }) = &mut clip.generator else {
+                return Err(ProjectError::Invalid(format!(
+                    "clip {} is not a text block",
+                    clip.id
+                )));
+            };
+            *line = crate::generator::step_line(text, *line, step);
         }
         VjOp::ClipTrigger { clip, trigger } => vj.clip_mut(&clip)?.trigger = trigger,
         VjOp::ClipFit { clip, fit } => vj.clip_mut(&clip)?.fit = fit,
@@ -1681,6 +1697,39 @@ mod tests {
             clip: project.vj.layers[0].clips[0].id.clone(),
             generator: Generator::Bars,
         };
+        assert!(apply(&mut project, op, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn text_line_should_step_a_text_block_and_refuse_anything_else() {
+        let (mut project, mut new_id) = vj_project();
+        let text: Generator = serde_json::from_value(
+            serde_json::json!({ "kind": "text", "text": "a\n\nb", "lines": "one" }),
+        )
+        .unwrap();
+        let op = VjOp::PlaceGenerator {
+            generator: text,
+            layer: "g1".into(),
+            column: "g5".into(),
+        };
+        run(&mut project, op, &mut new_id);
+        let clip = project.vj.layers[0].clips[0].id.clone();
+        let step = |project: &mut Project, new_id: &mut dyn FnMut() -> String, step: i32| {
+            let op = VjOp::TextLine {
+                clip: clip.clone(),
+                step,
+            };
+            apply(project, op, new_id).unwrap();
+            match &project.vj.layers[0].clips[0].generator {
+                Some(Generator::Text { line, .. }) => *line,
+                other => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(step(&mut project, &mut new_id, 1), 2);
+        assert_eq!(step(&mut project, &mut new_id, 1), 0, "wraps");
+        assert_eq!(step(&mut project, &mut new_id, -1), 2);
+        project.vj.layers[0].clips[0].generator = Some(Generator::Bars);
+        let op = VjOp::TextLine { clip, step: 1 };
         assert!(apply(&mut project, op, &mut new_id).is_err());
     }
 

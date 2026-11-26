@@ -688,6 +688,14 @@
 .vj-colour input::-webkit-color-swatch { border: 1px solid oklch(1 0 0 / 0.16); border-radius: 1px; }
 .vj-colour span { color: var(--ink-dim); font-size: 11.5px; }
 .vj-colour:hover span { color: var(--ink); }
+/* A text block's text: several lines, taller as it is dragged by its corner, never wider than its column. */
+.vj-textbox { height: auto; min-height: 56px; padding: 6px 9px; line-height: 1.35; resize: vertical; }
+/* Previous line, the one shown, next line: the buttons of the segments around a readout. */
+.vj-linestep { align-items: center; }
+.vj-linestep button { flex: none; width: 32px; }
+.vj-linestep button:hover { color: var(--ink); background: var(--vj-ctl-hi); }
+.vj-advance .vj-segs button:first-child { flex: 1.6; }
+.vj-linestep span { flex: 1; color: var(--ink-dim); font-size: 11.5px; text-align: center; }
 .vj-scrubs.one { grid-template-columns: minmax(0, 1fr); max-width: 160px; }
 
 /* ---- Advanced Output: the screens, their slices and masks, over the whole window ---- */

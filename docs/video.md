@@ -347,6 +347,19 @@ each stretched when drawn. The picture's index changes with its parameters and i
 only then. Between a strobe's flashes the layer shows nothing. The screens and the output monitor draw them as any other
 picture.
 
+The **Text Block** generator (Resolume's) draws lines of text over a clear background, so what is below shows through. The
+`flux-text` crate does it in pure Rust: `fontdb` finds the system's fonts and `ab_glyph` draws the glyphs (kerning comes
+from the font's legacy `kern` table, so a font with GPOS-only kerning is spaced by its advances). A family or face the
+machine lacks falls back to the bundled Inter (a Latin subset of Regular and Bold, SIL OFL; `crates/flux-text/fonts`), so a
+text always draws; a glyph the font lacks is skipped. `vj_fonts` lists the families and their faces for the inspector's
+pickers. The picture is the shape of the composition, at most 1920 wide, straight RGBA with the glyphs' alpha, and is made
+once per set of parameters: its index hashes the generator, the line shown and the composition's size, so a still text is
+rasterised once and a change (a typed letter, a scrubbed size) makes one new picture. With `lines` `one`, the line shown is
+`line` plus the whole beats of the grid's clock divided by `advance` (1, 2, 4, 8 or 16; 0 is by hand), going round the lines
+that are not empty. Stepping on the grid's beats rather than the clip's launch keeps the changes on the beat. The previous
+and next buttons are the backend op `textLine` (`step` -1 or 1): `line` is stored in the clip, so it enters the undo history
+and a saved show opens where it was left. Generators are not modulated today, so the text block's numbers are not either.
+
 ### Clip transport
 
 Each clip of the grid has a transport, as in Resolume (fields in the [project format](fxtc-format.md#vj-grid-version-14)):
