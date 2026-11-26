@@ -218,6 +218,25 @@ What is below is read `(luma(s) - 0.5) × 20%` of the composition's width to one
 pushes it right, mid grey leaves it. The shift is rounded to a whole pixel and cut at the edges of the picture. The
 result is mixed in by `cover`.
 
+## Transitions with a blend mode
+
+A layer's **transition mode** (the menu under the **T** fader) takes the same 29 blend modes. **Alpha**, the default, is a
+plain crossfade: the new clip fades in over the old one, which stays whole until it is covered. With any other mode the
+new clip is blended with the old one by that mode as the transition runs, the way Resolume's transition modes work. A
+transition mode other than Alpha is worked out like this, with `t` the progress of the transition from 0 to 1:
+
+- the old clip is drawn over a clear picture at `1 - t` of its cover;
+- the new clip is drawn over it with the transition's blend mode, at `t` of its cover;
+- that mix is then drawn over the layers below with the layer's own blend mode, opacity and master, as one picture.
+
+At `t = 0` only the old clip shows and at `t = 1` only the new one, so the cut at the end of the transition does not
+jump. In between, **Add** adds the two lights, **Multiply** darkens where both are dark, **Difference** lights up where
+they differ, and so on for every mode. Resolume also has transition effects that are not blend modes (wipes, slides and
+the like in its transition menu, and a Random choice); FLUX does not have them yet.
+
+A layer that is in a [group](vj-mode.md#groups) cannot nest a second mix, so there the new clip is blended over the old
+one flat, with the transition's blend, and the group mixes the result.
+
 ## Choices where Resolume is silent
 
 Resolume's manual describes these modes in a line each. Where it leaves the detail open, FLUX makes these choices:

@@ -32,6 +32,17 @@ project file.
 
 The composition's stack applies to the final mix of all the layers, before the output mapping.
 
+### Effect presets
+
+A **preset** is a named set of settings, kept for the user and shared by every show (see
+[Presets and templates](vj-mode.md#presets-and-templates)). The bookmark button in an effect's header lists the presets
+of its kind and **Save as preset…** adds one. A preset keeps the settings of the effect (and its modulation, and whether
+it is bypassed); applying it to an effect sets the settings the preset has, brought into range, and leaves the effect's
+place, bypass and any setting the preset lacks (a preset saved before the effect gained a setting) as they were. A
+preset only applies to an effect of its own kind. The same button in the header of a stack saves the whole stack as one
+preset, and adds the effects of any preset to the end of the stack with new ids, as long as the stack has room (16) and
+a composition-only effect goes only to the composition. Presets are also listed under each effect in the browser.
+
 ### Settings
 
 - Settings counted in **%** are stored from 0 to 1 and shown as percentages. The ranges below are as the inspector shows
