@@ -21,6 +21,7 @@ export default defineConfig({
     siteTitle: "FLUX",
     nav: [
       { text: "Use FLUX", link: "/setlists", activeMatch: "/(setlists|video-output|remote-control|audio-routing|voice-operator|diagnostics)" },
+      { text: "VJ mode", link: "/vj-mode", activeMatch: "/vj-" },
       { text: "Integrate", link: "/osc-api", activeMatch: "/(osc-api|fxtc-format|timecode-signals)" },
       { text: "Download", link: "https://github.com/Blad3Mak3r/flux/releases/latest" },
     ],
@@ -34,6 +35,15 @@ export default defineConfig({
           { text: "Per-track audio outputs", link: "/audio-routing" },
           { text: "Voice operator", link: "/voice-operator" },
           { text: "Logging and diagnostics", link: "/diagnostics" },
+        ],
+      },
+      {
+        text: "VJ mode",
+        items: [
+          { text: "VJ mode guide", link: "/vj-mode" },
+          { text: "Effects", link: "/vj-effects" },
+          { text: "Generators", link: "/vj-generators" },
+          { text: "Blend modes", link: "/vj-blend-modes" },
         ],
       },
       {

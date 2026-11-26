@@ -153,6 +153,9 @@ transport is stopped, before a clip and after it. A GPU error is kept for the se
 
 ## VJ grid
 
+For the operator's view of VJ mode see the [VJ mode guide](vj-mode.md), and the references for every
+[effect](vj-effects.md), [generator](vj-generators.md) and [blend mode](vj-blend-modes.md). This section is for developers.
+
 A VJ project ([project format](fxtc-format.md#vj-grid-version-14)) shows its grid instead of a timeline. Its clips play
 on a clock of their own, not the transport's: `flux_video::GridPlay` holds which clip plays on each layer and when it was
 launched, with a playhead for each (see [Clip transport](#clip-transport)), and `frame_at` maps the playhead to a frame of the video, looping, stopping after one pass or
@@ -235,7 +238,7 @@ the clip's scale (dragging one moves the output live: `effectParams` through `vj
 animated effects choose between a rate in Hz and a cycle in beats of the show's tempo. A clip's stack applies first,
 from the top down, then its layer's, so a layer's effects also reach both clips while a transition runs.
 
-The 36 effects of a clip or a layer, by category (settings and ranges are in [the format](fxtc-format.md#vj-effects)):
+The 36 effects of a clip or a layer, by category (settings and ranges are in [the format](fxtc-format.md#vj-effects) and, for operators, in [VJ effects](vj-effects.md)):
 
 - **Colour:** brightness, contrast, saturation, hue, tint, invert, levels, colorize (gradient map), solarize.
 - **Distort:** mirror, zoom, shift, rotate, kaleidoscope, polar, wave warp, twirl, bulge (fisheye), tile, pixelate,
