@@ -555,6 +555,7 @@ mod tests {
             }],
             deck: "d1".into(),
             clock: Default::default(),
+            ..Default::default()
         }
     }
 

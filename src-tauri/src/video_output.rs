@@ -14,7 +14,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Monitor, State, Window, WindowEvent};
@@ -106,6 +106,15 @@ pub struct VideoOutputs {
     closing: AtomicBool,
     /// One sync at a time, so two never open the same window.
     syncing: Mutex<()>,
+    /// What the editor's monitor remembers of its last frame, for the composition's feedback.
+    monitor: Mutex<MonitorFrames>,
+}
+
+/// The editor's monitor draws on the CPU, and keeps its own history of the frames before.
+#[derive(Default)]
+struct MonitorFrames {
+    history: flux_render::History,
+    last: Option<Instant>,
 }
 
 pub type SharedVideoOutput = Arc<VideoOutputs>;
@@ -314,6 +323,7 @@ impl VideoOutput {
             grid,
             modulation,
             vj: None,
+            last_frame: None,
         };
         let thread = thread::Builder::new()
             .name("flux-video-output".into())
@@ -523,6 +533,8 @@ struct Render {
     /// Puts the modulated values in the grid it draws.
     modulation: crate::modulation::SharedModulation,
     vj: Option<flux_project::vj::Vj>,
+    /// When the last frame was drawn, to tell the effects with a history how long it has been.
+    last_frame: Option<Instant>,
 }
 
 /// The size the test card is made at when the project has no video; the GPU scales it to each
@@ -546,7 +558,12 @@ impl Render {
     fn step(&mut self) -> bool {
         self.refresh();
         let bpm = self.timeline.as_ref().map_or(120.0, |t| t.tempo.bpm);
-        let (shown, beats) = match &self.vj {
+        let at = Instant::now();
+        let dt = self
+            .last_frame
+            .replace(at)
+            .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
+        let (shown, beats, post) = match &self.vj {
             Some(vj) => {
                 let (play, now) = {
                     let mut grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
@@ -567,9 +584,10 @@ impl Render {
                     .as_mut()
                     .map(|deck| deck.show_grid(&drawn, &play, now))
                     .unwrap_or_default();
-                (shown, beats)
+                let post = composition_post(&drawn, clock, dt);
+                (shown, beats, post)
             }
-            None => (self.timeline_pictures(), 0.0),
+            None => (self.timeline_pictures(), 0.0, flux_render::Post::default()),
         };
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
@@ -589,9 +607,15 @@ impl Render {
             });
         }
         let drawn = !pictures.is_empty();
+        // The test card is what the slices are lined up with: nothing changes it.
+        let post = if card {
+            flux_render::Post::default()
+        } else {
+            post
+        };
         // A lost surface draws nothing and is tried again on the next refresh.
         self.screen
-            .draw(&pictures, self.card_size, &self.quads, &self.masks)
+            .draw(&pictures, self.card_size, &self.quads, &self.masks, &post)
             .is_ok()
             && drawn
     }
@@ -774,6 +798,23 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32), beats: f64) ->
     pictures
 }
 
+/// What the composition's effects of `vj` come to at `clock`, `dt` seconds after the last frame;
+/// none while they are bypassed.
+fn composition_post(
+    vj: &flux_project::vj::Vj,
+    clock: flux_project::vj_modulation::Clock,
+    dt: f32,
+) -> flux_render::Post {
+    if vj.composition_bypass {
+        return flux_render::Post::default();
+    }
+    let time = flux_render::Time {
+        seconds: clock.seconds,
+        beats: clock.beats,
+    };
+    flux_render::Post::new(&vj.composition_effects, time, dt)
+}
+
 /// The width of the composition the editor's monitor shows; its height keeps the shape.
 const MONITOR_WIDTH: u32 = 480;
 
@@ -844,10 +885,22 @@ impl VideoOutputs {
         let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
         picture.extend_from_slice(&(width as u16).to_le_bytes());
         picture.extend_from_slice(&(height as u16).to_le_bytes());
-        picture.extend(flux_render::composite(
+        let post = {
+            let mut frames = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
+            let at = Instant::now();
+            let dt = frames
+                .last
+                .replace(at)
+                .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
+            composition_post(&drawn, clock, dt)
+        };
+        let mut frames = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
+        picture.extend(flux_render::composite_post(
             &pictures(&shown, size, beats),
             width,
             height,
+            &post,
+            &mut frames.history,
         ));
         Ok(Some(picture))
     }
