@@ -94,8 +94,12 @@ Lines of text over a transparent background, so what is below shows through, as 
   missing-character box.
 - Letters are shaped properly: kerning, ligatures and combining marks work. Ligatures are switched off while Spacing X
   is not 0, so spaced letters stay apart.
-- A colour emoji that a font only has as bitmaps (Noto Color Emoji, Apple Color Emoji) leaves a blank of its width.
-  Fonts that carry emoji as outlines draw them in the block's colour, never in their own colours.
+- Colour emoji are drawn in their own colours, scaled to the size of the text and sitting on its baseline, whatever
+  the **Colour** of the block; only **Opacity** fades them. This works with the formats system emoji fonts use: bitmaps
+  (Noto Color Emoji, Apple Color Emoji) and layered vector glyphs (`COLR`, as in Segoe UI Emoji; gradients and
+  transforms are drawn, the blend modes beyond the Porter-Duff ones fall back to plain layering). A character is
+  looked up first in a face that has it in colour. If the machine has no colour emoji font, an emoji a font only has as
+  an outline draws in the block's colour, and one nobody has shows the missing-character box.
 - Tabs become spaces, and other control characters are dropped.
 
 ### Position, rotation and spacing

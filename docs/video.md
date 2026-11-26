@@ -355,11 +355,11 @@ returns, from the same font bytes. A family or face the machine lacks falls back
 Regular and Bold, SIL OFL; `crates/flux-text/fonts`), so a text always draws. A character the chosen face lacks (Cyrillic,
 CJK, symbols, emoji) is drawn with another face: a line is cut into runs by font coverage, and each run is shaped with the
 chosen face first, then the first face of the system whose cmap has the character (the same slant and the nearest weight
-first, one with an outline before one that only has bitmaps; the choice per character is cached), then the bundled Inter; a
+first, one that has it in colour before one with an outline; the choice per character is cached), then the bundled Inter; a
 character nobody has draws the chosen face's own missing-glyph box. Zero width joiners and variation selectors stay with the
-character before them. A colour emoji that a font only has as bitmaps (Noto Color Emoji, Apple Color Emoji) has no outline
-to draw, so it leaves a blank of its advance; a font that has outlines for it (a monochrome emoji or symbol face, or the base
-glyph of a COLR font) draws it in the block's colour, never in its own colours. `vj_fonts` lists the families and their faces for the inspector's
+character before them. A glyph the face keeps in colour (PNG bitmaps in CBDT/sbix, as Noto and Apple Color Emoji; COLR v0/v1
+layers, as Segoe UI Emoji) is decoded or painted into a premultiplied RGBA tile at the em (`crates/flux-text/src/colour.rs`) and laid over
+the coverage with its own colours, fading only with the opacity; any other glyph is an outline in the block's colour. `vj_fonts` lists the families and their faces for the inspector's
 pickers. The picture is the shape of the composition, at most 1920 wide, straight RGBA with the glyphs' alpha, and is made
 once per set of parameters: its index hashes the generator, the line shown and the composition's size, so a still text is
 rasterised once and a change (a typed letter, a scrubbed size) makes one new picture. With `lines` `one`, the line shown is
