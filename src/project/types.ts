@@ -142,7 +142,6 @@ export type VjBlend =
   | "difference" | "exclusion" | "overlay" | "softLight" | "hardLight" | "colorDodge" | "colorBurn"
   | "linearLight" | "vividLight" | "pinLight" | "hue" | "saturation" | "color" | "luminosity"
   | "alphaCut" | "lumaKey" | "lumaKeyInverted" | "lumaIsAlpha" | "differenceInverted" | "mask50" | "rgb" | "displace";
-export type VjTransition = "alpha" | "add";
 export type VjSide = "a" | "b";
 export type VjAutopilot = "off" | "next" | "previous" | "random";
 
@@ -162,7 +161,7 @@ export interface VjLayer {
   /** Seconds, 0 to 10; absent is 0, a cut. */
   transition?: number;
   /** Absent is `alpha`. */
-  transitionEffect?: VjTransition;
+  transitionEffect?: VjBlend;
   /** What the layer launches when its clip ends a pass; absent is `off`. */
   autopilot?: VjAutopilot;
   /** The crossfader side; absent is neither. */

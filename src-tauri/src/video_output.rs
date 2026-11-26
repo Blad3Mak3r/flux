@@ -593,7 +593,8 @@ impl Render {
                     .map(|deck| deck.show_grid(drawn, &play, now, self.card_size))
                     .unwrap_or_default();
                 let post = composition_post(drawn, clock, dt);
-                let looks = play.group_looks(drawn);
+                let mut looks = play.group_looks(drawn);
+                looks.extend(play.transition_looks(drawn, now));
                 let time = flux_render::Time {
                     seconds: clock.seconds,
                     beats,
@@ -765,6 +766,17 @@ impl Render {
             self.card = None;
         }
     }
+}
+
+/// How the groups and the layers mixing a transition are drawn `now`.
+fn looks_of(
+    play: &flux_video::GridPlay,
+    vj: &flux_project::vj::Vj,
+    now: flux_project::playhead::Tick,
+) -> Vec<flux_video::GroupLook> {
+    let mut looks = play.group_looks(vj);
+    looks.extend(play.transition_looks(vj, now));
+    looks
 }
 
 /// The composition: the size the clips are sized into, the slices cut and the card drawn.
@@ -1072,7 +1084,7 @@ impl VideoOutputs {
             .unwrap_or_default();
         Ok(Some(monitor_picture(
             &shown,
-            &play.group_looks(drawn),
+            &looks_of(&play, drawn, now),
             drawn,
             size,
             clock,
@@ -1143,7 +1155,7 @@ impl VideoOutputs {
             .unwrap_or_default();
         Ok(monitor_picture(
             &shown,
-            &preview.grid.play.group_looks(drawn),
+            &looks_of(&preview.grid.play, drawn, tick),
             drawn,
             size,
             clock,

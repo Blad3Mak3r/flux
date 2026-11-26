@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use flux_project::VideoFit;
 use flux_project::playhead::{Motion, Playhead, Tick};
-use flux_project::vj::{Autopilot, Side, Transition, Trigger, Vj};
+use flux_project::vj::{Autopilot, Blend, Side, Trigger, Vj};
 
 use crate::layers::{GroupLook, Layer, Probe};
 use crate::mapping::Rate;
@@ -466,7 +466,12 @@ impl GridPlay {
             if opacity <= 0.0 {
                 continue;
             }
-            let picture = |clip: &str, at: Duration, head: &Playhead, opacity: f32| {
+            let picture = |clip: &str,
+                           at: Duration,
+                           head: &Playhead,
+                           opacity: f32,
+                           blend: Blend,
+                           group: Option<String>| {
                 let clip = layer.clips.iter().find(|c| c.id == clip)?;
                 let elapsed = now.saturating_sub(at);
                 // A generator fills the composition and lasts its duration: its time is the place in
@@ -490,7 +495,7 @@ impl GridPlay {
                     generator: clip.generator.clone(),
                     fit,
                     opacity,
-                    blend: layer.blend,
+                    blend,
                     scale: clip.scale,
                     position: clip.position,
                     effects: clip
@@ -502,23 +507,79 @@ impl GridPlay {
                         .collect(),
                     elapsed,
                     beats: tick.beats,
-                    group: layer.group.clone(),
+                    group,
                 })
             };
             let fading = launched.fading(now);
             let t = fading.map_or(1.0, |fade| fade.progress(now));
+            // Both clips of a blend transition are mixed in a group of their own, drawn like the
+            // layer would be; the new one is drawn with the transition's blend.
+            let mixed = Self::mixes(layer, launched, now);
+            let group = || {
+                mixed
+                    .then(|| mix_id(&layer.id))
+                    .or_else(|| layer.group.clone())
+            };
+            let (new_blend, new_opacity) = if mixed {
+                (layer.transition_effect, t)
+            } else {
+                (layer.blend, opacity * t)
+            };
             if let (Some(clip), Some(head)) = (&launched.clip, &launched.head) {
-                shown.extend(picture(clip, launched.at, head, opacity * t));
+                shown.extend(picture(
+                    clip,
+                    launched.at,
+                    head,
+                    new_opacity,
+                    new_blend,
+                    group(),
+                ));
             }
             if let Some(left) = fading.and_then(|fade| fade.from.as_ref()) {
-                let old = match layer.transition_effect {
-                    Transition::Alpha if launched.clip.is_some() => opacity,
-                    _ => opacity * (1.0 - t),
+                let (old, blend) = match (mixed, layer.transition_effect) {
+                    (true, _) => (1.0 - t, Blend::Alpha),
+                    (false, Blend::Alpha) if launched.clip.is_some() => (opacity, layer.blend),
+                    _ => (opacity * (1.0 - t), layer.blend),
                 };
-                shown.extend(picture(&left.clip, left.at, &left.head, old));
+                shown.extend(picture(
+                    &left.clip,
+                    left.at,
+                    &left.head,
+                    old,
+                    blend,
+                    group(),
+                ));
             }
         }
         shown
+    }
+
+    /// Whether `layer` mixes the clip leaving and the one arriving in a group of their own: it
+    /// does with a transition other than `Alpha`, outside a group (a group does not nest, there
+    /// the new clip is blended over the old one flat).
+    fn mixes(layer: &flux_project::vj::Layer, launched: &Launched, now: Duration) -> bool {
+        layer.transition_effect != Blend::Alpha
+            && layer.group.is_none()
+            && launched.clip.is_some()
+            && launched.fading(now).is_some_and(|fade| fade.from.is_some())
+    }
+
+    /// How the layers whose transition mixes two clips are drawn `now`: each mix is drawn over
+    /// what is below with the layer's level, blend and no effects (the clips keep theirs).
+    pub fn transition_looks(&self, vj: &Vj, now: impl Into<Tick>) -> Vec<GroupLook> {
+        let now = now.into().time;
+        vj.layers
+            .iter()
+            .filter_map(|layer| {
+                let launched = self.playing.get(&layer.id)?;
+                Self::mixes(layer, launched, now).then(|| GroupLook {
+                    id: mix_id(&layer.id),
+                    opacity: self.level(vj, layer),
+                    blend: layer.blend,
+                    effects: Vec::new(),
+                })
+            })
+            .collect()
     }
 
     /// Whether `layer` is silenced: it or its group is bypassed, or something is soloed and neither
@@ -583,6 +644,11 @@ impl GridPlay {
             Some(Side::B) => (2.0 * self.crossfader).min(1.0),
         }
     }
+}
+
+/// The id of the group a layer's transition mix is drawn as.
+fn mix_id(layer: &str) -> String {
+    format!("transition:{layer}")
 }
 
 /// How many seconds a video of `frames` at `rate` lasts.
@@ -650,7 +716,7 @@ mod tests {
             volume: 1.0,
             blend: Blend::Alpha,
             transition: 0.0,
-            transition_effect: Transition::Alpha,
+            transition_effect: Blend::Alpha,
             autopilot: Autopilot::Off,
             crossfade,
             bypass: false,
@@ -936,11 +1002,54 @@ mod tests {
         let pictures: Vec<_> = shown.iter().map(|l| (l.clip.as_str(), l.opacity)).collect();
         assert_eq!(pictures, [("b", 0.25), ("a", 1.0)]);
         assert_eq!(play.clips(&vj, secs(10.5)).len(), 2);
-        vj.layers[0].transition_effect = Transition::Add;
+        vj.layers[0].transition_effect = Blend::Add;
         let shown = play.layers(&vj, secs(10.5), &probe);
         assert_eq!(shown[1].opacity, 0.75);
         assert_eq!(play.layers(&vj, secs(12.0), &probe).len(), 1);
         assert_eq!(play.clips(&vj, secs(12.0)), [("b", "v1")]);
+    }
+
+    #[test]
+    fn a_blend_transition_should_mix_both_clips_in_a_group_of_its_own() {
+        let mut vj = grid();
+        vj.layers[0].transition = 2.0;
+        vj.layers[0].blend = Blend::Screen;
+        vj.layers[0].transition_effect = Blend::Multiply;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        play.launch(&vj, "b", secs(10.0));
+        for (at, new, old) in [(10.2, 0.1, 0.9), (11.0, 0.5, 0.5), (11.9, 0.95, 0.05)] {
+            let shown = play.layers(&vj, secs(at), &probe);
+            let seen: Vec<_> = shown
+                .iter()
+                .map(|l| (l.clip.as_str(), l.blend, l.group.as_deref()))
+                .collect();
+            let id = Some("transition:l1");
+            assert_eq!(seen, [("b", Blend::Multiply, id), ("a", Blend::Alpha, id)]);
+            assert!(
+                (shown[0].opacity - new).abs() < 1e-3,
+                "{at}: {}",
+                shown[0].opacity
+            );
+            assert!(
+                (shown[1].opacity - old).abs() < 1e-3,
+                "{at}: {}",
+                shown[1].opacity
+            );
+        }
+        let looks = play.transition_looks(&vj, secs(11.0));
+        assert_eq!(looks.len(), 1);
+        assert_eq!(
+            (looks[0].id.as_str(), looks[0].blend),
+            ("transition:l1", Blend::Screen)
+        );
+        // Over, the new clip shows alone, drawn as the layer.
+        let shown = play.layers(&vj, secs(12.5), &probe);
+        assert_eq!(
+            (shown.len(), shown[0].blend, shown[0].group.clone()),
+            (1, Blend::Screen, None)
+        );
+        assert!(play.transition_looks(&vj, secs(12.5)).is_empty());
     }
 
     #[test]

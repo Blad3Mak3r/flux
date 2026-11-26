@@ -19,7 +19,6 @@ import type {
   VjTempo,
   VjAutopilot,
   VjSide,
-  VjTransition,
   VjTrigger,
   VjButtonMode,
   VjFollow,
@@ -38,7 +37,7 @@ export type VjOp =
   | { op: "renameLayer"; layer: string; name: string }
   | { op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition"; layer: string; value: number }
   | { op: "layerBlend"; layer: string; blend: VjBlend }
-  | { op: "layerTransitionEffect"; layer: string; effect: VjTransition }
+  | { op: "layerTransitionEffect"; layer: string; effect: VjBlend }
   | { op: "layerAutopilot"; layer: string; mode: VjAutopilot }
   | { op: "layerCrossfade"; layer: string; side: VjSide | null }
   | { op: "layerBypass" | "layerSolo" | "layerCollapse"; layer: string; on: boolean }

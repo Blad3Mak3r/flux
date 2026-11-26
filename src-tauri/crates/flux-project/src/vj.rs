@@ -196,9 +196,10 @@ pub struct Layer {
     /// [`MAX_TRANSITION`]; absent is 0, a cut.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub transition: f32,
-    /// How the two clips mix during a transition; absent is [`Transition::Alpha`].
-    #[serde(default, skip_serializing_if = "Transition::is_alpha")]
-    pub transition_effect: Transition,
+    /// How the clip arriving mixes with the one leaving during a transition, any blend (Resolume's
+    /// transition mode); absent is [`Blend::Alpha`], a crossfade.
+    #[serde(default, skip_serializing_if = "Blend::is_alpha")]
+    pub transition_effect: Blend,
     /// What the layer launches when the clip playing on it ends a pass; absent is [`Autopilot::Off`].
     #[serde(default, skip_serializing_if = "Autopilot::is_off")]
     pub autopilot: Autopilot,
@@ -257,7 +258,7 @@ impl Layer {
             volume: 1.0,
             blend: Blend::Alpha,
             transition: 0.0,
-            transition_effect: Transition::Alpha,
+            transition_effect: Blend::Alpha,
             autopilot: Autopilot::Off,
             crossfade: None,
             bypass: false,
@@ -344,23 +345,6 @@ pub enum Blend {
 }
 
 impl Blend {
-    pub(crate) fn is_alpha(&self) -> bool {
-        *self == Self::Alpha
-    }
-}
-
-/// How the clip leaving a layer and the one arriving mix while the layer's transition runs.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Transition {
-    /// The new clip appears over the old one, which stays whole until it is covered.
-    #[default]
-    Alpha,
-    /// The old clip fades out while the new one fades in, their light added.
-    Add,
-}
-
-impl Transition {
     pub(crate) fn is_alpha(&self) -> bool {
         *self == Self::Alpha
     }
@@ -752,7 +736,7 @@ pub enum VjOp {
     },
     LayerTransitionEffect {
         layer: String,
-        effect: Transition,
+        effect: Blend,
     },
     LayerCrossfade {
         layer: String,
@@ -2608,6 +2592,30 @@ mod tests {
             value: f32::NAN,
         };
         assert!(apply(&mut project, op, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn a_layer_transition_should_take_any_blend_and_default_to_alpha() {
+        let (mut project, mut new_id) = vj_project();
+        assert_eq!(project.vj.layers[0].transition_effect, Blend::Alpha);
+        let op = VjOp::LayerTransitionEffect {
+            layer: "g1".into(),
+            effect: Blend::Multiply,
+        };
+        run(&mut project, op, &mut new_id);
+        let json = serde_json::to_value(&project.vj.layers[0]).unwrap();
+        assert_eq!(json["transitionEffect"], "multiply");
+        let back: Layer = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(back.transition_effect, Blend::Multiply);
+        // Older files have `alpha` or `add`, and none at all for the default.
+        let mut older = json;
+        older["transitionEffect"] = "add".into();
+        let older: Layer = serde_json::from_value(older.clone()).unwrap();
+        assert_eq!(older.transition_effect, Blend::Add);
+        let mut none = serde_json::to_value(&older).unwrap();
+        none.as_object_mut().unwrap().remove("transitionEffect");
+        let none: Layer = serde_json::from_value(none).unwrap();
+        assert_eq!(none.transition_effect, Blend::Alpha);
     }
 
     #[test]
