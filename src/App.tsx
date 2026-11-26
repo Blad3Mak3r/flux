@@ -19,6 +19,7 @@ import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
 import { vjKeyDown } from "./vj/menus";
+import { useVj } from "./vj/store";
 import { VjScreen } from "./vj/VjScreen";
 import { bindRemoteControl } from "./control/bind";
 import { bindLive } from "./live/feed";
@@ -109,7 +110,7 @@ function Shell({ devices }: { devices: Devices }) {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
       const ui = useUi.getState();
-      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || isTyping(event.target)) return;
+      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || useVj.getState().output || isTyping(event.target)) return;
       // A VJ show has keys of its own, and none of the timeline's.
       if (useDoc.getState().project.mode === "vj") {
         vjKeyDown(event, t);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useT } from "../i18n";
+import type { Translate } from "../i18n/messages";
 import { SelectField, TextField } from "../components/fields";
 import { errorMessage } from "../project/api";
 import { sayError } from "../state/ui";
@@ -9,13 +10,13 @@ import { MAIN_SCREEN, compositionSet, screenEdit, useComposition } from "../vide
 import { MappingEditor } from "./MappingEditor";
 
 // Mirrors src-tauri/src/video_output.rs.
-interface Display {
+export interface Display {
   id: string;
   width: number;
   height: number;
   main: boolean;
 }
-interface ScreenStatus {
+export interface ScreenStatus {
   id: string;
   name: string;
   chosen: string | null;
@@ -23,7 +24,7 @@ interface ScreenStatus {
   missing: boolean;
   error: string | null;
 }
-interface VideoOutputStatus {
+export interface VideoOutputStatus {
   displays: Display[];
   /** The main screen first. */
   screens: ScreenStatus[];
@@ -31,22 +32,15 @@ interface VideoOutputStatus {
   decoding: string | null;
 }
 
-const OFF = "";
+export const OFF = "";
 /** Displays come and go while the page is open: their list is asked for again this often. */
 const REFRESH_MS = 2000;
 
-/**
- * The screens of the video output, each on a display of its own with its own slices. The backend
- * opens, places and draws their windows.
- */
-export function VideoPage() {
-  const t = useT();
+/** The displays and the screens on them, asked for again while shown and whenever the screens change. */
+export function useOutputStatus() {
   const [status, setStatus] = useState<VideoOutputStatus | null>(null);
-  const [selected, setSelected] = useState(MAIN_SCREEN);
   // A screen added, renamed or removed is asked for again at once rather than at the next refresh.
   const screens = useDoc((doc) => doc.project.output.screens);
-  const composition = useComposition();
-
   useEffect(() => {
     let alive = true;
     const read = () =>
@@ -61,25 +55,46 @@ export function VideoPage() {
       window.clearInterval(timer);
     };
   }, [screens]);
+  /** Puts `screen` on `display` ({@link OFF} for none). */
+  const choose = (screen: string, display: string) =>
+    invoke<VideoOutputStatus>("video_output_choose", {
+      screen,
+      display: display === OFF ? null : display,
+    }).then(setStatus, (err) => sayError(errorMessage(err)));
+  return { status, choose };
+}
+
+/** How a display is named in its select. */
+export function displayLabel(t: Translate, display: Display, index: number): string {
+  const name = t("setup.video.choice", { n: index + 1, width: display.width, height: display.height });
+  return display.main ? t("setup.video.thisScreen", { name }) : name;
+}
+
+/** What a screen's window is doing, as a sentence. */
+export function screenNote(t: Translate, screen: ScreenStatus): string {
+  if (screen.error) return t("setup.video.error", { error: screen.error });
+  if (screen.missing) return t("setup.video.missing");
+  if (screen.open) return t("setup.video.open");
+  return screen.chosen ? t("setup.video.closed") : t("setup.video.offNote");
+}
+
+/**
+ * The screens of the video output, each on a display of its own with its own slices. The backend
+ * opens, places and draws their windows.
+ */
+export function VideoPage() {
+  const t = useT();
+  const { status, choose: chooseFor } = useOutputStatus();
+  const [selected, setSelected] = useState(MAIN_SCREEN);
+  const composition = useComposition();
 
   if (!status) return <p className="empty-note">{t("setup.video.loading")}</p>;
 
   const current =
     status.screens.find((s) => s.id === selected) ?? status.screens[0];
   if (!current) return null;
-  const choose = (display: string) =>
-    invoke<VideoOutputStatus>("video_output_choose", {
-      screen: current.id,
-      display: display === OFF ? null : display,
-    }).then(setStatus, (err) => sayError(errorMessage(err)));
-  const label = (display: Display, index: number) => {
-    const name = t("setup.video.choice", {
-      n: index + 1,
-      width: display.width,
-      height: display.height,
-    });
-    return display.main ? t("setup.video.thisScreen", { name }) : name;
-  };
+  const choose = (display: string) => chooseFor(current.id, display);
+  const label = (display: Display, index: number) => displayLabel(t, display, index);
   const chosen = current.chosen ?? OFF;
   const screen =
     status.displays.find((display) => display.id === chosen) ?? null;
@@ -172,15 +187,7 @@ export function VideoPage() {
           )}
         </SelectField>
         <p className="field-note" role="status">
-          {current.error
-            ? t("setup.video.error", { error: current.error })
-            : current.missing
-              ? t("setup.video.missing")
-              : current.open
-                ? t("setup.video.open")
-                : chosen !== OFF
-                  ? t("setup.video.closed")
-                  : t("setup.video.offNote")}
+          {screenNote(t, current)}
         </p>
         {status.decoding && (
           <p className="field-note">

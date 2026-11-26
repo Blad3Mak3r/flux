@@ -189,6 +189,15 @@ selected clip, Ctrl+PgUp/PgDn change deck, Ctrl+. stops everything, B, S and X b
 Del removes the selected clip, Ctrl+I imports media and Ctrl+Shift+A opens the output. The timeline's keys (Space, Home,
 the arrows, N, S, G, F2, Ctrl+1/2) do nothing in a VJ show.
 
+Output > Advanced output (Ctrl+Shift+A) opens the VJ show's video output over the whole window, as on a media server
+(`src/vj/AdvancedOutput.tsx`). On the left are the screens, each with its slices and masks and an eye to hide one. In
+the middle, **Input selection** shows the live composition with each slice's rectangle to move or resize, and **Output
+transformation** shows the selected screen as it will look: each slice cut from the composition and placed on its four
+corners in perspective, with the masks over them in black (soft edges are left to the real output). On the right are the
+properties of the screen (name, display), slice or mask selected. It uses the same mapping commands as the Video page
+of Preferences, which a VJ show does not list, together with the pages it has no use for (Timeline, Metronome, Voice
+operator, LTC, MTC and OSC destinations).
+
 The VJ screen (`src/vj/`) shows the layers as strips with a fader each for master (M), audio (A), video (V) and
 transition time (T), the deck's tabs under the grid and the crossfader. Its Output panel shows what goes to the screens before their mapping: `vj_output_frame` decodes the playing clips through the same deck as the screens, places them as the screens do (`video_output::pictures`) and draws them small on the CPU (`flux_render::composite`, bilinear, in linear light with the same blends), and the monitor puts the pixels on a canvas thirty times a second, with two asks on the way at most. The VJ screen stops asking for the picture and the play state while its window is hidden; the screens play on. `flux-render` and `jpeg-encoder` are built optimized in dev builds too, so the monitor keeps up in `npm run tauri dev`. A clip's `scale` and `position` (set in the inspector by dragging the number's handle, as in Resolume, or with the arrow keys) move it after its fit (`flux_render::transformed`), on the screens and the monitor alike. While a fader or a transform is dragged, `vj_preview` moves the value in the project the backend holds, without the project going back and forth, and only the newest move is sent while one is on its way; `vj_edit` keeps the value when the hand lets go. In a VJ project `video_thumbnails` decodes only the first frame of a video (`flux_video::poster`), and the waveform and tempo of its sound are not read, so an imported clip is ready sooner; each clip shows while it is importing, being read, or unreadable.
 
