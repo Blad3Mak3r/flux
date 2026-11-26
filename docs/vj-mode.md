@@ -8,7 +8,7 @@ are in three reference pages:
 - [VJ generators](vj-generators.md): the six clips FLUX draws itself, with the Text Block in depth.
 - [VJ blend modes](vj-blend-modes.md): all 29 ways a layer mixes with what is below.
 
-For mapping the composition onto projectors and screens see [Video and projection mapping](video-output.md). For driving the show from a MIDI controller or OSC see [Map mode](#map-mode-midi-and-osc) and [Remote control](remote-control.md#vj-shows).
+For mapping the composition onto projectors and screens see [Video and projection mapping](video-output.md). For driving the show from a MIDI controller or OSC see [Map mode](#map-mode-midi-osc-dmx-and-keys) and [Remote control](remote-control.md#vj-shows).
 
 ## A VJ show is a kind of project
 
@@ -23,7 +23,7 @@ transport.
 | --- | --- |
 | **Layers** | Rows, drawn from the bottom of the grid to the top, each one mixed over the layers below it. A grid has 1 to 16 layers; a new show starts with 3. |
 | **Columns** | The columns of a deck, up to 64. A new show starts with 8. Launching a column starts every clip in it at once. |
-| **Decks** | Sets of columns, up to 32, switched by tabs under the grid while the layers stay. Ctrl+PgUp and Ctrl+PgDn change deck. |
+| **Decks** | Sets of columns, up to 32, switched by tabs under the grid while the layers stay. The **‹** and **›** buttons or the Deck menu change deck. |
 | **Global layers** | A layer added as global keeps its clips in slots that are the same in every deck, so they stay when the deck changes. |
 | **Clips** | A video, a still image or a [generator](vj-generators.md), at most one per cell. |
 
@@ -44,7 +44,7 @@ chooses what a press does:
 
 Other ways to launch:
 
-- Keys **1** to **9** launch a column of the deck shown. **Enter** launches the selected clip. **Ctrl+.** stops everything.
+- The **Deck** menu launches a column and the **Composition** menu stops everything. These have no key of their own: map them (see [Map mode](#map-mode-midi-osc-dmx-and-keys)).
 - A folded layer (see below) has no room for its cells, so a small **square** in the row launches its clip.
 - A cell's select control, or the Preview panel, lets you look at a clip without launching it.
 
@@ -67,8 +67,8 @@ Each layer has a header with:
 | Fold arrow | Folds the layer to a thin row. It keeps playing; the fold is saved with the show. |
 
 With a transition time above 0, a clip launched on an empty layer fades in, and a stopped layer fades out over the same
-time. A layer's effects apply to both clips while a transition runs. The selected layer's shortcuts are **B**, **S** and
-**X** too. Right-click a layer for the rest (move up and down, rename, Autopilot, remove).
+time. A layer's effects apply to both clips while a transition runs. Bypass, solo and eject are in the **Layer** menu and on the layer's buttons, with no key by default.
+Right-click a layer for the rest (move up and down, rename, Autopilot, remove).
 
 ### Autopilot
 
@@ -180,7 +180,7 @@ readings (L, M, H, Lv) in the composition bar shows what it hears; click it to o
 
 ## Map mode: MIDI, OSC, DMX and keys
 
-**Composition > View > Map MIDI / OSC / DMX / keys** or **Ctrl+M** turns on the map mode, as Resolume's "Edit MIDI / OSC". Every
+**Composition > View > Map MIDI / OSC / DMX / keys**, **Ctrl+Shift+M** (or **Ctrl+Shift+K**, **Ctrl+Shift+O**, **Ctrl+Shift+X**, Resolume's Edit Keyboard / MIDI / OSC / DMX shortcuts) turns on the map mode. Every
 control that can be mapped gets an outline: **dashed** when nothing drives it, **solid phosphor** with the name of its
 source (`CC 7 · ch 1`, `Note C2 · ch 1`, `Pitch bend · ch 1`, the OSC address, `DMX 1:37` or `Key Shift+Q`) when something does.
 The grid shows a **MAP MODE** strip with the state of the MIDI, OSC and DMX inputs.
@@ -188,10 +188,8 @@ The grid shows a **MAP MODE** strip with the state of the MIDI, OSC and DMX inpu
 1. Click a control. Its outline turns thick amber and reads **LEARN**.
 2. Move a MIDI control, press a pad, send an OSC message, **move a channel on a lighting console (Art-Net)** or **press
    a key**. The first one heard becomes the source (for DMX, the channel that moved most: see
-   [Remote control](remote-control.md#art-net)), and the outline turns solid. A key the app uses itself (Space, B, S, X, the
-   digits, anything with Ctrl) is refused with a message and the learn goes on. Learn again to replace it: the latest wins, and a source drives one target at a time.
-3. **Right-click** an outline to clear its mapping. **Esc** cancels a learn, and then leaves the mode (so does **Ctrl+M**
-   or the Exit button). While the mode is on, a click on a control chooses it and does not use it.
+   [Remote control](remote-control.md#art-net)), and the outline turns solid. A key the app uses itself (the few in the [Keys](#keys) table) is refused with a message and the learn goes on; every other key, plain, with Shift or with Ctrl, is free. Learn again to replace it: the latest wins, and a source drives one target at a time.
+3. **Right-click** an outline to clear its mapping. **Esc** cancels a learn, and then leaves the mode (so does the Exit button). While the mode is on, a click on a control chooses it and does not use it.
 
 What can be mapped:
 
@@ -261,18 +259,19 @@ properties of the selected item on the right. It is the same mapping described i
 
 ## Keys
 
+A VJ show binds only the keys Resolume has by default, with the same function ([Resolume's shortcuts](https://resolume.com/support/en/shortcuts)).
+Every other key, plain or with Shift, is free for [your own mapping](remote-control.md#keyboard); the rest of the actions
+are in the menus. The backend refuses to learn exactly these keys (the list is `vj_shortcuts.json`, which the menus and the keys read too).
+
 | Key | Does |
 | --- | --- |
-| 1 to 9 | Launch a column of the deck shown. |
-| Shift+1 to 8 | Jump the selected clip to its cues. |
-| Enter | Launch the selected clip. |
-| Ctrl+PgUp / Ctrl+PgDn | Previous or next deck. |
-| Ctrl+. | Stop everything. |
-| B, S, X | Bypass, solo or stop the selected layer. |
-| Del | Remove the selected clip. |
-| Ctrl+I | Import media. |
-| Ctrl+M | Map mode (MIDI, OSC, DMX and keys); Esc cancels a learn, then leaves it. |
+| Ctrl+N / Ctrl+O | New VJ show / open a project. |
+| Ctrl+S / Ctrl+Shift+S | Save / save as. |
+| Ctrl+Z / Ctrl+Y | Undo / redo. |
+| Ctrl+K / Ctrl+L / Ctrl+T | New deck / new layer / new column. |
+| Ctrl+Shift+C | Composition settings (the inspector's Composition tab). |
+| Ctrl+Shift+M, Ctrl+Shift+K, Ctrl+Shift+O, Ctrl+Shift+X | Map mode (MIDI, keys, OSC, DMX: one mode learns all four); Esc stops it. |
 | Ctrl+Shift+A | Open the advanced output. |
-| Space | Play or pause the timecode clock (internal source). |
+| Esc | Cancels a learn, then leaves the map mode. Nothing else. |
 
 (On macOS Ctrl reads as Cmd.)

@@ -187,11 +187,9 @@ clips play):
 | `vj_play_state` | | Reads what plays. |
 
 A VJ show has a menu bar and keys of its own (`src/vj/menus.ts`): File, Edit, Composition, Deck, Layer, Clip, Output,
-View and Help, with no tracks, timelines or transport. Its keys: 1 to 9 launch a column of the deck shown, Shift+1 to 8 jump the selected clip to its cues, Enter the
-selected clip, Ctrl+PgUp/PgDn change deck, Ctrl+. stops everything, B, S and X bypass, solo and stop the selected layer,
-Del removes the selected clip, Ctrl+I imports media, Ctrl+Shift+A opens the output and Space plays or pauses the
-timecode on the internal clock. The timeline's other keys (Home, the arrows, N, S, G, F2, Ctrl+1/2) do nothing in a VJ
-show.
+View and Help, with no tracks, timelines or transport. Its keys are Resolume's defaults and nothing else (Ctrl+N/O/S/Shift+S, Ctrl+Z/Y, Ctrl+K/L/T for a new deck, layer or
+column, Ctrl+Shift+A for the output, Ctrl+Shift+M/K/O/X for the map mode); see [Keys](vj-mode.md#keys). The timeline's keys
+do nothing in a VJ show, and every other key is free to map.
 
 The Composition bar under the grid holds the show's tempo and its timecode clock, as in Resolume, and the crossfader
 sits under the layer headers beside the deck tabs. The tempo is the BPM of the show's one timeline, so the metronome and
