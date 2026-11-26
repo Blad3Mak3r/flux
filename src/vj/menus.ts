@@ -192,6 +192,11 @@ function layerMenu(t: Translate): MenuItem[] {
     { label: t("vj.menu.solo"), shortcut: "S", checked: !!layer?.solo, disabled: !layer, run: () => toggleLayer("layerSolo") },
     { label: t("vj.layer.eject"), shortcut: "X", disabled: !layer, run: () => layer && void stopLayer(layer.id) },
     {
+      label: t(layer?.collapsed ? "vj.layer.expand" : "vj.layer.collapse"),
+      disabled: !layer,
+      run: () => layer && void edit({ op: "layerCollapse", layer: layer.id, on: !layer.collapsed }),
+    },
+    {
       label: t("vj.layer.side"),
       disabled: !layer,
       submenu: [side("a", "vj.menu.sideA"), side(null, "vj.menu.sideNone"), side("b", "vj.menu.sideB")],

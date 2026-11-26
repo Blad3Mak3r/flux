@@ -121,6 +121,9 @@ pub struct Layer {
     /// Soloed: while any layer is, only the soloed ones show.
     #[serde(default, skip_serializing_if = "is_false")]
     pub solo: bool,
+    /// Folded to a thin row on the grid, as in Resolume; it plays as before.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsed: bool,
     /// At most one per column of each deck (per slot on a global layer), in no particular order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<Clip>,
@@ -157,6 +160,7 @@ impl Layer {
             crossfade: None,
             bypass: false,
             solo: false,
+            collapsed: false,
             clips: Vec::new(),
         }
     }
@@ -389,6 +393,11 @@ pub enum VjOp {
         on: bool,
     },
     LayerSolo {
+        layer: String,
+        on: bool,
+    },
+    /// Folds the layer's row on the grid, or unfolds it.
+    LayerCollapse {
         layer: String,
         on: bool,
     },
@@ -678,6 +687,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::LayerCrossfade { layer, side } => vj.layer_mut(&layer)?.crossfade = side,
         VjOp::LayerBypass { layer, on } => vj.layer_mut(&layer)?.bypass = on,
         VjOp::LayerSolo { layer, on } => vj.layer_mut(&layer)?.solo = on,
+        VjOp::LayerCollapse { layer, on } => vj.layer_mut(&layer)?.collapsed = on,
         VjOp::AddDeck => {
             if vj.decks.len() >= MAX_DECKS {
                 return Err(ProjectError::Invalid(format!(
@@ -1284,6 +1294,21 @@ mod tests {
         run(&mut project, op, &mut new_id);
         let order: Vec<_> = project.vj.layers.iter().map(|l| l.id.as_str()).collect();
         assert_eq!(order, ["g2", "g3", "g1"]);
+    }
+
+    #[test]
+    fn a_collapsed_layer_should_be_kept_in_the_file_and_unfold_again() {
+        let (mut project, mut new_id) = vj_project();
+        let collapse = |on| VjOp::LayerCollapse {
+            layer: "g1".into(),
+            on,
+        };
+        run(&mut project, collapse(true), &mut new_id);
+        let json = serde_json::to_string(&project.vj.layers[0]).unwrap();
+        assert!(json.contains(r#""collapsed":true"#), "{json}");
+        run(&mut project, collapse(false), &mut new_id);
+        let json = serde_json::to_string(&project.vj.layers[0]).unwrap();
+        assert!(!json.contains("collapsed"), "absent when unfolded: {json}");
     }
 
     #[test]

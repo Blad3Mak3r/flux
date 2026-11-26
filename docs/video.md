@@ -187,7 +187,8 @@ A VJ show has a menu bar and keys of its own (`src/vj/menus.ts`): File, Edit, Co
 View and Help, with no tracks, timelines or transport. Its keys: 1 to 9 launch a column of the deck shown, Enter the
 selected clip, Ctrl+PgUp/PgDn change deck, Ctrl+. stops everything, B, S and X bypass, solo and stop the selected layer,
 Del removes the selected clip, Ctrl+I imports media and Ctrl+Shift+A opens the output. The timeline's keys (Space, Home,
-the arrows, N, S, G, F2, Ctrl+1/2) do nothing in a VJ show.
+the arrows, N, S, G, F2, Ctrl+1/2) do nothing in a VJ show. A layer folds to a thin row with the arrow beside its number, its right-click menu or Layer > Collapse layer, as in
+Resolume; it keeps playing, and the fold is saved with the show (`collapsed`).
 
 Output > Advanced output (Ctrl+Shift+A) opens the VJ show's video output over the whole window, as on a media server
 (`src/vj/AdvancedOutput.tsx`). On the left are the screens, each with its slices and masks and an eye to hide one. In

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, DragEvent, KeyboardEvent, PointerEvent, ReactNode } from "react";
+import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
-import { CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
+import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
 import type { Translate } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
@@ -224,34 +224,78 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
     onSet: (value: number) => void edit({ op, layer: layer.id, value: value * scale }),
   });
   const side = (s: VjSide) => void edit({ op: "layerCrossfade", layer: layer.id, side: layer.crossfade === s ? null : s });
+  const fold = () => void edit({ op: "layerCollapse", layer: layer.id, on: !layer.collapsed });
   const at = grid.layers.indexOf(layer);
   const menu: MenuItem[] = [
     { label: t("vj.layer.rename"), run: () => setRenaming(true) },
+    { label: t(layer.collapsed ? "vj.layer.expand" : "vj.layer.collapse"), run: fold },
     { label: t("vj.layer.up"), disabled: at === grid.layers.length - 1, run: () => void edit({ op: "moveLayer", layer: layer.id, to: at + 1 }) },
     { label: t("vj.layer.down"), disabled: at === 0, run: () => void edit({ op: "moveLayer", layer: layer.id, to: at - 1 }) },
     "-",
     { label: t("vj.layer.remove"), disabled: grid.layers.length === 1, run: () => void edit({ op: "removeLayer", layer: layer.id }) },
   ];
+  const bs = (
+    <div className="vj-bs">
+      <button type="button" className={layer.bypass ? "on bypass" : ""} aria-pressed={!!layer.bypass} title={t("vj.layer.bypass")}
+        onClick={() => void edit({ op: "layerBypass", layer: layer.id, on: !layer.bypass })}>B</button>
+      <button type="button" className={layer.solo ? "on solo" : ""} aria-pressed={!!layer.solo} title={t("vj.layer.solo")}
+        onClick={() => void edit({ op: "layerSolo", layer: layer.id, on: !layer.solo })}>S</button>
+    </div>
+  );
+  const nameRow = (
+      <div className="vj-lname">
+        <button type="button" className="vj-fold" aria-expanded={!layer.collapsed}
+          title={t(layer.collapsed ? "vj.layer.expand" : "vj.layer.collapse")} aria-label={t(layer.collapsed ? "vj.layer.expand" : "vj.layer.collapse")}
+          onClick={(event) => { event.stopPropagation(); fold(); }}>
+          {layer.collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
+        </button>
+        <span className="vj-num">{at + 1}</span>
+        {renaming ? (
+          <InlineName value={layer.name ?? ""} label={t("vj.layer.rename")} onDone={() => setRenaming(false)}
+            onCommit={(text) => void edit({ op: "renameLayer", layer: layer.id, name: text })} />
+        ) : (
+          <Marquee className="vj-nm" title={name} onDoubleClick={() => setRenaming(true)}>{name}</Marquee>
+        )}
+        {layer.global && <span className="vj-global" title={t("vj.layer.global")}><GlobeIcon /></span>}
+        <Marquee className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(t, clip, videos) : t("vj.layer.noClip")}</Marquee>
+        <span className="vj-ab" role="group" aria-label={t("vj.layer.side")}>
+          {(["a", "b"] as VjSide[]).map((s) => (
+            <button key={s} type="button" className={layer.crossfade === s ? "on" : ""} aria-pressed={layer.crossfade === s}
+              onClick={(event) => { event.stopPropagation(); side(s); }}>{s.toUpperCase()}</button>
+          ))}
+        </span>
+      </div>
+  );
+  const className = `vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}`;
+  const onContextMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    openMenu({ x: event.clientX, y: event.clientY, items: menu });
+  };
+  if (layer.collapsed) {
+    // Folded as in Resolume: one thin row with the name, the clip on air, bypass, solo and the side.
+    return (
+      <div className={`${className} folded`} onClick={() => selectLayer(layer.id)} onContextMenu={onContextMenu}>
+        <button type="button" className="vj-eject" title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
+          onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
+          <CloseIcon />
+        </button>
+        {bs}
+        {nameRow}
+      </div>
+    );
+  }
   return (
     <div
-      className={`vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}`}
+      className={className}
       onClick={() => selectLayer(layer.id)}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        openMenu({ x: event.clientX, y: event.clientY, items: menu });
-      }}
+      onContextMenu={onContextMenu}
     >
       <button type="button" className="vj-eject" title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
         onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
         <CloseIcon />
       </button>
       <div className="vj-bsb">
-        <div className="vj-bs">
-          <button type="button" className={layer.bypass ? "on bypass" : ""} aria-pressed={!!layer.bypass} title={t("vj.layer.bypass")}
-            onClick={() => void edit({ op: "layerBypass", layer: layer.id, on: !layer.bypass })}>B</button>
-          <button type="button" className={layer.solo ? "on solo" : ""} aria-pressed={!!layer.solo} title={t("vj.layer.solo")}
-            onClick={() => void edit({ op: "layerSolo", layer: layer.id, on: !layer.solo })}>S</button>
-        </div>
+        {bs}
         <select className="vj-select" value={layer.blend ?? "alpha"} title={t("vj.layer.blend")} aria-label={t("vj.layer.blend")}
           onChange={(event) => void edit({ op: "layerBlend", layer: layer.id, blend: event.target.value as VjBlend })}>
           {BLENDS.map((blend) => <option key={blend} value={blend}>{t(`vj.blend.${blend}`)}</option>)}
@@ -275,23 +319,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
           {TRANSITIONS.map((effect) => <option key={effect} value={effect}>{t(`vj.transition.short.${effect}`)}</option>)}
         </select>
       </div>
-      <div className="vj-lname">
-        <span className="vj-num">{at + 1}</span>
-        {renaming ? (
-          <InlineName value={layer.name ?? ""} label={t("vj.layer.rename")} onDone={() => setRenaming(false)}
-            onCommit={(text) => void edit({ op: "renameLayer", layer: layer.id, name: text })} />
-        ) : (
-          <Marquee className="vj-nm" title={name} onDoubleClick={() => setRenaming(true)}>{name}</Marquee>
-        )}
-        {layer.global && <span className="vj-global" title={t("vj.layer.global")}><GlobeIcon /></span>}
-        <Marquee className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(t, clip, videos) : t("vj.layer.noClip")}</Marquee>
-        <span className="vj-ab" role="group" aria-label={t("vj.layer.side")}>
-          {(["a", "b"] as VjSide[]).map((s) => (
-            <button key={s} type="button" className={layer.crossfade === s ? "on" : ""} aria-pressed={layer.crossfade === s}
-              onClick={(event) => { event.stopPropagation(); side(s); }}>{s.toUpperCase()}</button>
-          ))}
-        </span>
-      </div>
+      {nameRow}
     </div>
   );
 }
@@ -491,7 +519,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
             {deck.columns.map((column, at) => <ColumnHead key={column.id} column={column} at={at} live={at === liveColumn} />)}
           </div>
           {layers.map((layer, i) => (
-            <div key={layer.id} className={`vj-row${layer.global ? " global" : ""}${i > 0 && layers[i - 1].global && !layer.global ? " split" : ""}`}>
+            <div key={layer.id} className={`vj-row${layer.global ? " global" : ""}${layer.collapsed ? " folded" : ""}${i > 0 && layers[i - 1].global && !layer.global ? " split" : ""}`}>
               <LayerHeader grid={grid} layer={layer} />
               {deck.columns.map((column, at) => (
                 <Cell key={column.id} layer={layer} column={column} at={at} />

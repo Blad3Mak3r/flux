@@ -23,7 +23,7 @@ export type VjOp =
   | { op: "layerBlend"; layer: string; blend: VjBlend }
   | { op: "layerTransitionEffect"; layer: string; effect: VjTransition }
   | { op: "layerCrossfade"; layer: string; side: VjSide | null }
-  | { op: "layerBypass" | "layerSolo"; layer: string; on: boolean }
+  | { op: "layerBypass" | "layerSolo" | "layerCollapse"; layer: string; on: boolean }
   | { op: "addDeck" }
   | { op: "removeDeck"; deck: string }
   | { op: "moveDeck"; deck: string; to: number }

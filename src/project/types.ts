@@ -74,6 +74,8 @@ export interface VjLayer {
   crossfade?: VjSide;
   bypass?: boolean;
   solo?: boolean;
+  /** Folded to a thin row on the grid. */
+  collapsed?: boolean;
   /** At most one per column of each deck, or per slot on a global layer. */
   clips?: VjClip[];
 }
