@@ -155,11 +155,11 @@ impl Face {
         self.glyphs.glyph_id(ch).0 != 0
     }
 
-    /// The scale that draws an em of `em` pixels.
+    /// The scale that draws an em of `em` pixels, the same em the shaper's advances are scaled by
+    /// (`em / upem`). A `PxScale` is the font's height, not its em. Not `pt_to_px_scale`: it also
+    /// multiplies by 96/72, which drew the glyphs a third wider than their advances.
     fn scale(&self, em: f32) -> PxScale {
-        self.glyphs
-            .pt_to_px_scale(em)
-            .unwrap_or_else(|| PxScale::from(em * 1.2))
+        PxScale::from(em * self.glyphs.height_unscaled() / self.upem)
     }
 }
 
@@ -773,5 +773,75 @@ mod tests {
         }
         assert_eq!(style_name(700, Style::Italic), "Bold Italic");
         assert_eq!(parse_style("nonsense"), (400, Style::Normal));
+    }
+
+    /// Columns (first, last) of the ink of `text` in a bitmap as wide as its own cover.
+    fn ink_columns(block: &Block<'_>) -> (usize, usize, usize) {
+        let cover = draw_lines(
+            &bundled(if block.style == "Bold" { 700 } else { 400 }),
+            block,
+        );
+        let lit = |x: usize| (0..cover.height).any(|y| cover.bytes[y * cover.width + x] > 0);
+        let first = (0..cover.width).find(|&x| lit(x)).unwrap();
+        let last = (0..cover.width).rev().find(|&x| lit(x)).unwrap();
+        (first, last, cover.width)
+    }
+
+    #[test]
+    fn ink_should_stay_inside_the_bitmap_for_overhanging_glyphs() {
+        for text in ["BEBA", "AVA", "W", "AVATAR", "fj"] {
+            for tracking in [0.0, 0.1, -0.05] {
+                for style in ["Regular", "Bold"] {
+                    let size = 300.0;
+                    let (first, last, width) = ink_columns(&Block {
+                        size,
+                        tracking,
+                        style,
+                        ..block(text)
+                    });
+                    assert!(
+                        first >= 1 && last + 2 <= width,
+                        "{text} {style} {tracking}: {first}..{last} of {width}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn drawn_ink_should_match_the_measured_width() {
+        // At tracking 0 the line is as wide as its advances: the ink is within a few percent of it.
+        let b = Block {
+            size: 300.0,
+            ..block("BEBA")
+        };
+        let face = bundled(400);
+        let measured = layout_line(&face, parse_style("Regular"), 300.0, "BEBA", 0.0).width;
+        let (first, last, _) = ink_columns(&b);
+        let ink = (last - first) as f32;
+        assert!(
+            (ink - measured).abs() < measured * 0.08,
+            "ink {ink} vs measured {measured}"
+        );
+    }
+
+    #[test]
+    fn letters_should_not_overlap_at_zero_tracking() {
+        let face = bundled(400);
+        let line = layout_line(&face, parse_style("Regular"), 300.0, "BEBA", 0.0);
+        let boxes: Vec<(f32, f32)> = line
+            .glyphs
+            .iter()
+            .map(|g| {
+                let o = face
+                    .glyphs
+                    .outline_glyph(g.id.with_scale_and_position(face.scale(300.0), point(g.x, 0.0)))
+                    .unwrap();
+                (o.px_bounds().min.x, o.px_bounds().max.x)
+            })
+            .collect();
+        for pair in boxes.windows(2) {
+            assert!(pair[0].1 <= pair[1].0, "{pair:?}");
+        }
     }
 }
