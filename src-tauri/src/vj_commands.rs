@@ -398,6 +398,23 @@ pub async fn vj_output_frame(
     Ok(tauri::ipc::Response::new(picture.unwrap_or_default()))
 }
 
+/// What the selected clip alone looks like in the composition, as a small picture in the format of
+/// [`vj_output_frame`] (see [`crate::video_output::VideoOutputs::preview`]); it plays on its own,
+/// whatever is on air. `None` stops it; empty when there is no such clip.
+#[tauri::command]
+pub async fn vj_preview_frame(
+    app: tauri::AppHandle,
+    output: State<'_, crate::video_output::SharedVideoOutput>,
+    clip: Option<String>,
+) -> std::result::Result<tauri::ipc::Response, String> {
+    let output = std::sync::Arc::clone(&output);
+    let picture =
+        tauri::async_runtime::spawn_blocking(move || output.preview(&app, clip.as_deref()))
+            .await
+            .map_err(|err| err.to_string())??;
+    Ok(tauri::ipc::Response::new(picture))
+}
+
 /// What the grid plays now.
 #[tauri::command]
 pub fn vj_play_state(

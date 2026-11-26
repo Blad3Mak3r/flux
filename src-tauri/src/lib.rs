@@ -150,6 +150,7 @@ pub fn run() {
             vj_commands::vj_crossfader,
             vj_commands::vj_play_state,
             vj_commands::vj_output_frame,
+            vj_commands::vj_preview_frame,
             modulation::vj_modulation_values,
             analysis::vj_analysis_levels,
             video_commands::video_probe,

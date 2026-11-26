@@ -30,6 +30,7 @@ import type { MenuItem } from "../state/ui";
 import type { VideoStrip } from "../video/api";
 import {
   bindOutput,
+  bindPreview,
   bindPlayState,
   edit,
   importVideos,
@@ -635,16 +636,24 @@ function OutputPanel({ grid }: { grid: VjGrid }) {
 function PreviewPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
   const selected = useVj((vj) => vj.clip);
-  const thumbs = useDoc((doc) => doc.thumbs);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const found = grid.layers.flatMap((layer) => (layer.clips ?? []).map((clip) => ({ layer, clip }))).find((x) => x.clip.id === selected);
-  const strip = stripOf(thumbs, found?.clip);
-  const [frame, setFrame] = useState(0);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  const id = found?.clip.id;
   useEffect(() => {
-    if (!strip || strip.count < 2) return;
-    const timer = window.setInterval(() => setFrame((f) => (f + 1) % strip.count), Math.max(100, strip.seconds * 1000));
-    return () => window.clearInterval(timer);
-  }, [strip]);
+    if (!id) return;
+    return bindPreview(id, (picture) => {
+      const target = canvas.current;
+      const context = target?.getContext("2d");
+      if (!target || !context) return;
+      if (picture && (target.width !== picture.width || target.height !== picture.height)) {
+        target.width = picture.width;
+        target.height = picture.height;
+      }
+      if (picture) context.putImageData(picture, 0, 0);
+      else context.clearRect(0, 0, target.width, target.height);
+    });
+  }, [id]);
   return (
     <section className="vj-panel" aria-label={t("vj.preview")}>
       <header className="vj-ph">
@@ -653,7 +662,7 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
       </header>
       <div className="vj-pb vj-mon-wrap">
         <div className="vj-mon">
-          {found ? <Thumb strip={strip} generator={found.clip.generator} position={strip ? (frame + 0.5) / strip.count : 0} /> : <p className="vj-empty">{t("vj.previewEmpty")}</p>}
+          {found ? <canvas ref={canvas} className="vj-out" /> : <p className="vj-empty">{t("vj.previewEmpty")}</p>}
         </div>
         {found && (
           <div className="vj-acts">

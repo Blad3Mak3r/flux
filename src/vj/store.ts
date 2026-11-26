@@ -13,6 +13,7 @@ import {
   vjLaunch,
   vjLaunchColumn,
   vjOutputFrame,
+  vjPreviewFrame,
   vjPreview,
   vjPlayState,
   vjRelease,
@@ -263,6 +264,15 @@ const OUTPUT_EVERY = 1000 / 30;
  * none), while the VJ screen is open and in sight.
  */
 export function bindOutput(draw: (picture: ImageData | null) => void): () => void {
+  return bindFrames(vjOutputFrame, draw);
+}
+
+/** Like {@link bindOutput}, for the picture of one clip alone as the composition would show it. */
+export function bindPreview(clip: string, draw: (picture: ImageData | null) => void): () => void {
+  return bindFrames(() => vjPreviewFrame(clip), draw);
+}
+
+function bindFrames(frame: () => Promise<ArrayBuffer>, draw: (picture: ImageData | null) => void): () => void {
   let stopped = false;
   let pending = 0;
   let asked = 0;
@@ -271,7 +281,7 @@ export function bindOutput(draw: (picture: ImageData | null) => void): () => voi
     if (stopped || pending >= 2 || document.hidden) return;
     pending += 1;
     const number = ++asked;
-    vjOutputFrame()
+    frame()
       .then((bytes) => {
         if (stopped || number < drawn) return;
         drawn = number;

@@ -134,6 +134,8 @@ export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfad
 export const vjPlayState = () => invoke<GridState>("vj_play_state");
 /** What the grid sends to the screens now, as a small picture (see `bindOutput`); empty outside a VJ project. */
 export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");
+/** What `clip` alone looks like in the composition, as a small picture (see `bindPreview`); it plays on its own, whatever is on air. */
+export const vjPreviewFrame = (clip: string) => invoke<ArrayBuffer>("vj_preview_frame", { clip });
 
 /** A setting of an effect, with what it takes; the backend owns the ranges and the defaults. */
 export type VjParamSpec =
