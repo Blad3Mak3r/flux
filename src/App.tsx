@@ -18,6 +18,10 @@ import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
+import { vjKeyDown } from "./vj/menus";
+import { forwardKeyDown, forwardKeyUp, releaseKeys } from "./vj/keys";
+import { useVj } from "./vj/store";
+import { VjScreen } from "./vj/VjScreen";
 import { bindRemoteControl } from "./control/bind";
 import { bindLive } from "./live/feed";
 import { useLive } from "./live/store";
@@ -74,6 +78,7 @@ function Shell({ devices }: { devices: Devices }) {
   const view = useUi((ui) => ui.view);
   const asking = useUi((ui) => ui.pending !== null);
   const about = useUi((ui) => ui.about);
+  const vj = useDoc((doc) => doc.project.mode === "vj");
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced ?? false);
 
   // The clock of the audio device is the master; one that does not keep real time ruins the timecode.
@@ -106,7 +111,17 @@ function Shell({ devices }: { devices: Devices }) {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
       const ui = useUi.getState();
-      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || isTyping(event.target)) return;
+      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || useVj.getState().output || isTyping(event.target)) return;
+      // A VJ show has keys of its own, and none of the timeline's.
+      if (useDoc.getState().project.mode === "vj") {
+        // A key a mapping waits for is the mapping's, not a shortcut's.
+        if (forwardKeyDown(event)) {
+          event.preventDefault();
+          return;
+        }
+        vjKeyDown(event, t);
+        return;
+      }
       if (event.key === " " && event.target instanceof Element && event.target.closest("button, summary, [role='button']")) return;
       const mod = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
@@ -187,22 +202,27 @@ function Shell({ devices }: { devices: Devices }) {
     };
     // Space activates a focused button on key-up; keep it from also firing a click.
     const onKeyUp = (event: KeyboardEvent) => {
+      forwardKeyUp(event);
       if (event.key === " " && !isTyping(event.target)) event.preventDefault();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", releaseKeys);
     return () => {
+      window.removeEventListener("blur", releaseKeys);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
   }, [t]);
 
   return (
-    <div className="app">
+    <div className="app" data-vj={vj || undefined}>
       <MenuBar />
-      <Faceplate devices={devices} />
-      <main className="work" data-view={view} data-edit-surface={editSurface} data-inspector-collapsed={collapsed}>
-        {view === "live" ? (
+      {vj ? null : <Faceplate devices={devices} />}
+      <main className="work" data-view={vj ? "vj" : view} data-edit-surface={editSurface} data-inspector-collapsed={collapsed}>
+        {vj ? (
+          <VjScreen key={docKey} />
+        ) : view === "live" ? (
           <Live />
         ) : editSurface === "setlists" ? (
           <SetlistEditor key={docKey} />

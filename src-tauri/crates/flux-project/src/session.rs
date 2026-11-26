@@ -697,20 +697,27 @@ impl Session {
     }
 
     /// Adds a video file from disk to the project, in the cell of the VJ grid at `layer` and
-    /// `column`, in place of the clip that was there. The caller has checked that it is a video.
+    /// `column`, in place of the clip that was there; with no `column`, in the first empty cell of
+    /// the layer in the deck shown. The caller has checked that it is a video.
     pub fn import_vj_video(
         &mut self,
         file: &Path,
         layer: &str,
-        column: &str,
+        column: Option<&str>,
     ) -> Result<ProjectState> {
         let (asset, source) = video_asset(file)?;
         let state = self.change(|project, _| {
+            let column = match column {
+                Some(column) => column.to_owned(),
+                None => project.vj.empty_column(layer).ok_or_else(|| {
+                    ProjectError::Invalid("the layer has no empty cell in this deck".into())
+                })?,
+            };
             project.videos.push(asset.clone());
             let op = crate::VjOp::PlaceVideo {
                 asset: asset.id.clone(),
                 layer: layer.to_owned(),
-                column: column.to_owned(),
+                column,
             };
             crate::vj::apply(project, op, || Uuid::new_v4().to_string())
         })?;
@@ -721,6 +728,68 @@ impl Session {
     /// Edits the VJ grid of a VJ project (see [`crate::vj`]).
     pub fn edit_vj(&mut self, op: crate::VjOp) -> Result<ProjectState> {
         self.change(|project, _| crate::vj::apply(project, op, || Uuid::new_v4().to_string()))
+    }
+
+    /// Puts the mappings of a `.flxmap` file into the VJ grid (see [`crate::vj_mapfile`]); the
+    /// answer is the project with them and how many were taken and skipped.
+    pub fn import_vj_mappings(
+        &mut self,
+        file: &crate::vj_mapfile::MapFile,
+        choice: &crate::vj_mapfile::ImportChoice,
+    ) -> Result<(ProjectState, crate::vj_mapfile::ImportReport)> {
+        let mut report = crate::vj_mapfile::ImportReport::default();
+        let state = self.change(|project, _| {
+            if project.mode != crate::ProjectMode::Vj {
+                return Err(ProjectError::Invalid("only a VJ show has mappings".into()));
+            }
+            report = crate::vj_mapfile::import(&mut project.vj, file, choice, || {
+                Uuid::new_v4().to_string()
+            });
+            Ok(())
+        })?;
+        Ok((state, report))
+    }
+
+    /// What importing the file would do to the VJ grid, without doing it.
+    pub fn plan_vj_mappings(
+        &self,
+        file: &crate::vj_mapfile::MapFile,
+    ) -> Result<crate::vj_mapfile::ImportPlan> {
+        let grid = self
+            .grid_ref()
+            .ok_or_else(|| ProjectError::Invalid("only a VJ show has mappings".into()))?;
+        Ok(crate::vj_mapfile::plan(grid, file))
+    }
+
+    /// The mappings of the VJ grid as the text of a `.flxmap` file.
+    pub fn export_vj_mappings(&self) -> Result<String> {
+        let grid = self
+            .grid_ref()
+            .ok_or_else(|| ProjectError::Invalid("only a VJ show has mappings".into()))?;
+        crate::vj_mapfile::export(grid)
+    }
+
+    /// Moves a layer's level or a clip's transform while a fader or a drag goes, on the project
+    /// held, without the copy and full check of an edit: what the screens show follows, and the
+    /// edit sent when the hand lets go is the one kept. Any other op is refused.
+    pub fn preview_vj(&mut self, op: crate::VjOp) -> Result<()> {
+        use crate::VjOp as Op;
+        let level = op.is_preview();
+        if !level {
+            return Err(ProjectError::Invalid(
+                "only a level, a transform, a generator, an effect or a modulation is previewed"
+                    .into(),
+            ));
+        }
+        if let Op::ClipGenerator { generator, .. } = &op {
+            generator.clone().tidy().validate()?;
+        }
+        self.ensure_editable()?;
+        let document = self.document.as_mut().ok_or_else(no_project)?;
+        crate::vj::apply(&mut document.project, op, String::new)?;
+        // The screens copy the grid again when this moves.
+        self.recovery_revision += 1;
+        Ok(())
     }
 
     /// Puts the video file at `file` (a converted copy, such as a HAP one) in place of the video
@@ -918,6 +987,57 @@ impl Session {
                 .as_ref()
                 .map_or(&[], |document| &document.project.output.screens),
         )
+    }
+
+    /// Whether the project open is a VJ project.
+    pub fn is_vj(&self) -> bool {
+        self.document
+            .as_ref()
+            .is_some_and(|document| document.project.mode == crate::ProjectMode::Vj)
+    }
+
+    /// A copy of the VJ grid, `None` unless the project is a VJ project.
+    pub fn grid_copy(&self) -> Option<crate::vj::Vj> {
+        let project = &self.document.as_ref()?.project;
+        (project.mode == crate::ProjectMode::Vj).then(|| project.vj.clone())
+    }
+
+    /// The project of a VJ show, where it is held.
+    pub fn vj_project(&self) -> Option<&Project> {
+        let project = &self.document.as_ref()?.project;
+        (project.mode == crate::ProjectMode::Vj).then_some(project)
+    }
+
+    /// The project and its active timeline as they are now, copied.
+    pub fn project_state(&self) -> Option<ProjectState> {
+        let document = self.document.as_ref()?;
+        Some(ProjectState {
+            project: document.project.clone(),
+            active: document.active.clone(),
+        })
+    }
+
+    /// The VJ grid of a VJ project, where it is held.
+    pub fn grid_ref(&self) -> Option<&crate::vj::Vj> {
+        let project = &self.document.as_ref()?.project;
+        (project.mode == crate::ProjectMode::Vj).then_some(&project.vj)
+    }
+
+    /// The tempo of the timeline being played, in beats a minute; 120 with no project.
+    pub fn tempo_bpm(&self) -> f64 {
+        let Some(document) = self.document.as_ref() else {
+            return 120.0;
+        };
+        document
+            .project
+            .timeline(&document.active)
+            .map_or(120.0, |timeline| timeline.tempo.bpm)
+    }
+
+    /// A copy of the project's video `id`.
+    pub fn video_copy(&self, id: &str) -> Option<crate::VideoAsset> {
+        let document = self.document.as_ref()?;
+        document.project.videos.iter().find(|v| v.id == id).cloned()
     }
 
     /// A copy of the timeline being edited and played.
@@ -1420,6 +1540,98 @@ mod tests {
     }
 
     #[test]
+    fn preview_vj_should_move_a_level_in_place_and_refuse_other_edits() {
+        let mut session = Session::default();
+        let layer = session
+            .new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj)
+            .vj
+            .layers[0]
+            .id
+            .clone();
+        let (before, _) = session.revision();
+        let op = crate::VjOp::LayerMaster {
+            layer: layer.clone(),
+            value: 0.25,
+        };
+        session.preview_vj(op).unwrap();
+        let grid = session.grid_copy().unwrap();
+        assert_eq!(grid.layers[0].master, 0.25);
+        assert!(session.revision().0 > before, "the screens see it");
+        let add = crate::VjOp::AddLayer { global: false };
+        assert!(session.preview_vj(add).is_err());
+        let effect = session
+            .edit_vj(crate::VjOp::AddEffect {
+                target: crate::vj::EffectTarget::Layer(layer.clone()),
+                kind: "blur".into(),
+            })
+            .unwrap()
+            .project
+            .vj
+            .layers[0]
+            .effects[0]
+            .id
+            .clone();
+        let params = crate::VjOp::EffectParams {
+            effect,
+            kind: crate::vj::EffectKind::Blur { radius: 0.7 },
+        };
+        session.preview_vj(params).unwrap();
+        assert_eq!(
+            session.grid_copy().unwrap().layers[0].effects[0].kind,
+            crate::vj::EffectKind::Blur { radius: 0.7 }
+        );
+        let remove = crate::VjOp::RemoveEffect {
+            effect: session.grid_copy().unwrap().layers[0].effects[0].id.clone(),
+        };
+        assert!(session.preview_vj(remove).is_err());
+        assert_eq!(session.grid_copy().unwrap().layers.len(), grid.layers.len());
+    }
+
+    #[test]
+    fn preview_vj_should_move_a_speed_and_a_region_but_not_a_direction_or_a_cue() {
+        let mut session = Session::default();
+        let project = session.new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj);
+        let layer = project.vj.layers[0].id.clone();
+        let column = project.vj.decks[0].columns[0].id.clone();
+        // A new project has no video: a generator is a clip too.
+        let state = session
+            .edit_vj(crate::VjOp::PlaceGenerator {
+                generator: crate::generator::Generator::Bars,
+                layer,
+                column,
+            })
+            .unwrap();
+        let clip = state.project.vj.layers[0].clips[0].id.clone();
+        session
+            .preview_vj(crate::VjOp::ClipSpeed {
+                clip: clip.clone(),
+                value: 2.0,
+            })
+            .unwrap();
+        session
+            .preview_vj(crate::VjOp::ClipRegion {
+                clip: clip.clone(),
+                start: 0.25,
+                end: 0.5,
+            })
+            .unwrap();
+        let held = session.grid_copy().unwrap().layers[0].clips[0].clone();
+        assert_eq!(held.speed, 2.0);
+        assert_eq!((held.region.start, held.region.end), (0.25, 0.5));
+        let direction = crate::VjOp::ClipDirection {
+            clip: clip.clone(),
+            direction: crate::vj::Direction::Reverse,
+        };
+        assert!(session.preview_vj(direction).is_err());
+        let cue = crate::VjOp::ClipCue {
+            clip,
+            index: 0,
+            position: Some(0.5),
+        };
+        assert!(session.preview_vj(cue).is_err());
+    }
+
+    #[test]
     fn import_vj_video_should_fill_the_cell_save_the_file_and_follow_a_replace() {
         let dir = TempDir::new().unwrap();
         let mp4 = dir.path().join("loop.mp4");
@@ -1430,13 +1642,16 @@ mod tests {
         let grid = session
             .new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj)
             .vj;
-        let (layer, column) = (&grid.layers[1].id, &grid.columns[2].id);
+        let (layer, column) = (&grid.layers[1].id, &grid.decks[0].columns[2].id);
 
-        let state = session.import_vj_video(&mp4, layer, column).unwrap();
+        let state = session.import_vj_video(&mp4, layer, Some(column)).unwrap();
 
         let asset = state.project.videos[0].clone();
         let clip = &state.project.vj.layers[1].clips[0];
-        assert_eq!((&clip.asset, &clip.column), (&asset.id, column));
+        assert_eq!(
+            (&clip.asset, clip.column.as_ref()),
+            (&asset.id, Some(column))
+        );
         let path = dir.path().join("show.flx");
         session.save(&state.project, &path).unwrap();
         let (saved, _) = archive::open(&path).unwrap();

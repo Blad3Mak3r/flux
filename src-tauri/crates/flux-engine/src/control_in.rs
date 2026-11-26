@@ -8,14 +8,15 @@
 use std::io;
 use std::net::UdpSocket;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use midir::{Ignore, MidiInput, MidiInputConnection};
 
-use crate::control::{ControlAction, MidiTrigger, decode_midi, decode_osc, osc_action};
+use crate::artnet::{ARTNET_PORT, DmxFrame, parse_art_dmx};
+use crate::control::{KeyMsg, MidiMsg, OscMessage, decode_midi_message, decode_osc};
 use crate::devices::find_by_name;
 
 const MIDI_CLIENT_NAME: &str = "FLUX control";
@@ -26,13 +27,18 @@ const POLL: Duration = Duration::from_millis(100);
 /// Room for any OSC packet a control surface sends; the rest of a bigger datagram is lost.
 const PACKET: usize = 4096;
 
-/// What the inputs deliver.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the inputs deliver, decoded but not interpreted: what a message does depends on the
+/// bindings of the cues and the mappings of the VJ grid, which the thread that receives it knows.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Input {
-    /// A pad or a control was pressed. Which action it is depends on the user's bindings.
-    Midi(MidiTrigger),
-    /// An OSC message asked for an action, by one of the fixed addresses.
-    Action(ControlAction),
+    /// A note, control change, program change or pitch bend of the port that is open.
+    Midi(MidiMsg),
+    /// An OSC message, from the socket.
+    Osc(OscMessage),
+    /// The values of one Art-Net universe.
+    Dmx(DmxFrame),
+    /// A key of the keyboard, forwarded by the window.
+    Key(KeyMsg),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -70,9 +76,9 @@ impl MidiListener {
                 &port,
                 "Flux control in",
                 move |_, bytes, ()| {
-                    if let Some(trigger) = decode_midi(bytes) {
+                    if let Some(message) = decode_midi_message(bytes) {
                         // The receiver is gone while the listener is being replaced.
-                        let _ = inputs.send(Input::Midi(trigger));
+                        let _ = inputs.send(Input::Midi(message));
                     }
                 },
                 (),
@@ -129,9 +135,7 @@ fn run(socket: &UdpSocket, inputs: &Sender<Input>, stop: &AtomicBool) {
             continue;
         };
         for message in decode_osc(&packet[..length]) {
-            if let Some(action) = osc_action(&message) {
-                let _ = inputs.send(Input::Action(action));
-            }
+            let _ = inputs.send(Input::Osc(message));
         }
     }
 }
@@ -144,6 +148,108 @@ impl Drop for OscListener {
         }
     }
 }
+
+/// A UDP socket that listens for Art-Net (ArtDmx). Dropping it stops the thread and frees the
+/// port.
+pub struct ArtnetListener {
+    port: u16,
+    packets: Arc<AtomicU64>,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl ArtnetListener {
+    /// Listens on `address` (a bind interface; `0.0.0.0` is every one) at `port` ([`ARTNET_PORT`]
+    /// in the app, `0` picks a free one) and sends the frames of `universe` (every one when
+    /// `None`) to `inputs`. The port is shared (`SO_REUSEADDR`, and `SO_REUSEPORT` on Unix), as lighting software does, so
+    /// another program that listens does not keep Flux from it.
+    pub fn bind(
+        address: &str,
+        port: u16,
+        universe: Option<u16>,
+        inputs: Sender<Input>,
+    ) -> io::Result<Self> {
+        let address: std::net::IpAddr = address
+            .parse()
+            .map_err(|_| io::Error::other("invalid Art-Net bind address"))?;
+        let socket = socket2::Socket::new(
+            socket2::Domain::for_address((address, port).into()),
+            socket2::Type::DGRAM,
+            Some(socket2::Protocol::UDP),
+        )?;
+        socket.set_reuse_address(true)?;
+        // macOS and the BSDs share a UDP port only with `SO_REUSEPORT` as well.
+        #[cfg(unix)]
+        socket.set_reuse_port(true)?;
+        socket.bind(&std::net::SocketAddr::new(address, port).into())?;
+        let socket: UdpSocket = socket.into();
+        socket.set_read_timeout(Some(POLL))?;
+        let port = socket.local_addr()?.port();
+        let packets = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread = thread::Builder::new()
+            .name("flux-artnet-in".into())
+            .spawn({
+                let (stop, packets) = (Arc::clone(&stop), Arc::clone(&packets));
+                move || run_artnet(&socket, &inputs, universe, &packets, &stop)
+            })?;
+        Ok(Self {
+            port,
+            packets,
+            stop,
+            thread: Some(thread),
+        })
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// How many ArtDmx packets of the wanted universes arrived since it was opened.
+    pub fn packets(&self) -> u64 {
+        self.packets.load(Ordering::Relaxed)
+    }
+
+    /// The counter, to read after the listener moved.
+    pub fn counter(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.packets)
+    }
+}
+
+fn run_artnet(
+    socket: &UdpSocket,
+    inputs: &Sender<Input>,
+    universe: Option<u16>,
+    packets: &AtomicU64,
+    stop: &AtomicBool,
+) {
+    let mut packet = [0_u8; PACKET];
+    while !stop.load(Ordering::Relaxed) {
+        let Ok(length) = socket.recv(&mut packet) else {
+            continue;
+        };
+        let Some(frame) = parse_art_dmx(&packet[..length]) else {
+            continue;
+        };
+        if universe.is_some_and(|wanted| wanted != frame.universe) {
+            continue;
+        }
+        packets.fetch_add(1, Ordering::Relaxed);
+        let _ = inputs.send(Input::Dmx(frame));
+    }
+}
+
+impl Drop for ArtnetListener {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// The port of Art-Net, for the page to show.
+pub const ARTNET_UDP_PORT: u16 = ARTNET_PORT;
 
 #[cfg(test)]
 mod tests {
@@ -160,8 +266,15 @@ mod tests {
             .unwrap();
     }
 
+    fn osc(address: &str, args: &[OscArg]) -> Input {
+        Input::Osc(OscMessage {
+            address: address.into(),
+            args: args.to_vec(),
+        })
+    }
+
     #[test]
-    fn a_packet_should_arrive_as_the_action_it_asks_for() {
+    fn a_packet_should_arrive_as_the_message_it_holds() {
         let (tx, rx) = mpsc::channel();
         let listener = OscListener::bind(0, tx).unwrap();
 
@@ -176,27 +289,23 @@ mod tests {
 
         assert_eq!(
             rx.recv_timeout(WAIT),
-            Ok(Input::Action(ControlAction::Play))
+            Ok(osc("/flux/play", &[OscArg::Int(1)]))
         );
         assert_eq!(
             rx.recv_timeout(WAIT),
-            Ok(Input::Action(ControlAction::GotoCue(3)))
+            Ok(osc("/flux/cue/goto", &[OscArg::Int(3)]))
         );
     }
 
     #[test]
-    fn what_is_not_a_request_should_be_dropped_and_the_next_packet_still_heard() {
+    fn what_is_not_osc_should_be_dropped_and_the_next_packet_still_heard() {
         let (tx, rx) = mpsc::channel();
         let listener = OscListener::bind(0, tx).unwrap();
 
         send_to(listener.port(), b"not osc at all");
-        send_to(listener.port(), &crate::osc::encode("/other/thing", &[]));
         send_to(listener.port(), &crate::osc::encode("/flux/stop", &[]));
 
-        assert_eq!(
-            rx.recv_timeout(WAIT),
-            Ok(Input::Action(ControlAction::Stop))
-        );
+        assert_eq!(rx.recv_timeout(WAIT), Ok(osc("/flux/stop", &[])));
     }
 
     #[test]
@@ -208,5 +317,39 @@ mod tests {
         assert!(OscListener::bind(port, tx.clone()).is_err());
         drop(first);
         assert!(OscListener::bind(port, tx).is_ok());
+    }
+
+    fn art_packet(universe: u8, data: &[u8]) -> Vec<u8> {
+        let mut bytes = b"Art-Net\0".to_vec();
+        bytes.extend([0x00, 0x50, 0, 14, 0, 0, universe, 0]);
+        bytes.extend((data.len() as u16).to_be_bytes());
+        bytes.extend(data);
+        bytes
+    }
+
+    #[test]
+    fn art_net_should_arrive_as_frames_be_filtered_by_universe_and_counted() {
+        let (tx, rx) = mpsc::channel();
+        let listener = ArtnetListener::bind("127.0.0.1", 0, Some(2), tx).unwrap();
+
+        send_to(listener.port(), b"not art-net");
+        send_to(listener.port(), &art_packet(1, &[1, 2]));
+        send_to(listener.port(), &art_packet(2, &[3, 4]));
+
+        let Ok(Input::Dmx(frame)) = rx.recv_timeout(WAIT) else {
+            panic!("the frame of universe 2 should arrive");
+        };
+        assert_eq!((frame.universe, frame.data), (2, vec![3, 4]));
+        assert_eq!(listener.packets(), 1, "only the wanted universe is counted");
+    }
+
+    #[test]
+    fn the_art_net_port_should_be_shared_and_freed_when_dropped() {
+        let (tx, _rx) = mpsc::channel();
+        let first = ArtnetListener::bind("127.0.0.1", 0, None, tx.clone()).unwrap();
+        let port = first.port();
+
+        assert!(ArtnetListener::bind("127.0.0.1", port, None, tx.clone()).is_ok());
+        assert!(ArtnetListener::bind("not an address", 0, None, tx).is_err());
     }
 }

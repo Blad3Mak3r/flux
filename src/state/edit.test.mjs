@@ -408,6 +408,33 @@ test("apply puts what the backend answered in the history, with its active timel
   assert.equal(doc.active, "l3");
 });
 
+test("a controller sweep is one undo step, closed by its commit or by anything done meanwhile", () => {
+  const first = twoTimelines();
+  const at = (value) => ({ ...first, name: `moved ${value}` });
+  let doc = initialDoc(first);
+  doc = docReducer(doc, { type: "controlled", project: at(1), active: doc.active, commit: false });
+  doc = docReducer(doc, { type: "controlled", project: at(2), active: doc.active, commit: false });
+  assert.equal(doc.project.name, "moved 2");
+  assert.equal(doc.past.length, 0, "moves enter no history");
+  doc = docReducer(doc, { type: "controlled", project: at(3), active: doc.active, commit: true });
+  assert.equal(doc.past.length, 1);
+  assert.equal(doc.gesture, undefined);
+  doc = docReducer(doc, { type: "undo" });
+  assert.equal(doc.project, first, "one undo takes the whole sweep back");
+
+  let open = docReducer(initialDoc(first), { type: "controlled", project: at(1), active: "l1", commit: false });
+  open = docReducer(open, { type: "apply", project: at(9), active: "l1" });
+  assert.equal(open.past.length, 2, "an edit made during the gesture closes it first");
+  assert.equal(open.past[0], first);
+});
+
+test("a discrete controller edit is one step of its own", () => {
+  const first = twoTimelines();
+  const doc = docReducer(initialDoc(first), { type: "controlled", project: { ...first, name: "x" }, active: "l1", commit: true });
+  assert.equal(doc.past.length, 1);
+  assert.equal(doc.past[0], first);
+});
+
 test("the active timeline falls back to the first while the backend names one that is gone", () => {
   let doc = docReducer(initialDoc(twoTimelines()), { type: "active", id: "l2" });
   assert.equal(activeTimeline(doc).id, "l2");
@@ -468,4 +495,14 @@ test("a tempo found for an opened file is no edit: no history, and the document 
   // A tempo the file already has is not replaced, and an unknown asset changes nothing.
   assert.equal(docReducer(after, { type: "derivedBpm", id: "a1", bpm: 90 }), after);
   assert.equal(docReducer(after, { type: "derivedBpm", id: "zzz", bpm: 90 }), after);
+});
+
+test("a controller gesture is closed in the store too, which merges what a reducer answers", () => {
+  const start = initialDoc(project());
+  const moved = docReducer(start, { type: "controlled", project: project(), active: TL, commit: false });
+  assert.ok(moved.gesture);
+  const done = docReducer(moved, { type: "controlled", project: project(), active: TL, commit: true });
+  // What a merging store would hold: a dropped key would keep the old gesture.
+  assert.equal({ ...moved, ...done }.gesture, undefined);
+  assert.equal(done.past.length, 1);
 });

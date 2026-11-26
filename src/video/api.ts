@@ -11,6 +11,8 @@ export interface VideoProbe {
   width: number;
   height: number;
   codec: string;
+  /** A still image (PNG, JPEG...): one frame, shown until it is stopped. */
+  still: boolean;
 }
 
 /** Opens a video of the project in the backend. */

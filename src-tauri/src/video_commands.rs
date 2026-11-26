@@ -25,6 +25,8 @@ pub struct VideoProbe {
     pub width: u32,
     pub height: u32,
     pub codec: String,
+    /// A still image (PNG, JPEG...): one frame, shown until it is stopped.
+    pub still: bool,
 }
 
 /// What FFmpeg read from each video, by asset id: a video's bytes never change under its id.
@@ -99,6 +101,7 @@ fn probe(
         width: info.width,
         height: info.height,
         codec: info.codec.clone(),
+        still: info.frames == 1,
     };
     probes
         .0
@@ -106,6 +109,40 @@ fn probe(
         .unwrap_or_else(PoisonError::into_inner)
         .insert(asset.id.clone(), probe.clone());
     Ok(probe)
+}
+
+/// The videos [`known_probe`] has started reading, so each is read once however often it is asked
+/// for, and one FFmpeg cannot read is not tried again on every call.
+static ASKED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+
+/// What FFmpeg read of `asset` if it was read already; otherwise `None`, and it is read once, on a
+/// thread of its own, so a later call has it. Never blocks on FFmpeg.
+pub fn known_probe(session: &SharedSession, asset: &VideoAsset) -> Option<VideoProbe> {
+    let probes = shared_probes();
+    if let Some(known) = probes
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&asset.id)
+    {
+        return Some(known.clone());
+    }
+    let cache = CACHE.get()?.clone();
+    let first = ASKED
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(asset.id.clone());
+    if !first {
+        return None;
+    }
+    let (session, asset) = (Arc::clone(session), asset.clone());
+    std::thread::spawn(move || {
+        if let Err(err) = probe(&session, &probes, &asset, &cache) {
+            log::warn!("could not read video {}: {err}", asset.name);
+        }
+    });
+    None
 }
 
 /// The video cache folder, once the app has said where it is.
@@ -124,6 +161,27 @@ pub fn video_cache(app: &AppHandle) -> Result<PathBuf> {
     Ok(CACHE.get_or_init(|| dir).clone())
 }
 
+/// The key under which the sound of the video `id` is kept in the audio cache.
+pub fn audio_key(id: &str) -> String {
+    format!("video:{id}")
+}
+
+/// What FFmpeg reads of `asset`, reading it now if it was not read yet: only for a thread that may
+/// wait. `None` when it cannot be read, or before the app has said where its video cache is.
+pub fn read_probe(session: &SharedSession, asset: &VideoAsset) -> Option<VideoProbe> {
+    probe(session, &shared_probes(), asset, CACHE.get()?).ok()
+}
+
+/// What FFmpeg read of the video `id`, if it did; never reads.
+pub fn probed(id: &str) -> Option<VideoProbe> {
+    shared_probes()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(id)
+        .cloned()
+}
+
 /// The sound of a video for the mixer, decoding it the first time; `None` for a video without
 /// sound. Kept in the audio cache beside the project's audio, under a key no audio asset has.
 pub fn load_audio(
@@ -131,7 +189,7 @@ pub fn load_audio(
     cache: &SharedAudio,
     asset: &VideoAsset,
 ) -> std::result::Result<Option<Arc<Decoded>>, AudioError> {
-    let key = format!("video:{}", asset.id);
+    let key = audio_key(&asset.id);
     let decoded = match cache.get(&key) {
         Some(decoded) => decoded,
         None => {
@@ -233,10 +291,20 @@ fn thumbs(
     asset: &VideoAsset,
     cache: &std::path::Path,
 ) -> Result<VideoThumbs> {
+    // A VJ clip shows only the first frame, which is much quicker to decode than a strip.
+    let vj = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .is_vj();
+    let name = if vj {
+        format!("{}.first", asset.id)
+    } else {
+        asset.id.clone()
+    };
     let dir = cache.join("thumbs");
     let (jpeg_path, meta_path) = (
-        dir.join(format!("{}.jpg", asset.id)),
-        dir.join(format!("{}.json", asset.id)),
+        dir.join(format!("{name}.jpg")),
+        dir.join(format!("{name}.json")),
     );
     let cached = std::fs::read(&jpeg_path).ok().zip(
         std::fs::read(&meta_path)
@@ -250,8 +318,12 @@ fn thumbs(
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .video_path(asset, cache)?;
-            let made = flux_video::thumbnails(&path)
-                .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
+            let made = if vj {
+                flux_video::poster(&path)
+            } else {
+                flux_video::thumbnails(&path)
+            }
+            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
             let meta = VideoThumbs {
                 width: made.width,
                 height: made.height,

@@ -1,20 +1,27 @@
 import { useEffect, useRef } from "react";
 import { useI18n } from "../i18n";
+import { useDoc } from "../state/store";
 import { BrandMark } from "./BrandMark";
 import { ViewSwitch } from "../live/ViewSwitch";
 import { closeMenu, openAbout, openMenu, useUi } from "../state/ui";
 import { BAR_MENUS } from "./menus";
+import { VJ_MENUS } from "../vj/menus";
 import { WindowControls, hasNativeWindow } from "./WindowControls";
 
 export function MenuBar() {
   const view = useUi((ui) => ui.view);
+  // A VJ show has no timeline, so nothing to switch between.
+  const vj = useDoc((doc) => doc.project.mode === "vj");
   // Only which title is open: the items themselves are built when it opens.
   const owner = useUi((ui) => ui.menu?.owner);
   const { t } = useI18n();
   const bar = useRef<HTMLDivElement>(null);
 
+  // A VJ show has menus of its own: no tracks, timelines or transport.
+  const menus = vj ? VJ_MENUS : BAR_MENUS;
+
   const show = (index: number) => {
-    const { id, items } = BAR_MENUS[index];
+    const { id, items } = menus[index];
     const title = bar.current?.querySelector<HTMLElement>(`[data-menu="${id}"]`);
     if (!title) return;
     const { left, bottom } = title.getBoundingClientRect();
@@ -31,8 +38,8 @@ export function MenuBar() {
       if (event.defaultPrevented || active?.closest(".menu-sub")) return;
       if (event.key === "ArrowRight" && active?.getAttribute("aria-haspopup") === "menu" && active.closest(".menu")) return;
       event.preventDefault();
-      const at = BAR_MENUS.findIndex((menu) => menu.id === owner);
-      show((at + (event.key === "ArrowLeft" ? -1 : 1) + BAR_MENUS.length) % BAR_MENUS.length);
+      const at = menus.findIndex((menu) => menu.id === owner);
+      show((at + (event.key === "ArrowLeft" ? -1 : 1) + menus.length) % menus.length);
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -44,7 +51,7 @@ export function MenuBar() {
         <BrandMark onClick={openAbout} />
 
         <div ref={bar} className="menu-group" role="menubar" aria-label={t("app.title")}>
-          {BAR_MENUS.map(({ id, label }, index) => (
+          {menus.map(({ id, label }, index) => (
             <button
               key={id}
               type="button"
@@ -62,7 +69,7 @@ export function MenuBar() {
         </div>
       </div>
 
-      <ViewSwitch />
+      {vj ? <span /> : <ViewSwitch />}
 
       <div className="menubar-end" data-tauri-drag-region>
         {hasNativeWindow() ? <WindowControls /> : null}

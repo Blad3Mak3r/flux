@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 
 use flux_project::OscArg;
+use flux_project::vj_mapping::{Heard, MidiKind, Source};
 
 use crate::cues::Cue;
 
@@ -122,31 +123,141 @@ pub fn dedup(bindings: Vec<Binding>) -> Vec<Binding> {
     kept
 }
 
+/// A key of the computer's keyboard the window forwards: pressed or let go, with the modifiers
+/// held when it went down. The VJ mappings read it as a button ([`Self::heard`]).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyMsg {
+    /// `KeyboardEvent.code`: the place of the key, whatever the layout.
+    pub code: String,
+    #[serde(default)]
+    pub ctrl: bool,
+    #[serde(default)]
+    pub alt: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub meta: bool,
+    pub down: bool,
+}
+
+impl KeyMsg {
+    pub fn heard(&self) -> Heard {
+        Heard {
+            source: Source::Key {
+                code: self.code.clone(),
+                ctrl: self.ctrl,
+                alt: self.alt,
+                shift: self.shift,
+                meta: self.meta,
+            },
+            level: if self.down { 1.0 } else { 0.0 },
+            down: self.down,
+        }
+    }
+}
+
+/// What kind of MIDI message arrived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WireKind {
+    Note,
+    Cc,
+    Program,
+    PitchBend,
+}
+
+/// A MIDI message a controller sends, decoded but not interpreted: the cue bindings read it as a
+/// pad pressed ([`Self::trigger`]), the VJ mappings as a level ([`Self::heard`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MidiMsg {
+    pub kind: WireKind,
+    /// From 1 to 16.
+    pub channel: u8,
+    /// The note, control or program; 0 for a bend.
+    pub number: u8,
+    /// The velocity or value, 0 to 127 (0 is a release); a bend's 14 bits, 0 to 16383.
+    pub value: u16,
+}
+
+impl MidiMsg {
+    /// The trigger this presses, or `None` for a release (a note off, a note on with velocity 0, a
+    /// control at 0) and for a bend. A program change has no release.
+    pub fn trigger(&self) -> Option<MidiTrigger> {
+        let kind = match self.kind {
+            WireKind::Note => TriggerKind::Note,
+            WireKind::Cc => TriggerKind::Cc,
+            WireKind::Program => TriggerKind::Program,
+            WireKind::PitchBend => return None,
+        };
+        (kind == TriggerKind::Program || self.value > 0).then_some(MidiTrigger {
+            kind,
+            channel: self.channel,
+            number: self.number,
+        })
+    }
+
+    /// The control as a VJ mapping sees it, learned on `port`: `None` for a program change.
+    pub fn heard(&self, port: &str) -> Option<Heard> {
+        let (kind, max) = match self.kind {
+            WireKind::Note => (MidiKind::Note, 127.0),
+            WireKind::Cc => (MidiKind::Cc, 127.0),
+            WireKind::PitchBend => (MidiKind::PitchBend, 16383.0),
+            WireKind::Program => return None,
+        };
+        let level = f32::from(self.value) / max;
+        Some(Heard {
+            source: Source::Midi {
+                port: Some(port.to_owned()),
+                channel: self.channel,
+                kind,
+                number: self.number,
+            },
+            level,
+            // A bend rests in the middle: only past it is a button pressed.
+            down: if kind == MidiKind::PitchBend {
+                level > 0.5
+            } else {
+                self.value > 0
+            },
+        })
+    }
+}
+
+/// The MIDI message in `bytes`, or `None` for anything a controller sends all the time that means
+/// nothing here (clock, active sensing, aftertouch).
+pub fn decode_midi_message(bytes: &[u8]) -> Option<MidiMsg> {
+    let (&status, data) = bytes.split_first()?;
+    let channel = (status & 0x0F) + 1;
+    let kind = match status & 0xF0 {
+        0x80 | 0x90 => WireKind::Note,
+        0xB0 => WireKind::Cc,
+        0xC0 => WireKind::Program,
+        0xE0 => WireKind::PitchBend,
+        _ => return None,
+    };
+    let data_byte = |at: usize| data.get(at).copied().filter(|byte| *byte < 0x80);
+    let (number, value) = match kind {
+        WireKind::PitchBend => {
+            let (low, high) = (data_byte(0)?, data_byte(1)?);
+            (0, u16::from(high) << 7 | u16::from(low))
+        }
+        WireKind::Program => (data_byte(0)?, 0),
+        _ if status & 0xF0 == 0x80 => (data_byte(0)?, 0),
+        _ => (data_byte(0)?, u16::from(data_byte(1)?)),
+    };
+    Some(MidiMsg {
+        kind,
+        channel,
+        number,
+        value,
+    })
+}
+
 /// The trigger a MIDI message presses, or `None` for anything else: releases (a note off, a note
 /// on with velocity 0, a control at 0), clock, active sensing and the rest of the traffic a
 /// controller sends all the time.
 pub fn decode_midi(bytes: &[u8]) -> Option<MidiTrigger> {
-    let (&status, data) = bytes.split_first()?;
-    let channel = (status & 0x0F) + 1;
-    let kind = match status & 0xF0 {
-        0x90 => TriggerKind::Note,
-        0xB0 => TriggerKind::Cc,
-        0xC0 => TriggerKind::Program,
-        _ => return None,
-    };
-    let number = *data.first().filter(|number| **number < 0x80)?;
-    if kind != TriggerKind::Program {
-        // The velocity or the value: zero means released.
-        let value = *data.get(1).filter(|value| **value < 0x80)?;
-        if value == 0 {
-            return None;
-        }
-    }
-    Some(MidiTrigger {
-        kind,
-        channel,
-        number,
-    })
+    decode_midi_message(bytes)?.trigger()
 }
 
 /// One OSC message.
@@ -417,6 +528,60 @@ mod tests {
         ] {
             assert_eq!(decode_midi(message), None, "{message:02X?}");
         }
+    }
+
+    #[test]
+    fn a_pitch_bend_should_decode_to_fourteen_bits_with_the_low_byte_first() {
+        let bend = decode_midi_message(&[0xE2, 0x7F, 0x7F]).unwrap();
+        assert_eq!(
+            (bend.kind, bend.channel, bend.value),
+            (WireKind::PitchBend, 3, 16383)
+        );
+        assert_eq!(
+            decode_midi_message(&[0xE0, 0x00, 0x40]).unwrap().value,
+            8192
+        );
+        assert_eq!(decode_midi_message(&[0xE0, 0x01, 0x00]).unwrap().value, 1);
+        assert_eq!(bend.trigger(), None, "a bend presses nothing of the cues");
+    }
+
+    #[test]
+    fn a_message_should_be_heard_as_a_level_with_the_port_it_came_from() {
+        let cc = decode_midi_message(&[0xB0, 7, 127])
+            .unwrap()
+            .heard("APC40")
+            .unwrap();
+        assert_eq!(cc.level, 1.0);
+        assert!(cc.down);
+        assert_eq!(
+            cc.source,
+            Source::Midi {
+                port: Some("APC40".into()),
+                channel: 1,
+                kind: MidiKind::Cc,
+                number: 7
+            }
+        );
+        let off = decode_midi_message(&[0x80, 36, 64])
+            .unwrap()
+            .heard("APC40")
+            .unwrap();
+        assert_eq!(
+            (off.level, off.down),
+            (0.0, false),
+            "a note off is released"
+        );
+        let bend = decode_midi_message(&[0xE0, 0x00, 0x40])
+            .unwrap()
+            .heard("p")
+            .unwrap();
+        assert!((bend.level - 0.5).abs() < 0.001);
+        assert!(
+            decode_midi_message(&[0xC0, 5])
+                .unwrap()
+                .heard("p")
+                .is_none()
+        );
     }
 
     #[test]

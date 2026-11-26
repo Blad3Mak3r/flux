@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FrameRate } from "../project/types";
+import type { FrameRate, ProjectMode } from "../project/types";
 
 // Mirrors src-tauri/src/recents.rs, startup.rs, windows.rs and the `project_delete` command.
 
@@ -10,7 +10,17 @@ export interface RecentShow {
   /** `false` when the file was moved or deleted outside Flux. */
   exists: boolean;
   /** `null` when the file is missing or is not a readable show. */
-  meta: { name: string; frameRate: FrameRate; trackCount: number } | null;
+  meta: {
+    name: string;
+    frameRate: FrameRate;
+    trackCount: number;
+    /** A cue show (`timeline`) or a VJ show. */
+    mode: ProjectMode;
+    /** A VJ show's grid. */
+    layerCount: number;
+    deckCount: number;
+    clipCount: number;
+  } | null;
 }
 
 export type StepId = "audio" | "midi" | "ltc" | "mtc";
@@ -31,8 +41,9 @@ export const projectDelete = (path: string) => invoke<void>("project_delete", { 
 export const startupRun = () => invoke<Step[]>("startup_run");
 export const showWelcome = () => invoke<void>("window_show_welcome");
 export const closeEditor = () => invoke<void>("window_close_editor");
-/** Opens the editor on `path`, or on a new show. */
-export const openEditor = (path: string | null) => invoke<void>("window_open_editor", { path });
+/** Opens the editor on `path`, or on a new show of the kind `mode`. */
+export const openEditor = (path: string | null, mode: ProjectMode = "timeline") =>
+  invoke<void>("window_open_editor", { path, mode });
 
 export interface RecoverySummary {
   id: string;

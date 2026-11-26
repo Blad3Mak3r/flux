@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+mod analysis;
 mod audio_commands;
 mod commands;
 mod control;
@@ -6,16 +9,21 @@ mod diagnostics;
 mod export_commands;
 mod graphics;
 mod live_commands;
+mod modulation;
 mod osc_api;
 mod preferences;
 mod recents;
 mod recovery;
 mod show_commands;
 mod startup;
+mod timecode_in;
 mod transport_commands;
 mod update_commands;
 mod video_commands;
 mod video_output;
+mod vj_audio;
+mod vj_commands;
+mod vj_control;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -39,6 +47,7 @@ pub fn run() {
     // Before the first window: the webview reads these once, when it starts.
     graphics::apply_early();
 
+    let analysis = analysis::SharedAnalysis::default();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -50,8 +59,12 @@ pub fn run() {
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(video_output::SharedVideoOutput::default())
+        .manage(vj_commands::SharedGrid::default())
+        .manage(Arc::clone(&analysis))
+        .manage(Arc::new(modulation::Modulation::new(analysis)))
         .manage(video_commands::shared_probes())
         .manage(control::SharedControl::default())
+        .manage(timecode_in::SharedTimecodeIn::default())
         .manage(windows::PendingOpen::from_args(std::env::args_os().skip(1)))
         .setup(|app| {
             recovery::start(app.handle())?;
@@ -60,6 +73,10 @@ pub fn run() {
             if let Err(err) = video_commands::video_cache(app.handle()) {
                 log::warn!("no video cache folder: {err}");
             }
+            // The fonts a text block can use, read before the first one is drawn.
+            flux_text::warm();
+            analysis::start(app.handle());
+            modulation::start(app.handle());
             let app = app.handle().clone();
             let video = app.clone();
             tauri::async_runtime::spawn_blocking(move || control::start(&app));
@@ -125,6 +142,26 @@ pub fn run() {
             commands::project_import_video,
             commands::project_import_vj_video,
             commands::vj_edit,
+            commands::vj_mappings_export,
+            commands::vj_mappings_import,
+            commands::vj_mappings_import_preview,
+            commands::vj_preview,
+            commands::vj_effect_catalog,
+            commands::vj_fonts,
+            vj_commands::vj_launch,
+            vj_commands::vj_launch_column,
+            vj_commands::vj_scrub,
+            vj_commands::vj_cue,
+            vj_commands::vj_release,
+            vj_commands::vj_stop,
+            vj_commands::vj_crossfader,
+            vj_commands::vj_play_state,
+            vj_commands::vj_beat,
+            vj_control::vj_learn,
+            vj_commands::vj_output_frame,
+            vj_commands::vj_preview_frame,
+            modulation::vj_modulation_values,
+            analysis::vj_analysis_levels,
             video_commands::video_probe,
             video_commands::video_clip_edit,
             video_commands::video_thumbnails,
@@ -163,8 +200,12 @@ pub fn run() {
             device_commands::devices_find_audio,
             device_commands::devices_find_midi,
             control::control_get,
+            timecode_in::timecode_in_status,
+            timecode_in::timecode_in_close,
+            timecode_in::timecode_midi_inputs,
             control::control_set,
             control::control_learn,
+            control::control_key,
             graphics::graphics_get,
             graphics::graphics_set,
             graphics::graphics_restart,

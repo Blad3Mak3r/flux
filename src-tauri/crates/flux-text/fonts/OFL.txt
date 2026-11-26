@@ -1,0 +1,4 @@
+Inter-Regular-subset.otf and Inter-Bold-subset.otf are subsets (Basic Latin, Latin-1 Supplement and
+Latin Extended-A, common punctuation) of Inter, Copyright (c) 2016-2023 The Inter Project Authors
+(https://github.com/rsms/inter), licensed under the SIL Open Font License, Version 1.1:
+https://openfontlicense.org

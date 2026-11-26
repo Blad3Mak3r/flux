@@ -299,7 +299,7 @@ function transportMenu(t: Translate): MenuItem[] {
   ];
 }
 
-function helpMenu(t: Translate): MenuItem[] {
+export function helpMenu(t: Translate): MenuItem[] {
   const web = hasNativeWindow();
   return [
     { label: t("menu.docs"), disabled: !web, run: () => void openUrl(DOCS_URL) },

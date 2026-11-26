@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SETUP_SECTIONS, groupOf, isAvailable, portChoices, portKey, portLabel, splitPortKey } from "./outputs.ts";
+import { SETUP_SECTIONS, groupOf, isAvailable, isListed, portChoices, portKey, portLabel, splitPortKey } from "./outputs.ts";
 
 test("ports that share a name are told apart by their place among them", () => {
   const names = ["Hub", "Other", "Hub"];
@@ -19,6 +19,16 @@ test("every page is listed once, in its group, and only the planned ones are una
   assert.equal(groupOf("audio"), "audio");
   assert.equal(groupOf("project"), "show");
   assert.equal(groupOf("controlOsc"), "control");
+  assert.equal(groupOf("controlArtnet"), "control");
   assert.equal(groupOf("http"), "control");
   assert.equal(groupOf("general"), "app");
+});
+
+test("timecode input is only listed for a VJ show, which has no timecode outputs", () => {
+  assert.equal(isListed("timecodeIn", true), true);
+  assert.equal(isListed("timecodeIn", false), false);
+  assert.equal(isListed("analysis", true), true);
+  assert.equal(isListed("analysis", false), false);
+  assert.equal(isListed("ltc", true), false);
+  assert.equal(isListed("ltc", false), true);
 });

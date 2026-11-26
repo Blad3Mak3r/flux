@@ -17,13 +17,30 @@ pub enum Cue {
 pub struct Layer {
     pub track: String,
     pub clip: String,
-    /// Id of an entry in `Project::videos`.
+    /// Id of an entry in `Project::videos`; empty for a generator.
     pub asset: String,
+    /// The video frame to show; for a generator, the milliseconds since it was launched.
     pub frame: u64,
+    /// What makes the picture when it is not a video.
+    pub generator: Option<flux_project::generator::Generator>,
     /// How the clip is sized into the composition.
     pub fit: flux_project::VideoFit,
     /// How much of it shows over what is below, 0 to 1: less while the clip fades in or out.
     pub opacity: f32,
+    /// How it mixes with what is below; a timeline's clips cover it.
+    pub blend: flux_project::vj::Blend,
+    /// How much larger than its fit it is drawn, about its centre; 1 on a timeline.
+    pub scale: f32,
+    /// How far its centre moves from where its fit puts it, as fractions of the composition.
+    pub position: [f32; 2],
+    /// The effects drawn on the picture, the first applied first: the clip's, then its layer's,
+    /// without the bypassed ones; none on a timeline.
+    pub effects: Vec<flux_project::vj::Effect>,
+    /// How long ago the clip was launched, which animated effects run on; nothing on a timeline.
+    pub elapsed: std::time::Duration,
+    /// The beats the grid's clock has counted, which a generator's text steps its lines on; 0 on a
+    /// timeline.
+    pub beats: f64,
 }
 
 /// The rate and length of a video, which the mapping needs; `None` when it could not be read.
@@ -62,8 +79,15 @@ pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
                             clip: clip.id.clone(),
                             asset: clip.asset.clone(),
                             frame,
+                            generator: None,
                             fit: clip.fit,
                             opacity: opacity(clip, position, length),
+                            blend: Default::default(),
+                            scale: 1.0,
+                            position: [0.0, 0.0],
+                            effects: Vec::new(),
+                            elapsed: Default::default(),
+                            beats: 0.0,
                         },
                     ))
                 })
@@ -114,8 +138,15 @@ pub fn upcoming(timeline: &Timeline, position: u64, ahead: u64, probe: Probe<'_>
                 clip: clip.id.clone(),
                 asset: clip.asset.clone(),
                 frame: source_frame(clip, clip.start, rate, video, frames)?,
+                generator: None,
                 fit: clip.fit,
                 opacity: 0.0,
+                blend: Default::default(),
+                scale: 1.0,
+                position: [0.0, 0.0],
+                effects: Vec::new(),
+                elapsed: Default::default(),
+                beats: 0.0,
             })
         })
         .collect()

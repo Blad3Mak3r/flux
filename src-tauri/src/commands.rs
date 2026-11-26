@@ -373,21 +373,22 @@ pub async fn project_import_video(
     .await
 }
 
-/// Adds a video file to the cell of the VJ grid at `layer` and `column`, in place of its clip.
-/// FFmpeg reads it first, like [`project_import_video`].
+/// Adds a video file to the cell of the VJ grid at `layer` and `column`, in place of its clip, or
+/// to the layer's first empty cell in the deck shown with no `column`. FFmpeg reads it first, like
+/// [`project_import_video`].
 #[tauri::command]
 pub async fn project_import_vj_video(
     session: State<'_, SharedSession>,
     project: Project,
     path: PathBuf,
     layer: String,
-    column: String,
+    column: Option<String>,
 ) -> Result<ProjectState> {
     log::info!("importing video {} into the grid", path.display());
     run(&session, move |s| {
         check_video(&path)?;
         s.update(project);
-        s.import_vj_video(&path, &layer, &column)
+        s.import_vj_video(&path, &layer, column.as_deref())
     })
     .await
 }
@@ -413,15 +414,137 @@ fn check_video(path: &Path) -> Result<()> {
 /// the edit made.
 #[tauri::command]
 pub async fn vj_edit(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     project: Project,
     op: flux_project::VjOp,
 ) -> Result<ProjectState> {
-    run(&session, move |s| {
+    let state = run(&session, move |s| {
         s.update(project);
         s.edit_vj(op)
     })
+    .await?;
+    // A level, a side, a bypass or a solo changes how loud the playing clips are.
+    crate::modulation::wake();
+    crate::vj_audio::refresh(&app);
+    Ok(state)
+}
+
+/// What importing a mappings file answers: the project with them and how many were taken.
+#[derive(serde::Serialize)]
+pub struct MappingsImported {
+    #[serde(flatten)]
+    state: ProjectState,
+    imported: usize,
+    skipped: usize,
+    kept: usize,
+}
+
+/// Writes the mappings and dashboard links of the VJ grid to a `.flxmap` file.
+#[tauri::command]
+pub async fn vj_mappings_export(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: String,
+) -> Result<()> {
+    run(&session, move |s| {
+        s.update(project);
+        let text = s.export_vj_mappings()?;
+        std::fs::write(&path, text)?;
+        log::info!("mappings exported to {path}");
+        Ok(())
+    })
     .await
+}
+
+/// What reading a `.flxmap` file would do to the VJ grid: how much resolves and which mappings it
+/// would overwrite. Nothing is changed.
+#[tauri::command]
+pub async fn vj_mappings_import_preview(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: String,
+) -> Result<flux_project::vj_mapfile::ImportPlan> {
+    run(&session, move |s| {
+        let file = flux_project::vj_mapfile::parse(&std::fs::read_to_string(&path)?)?;
+        s.update(project);
+        s.plan_vj_mappings(&file)
+    })
+    .await
+}
+
+/// Reads a `.flxmap` file into the VJ grid as the user decided about what it overwrites; the
+/// answer is the project to show (one undo step) and how many mappings were taken, skipped and
+/// kept.
+#[tauri::command]
+pub async fn vj_mappings_import(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: String,
+    choice: flux_project::vj_mapfile::ImportChoice,
+) -> Result<MappingsImported> {
+    run(&session, move |s| {
+        let file = flux_project::vj_mapfile::parse(&std::fs::read_to_string(&path)?)?;
+        s.update(project);
+        let (state, report) = s.import_vj_mappings(&file, &choice)?;
+        log::info!(
+            "mappings imported from {path}: {} taken, {} skipped",
+            report.imported,
+            report.skipped
+        );
+        Ok(MappingsImported {
+            state,
+            imported: report.imported,
+            skipped: report.skipped,
+            kept: report.kept,
+        })
+    })
+    .await
+}
+
+/// Moves a level or a clip's transform as a fader or a drag goes, without the project going back
+/// and forth; `vj_edit` keeps the value when the hand lets go.
+#[tauri::command]
+pub fn vj_preview(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    op: flux_project::VjOp,
+) -> Result<()> {
+    session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .preview_vj(op)?;
+    crate::vj_audio::refresh(&app);
+    Ok(())
+}
+
+/// What the inspector and the effects browser are drawn from: how many effects a stack holds, the
+/// categories effects are listed in, and every kind with its category and each setting's range,
+/// unit and default; and what a modulation is made of (shapes, bands, limits and the fields of a
+/// layer and a clip that can be modulated).
+#[tauri::command]
+pub fn vj_effect_catalog() -> serde_json::Value {
+    serde_json::json!({
+        "max": flux_project::vj_effects::MAX_EFFECTS,
+        "categories": flux_project::vj_effects::CATEGORIES,
+        "effects": flux_project::vj_effects::catalog(),
+        "modulation": flux_project::vj_modulation::catalog(),
+    })
+}
+
+/// The font families a text block can use, each with the names of its faces: those the machine has,
+/// and the bundled one. Reading the system's fonts takes a moment the first time, so it is off the
+/// UI thread.
+#[tauri::command]
+pub async fn vj_fonts() -> Vec<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(|| {
+        flux_text::families()
+            .into_iter()
+            .map(|f| serde_json::json!({ "name": f.name, "styles": f.styles }))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
 }
 
 #[tauri::command]

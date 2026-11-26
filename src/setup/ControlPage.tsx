@@ -80,7 +80,7 @@ function ActionFields({
  * machine's, kept by the backend in the app's own folder, not in the project. The backend listens
  * and runs the actions; this page shows how each input is doing and forwards the user's choices.
  */
-export function ControlPage({ part }: { part: "midi" | "osc" }) {
+export function ControlPage({ part }: { part: "midi" | "osc" | "artnet" }) {
   const t = useT();
   const [view, setView] = useState<ControlView | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -98,7 +98,11 @@ export function ControlPage({ part }: { part: "midi" | "osc" }) {
 
   useEffect(() => {
     controlGet().then(setView, fail);
-  }, []);
+    // The packet counter moves by itself: read it while the Art-Net page is open.
+    if (part !== "artnet") return;
+    const timer = window.setInterval(() => void controlGet().then(setView, () => undefined), 1000);
+    return () => window.clearInterval(timer);
+  }, [part]);
 
   useEffect(() => {
     if (!learning) return;
@@ -120,6 +124,8 @@ export function ControlPage({ part }: { part: "midi" | "osc" }) {
   const { midi, osc } = prefs;
   const midiLamp = linkLamp(view.midi);
   const oscLamp = linkLamp(view.osc);
+  const artnetLamp = linkLamp(view.artnet);
+  const artnet = prefs.artnet;
   const choices = portChoices(view.inputs.map((port) => port.name));
   const key = portKey({ portName: midi.portName ?? "", portIndex: midi.portIndex });
   const listed = choices.map(portKey);
@@ -128,7 +134,7 @@ export function ControlPage({ part }: { part: "midi" | "osc" }) {
 
   return (
     <div className="setup-fields">
-      <p className="setup-intro">{t("setup.control.intro")}</p>
+      <p className="setup-intro">{t(part === "artnet" ? "setup.control.artnet.intro" : "setup.control.intro")}</p>
 
       {part === "midi" ? (
         <>
@@ -227,6 +233,33 @@ export function ControlPage({ part }: { part: "midi" | "osc" }) {
         )}
       </div>
       {!canLearn && <p className="field-note">{t("setup.control.learn.needsPort")}</p>}
+        </>
+      ) : part === "artnet" ? (
+        <>
+      <label className="check-row">
+        <input type="checkbox" checked={artnet.enabled} onChange={(event) => save({ ...prefs, artnet: { ...artnet, enabled: event.target.checked } })} />
+        <span>{t("setup.control.artnet.enable")}</span>
+      </label>
+      <TextField
+        label={t("setup.control.artnet.universe")}
+        value={artnet.universe === null ? "" : String(artnet.universe)}
+        inputMode="numeric"
+        monospace
+        validate={(text) => (text.trim() === "" || (/^\s*\d+\s*$/.test(text) && Number(text) <= 32767) ? null : t("setup.control.artnet.universeInvalid"))}
+        onCommit={(text) => save({ ...prefs, artnet: { ...artnet, universe: text.trim() === "" ? null : Number(text) } })}
+      />
+      <TextField label={t("setup.control.artnet.interface")} value={artnet.bindAddress} monospace
+        onCommit={(bindAddress) => save({ ...prefs, artnet: { ...artnet, bindAddress } })} />
+      <RowStatus {...artnetLamp} />
+      {detail(view.artnet) && (
+        <p className="field-note" role="alert">
+          {t("setup.control.artnet.busy")} {detail(view.artnet)}
+        </p>
+      )}
+      {view.artnet.state === "listening" && (
+        <p className="field-note" aria-live="polite">{t("setup.control.artnet.packets", { n: view.artnetPackets })}</p>
+      )}
+      <p className="field-note">{t("setup.control.artnet.note")}</p>
         </>
       ) : (
         <>

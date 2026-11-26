@@ -199,5 +199,66 @@ export const VoiceIcon = () => (
 
 export const ArrowUpIcon = () => <Icon><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5" /></Icon>;
 export const ArrowDownIcon = () => <Icon><path d="M8 3v10M3.5 8.5L8 13l4.5-4.5" /></Icon>;
+export const DuplicateIcon = () => <Icon><path d="M5.5 5.5h7v7h-7zM3.5 10.5v-7h7" /></Icon>;
+export const GripIcon = () => (
+  <Icon>
+    <path d="M6 3.5h.5M9.5 3.5h.5M6 8h.5M9.5 8h.5M6 12.5h.5M9.5 12.5h.5" strokeWidth="2" />
+  </Icon>
+);
 export const LoopIcon = () => <Icon><path d="M12.5 5H5a3 3 0 0 0 0 6h6a3 3 0 0 0 0-6M10 2.5 12.5 5 10 7.5" /></Icon>;
 export const ListIcon = () => <Icon><path d="M6 3.5h7M6 8h7M6 12.5h7M2.5 3.5h.5M2.5 8h.5M2.5 12.5h.5" /></Icon>;
+
+export const GlobeIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M2.5 8h11M8 2.5c-2 2.5-2 8.5 0 11M8 2.5c2 2.5 2 8.5 0 11" />
+  </Icon>
+);
+
+export const ImportIcon = () => (
+  <Icon>
+    <path d="M8 2.5v8M5 7.5l3 3 3-3M3 13.5h10" />
+  </Icon>
+);
+
+export const EyeIcon = () => (
+  <Icon>
+    <path d="M1.5 8 Q8 1.5 14.5 8 Q8 14.5 1.5 8 Z" />
+    <circle cx="8" cy="8" r="2" />
+  </Icon>
+);
+
+export const EyeOffIcon = () => (
+  <Icon>
+    <path d="M1.5 8 Q8 1.5 14.5 8 Q8 14.5 1.5 8 Z" opacity="0.45" />
+    <path d="M2.5 13.5 L13.5 2.5" />
+  </Icon>
+);
+
+/** A slice: a rectangle cut out of the picture. */
+export const SliceIcon = () => (
+  <Icon>
+    <path d="M3.5 4.5 H12.5 V11.5 H3.5 Z" />
+  </Icon>
+);
+
+/** A mask: a free shape. */
+export const MaskIcon = () => (
+  <Icon>
+    <path d="M3 11.5 L5.5 3.5 L12.5 5.5 L11 12.5 Z" strokeDasharray="2 1.5" />
+  </Icon>
+);
+
+/** A screen: a display on a stand. */
+export const ScreenIcon = () => (
+  <Icon>
+    <path d="M2.5 3.5 H13.5 V10.5 H2.5 Z M6 13.5 H10 M8 10.5 V13.5" />
+  </Icon>
+);
+
+/** A wave: what drives a setting by itself, as its modulation button. */
+export const ModulationIcon = () => (
+  <Icon>
+    <path d="M1.5 9 C4 2.5 6.5 2.5 8 8 C9.5 13.5 12 13.5 14.5 7" />
+  </Icon>
+);

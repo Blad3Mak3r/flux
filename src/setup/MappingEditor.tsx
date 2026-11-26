@@ -10,7 +10,7 @@ import type { Point, Rect, Size, Slice } from "../video/mapping";
 const NO_SLICES: Slice[] = [];
 
 /** Where the pointer is over `box`, as 0 to 1 of its width and height. */
-function at(
+export function at(
   event: { clientX: number; clientY: number },
   box: HTMLElement,
 ): Point {
@@ -25,7 +25,7 @@ function at(
  * Follows a drag on `box` and calls `onMove` with how far the pointer went (as 0 to 1 of the box)
  * and `onEnd` once on release. Only the release reaches the backend, so one drag is one undo step.
  */
-function drag(
+export function drag(
   event: ReactPointerEvent<Element>,
   box: HTMLElement | null,
   onMove: (delta: Point) => void,
@@ -56,7 +56,7 @@ function drag(
 const pct = (v: number) => `${v * 100}%`;
 /** A fraction of `of` pixels, as the whole number of pixels shown in a field. */
 const px = (v: number, of: number) => String(Math.round(v * of));
-const DEFAULT_SIZE: Size = { width: 1920, height: 1080 };
+export const DEFAULT_SIZE: Size = { width: 1920, height: 1080 };
 const CORNERS = ["topLeft", "topRight", "bottomRight", "bottomLeft"] as const;
 const EDGES = ["left", "right", "top", "bottom"] as const;
 const NO_MASKS: Mask[] = [];
@@ -427,24 +427,56 @@ export function MappingEditor({
         </div>
       )}
       {editingMask && (
-        <div className="mapping-slice">
+        <MaskFields
+          screenId={screenId}
+          mask={currentMask}
+          point={point}
+          setPoint={setPoint}
+          onRemoved={() => setFocus("slice")}
+        />
+      )}
+      {!editingMask && current && (
+        <SliceFields screenId={screenId} slice={shown(current)} picture={picture} display={display} />
+      )}
+    </section>
+  );
+}
+
+/** The fields of one mask of `screenId`; `point` is its selected point. */
+export function MaskFields({
+  screenId,
+  mask,
+  point,
+  setPoint,
+  onRemoved,
+}: {
+  screenId: string;
+  mask: Mask;
+  point: number;
+  setPoint: (point: number) => void;
+  onRemoved: () => void;
+}) {
+  const t = useT();
+  const editMask = (op: MaskOp) => maskEdit(screenId, op);
+  return (
+    <div className="mapping-slice">
           <TextField
             label={t("setup.video.maskName")}
-            value={currentMask.name}
+            value={mask.name}
             onCommit={(name) =>
-              void editMask({ op: "rename", id: currentMask.id, name })
+              void editMask({ op: "rename", id: mask.id, name })
             }
           />
           <div className="button-row">
             <button
               type="button"
               className="button"
-              aria-pressed={currentMask.invert ?? false}
+              aria-pressed={mask.invert ?? false}
               onClick={() =>
                 void editMask({
                   op: "setInvert",
-                  id: currentMask.id,
-                  invert: !currentMask.invert,
+                  id: mask.id,
+                  invert: !mask.invert,
                 })
               }
             >
@@ -453,12 +485,12 @@ export function MappingEditor({
             <button
               type="button"
               className="button"
-              aria-pressed={currentMask.hidden ?? false}
+              aria-pressed={mask.hidden ?? false}
               onClick={() =>
                 void editMask({
                   op: "setHidden",
-                  id: currentMask.id,
-                  hidden: !currentMask.hidden,
+                  id: mask.id,
+                  hidden: !mask.hidden,
                 })
               }
             >
@@ -470,8 +502,8 @@ export function MappingEditor({
               onClick={() =>
                 void editMask({
                   op: "addPoint",
-                  id: currentMask.id,
-                  after: Math.min(point, currentMask.points.length - 1),
+                  id: mask.id,
+                  after: Math.min(point, mask.points.length - 1),
                 }).then(() => setPoint(point + 1))
               }
             >
@@ -480,12 +512,12 @@ export function MappingEditor({
             <button
               type="button"
               className="button"
-              disabled={currentMask.points.length <= 3}
+              disabled={mask.points.length <= 3}
               onClick={() =>
                 void editMask({
                   op: "removePoint",
-                  id: currentMask.id,
-                  index: Math.min(point, currentMask.points.length - 1),
+                  id: mask.id,
+                  index: Math.min(point, mask.points.length - 1),
                 }).then(() => setPoint(Math.max(0, point - 1)))
               }
             >
@@ -495,8 +527,8 @@ export function MappingEditor({
               type="button"
               className="button danger"
               onClick={() =>
-                void editMask({ op: "remove", id: currentMask.id }).then(() =>
-                  setFocus("slice"),
+                void editMask({ op: "remove", id: mask.id }).then(() =>
+                  onRemoved(),
                 )
               }
             >
@@ -505,14 +537,30 @@ export function MappingEditor({
           </div>
           <p className="field-note">{t("setup.video.maskNote")}</p>
         </div>
-      )}
-      {!editingMask && current && (
-        <div className="mapping-slice">
+  );
+}
+
+/** The fields of one slice of `screenId`, cut from `picture` and placed on `display`. */
+export function SliceFields({
+  screenId,
+  slice,
+  picture,
+  display,
+}: {
+  screenId: string;
+  slice: Slice;
+  picture: Size;
+  display: Size;
+}) {
+  const t = useT();
+  const edit = (op: MappingOp) => mappingEdit(screenId, op);
+  return (
+    <div className="mapping-slice">
           <TextField
             label={t("setup.video.sliceName")}
-            value={current.name}
+            value={slice.name}
             onCommit={(name) =>
-              void edit({ op: "rename", id: current.id, name })
+              void edit({ op: "rename", id: slice.id, name })
             }
           />
           <fieldset className="mapping-values">
@@ -524,7 +572,7 @@ export function MappingEditor({
                 inputMode="numeric"
                 monospace
                 value={px(
-                  shown(current).input[field],
+                  slice.input[field],
                   field === "x" || field === "width"
                     ? picture.width
                     : picture.height,
@@ -532,7 +580,7 @@ export function MappingEditor({
                 onCommit={(text) =>
                   void edit({
                     op: "setInputValue",
-                    id: current.id,
+                    id: slice.id,
                     field,
                     text,
                     size: picture,
@@ -553,13 +601,13 @@ export function MappingEditor({
                   inputMode="numeric"
                   monospace
                   value={px(
-                    shown(current).corners[corner][axis],
+                    slice.corners[corner][axis],
                     axis === "x" ? display.width : display.height,
                   )}
                   onCommit={(text) =>
                     void edit({
                       op: "setCornerValue",
-                      id: current.id,
+                      id: slice.id,
                       corner,
                       axis,
                       text,
@@ -578,9 +626,9 @@ export function MappingEditor({
                 label={t(`setup.video.edge.${field}`)}
                 inputMode="decimal"
                 monospace
-                value={percent(current.softEdge?.[field] ?? 0)}
+                value={percent(slice.softEdge?.[field] ?? 0)}
                 onCommit={(text) =>
-                  void edit({ op: "setSoftEdge", id: current.id, field, text })
+                  void edit({ op: "setSoftEdge", id: slice.id, field, text })
                 }
               />
             ))}
@@ -588,11 +636,11 @@ export function MappingEditor({
               label={t("setup.video.edge.gamma")}
               inputMode="decimal"
               monospace
-              value={String(current.softEdge?.gamma ?? 1)}
+              value={String(slice.softEdge?.gamma ?? 1)}
               onCommit={(text) =>
                 void edit({
                   op: "setSoftEdge",
-                  id: current.id,
+                  id: slice.id,
                   field: "gamma",
                   text,
                 })
@@ -603,12 +651,12 @@ export function MappingEditor({
             <button
               type="button"
               className="button"
-              aria-pressed={current.hidden ?? false}
+              aria-pressed={slice.hidden ?? false}
               onClick={() =>
                 void edit({
                   op: "setHidden",
-                  id: current.id,
-                  hidden: !current.hidden,
+                  id: slice.id,
+                  hidden: !slice.hidden,
                 })
               }
             >
@@ -617,20 +665,18 @@ export function MappingEditor({
             <button
               type="button"
               className="button"
-              onClick={() => void edit({ op: "resetCorners", id: current.id })}
+              onClick={() => void edit({ op: "resetCorners", id: slice.id })}
             >
               {t("setup.video.resetCorners")}
             </button>
             <button
               type="button"
               className="button danger"
-              onClick={() => void edit({ op: "remove", id: current.id })}
+              onClick={() => void edit({ op: "remove", id: slice.id })}
             >
               {t("setup.video.removeSlice")}
             </button>
           </div>
         </div>
-      )}
-    </section>
   );
 }

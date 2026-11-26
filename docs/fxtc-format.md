@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v14)
+# `.flx` / `.fxtc` project format (v15)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -35,7 +35,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
 | `videos[]` | `{ id, name, file }` | The video files the video tracks show. `file` is the archive path under `video/`. Ids share one namespace with `assets` (an audio clip cannot point at a video, nor a video clip at audio), and files are unique across both. A video no clip shows is dropped on save. Absent is an empty list. Added in version 13. |
 | `mode` | `timeline` \| `vj` | The kind of project, chosen when it is created and never changed: a timeline project plays its timelines, a VJ project its VJ grid. Absent is `timeline`. Added in version 14. |
-| `vj` | `{ layers, columns }` | The VJ grid, see [VJ grid](#vj-grid-version-14). Present in a VJ project only; a timeline project with a grid is rejected. Added in version 14. |
+| `vj` | `{ layers, decks, deck }` | The VJ grid, see [VJ grid](#vj-grid-version-14). Present in a VJ project only; a timeline project with a grid is rejected. Added in version 14. |
 | `timelines[]` | `{ id, name, timecode, tempo, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
 | `timelines[].tempo` | `{ bpm, beatsPerBar, click }` | The beat grid of the timeline, counted from its origin: `bpm` 20 to 400, `beatsPerBar` 1 to 16 (the beat is a quarter note), `click` whether the metronome plays while this timeline runs. Absent in files written before it existed, read as 120 BPM, 4 beats, click off, without a version bump. Which bars the ruler shows is a view setting of the window and is not stored. |
 | `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
@@ -403,19 +403,173 @@ Adds `mode` and `vj`. Nothing is reshaped: an older project opens as a timeline 
 #### VJ grid (version 14)
 
 A grid of clips launched by hand, like a media server's clip deck, in a project whose `mode` is `vj`. A project cannot
-change its kind. A VJ project still holds a timeline (the list is never empty), so a later version can let the grid
-follow the clock. A new VJ project starts with 3 layers and 8 columns. Which clip is playing is not stored: it belongs
+change its kind. Since version 15 a VJ show has a `project.json` of its own shape, described in
+[Version 15](#version-15-a-vj-show-s-own-file): its grid fields are at the top level, without `vj.`. A version 14 VJ show
+is read as below and saved in the new shape. A new VJ project starts with one deck of 8 columns and 3 layers. Which clip is playing is not stored: it belongs
 to the running show.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `vj.columns[]` | `{ id, name? }` | Left first, 1 to 64. `name` absent is the column's number. |
-| `vj.layers[]` | `{ id, name?, opacity?, gainDb?, crossfade?, clips? }` | Drawing order: the first is at the bottom, the last on top. 1 to 16. `opacity` 0 to 1, absent is 1; `gainDb` −60 to 6, the volume of its clips' sound, absent is 0 dB; `crossfade` is `a` or `b`, the crossfader side, absent is neither. Layer and column ids are unique within the grid; names are 1 to 64 characters. |
-| `vj.layers[].clips[]` | `{ id, column, asset, name?, playback?, fit? }` | At most one per column of the layer. `column` is a column id; `asset` an entry of `videos`. `id` is unique among every clip of the project. `playback` is what the clip does at the end of its video: `loop` (absent), `once` or `pingPong`. `fit` as for video clips, absent is `fit`. |
+| `vj.decks[]` | `{ id, name?, columns }` | Sets of columns, 1 to 32, switched by hand while the layers stay. `name` absent is the deck's number. |
+| `vj.decks[].columns[]` | `{ id, name? }` | Left first, 1 to 64 per deck. `name` absent is the column's number. |
+| `vj.deck` | string | The id of the deck shown. |
+| `vj.clock` | `internal` \| `ltc` \| `mtc` | Where the show's timecode clock comes from; absent is `internal`. The show's tempo is the `tempo.bpm` of its one timeline. |
+| `vj.layers[]` | `{ id, name?, global?, master?, opacity?, volume?, blend?, transition?, transitionEffect?, autopilot?, crossfade?, bypass?, solo?, collapsed?, effects?, modulation?, clips? }` | Drawing order: the first is at the bottom, the last on top. 1 to 16, shared by every deck. A `global` layer keeps its clips when the deck changes and is not launched with a column. `master`, `opacity` (video) and `volume` (audio) are 0 to 1, absent is 1; the picture is `master` × `opacity`. `blend` is how the layer is drawn over the ones below, by its alpha and opacity: `alpha` (absent), `add`, `subtract`, `multiply`, `screen`, `lighten`, `darken`, `difference`, `exclusion`, `overlay`, `softLight`, `hardLight`, `colorDodge`, `colorBurn`, `linearLight`, `vividLight`, `pinLight`, `hue`, `saturation`, `color`, `luminosity`, `differenceInverted`, or the keys and masks `alphaCut`, `lumaKey`, `lumaKeyInverted`, `lumaIsAlpha`, `mask50`, `rgb` and `displace` (see [Video](video.md)); older files only have the first seven. `transition` is how long, 0 to 10 seconds, a launched clip takes to replace the one playing on the layer, absent is 0 (a cut); `transitionEffect` is `alpha` (absent, the new clip fades in over the old) or `add` (one fades out while the other fades in). `autopilot` is what the layer launches when the clip playing ends a pass: `off` (absent), `next`, `previous` or `random`; older files load as `off`. `crossfade` is `a` or `b`, the crossfader side, absent is neither. `bypass` hides the layer; with any `solo` layer only those show. `collapsed` folds the layer's row on the grid to a thin one; it plays as before. `effects` is the layer's effect stack (see below), absent when empty. `modulation` drives `master`, `opacity` or `volume` by itself (see [VJ modulation](#vj-modulation)), absent when empty. Ids of layers, decks and columns are unique within the grid; names are 1 to 64 characters. |
+| `vj.layers[].clips[]` | `{ id, column?, slot?, asset?, generator?, name?, playback?, trigger?, speed?, duration?, direction?, tempo?, region?, cues?, fit?, scale?, position?, effects?, modulation? }` | At most one per cell. A clip of a deck layer has `column`, a column id of any deck; a clip of a global layer has `slot`, its position from the left, the same on every deck. `asset` is an entry of `videos`; a generator clip has no `asset` but a `generator`, `{ kind, ... }`, the picture Flux makes for it, which fills the composition: `solid` (`colour`), `strobe` (`colour`, `rate` flashes a second above 0 up to 30, `width` of each period lit above 0 up to 1; between flashes what is below shows), `gradient` (`from`, `to`, `angle` in degrees -360 to 360, 0 left to right and 90 top to bottom), `bars` (colour bars) or `noise` (`colour`, `rate` new snow a second above 0 up to 30) or `text`, a block of text over a clear background (`text` up to 4000 characters, lines split by `\n` and no other control characters, default `Text`; `font` family and `style` face by name, default `Inter` and `Bold`, falling back to the bundled Inter when the machine lacks them; `size` of the font as a fraction of the composition's height, 0.01 to 2, default 0.12; `colour`; `opacity` 0 to 1; `align` `left`, `center` (default) or `right` between the lines; `positionX` and `positionY`, the centre of the block as fractions of the composition, -1 to 2, default 0.5; `rotation` in degrees clockwise, -360 to 360; `tracking` and `leading`, extra space between glyphs and between lines in ems, -0.5 to 2, default 0; `lines` `all` (default) or `one`; `line`, the line shown with `one` (0-based, an empty one goes on to the next that has text); `advance`, 0 (by hand, default), 1, 2, 4, 8 or 16 beats of the grid's clock per step to the next line). Colours are `#rrggbb`; a parameter left out takes its default (white, 8 flashes of half the period, black to white at 0°, 30 a second). Added without a version bump: an older build does not read a `text` generator. A clip with both or neither is rejected. `id` is unique among every clip of the project. `playback` is what the clip does at the end of its video: `loop` (absent), `once` or `pingPong`. `trigger` is `normal` (absent, plays until something else replaces it) or `piano` (plays while held). The clip's transport, all absent when it has its default (so the format version is unchanged: an older file has the defaults and an older build reads a newer file's other fields as it always did): `speed` is how fast it plays when its tempo is free, 0.05 to 8, absent is 1; `direction` is `forward` (absent), `reverse` or `pause`; `tempo` is `{ "kind": "free" }` (absent) or `{ "kind": "beats", "beats": n }` with `n` one of 1, 2, 4, 8, 16, 32, 64 or 128, where one pass through the region lasts exactly that many beats of the composition's tempo whatever the speed; `region` is `{ start, end }`, the part of the clip that plays and repeats as fractions 0 to 1 of its length with `end - start` at least 0.001, absent is all of it, and `playback` applies inside it; `cues` is 8 entries, each `null` or a fraction 0 to 1 of the clip's length. `duration` is how long a still image or a generator lasts, in seconds, 0.1 to 3600, absent is 10: the length its transport runs over (a video keeps its file's length and ignores it). A generator's transport is otherwise the same as a video's. See [Clip transport](video.md#clip-transport). `fit` as for video clips, absent is `fit`. `scale` draws the clip that many times its fitted size about its centre, 0 to 10, absent is 1 (100%). `position` is `[x, y]`, how far its centre moves right and down from where its fit puts it, as fractions of the composition's width and height, -2 to 2 each, absent is `[0, 0]`. `effects` is the clip's effect stack (see below), absent when empty. `modulation` drives `scale`, `positionX` or `positionY` by itself (see [VJ modulation](#vj-modulation)), absent when empty. |
+| `vj.mappings[]` | `{ id, source, target, min, max, invert?, mode? }` | What MIDI controls and OSC addresses drive, at most 512; absent when empty. `source` is `{ "type": "midi", port?, channel, kind, number }` (`channel` 1 to 16, `kind` `cc`, `note` or `pitchBend`, `number` 0 to 127, 0 for a bend; `port` the input's name, absent is any) or `{ "type": "osc", address }` (starts with `/`, at most 256 characters), or `{ "type": "artnet", universe, channel, fine? }` (a DMX channel: `universe` the 15-bit Port-Address 0 to 32767 as on the wire, `channel` 1 to 512, `fine` another channel 1 to 512 holding the low byte of a 16-bit value, absent is 8 bits), or `{ "type": "key", code, ctrl?, alt?, shift?, meta? }` (a key of the keyboard by its place, `KeyboardEvent.code` such as `KeyQ` or `Digit5`, letters and digits only, with the modifiers held, each absent when false; the combinations the app uses itself are refused when learned, see [Remote control](remote-control.md#keyboard)). `target` is tagged by `kind`: an action (`clipLaunch` `clip`, `columnLaunch` `column`, `layerStop`, `layerAutopilot` `layer`, `deckSelect` `deck`, `deckNext`, `deckPrev`, `stopAll`, `bpmTap`, `bpmResync`, `bpmPlus`, `bpmMinus`, `bpmDouble`, `bpmHalf`, `bpmNudgeUp`, `bpmNudgeDown`), a switch (`layerBypass`, `layerSolo` `layer`, `effectBypass` `effect`, `bpmPause`) or a level (`layerMaster`, `layerVolume`, `layerOpacity`, `layerTransition` `layer`, `crossfader`, `bpm`, `clipSpeed` `clip`, `effectParam` `effect` `param`, `generatorNumber` `clip` `name`, `dashboard` `knob` 0 to 7). `min` and `max` are where a level goes with the source at 0 and at 1, in the target's own units and within its range (min may be above max); `invert` turns the source round; `mode` is `trigger` (absent), `toggle` (switches only) or `hold`. `follow` is `id` (absent: the mapping keeps hold of that clip, layer or effect wherever it moves) or `position` (a clip, layer, column, deck or effect target that follows its slot): then `place` holds the slot as a target whose ids are places (see the `.flxmap` format below) and `target` is whatever fills the slot now, rewritten after every edit; `parked` (absent is false) marks a position mapping whose slot is empty, which drives nothing and is not checked against the grid until something fills the slot. Ids are unique, and every target must exist: a file that maps something that is not there is refused, and an edit that removes a target removes its mappings. At most one mapping per target and per source. Added without a version bump: an older build ignores the field and loses the mappings when it saves, and one that does not know the `artnet` or `key` sources refuses a project that holds one. |
+| `vj.dashboard[]` | `{ value, name?, links? }` | The eight knobs of the composition dashboard, in order, at most 8; absent is every knob at 0 with no links. `value` is 0 to 1, `name` 1 to 64 characters, `links[]` (at most 16) is `{ target, min, max }`, a level target as above (not a `dashboard` one) with the numbers the knob gives it at 0 and at 1. The links are applied when a knob turns; the stored values of the targets are the ones the knob last set. Added without a version bump. |
+| `compositionEffects[]` | `{ id, bypass?, modulation?, effect, ... }` | The top-level `compositionEffects` of a VJ file: the effects of the composition, applied to the final mix of the layers before the output mapping, at most 16, the first applied first. Same entries as `effects[]`, plus the kinds that only exist here (`feedback`, `trails`, `bloom`). Absent when empty. `compositionBypass` (true skips the whole stack, absent is false) sits beside it. Both are optional additions, so the format version is unchanged (an older build reads the file without them and draws no composition effects; one that does not know a kind refuses the project). Effect ids are unique across them and the clips' and layers'. |
+| `effects[]` | `{ id, bypass?, modulation?, effect, ... }` | On a clip or a layer, at most 16 each, the first applied first. A clip's stack applies to its picture first and then its layer's, so a layer's effects reach both clips of a transition. `id` is unique among every effect of the project and seeds the effect's randomness; `bypass` skips the effect (absent is false). `effect` names the kind and the rest are its settings, each brought into range by the ops and checked on load (a NaN, a value out of range, a choice that is not one of its options or a bad colour is refused). The kinds, their categories and settings are listed under [VJ effects](#vj-effects). New kinds are new values of `effect`: the field was already optional, so the format version is unchanged (a build that does not know a kind refuses the project, as with any unknown value). `modulation` drives numeric settings by themselves (see [VJ modulation](#vj-modulation)), absent when empty. |
 
-Commands: `vj_edit` (`project`, `op`) edits the grid of a VJ project; `op` is tagged by `op`: `addLayer`,
-`removeLayer`, `moveLayer`, `renameLayer`, `layerOpacity`, `layerGain`, `layerCrossfade`, `addColumn`, `removeColumn`,
-`moveColumn`, `renameColumn`, `placeVideo` (a video of the project into a cell), `moveClip` (swaps with the clip already
-there), `removeClip`, `renameClip`, `clipPlayback`, `clipFit`. The last layer and column cannot be removed.
-`project_import_vj_video` (`project`, `path`, `layer`, `column`) adds a video file from disk into a cell. Both answer
+#### VJ effects
+
+The kinds are described once, in `flux_project::vj_effects::catalog()`, which holds each one's category and every
+setting's range, step, unit and default; the ops take their defaults and limits from it and `vj_effect_catalog` hands the
+same table to the interface, which draws its lists and controls from it. Categories: `colour`, `distort`, `blur`,
+`glitch`, `stylise`, `time` and `feedback`. Colour work (levels, posterize, threshold, solarize, noise) happens on a gamma 2.2
+scale of the light so that its steps look even; everything else works on linear light.
+
+Effects marked **paced** move with time and carry `sync` (`free` or `beats`), `rate` (cycles a second, 0 to 30, used when
+free) and `beats` (the length of one cycle in beats of the show's tempo: 1/4, 1/2, 1, 2, 4, 8 or 16, used when synced).
+What a cycle is depends on the effect and is given below; at `rate` 0 a free effect stands still.
+
+| Category | `effect` | Settings (range, default) |
+| --- | --- | --- |
+| colour | `brightness` | `amount` -1 to 1 (0) |
+| colour | `contrast` | `amount` 0 to 4 (1) |
+| colour | `saturation` | `amount` 0 to 4 (1) |
+| colour | `hue` | `degrees` -180 to 180 (0) |
+| colour | `tint` | `colour` (`#ff8800`), `amount` 0 to 1 (0.5) |
+| colour | `invert` | `amount` 0 to 1 (1) |
+| colour | `levels` | `black` 0 to 1 (0), `white` 0 to 1 (1), `gamma` 0.1 to 4 (1) |
+| colour | `colorize` | `dark` (`#1a0b3d`), `light` (`#ffb347`), `amount` 0 to 1 (1): a gradient map of the picture's grey |
+| colour | `solarize` | `threshold` 0 to 1 (0.5) |
+| distort | `mirror` | `axis` `horizontal`, `vertical` or `both` |
+| distort | `zoom` | `amount` 0.25 to 8 (1); outside the picture is transparent |
+| distort | `shift` | `x`, `y` -1 to 1 (0), wrapping around |
+| distort | `rotate` | paced; `angle` -180 to 180 (0), `spin` -4 to 4 turns a cycle (0); the corners it leaves are transparent |
+| distort | `kaleidoscope` | paced; `segments` 2 to 32 (6), `rotation` -180 to 180 (0), `spin` -4 to 4 turns a cycle (0.25), `x`, `y` centre 0 to 1 (0.5) |
+| distort | `polar` | `amount` 0 to 1 (1): rectangle to polar |
+| distort | `wave` | paced; `amplitude` 0 to 0.25 (0.03), `frequency` 0 to 32 waves across (4), `direction` `horizontal`, `vertical` or `both`; a wave travels one period a cycle |
+| distort | `twirl` | `angle` -1440 to 1440 degrees (180), `radius` 0 to 2 picture heights (0.5), `x`, `y` centre |
+| distort | `bulge` | `amount` -1 to 1 (0.5; negative pinches), `radius` 0.05 to 2 (0.6), `x`, `y` centre |
+| distort | `tile` | `columns`, `rows` 1 to 16 (2), `mirror` (true: alternate tiles are turned over) |
+| distort | `pixelate` | `size` 0 to 0.25 of the height (0.02); 0 is none |
+| distort | `displace` | paced; `amplitude` 0 to 0.25 (0.03), `scale` 0.5 to 32 blobs across (6); the noise drifts one unit a cycle |
+| blur | `blur` | `radius` 0 to 1 of the largest blur (0.1), 5% of the picture's short side |
+| blur | `radialBlur` | `amount` 0 to 1 (0.3), `x`, `y` centre |
+| blur | `zoomBlur` | `amount` 0 to 1 (0.3), `x`, `y` centre |
+| glitch | `shiftGlitch` | paced; `amount` 0 to 1 of the width (0.15), `block` 0.005 to 0.5 band height (0.06), `probability` 0 to 1 (0.35); the bands are drawn again every cycle |
+| glitch | `twitch` | paced; `amount` 0 to 1 (0.5), `probability` 0 to 1 (0.5); in a cycle that is picked the picture jumps by up to a quarter of its size, scales between 0.5 and 1.5 and changes light, held until the next cycle |
+| glitch | `rgbSplit` | paced; `amount` 0 to 1 (0.3; 1 pulls 5% of the height), `angle` -180 to 180 (0), `animate` (turns the angle once a cycle) |
+| stylise | `posterize` | `levels` 2 to 32 (4) |
+| stylise | `threshold` | `level` 0 to 1 (0.5), `softness` 0 to 1 (0.05), `dark` (`#000000`), `light` (`#ffffff`) |
+| stylise | `edgeDetect` | `strength` 0 to 8 (1), `mode` `edges` or `glow` (added to the picture) |
+| stylise | `vignette` | `amount` 0 to 1 (0.6), `softness` 0 to 1 (0.5), `roundness` 0 (the frame) to 1 (an ellipse) (0.5) |
+| stylise | `noise` | `amount` 0 to 1 (0.25), `size` 0 to 1 (0.1), `animated` (new grain 24 times a second) |
+| stylise | `scanlines` | paced; `count` 2 to 540 (120), `intensity` 0 to 1 (0.5); the lines scroll one line a cycle |
+| time | `strobe` | paced; `colour` (`#ffffff`), `duty` 0.02 to 1 of each cycle (0.25), `mode` `flash` or `blackout` |
+| time | `slide` | paced; `x`, `y` -4 to 4 pictures a cycle (0.25, 0), `wrap` (true goes round; false lets the picture leave and come back) |
+| time | `roll` | paced; `jitter` 0 to 1 (0.2); the picture rolls up one picture a cycle, like a TV out of vertical hold |
+| feedback | `feedback` | **composition only**; `amount` 0 to 1 (0.6), `zoom` 0.5 to 2 (1.02), `rotate` -180 to 180 degrees a second (0), `x`, `y` -1 to 1 of the frame a second (0), `hue` -180 to 180 degrees a second (0), `blend` `mix`, `add` or `lighten` |
+| feedback | `trails` | **composition only**; `decay` 0 to 1 (0.9), `mode` `blend`, `lighten` or `add` |
+| feedback | `bloom` | **composition only**; `threshold` 0 to 1 (0.6), `intensity` 0 to 4 (1), `radius` 0 to 1 (0.5) |
+
+The three **composition only** kinds (the catalogue marks them `compositionOnly`) need the frames before them or the
+pixels around them, so a clip's or a layer's stack refuses them (`addEffect` and the file's validation). `amount` and
+`decay` are the share of the old frame kept every 60th of a second, and `zoom` is how many times larger it is drawn in
+that time; movements and hue are per second. All of them are scaled by the seconds since the last frame, so the look does
+not change with the frame rate. See [Composition effects](video.md#composition-effects).
+
+Randomness is never drawn from a generator: it is a hash of the effect's id, the step of time (the whole cycle) and the
+pixel or the row, so the same frame is the same wherever it is drawn and a stop and a launch repeat it.
+
+#### VJ modulation
+
+Any numeric setting that can be modulated is driven by an LFO or by the sound, between a minimum and a maximum, as in
+Resolume. A modulation is stored with what it moves, in a `modulation` object keyed by the setting; the field is absent
+when empty on effects, layers and clips, so it is an optional addition and the format version is unchanged (a project
+written before modulation reads as one with none). The setting itself keeps the value the user set: modulation is
+evaluated while the grid plays and never written back.
+
+| Where | Keys | Range of `min` and `max` |
+| --- | --- | --- |
+| `effects[].modulation` | the key of any numeric setting of the effect's kind in the catalogue, except `rate` and `beats` (what an LFO is itself paced by) | the setting's own range |
+| `vj.layers[].modulation` | `master`, `opacity`, `volume` | 0 to 1 |
+| `vj.layers[].clips[].modulation` | `scale`, `positionX`, `positionY` | 0 to 10; -2 to 2 |
+| `vj.layers[].clips[].modulation` of a generator clip | `generator.<name>` for a number its generator has: `size`, `opacity`, `positionX`, `positionY`, `rotation`, `tracking`, `leading` (text), `rate`, `width` (strobe), `angle` (gradient), `rate` (noise) | the generator's own limits above |
+
+```json
+{ "source": { "kind": "lfo", "shape": "sine", "pace": { "sync": "beats", "rate": 0.5, "beats": 1 }, "phase": 0 }, "min": -180, "max": 180 }
+{ "source": { "kind": "audio", "band": "low", "gain": 1, "attack": 0.02, "release": 0.25 }, "min": 0, "max": 1 }
+```
+
+`min` and `max` are in the setting's own units and `min` may be above `max`, which inverts the movement. The value is
+`min + (max - min) * s` with `s` from 0 to 1. An `lfo` has a `shape` (`sine`, `triangle`, `sawUp`, `sawDown`, `square`,
+`random`, `smoothRandom`), a `pace` as an effect's (`sync` `free` with `rate` in Hz, 0 to 30, or `beats` with `beats` one
+of 1/4, 1/2, 1, 2, 4, 8 or 16) and a `phase`, 0 to 1. An `audio` source follows a `band` (`low`, `mid`, `high` or
+`level`) times a `gain` (0 to 8), cut at 1 and smoothed by an `attack` and a `release` in seconds (0 to 5 each). Values
+out of range are brought into it by the op and refused by the load check; a NaN is refused. The evaluation, its timebase
+and the audio analysis are described in [VJ modulation](video.md#modulation).
+
+Commands: `vj_edit` (`project`, `op`) edits the grid of a VJ project; `op` is tagged by `op`: `addLayer` (`global`),
+`removeLayer`, `moveLayer`, `renameLayer`, `layerMaster`, `layerOpacity`, `layerVolume`, `layerTransition`,
+`layerBlend`, `layerTransitionEffect`, `layerCrossfade`, `layerBypass`, `layerSolo`, `layerCollapse`, `setBpm`, `nudgeBpm`, `scaleBpm`, `tapBpm`, `setClock`, `addDeck`, `removeDeck`,
+`moveDeck`, `renameDeck`, `selectDeck`, `addColumn` (to the deck shown), `removeColumn`, `moveColumn`, `renameColumn`,
+`placeVideo` (a video of the project into a cell), `placeGenerator` (`generator`, `layer`, `column`: a new generator clip into a cell), `moveClip` (swaps with the clip already there), `removeClip`,
+`renameClip`, `clipPlayback`, `clipSpeed` (`value`, brought into 0.05 to 8), `clipDuration` (`value`, brought into 0.1 to 3600 seconds; only a still image or a generator uses it), `clipDirection` (`direction`), `clipTempo` (`tempo`; the beats go to the nearest allowed length), `clipRegion` (`start`, `end`), `clipCue` (`index` 0 to 7, `position` or `null` to clear it), `clipTrigger`, `clipFit`, `clipScale` (`value`), `clipPosition` (`x`, `y`), `addEffect` (`target`: `{ clip }`, `{ layer }` or `"composition"`, `kind`: a kind's name, which takes the settings it starts with; at the end of the stack; the composition-only kinds are refused on a clip or a layer), `compositionBypass` (`bypass`: skips the composition's whole stack without touching the effects), `removeEffect` (`effect`), `moveEffect` (`effect`, `index`: its new place in its stack), `effectParams` (`effect`, `kind`: the effect's kind with its new settings, which must be the kind it already is), `effectBypass` (`effect`, `bypass`), `duplicateEffect` (`effect`: a copy with a new id and the same settings right after it, refused when the stack is full), `resetEffect` (`effect`: its kind's starting settings, and no modulation), `setModulation` (`target`: `{ effect, param }`, which also finds an effect of the composition, `{ layer, field }` or `{ clip, field }`; `modulation`: a modulation, or `null` to take it away; brought into the range of the setting and refused for a setting that cannot be modulated; `vj_preview` takes it too, so a minimum, a maximum or a gain can be dragged live; `vj_preview` also takes `clipSpeed` and `clipRegion`, so a speed or a region handle can be dragged live) and `clipGenerator` (`generator`, the new parameters of a generator clip; a video clip refuses it), which clamp to their limits, and `textLine` (`clip`, `step`: moves a text block's `line` by that many lines, skipping the empty ones and wrapping round; refused for any clip that is not a text block). The mapping ops are `setMappingFollow` (`mapping`, `follow`), `setMappingFine` (`mapping`, `fine`: `null` for 8 bits; DMX mappings only), `addMapping` (`source`, `target`: the latest source wins, an existing mapping of the target keeps its options, and a mapping of the same source is replaced), `removeMapping` (`mapping`), `clearMapping` (`target`), `setMapping` (`mapping`, `min`, `max`, `invert`, `mode`), `dashboardValue` (`knob`, `value`: turns the knob and moves its links; `vj_preview` takes it, so a knob can be dragged live), `dashboardLink` (`knob`, `target`, `min?`, `max?`: a bound left out is the target's own), `dashboardUnlink` (`knob`, `target`) and `renameKnob` (`knob`, `name`). The last layer, deck and column of a deck cannot be removed.
+`project_import_vj_video` (`project`, `path`, `layer`, `column?`) adds a video file from disk into a cell, or into the
+layer's first empty cell of the deck shown when `column` is absent. Both answer
 with `ProjectState`, and a refusal leaves the document as it was.
+
+### Version 15: a VJ show's own file
+
+A VJ show and a cue show are two apps in one, and their `project.json` files have nothing in common beyond the
+`formatVersion`, `mode`, `name`, `meta` and `autosave` every show has. A cue show's file is unchanged. A VJ show's
+(`mode: "vj"`) holds:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `videos` | as above | The videos and images the grid plays, bundled under `video/`. |
+| `tempo` | `{ bpm, beatsPerBar, click }` | The show's tempo. |
+| `timecode` | `{ frameRate, start }` | The timecode of the show's internal clock. |
+| `screens`, `composition` | as `output.screens` / `output.composition` | Where the picture goes (Advanced Output). |
+| `layers`, `decks`, `deck`, `clock` | as `vj.*` below | The grid. |
+
+It has no `timelines`, `tracks`, `assets`, `setlists`, `voice` or LTC/MTC/OSC/audio/metronome outputs, and the app
+refuses a VJ show that would hold any. In memory the app still keeps the clock's tempo and timecode as one empty
+timeline (id `clock`), which the file does not store. A version 14 VJ show (with `timelines` and `vj`) still opens:
+whatever cue content an older build left in it (such as a video imported onto its timeline, which the clock then
+played) is dropped, and saving writes version 15. Builds supporting version 14 or earlier reject version 15.
+
+## Mappings file (`.flxmap`)
+
+The mappings and dashboard links of a VJ show as a file of their own, to carry them to another show (Mappings tab or
+Composition > View > Export / Import mappings). It is JSON, and it is portable because it names targets by **place**
+instead of id:
+
+```json
+{ "format": "flux-vj-mappings", "version": 1,
+  "mappings": [ { "source": { "type": "midi", "channel": 1, "kind": "cc", "number": 7 },
+                  "target": { "kind": "layerOpacity", "layer": "1" },
+                  "ids": { "kind": "layerOpacity", "layer": "a-uuid" },
+                  "follow": "position", "min": 0, "max": 1, "invert": false, "mode": "trigger" } ],
+  "dashboard": [ { "name": "Fade", "links": [ { "target": { "kind": "layerMaster", "layer": "2" }, "min": 0, "max": 1 } ] } ] }
+```
+
+| Id of | Place (0-based) |
+| --- | --- |
+| layer, deck | its place from the bottom or the left: `"2"` |
+| column | `"deck.column"`: `"0.3"` |
+| clip | `"layer/deck.column"`, or `"layer/sN"` for slot N of a global layer: `"2/0.3"`, `"1/s5"` |
+| effect | `"owner:slot"` with owner `c` (composition), `lN` (layer N) or `kN/...` (a clip, as above): `"l1:0"` |
+
+Everything else (the source, the range, `invert`, `mode`, global targets, an effect setting's name, a knob's number) is
+stored as it is. `ids` holds the same target by id. `version` is 1; a file with a higher one, or another `format`, is
+refused. **Import** resolves each mapping's `ids` first when the show has them (reading a file back into its own show) and
+its place otherwise; what does not resolve, or does not fit (a slot that is not there, an effect setting the effect in
+that slot does not have), is skipped and counted. Commands: `vj_mappings_export(project, path)`,
+`vj_mappings_import_preview(project, path)` (what would be taken and skipped, and the conflicts: an incoming mapping with
+the same source or the same target as one the show has) and `vj_mappings_import(project, path, choice)` where `choice` is
+`{ wipe, keep }` (`wipe` drops the show's mappings and links first; `keep` lists conflicts, by their index in the file,
+to leave as they are). It answers with the project (one undo step) and `imported`, `skipped` and `kept`.

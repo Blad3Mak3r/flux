@@ -9,6 +9,8 @@ use crate::decode::{VideoError, VideoFile};
 pub const THUMB_HEIGHT: u32 = 54;
 /// A JPEG is at most 65 535 pixels wide, so a long video gets fewer, further apart.
 const MAX_THUMBS: u64 = 600;
+/// Height of the one picture a VJ clip shows, large enough for a cell of the grid.
+pub const POSTER_HEIGHT: u32 = 180;
 
 /// A strip of thumbnails: `count` pictures of `width` x `height`, left to right, the `i`th of
 /// them showing frame `i * every` of the video.
@@ -27,14 +29,22 @@ pub struct Thumbs {
 /// Decodes the thumbnails of the video at `path`. It seeks to each one, so it reads a fraction of a
 /// long video; it still takes a moment, so call it off the UI thread.
 pub fn thumbnails(path: &Path) -> Result<Thumbs, VideoError> {
+    strip(path, THUMB_HEIGHT, MAX_THUMBS)
+}
+
+/// Decodes only the first frame of the video at `path`, as a strip of one: what a VJ clip shows.
+pub fn poster(path: &Path) -> Result<Thumbs, VideoError> {
+    strip(path, POSTER_HEIGHT, 1)
+}
+
+fn strip(path: &Path, height: u32, max: u64) -> Result<Thumbs, VideoError> {
     let mut file = VideoFile::open(path)?;
     let info = file.info().clone();
-    let height = THUMB_HEIGHT;
     let width = (u64::from(info.width) * u64::from(height))
         .div_ceil(u64::from(info.height.max(1)))
         .clamp(1, u64::from(height) * 4) as u32;
     let per_second = u64::from(info.rate.num).div_ceil(u64::from(info.rate.den.max(1)));
-    let every = per_second.max(info.frames.div_ceil(MAX_THUMBS)).max(1);
+    let every = per_second.max(info.frames.div_ceil(max)).max(1);
     let count = info.frames.div_ceil(every).max(1);
     file.set_output_size(width, height);
 
@@ -62,15 +72,11 @@ pub fn thumbnails(path: &Path) -> Result<Thumbs, VideoError> {
             }
         }
     }
-    let mut jpeg = Vec::new();
-    jpeg_encoder::Encoder::new(&mut jpeg, 70)
-        .encode(
-            &strip,
-            u16::try_from(width as u64 * count).unwrap_or(u16::MAX),
-            height as u16,
-            jpeg_encoder::ColorType::Rgba,
-        )
-        .map_err(|err| VideoError::Encode(err.to_string()))?;
+    let jpeg = jpeg(
+        &strip,
+        u16::try_from(width as u64 * count).unwrap_or(u16::MAX),
+        height as u16,
+    )?;
     Ok(Thumbs {
         width,
         height,
@@ -79,4 +85,13 @@ pub fn thumbnails(path: &Path) -> Result<Thumbs, VideoError> {
         seconds: every as f64 * f64::from(info.rate.den) / f64::from(info.rate.num.max(1)),
         jpeg,
     })
+}
+
+/// `width` x `height` pixels of RGBA as a JPEG, its alpha left out.
+pub fn jpeg(rgba: &[u8], width: u16, height: u16) -> Result<Vec<u8>, VideoError> {
+    let mut jpeg = Vec::new();
+    jpeg_encoder::Encoder::new(&mut jpeg, 70)
+        .encode(rgba, width, height, jpeg_encoder::ColorType::Rgba)
+        .map_err(|err| VideoError::Encode(err.to_string()))?;
+    Ok(jpeg)
 }

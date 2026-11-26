@@ -10,6 +10,7 @@ import { errorMessage, pickProjectPath } from "../project/api";
 import { openEditor, openPending, pendingPath, projectDelete, recentsForget, recentsList, recoveryDiscard, recoveryList, recoveryOriginal, recoveryRestore } from "./api";
 import { projectInitials } from "./initials";
 import type { RecentShow, RecoverySummary } from "./api";
+import type { ProjectMode } from "../project/types";
 
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
@@ -27,6 +28,26 @@ function ago(openedAt: number, locale: string): string {
   return format.format(Math.round(seconds / size), unit);
 }
 
+/** A small drawing of what a show of `mode` is: a timeline with a playhead, or a grid of clips. */
+function ModeSketch({ mode }: { mode: ProjectMode }) {
+  if (mode === "vj") {
+    return (
+      <span className="mode-sketch grid" aria-hidden="true">
+        {Array.from({ length: 12 }, (_, i) => <i key={i} className={i === 5 || i === 8 ? "on" : i % 3 === 1 ? "full" : ""} />)}
+      </span>
+    );
+  }
+  return (
+    <span className="mode-sketch timeline" aria-hidden="true">
+      <i style={{ left: "4%", width: "46%", top: "14%" }} />
+      <i style={{ left: "30%", width: "54%", top: "44%" }} />
+      <i className="cue" style={{ left: "62%", top: "74%" }} />
+      <i className="cue" style={{ left: "18%", top: "74%" }} />
+      <b style={{ left: "40%" }} />
+    </span>
+  );
+}
+
 function Welcome() {
   const { t, locale } = useI18n();
   const [shows, setShows] = useState<RecentShow[] | null>(null);
@@ -35,6 +56,7 @@ function Welcome() {
   const [discarding, setDiscarding] = useState<RecoverySummary | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [kind, setKind] = useState<"all" | ProjectMode>("all");
 
   const reload = useCallback(
     async () => {
@@ -120,19 +142,44 @@ function Welcome() {
         )}
         {pending && <button type="button" className="button" disabled={busy}
           onClick={() => void guarded(openPending)()}>{t("recovery.pending", { name: basename(pending) })}</button>}
-        <div className="button-row">
-          <button type="button" className="button primary" disabled={busy} onClick={() => void guarded(() => openEditor(null))()}>
-            <PlusIcon />
-            {t("welcome.new")}
-          </button>
-          <button type="button" className="button" disabled={busy} onClick={() => void openPicked()}>
-            <FolderIcon />
-            {t("welcome.open")}
-          </button>
-        </div>
+        <section aria-labelledby="start-legend">
+          <div className="welcome-head">
+            <h2 className="legend" id="start-legend">{t("welcome.start")}</h2>
+            <button type="button" className="button" disabled={busy} onClick={() => void openPicked()}>
+              <FolderIcon />
+              {t("welcome.open")}
+            </button>
+          </div>
+          <div className="start-modes">
+            {(["timeline", "vj"] as const).map((mode) => (
+              <button key={mode} type="button" className="start-mode" data-mode={mode} disabled={busy}
+                onClick={() => void guarded(() => openEditor(null, mode))()}>
+                <ModeSketch mode={mode} />
+                <span className="start-mode-text">
+                  <span className="start-mode-tag">{t(`welcome.mode.${mode}`)}</span>
+                  <strong>{t(`welcome.${mode}.title`)}</strong>
+                  <span>{t(`welcome.${mode}.body`)}</span>
+                </span>
+                <span className="start-mode-go"><PlusIcon />{t(mode === "vj" ? "welcome.newVj" : "welcome.new")}</span>
+              </button>
+            ))}
+          </div>
+        </section>
 
         <section aria-labelledby="recent-legend">
-          <h2 className="legend" id="recent-legend">{t("welcome.recent")}</h2>
+          <div className="welcome-head">
+            <h2 className="legend" id="recent-legend">{t("welcome.recent")}</h2>
+            {(shows?.length ?? 0) > 0 && (
+              <div className="segmented recent-filter" role="radiogroup" aria-label={t("welcome.recent")}>
+                {(["all", "timeline", "vj"] as const).map((option) => (
+                  <button key={option} type="button" role="radio" aria-checked={kind === option}
+                    className={kind === option ? "on" : ""} onClick={() => setKind(option)}>
+                    {t(option === "all" ? "welcome.filter.all" : `welcome.mode.${option}`)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {shows?.length === 0 ? (
             <div className="empty-state">
               <p className="empty-title">{t("welcome.empty.title")}</p>
@@ -140,9 +187,10 @@ function Welcome() {
             </div>
           ) : (
             <ul className="recents">
-              {shows?.map((show) => {
+              {shows?.filter((show) => kind === "all" || (show.meta?.mode ?? "timeline") === kind).map((show) => {
                 const name = show.meta?.name ?? basename(show.path);
                 const readable = show.meta !== null;
+                const mode = show.meta?.mode ?? "timeline";
                 return (
                   <li key={show.path} className="recent">
                     <button
@@ -152,14 +200,25 @@ function Welcome() {
                       aria-label={t("welcome.openName", { name })}
                       onClick={() => openShow(show.path)}
                     >
-                      <span className="project-badge" aria-hidden="true">{projectInitials(name)}</span>
+                      <span className="project-badge" data-mode={mode} aria-hidden="true">{projectInitials(name)}</span>
                       <span className="recent-name">{name}</span>
                       <span className="recent-path" title={show.path}>{show.path}</span>
                       <span className="recent-meta">
                         {show.meta ? (
                           <>
-                            <span className="mono">{t(`frameRate.${show.meta.frameRate}`)}</span>
-                            <span className="mono">{t("welcome.tracks", { count: show.meta.trackCount })}</span>
+                            <span className="mode-tag" data-mode={mode}>{t(`welcome.mode.${mode}`)}</span>
+                            {mode === "vj" ? (
+                              <>
+                                <span className="mono">{t("welcome.layers", { count: show.meta.layerCount })}</span>
+                                <span className="mono">{t("welcome.decks", { count: show.meta.deckCount })}</span>
+                                <span className="mono">{t("welcome.clips", { count: show.meta.clipCount })}</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="mono">{t(`frameRate.${show.meta.frameRate}`)}</span>
+                                <span className="mono">{t("welcome.tracks", { count: show.meta.trackCount })}</span>
+                              </>
+                            )}
                             <span>{ago(show.openedAt, locale)}</span>
                           </>
                         ) : (

@@ -24,9 +24,94 @@ export interface Project {
 
 export type ProjectMode = "timeline" | "vj";
 
-/** The VJ grid (mirrors `flux-project/src/vj.rs`): layers bottom first, columns left first. */
+/**
+ * The VJ grid (mirrors `flux-project/src/vj.rs`): layers bottom first, the same in every deck; decks
+ * of columns, left first, one of them shown. A global layer keeps its clips in slots, the same in
+ * every deck.
+ */
 export interface VjGrid {
   layers: VjLayer[];
+  decks: VjDeck[];
+  /** Id of the deck shown. */
+  deck: string;
+  /** Where the timecode clock comes from; absent is `internal`. */
+  clock?: VjClockSource;
+  /** Drawn on the final mix of the layers before the output mapping, the first applied first. */
+  compositionEffects?: VjEffect[];
+  /** The composition's effects are skipped; absent is false. */
+  compositionBypass?: boolean;
+  /** What MIDI controls and OSC addresses drive; absent is none. */
+  mappings?: VjMapping[];
+  /** The composition dashboard's knobs; one not listed is at 0 with no links. */
+  dashboard?: VjKnob[];
+}
+
+// Mirrors `flux-project/src/vj_mapping.rs`.
+
+/** What drives a target: a MIDI control (learned on a port) or an OSC address. */
+export type VjSource =
+  | { type: "midi"; port?: string; channel: number; kind: "cc" | "note" | "pitchBend"; number: number }
+  | { type: "osc"; address: string }
+  /** A DMX channel of an Art-Net universe (the Port-Address), 1 to 512; `fine` is the channel of the low byte of a 16-bit value. */
+  | { type: "artnet"; universe: number; channel: number; fine?: number }
+  /** A key of the keyboard by its place (`KeyboardEvent.code`) and the modifiers held. */
+  | { type: "key"; code: string; ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean };
+
+/** How a mapping keeps hold of a clip, layer, column, deck or effect: by id, or by the slot it is in. */
+export type VjFollow = "id" | "position";
+
+/** What is driven; every id names something of the grid. */
+export type VjTarget =
+  | { kind: "clipLaunch"; clip: string }
+  | { kind: "columnLaunch"; column: string }
+  | { kind: "layerStop" | "layerAutopilot" | "layerBypass" | "layerSolo" | "layerMaster" | "layerVolume" | "layerOpacity" | "layerTransition"; layer: string }
+  | { kind: "deckSelect"; deck: string }
+  | { kind: "effectBypass"; effect: string }
+  | { kind: "effectParam"; effect: string; param: string }
+  | { kind: "clipSpeed"; clip: string }
+  | { kind: "generatorNumber"; clip: string; name: string }
+  | { kind: "dashboard"; knob: number }
+  | { kind: "deckNext" | "deckPrev" | "stopAll" | "bpmTap" | "bpmResync" | "bpmPlus" | "bpmMinus" | "bpmDouble" | "bpmHalf" | "bpmNudgeUp" | "bpmNudgeDown" | "bpmPause" | "crossfader" | "bpm" };
+
+/** What a mapped button does: a press runs or turns on, flips a switch, or holds while down. */
+export type VjButtonMode = "trigger" | "toggle" | "hold";
+
+export interface VjMapping {
+  id: string;
+  source: VjSource;
+  target: VjTarget;
+  /** Where a continuous target goes with the source at its minimum and its maximum, in the target's units. */
+  min: number;
+  max: number;
+  invert?: boolean;
+  /** Absent is `trigger`. */
+  mode?: VjButtonMode;
+  /** Absent is `id`. */
+  follow?: VjFollow;
+  /** A position mapping whose slot is empty: kept, and it drives nothing until something fills the slot. */
+  parked?: boolean;
+}
+
+export interface VjKnob {
+  /** 0 to 1. */
+  value: number;
+  name?: string;
+  links?: VjLink[];
+}
+
+export interface VjLink {
+  target: VjTarget;
+  min: number;
+  max: number;
+}
+
+/** Flux's own transport, or timecode coming in by LTC or MTC. */
+export type VjClockSource = "internal" | "ltc" | "mtc";
+
+export interface VjDeck {
+  id: string;
+  /** Absent is the deck's number. */
+  name?: string;
   columns: VjColumn[];
 }
 
@@ -36,31 +121,175 @@ export interface VjColumn {
   name?: string;
 }
 
+export type VjBlend =
+  | "alpha" | "add" | "subtract" | "multiply" | "screen" | "lighten" | "darken"
+  | "difference" | "exclusion" | "overlay" | "softLight" | "hardLight" | "colorDodge" | "colorBurn"
+  | "linearLight" | "vividLight" | "pinLight" | "hue" | "saturation" | "color" | "luminosity"
+  | "alphaCut" | "lumaKey" | "lumaKeyInverted" | "lumaIsAlpha" | "differenceInverted" | "mask50" | "rgb" | "displace";
+export type VjTransition = "alpha" | "add";
+export type VjSide = "a" | "b";
+export type VjAutopilot = "off" | "next" | "previous" | "random";
+
 export interface VjLayer {
   id: string;
   /** Absent is the layer's number. */
   name?: string;
+  global?: boolean;
+  /** 0 to 1; absent is 1. */
+  master?: number;
   /** 0 to 1; absent is 1. */
   opacity?: number;
-  /** Absent is 0 dB. */
-  gainDb?: number;
+  /** 0 to 1 as the fader stands; absent is 1. */
+  volume?: number;
+  /** Absent is `alpha`. */
+  blend?: VjBlend;
+  /** Seconds, 0 to 10; absent is 0, a cut. */
+  transition?: number;
+  /** Absent is `alpha`. */
+  transitionEffect?: VjTransition;
+  /** What the layer launches when its clip ends a pass; absent is `off`. */
+  autopilot?: VjAutopilot;
   /** The crossfader side; absent is neither. */
-  crossfade?: "a" | "b";
-  /** At most one per column. */
+  crossfade?: VjSide;
+  bypass?: boolean;
+  solo?: boolean;
+  /** Folded to a thin row on the grid. */
+  collapsed?: boolean;
+  /** Drawn on each of its clips' pictures after the clip's own effects; the first is applied first. */
+  effects?: VjEffect[];
+  /** What drives `master`, `opacity` or `volume` by itself. */
+  modulation?: VjModulations;
+  /** At most one per column of each deck, or per slot on a global layer. */
   clips?: VjClip[];
 }
 
+export type VjMirrorAxis = "horizontal" | "vertical" | "both";
+/** A setting of an effect, as the backend keeps it: a number, a choice or a `#rrggbb` colour, or on or off. */
+export type VjParamValue = number | string | boolean;
+/**
+ * What an effect does, with its settings. Which kinds there are and what each setting takes come from the backend's
+ * catalogue (`vjEffectCatalog`), so this only names the kind and carries the settings.
+ */
+export type VjEffectKind = { effect: string } & { [setting: string]: VjParamValue };
+export type VjEffectName = string;
+/** One effect of a clip's or a layer's stack. */
+export type VjEffect = VjEffectKind & { id: string; bypass?: boolean };
+/** What drives the settings of an effect by themselves, by the setting's key (typed apart: the settings are all values). */
+export const effectModulation = (effect: VjEffect): VjModulations | undefined =>
+  (effect as unknown as { modulation?: VjModulations }).modulation;
+
+/** What an LFO draws and what an audio source follows; the backend's lists are in the effect catalogue. */
+export type VjLfoShape = "sine" | "triangle" | "sawUp" | "sawDown" | "square" | "random" | "smoothRandom";
+export type VjAudioBand = "low" | "mid" | "high" | "level";
+export interface VjPace {
+  sync: "free" | "beats";
+  /** Cycles a second when free. */
+  rate: number;
+  /** Beats a cycle when synced. */
+  beats: number;
+}
+export type VjModSource =
+  | { kind: "lfo"; shape: VjLfoShape; pace: VjPace; phase: number }
+  | { kind: "audio"; band: VjAudioBand; gain: number; attack: number; release: number };
+/** A numeric setting driven by itself between `min` and `max`, in the setting's own units (`min` may be above `max`). */
+export interface VjModulation {
+  source: VjModSource;
+  min: number;
+  max: number;
+}
+/** By the key of the setting: an effect's, or `master`, `opacity`, `volume` of a layer, `scale`, `positionX`, `positionY` of a clip. */
+export type VjModulations = Record<string, VjModulation>;
+
 /** What a launched clip does at the end of its video; absent is `loop`. */
 export type VjPlayback = "loop" | "once" | "pingPong";
+/** Which way a clip plays through its region. */
+export type VjDirection = "forward" | "reverse" | "pause";
+/** Whether one pass of a clip lasts as long as its speed makes it, or a number of beats of the composition's tempo. */
+export type VjTempo = { kind: "free" } | { kind: "beats"; beats: number };
+/** The part of a clip that plays, as fractions of its length. */
+export interface VjRegion {
+  start: number;
+  end: number;
+}
+/** What a press on a clip does; absent is `normal`. */
+export type VjTrigger = "normal" | "piano";
+
+/** What a generator clip draws, with its parameters; colours are `#rrggbb`. A parameter left out
+ * takes the backend's default. */
+export type VjGenerator =
+  | { kind: "solid"; colour?: string }
+  /** `rate` flashes a second, each lasting `width` (0 to 1) of the time between two. */
+  | { kind: "strobe"; colour?: string; rate?: number; width?: number }
+  /** `angle` in degrees: 0 is left to right, 90 top to bottom. */
+  | { kind: "gradient"; from?: string; to?: string; angle?: number }
+  | { kind: "bars" }
+  /** New snow `rate` times a second. */
+  | { kind: "noise"; colour?: string; rate?: number }
+  /** A block of text over a clear background. `size` is a fraction of the composition's height, the position the
+   * block's centre as fractions of it, `tracking` and `leading` extra space in ems. With `lines` `one`, `line` is the
+   * line shown and `advance` steps it every that many beats (0 is by hand). */
+  | {
+      kind: "text";
+      text?: string;
+      font?: string;
+      style?: string;
+      size?: number;
+      colour?: string;
+      opacity?: number;
+      align?: VjTextAlign;
+      positionX?: number;
+      positionY?: number;
+      rotation?: number;
+      tracking?: number;
+      leading?: number;
+      lines?: VjTextLines;
+      line?: number;
+      advance?: number;
+    };
+export type VjTextAlign = "left" | "center" | "right";
+export type VjTextLines = "all" | "one";
+/** A font family the machine has, with the names of its faces. */
+export interface VjFont {
+  name: string;
+  styles: string[];
+}
+export type VjGeneratorKind = VjGenerator["kind"];
 
 export interface VjClip {
   id: string;
-  column: string;
-  /** Id of an entry in `Project.videos`. */
-  asset: string;
+  /** On a deck layer: the column it is in. */
+  column?: string;
+  /** On a global layer: its place from the left. */
+  slot?: number;
+  /** Id of an entry in `Project.videos`; absent for a generator. */
+  asset?: string;
+  /** What makes the picture when the clip is not a video. */
+  generator?: VjGenerator;
   name?: string;
   playback?: VjPlayback;
+  trigger?: VjTrigger;
+  /** How fast it plays when its tempo is free; absent is 1. */
+  speed?: number;
+  /** Seconds a still image or a generator lasts (0.1 to 3600); absent is 10. A video keeps its file's length. */
+  duration?: number;
+  /** Absent is forward. */
+  direction?: VjDirection;
+  /** Absent is free. */
+  tempo?: VjTempo;
+  /** The part that plays and repeats; absent is all of it. */
+  region?: VjRegion;
+  /** Places the clip jumps to, as fractions of its length: 8, each empty or set; absent are all empty. */
+  cues?: (number | null)[];
   fit?: VideoFit;
+  /** How much larger than its fit it is drawn, about its centre; absent is 1 (100%). */
+  scale?: number;
+  /** How far its centre moves from where its fit puts it, as fractions of the composition, right
+   * and down; absent is not moved. */
+  position?: [number, number];
+  /** Drawn on its picture, the first applied first. */
+  effects?: VjEffect[];
+  /** What drives `scale`, `positionX` or `positionY` by itself. */
+  modulation?: VjModulations;
 }
 
 export interface Autosave {
