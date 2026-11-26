@@ -40,6 +40,7 @@ serde_json = "1"
 base64 = "0.22"
 zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
 thiserror = "2.0.21"
+uuid = { version = "1.29.0", features = ["v4"] }
 log = { version = "0.4", features = ["std"] }
 # Where the app data folder is, before Tauri can say (see `graphics.rs`).
 dirs = "7"

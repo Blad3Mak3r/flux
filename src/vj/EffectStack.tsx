@@ -2,7 +2,7 @@
 // effect to drag onto one. The backend owns the kinds, the settings with their ranges and defaults, the order and
 // the limit; this draws what its catalogue says and forwards the user's intent.
 
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { DragEvent, ReactNode } from "react";
 import {
   ArrowDownIcon,
@@ -14,19 +14,21 @@ import {
   EyeIcon,
   EyeOffIcon,
   GripIcon,
+  PresetIcon,
   RefreshIcon,
 } from "../components/icons";
 import { useT } from "../i18n";
 import { effectModulation } from "../project/types";
 import type { MessageKey } from "../i18n";
 import type { VjEffect, VjEffectKind, VjGrid, VjModulations, VjParamValue } from "../project/types";
-import type { VjEffectSpec, VjParamSpec } from "./api";
+import type { VjEffectSpec, VjParamSpec, VjPreset } from "./api";
 import { ColourField, Scrub, Segments } from "./controls";
 import { mappable } from "./mapModel";
 import { categoryKey, choiceKey, effectKey, genericParamKey, paramKey, specOf, useEffectCatalog } from "./effects";
 import { ModPanel, ModScrub, beatLabel } from "./Modulation";
 import type { ModRange } from "./Modulation";
 import { edit, foldEffect, preview, showTab, useVj } from "./store";
+import { applyPreset, managePresets, presetKind, presetMenu, suggestionFor, usePresets } from "./presets";
 
 /** What an effect dragged from the browser carries: the name of its kind. */
 export const DRAG_EFFECT = "application/x-flux-vj-effect";
@@ -245,6 +247,8 @@ function EffectRow({ effect, index, stack, full }: { effect: VjEffect; index: nu
         <span className="vj-map-w" {...mappable({ kind: "effectBypass", effect: id })}>
           {button("vj.effect.bypass", () => void edit({ op: "effectBypass", effect: id, bypass: !bypass }), bypass ? <EyeOffIcon /> : <EyeIcon />, false, !!bypass)}
         </span>
+        <button type="button" className="vj-fx-b" title={`${t("vj.preset.button")}: ${name}`} aria-label={`${t("vj.preset.button")}: ${name}`} aria-haspopup="menu"
+          onClick={(event) => presetMenu(t, event.currentTarget, { effect: id }, { effect: id }, suggestionFor(t, kind.effect), kind.effect)}><PresetIcon /></button>
         {button("vj.effect.duplicate", () => void edit({ op: "duplicateEffect", effect: id }), <DuplicateIcon />, full)}
         {button("vj.effect.reset", () => void edit({ op: "resetEffect", effect: id }), <RefreshIcon />)}
         {button("vj.effect.up", () => void edit({ op: "moveEffect", effect: id, index: index - 1 }), <ArrowUpIcon />, index === 0)}
@@ -279,6 +283,8 @@ export function EffectStack({ target, effects }: { target: EffectTarget; effects
       }}>
       <header className="vj-fx-head">
         <h3>{title}<span className="vj-dim vj-fx-count">{effects.length}/{catalog?.max ?? "–"}</span></h3>
+        <button type="button" className="vj-fx-b" title={t("vj.preset.button")} aria-label={t("vj.preset.button")} aria-haspopup="menu"
+          onClick={(event) => presetMenu(t, event.currentTarget, { stack: target }, { stack: target }, title, undefined, effects.length > 0)}><PresetIcon /></button>
         <select className="vj-select wide vj-fx-add" value="" disabled={full || !catalog} aria-label={t("vj.effect.add")}
           title={full ? t("vj.effect.full", { n: max }) : undefined}
           onChange={(event) => { if (event.target.value) void edit({ op: "addEffect", target, kind: event.target.value }); }}>
@@ -306,12 +312,31 @@ export function EffectStack({ target, effects }: { target: EffectTarget; effects
 export function EffectBrowser({ target }: { target: EffectTarget | null }) {
   const t = useT();
   const catalog = useEffectCatalog((state) => state.catalog);
+  const presets = usePresets((state) => state.presets);
+  // The presets of one effect each, and the stacks, found once per change of the list.
+  const { byKind, stacks } = useMemo(() => {
+    const byKind = new Map<string, VjPreset[]>();
+    const stacks: VjPreset[] = [];
+    for (const preset of presets) {
+      const kind = presetKind(preset);
+      if (kind === null) stacks.push(preset);
+      else byKind.set(kind, [...(byKind.get(kind) ?? []), preset]);
+    }
+    return { byKind, stacks };
+  }, [presets]);
   if (!catalog) return <p className="vj-empty">{t("vj.effect.loading")}</p>;
   // An effect for the composition only goes there, whatever is selected, and its tab opens.
   const add = (spec: VjEffectSpec) => {
     const to = spec.compositionOnly ? "composition" : target;
     if (!to) return;
     void edit({ op: "addEffect", target: to, kind: spec.name });
+    if (to === "composition") showTab("composition");
+  };
+  // A preset adds its effect with its settings, as the effect itself adds with its defaults.
+  const addWith = (id: string, composition: boolean) => {
+    const to = composition ? "composition" : target;
+    if (!to) return;
+    void applyPreset(id, { stack: to });
     if (to === "composition") showTab("composition");
   };
   return (
@@ -321,7 +346,8 @@ export function EffectBrowser({ target }: { target: EffectTarget | null }) {
           <h3>{t(categoryKey(category))}</h3>
           <div className="vj-fxg">
             {catalog.effects.filter((spec) => spec.category === category).map((spec) => (
-              <div key={spec.name} className="vj-fxc" draggable role="button" tabIndex={0}
+              <div key={spec.name} className="vj-fxw">
+              <div className="vj-fxc" draggable role="button" tabIndex={0}
                 title={t("vj.effects.note")}
                 onDragStart={(event) => {
                   event.dataTransfer.setData(DRAG_EFFECT, spec.name);
@@ -338,10 +364,34 @@ export function EffectBrowser({ target }: { target: EffectTarget | null }) {
                 </b>
                 <span>{t(effectKey(spec.name, "hint"))}</span>
               </div>
+                {byKind.has(spec.name) && (
+                  <span className="vj-fxp">
+                    {byKind.get(spec.name)?.map((preset) => (
+                      <button key={preset.id} type="button" className="vj-fxp-b" title={t("vj.preset.use", { name: preset.name })}
+                        onClick={() => addWith(preset.id, spec.compositionOnly === true)}>{preset.name}</button>
+                    ))}
+                  </span>
+                )}
+              </div>
             ))}
           </div>
         </section>
       ))}
+      {stacks.length > 0 && (
+        <section className="vj-fxs">
+          <h3>{t("vj.preset.stacks")}</h3>
+          <div className="vj-fxg">
+            {stacks.map((preset) => (
+              <button key={preset.id} type="button" className="vj-fxc" title={t("vj.preset.use", { name: preset.name })}
+                onClick={() => addWith(preset.id, false)}>
+                <b>{preset.name}</b>
+                <span>{t("vj.preset.stackOf", { n: preset.effects.length })}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+      <button type="button" className="vj-tb vj-fxm" onClick={() => managePresets("presets")}><PresetIcon />{t("vj.preset.manage")}</button>
     </div>
   );
 }

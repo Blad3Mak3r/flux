@@ -23,7 +23,7 @@ use flux_project::{
 
 pub type SharedSession = Arc<Mutex<Session>>;
 
-async fn run<T, F>(session: &SharedSession, op: F) -> Result<T>
+pub(crate) async fn run<T, F>(session: &SharedSession, op: F) -> Result<T>
 where
     T: Send + 'static,
     F: FnOnce(&mut Session) -> Result<T> + Send + 'static,

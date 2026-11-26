@@ -58,6 +58,8 @@ import { groupItems } from "./menus";
 import { Dashboard } from "./Dashboard";
 import { MapBar, MapLayer } from "./MapLayer";
 import { MapImportDialog } from "./MapImportDialog";
+import { LibraryDialog, NameDialog } from "./PresetDialogs";
+import { loadPresets } from "./presets";
 import { bindVjControl, useMap } from "./mapping";
 import { mappable } from "./mapModel";
 import { MappingsPanel } from "./Mappings";
@@ -1251,7 +1253,7 @@ export function VjScreen() {
   const grid = useDoc((doc) => doc.project.vj);
   useEffect(bindPlayState, []);
   useEffect(bindVjControl, []);
-  useEffect(() => { void loadEffectCatalog(); }, []);
+  useEffect(() => { void loadEffectCatalog(); void loadPresets(); }, []);
   if (!grid) return null;
   return (
     <div className="vj-app">
@@ -1265,6 +1267,8 @@ export function VjScreen() {
       <AdvancedOutput />
       <MapLayer grid={grid} />
       <MapImportDialog />
+      <NameDialog />
+      <LibraryDialog />
     </div>
   );
 }

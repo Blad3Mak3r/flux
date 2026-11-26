@@ -973,6 +973,17 @@ pub enum VjOp {
         effect: String,
         index: usize,
     },
+    /// Gives the effect the settings of a preset of its kind (see [`crate::vj_presets`]); what the
+    /// preset lacks keeps its value.
+    ApplyEffectPreset {
+        effect: String,
+        preset: crate::vj_presets::EffectPreset,
+    },
+    /// Puts the effects of a preset, with new ids, at the end of a stack.
+    AddEffectPreset {
+        target: EffectTarget,
+        preset: crate::vj_presets::EffectPreset,
+    },
     /// Sets the effect's settings; `kind` is the kind it already is.
     EffectParams {
         effect: String,
@@ -1630,6 +1641,12 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                 modulation: BTreeMap::new(),
                 kind,
             });
+        }
+        VjOp::ApplyEffectPreset { effect, preset } => {
+            crate::vj_presets::apply_to_effect(vj, &effect, &preset)?;
+        }
+        VjOp::AddEffectPreset { target, preset } => {
+            crate::vj_presets::add_to_stack(vj, &target, &preset, new_id)?;
         }
         VjOp::CompositionBypass { bypass } => vj.composition_bypass = bypass,
         VjOp::RemoveEffect { effect } => {

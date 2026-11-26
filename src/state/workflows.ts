@@ -17,6 +17,7 @@ import {
 import type { BackendDocument } from "../project/api";
 import type { Project, ProjectMode, ProjectState } from "../project/types";
 import { closeEditor } from "../welcome/api";
+import { vjTemplateNew } from "../vj/api";
 import { flushDocumentSync } from "./persist";
 import { currentFrame } from "../transport/store";
 import { seek, startTransport } from "../transport/playback";
@@ -91,7 +92,10 @@ export function startDocument(t: Translate, phase: (value: EditorPhase) => void)
       if (path) project = await openAt(path);
       else {
         const mode = query.get("new") === "vj" ? "vj" : "timeline";
-        const fresh = await newProject(t("project.untitled"), "fps25", mode);
+        const template = query.get("template");
+        const fresh = template
+          ? await vjTemplateNew(template, t("project.untitled"))
+          : await newProject(t("project.untitled"), "fps25", mode);
         load(fresh, null);
       }
     }
@@ -113,6 +117,18 @@ export const newDocument = (t: Translate, mode: ProjectMode = "timeline") =>
     const fresh = await newProject(t("project.untitled"), "fps25", mode).catch(() => offlineProject(t));
     load(fresh, null);
     say("status.ready");
+  });
+
+/** A new VJ show with the structure of the template `id` (see `vj_presets`). */
+export const newFromTemplate = (t: Translate, id: string) =>
+  replaceDoc(async () => {
+    try {
+      await flushDocumentSync();
+      load(await vjTemplateNew(id, t("project.untitled")), null);
+      say("status.ready");
+    } catch (err) {
+      fail(err);
+    }
   });
 
 async function openAt(path: string): Promise<Project | undefined> {

@@ -1244,3 +1244,19 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-light.c3 select, .vj-light.c4 select { border-left-color: #e0503f; }
 .vj-light.c5 select, .vj-light.c6 select { border-left-color: var(--amber); }
 .vj-knob.modulated .vj-knob-arc { stroke: var(--amber); }
+
+/* Presets under an effect of the browser, and the dialogs of presets and templates. */
+.vj-fxw { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.vj-fxp { display: flex; flex-wrap: wrap; gap: 4px; }
+.vj-name-actions { margin-top: 16px; }
+.vj-fxp-b { max-width: 100%; padding: 2px 7px; overflow: hidden; color: var(--phosphor); font: 500 11px var(--font-ui); white-space: nowrap; text-overflow: ellipsis; background: transparent; border: 1px solid var(--rule); border-radius: 3px; cursor: pointer; }
+.vj-fxp-b:hover { background: var(--vj-ctl); border-color: var(--phosphor); }
+.vj-fxm { margin: 4px 0 8px; }
+.dialog.vj-name { width: min(380px, 94vw); }
+.dialog.vj-lib { width: min(560px, 94vw); max-width: none; }
+.vj-lib-list { max-height: 46vh; margin: 8px 0 16px; padding: 0; overflow: auto; list-style: none; border: 1px solid var(--rule); }
+.vj-lib-list:empty { display: none; }
+.vj-lib-list li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
+.vj-lib-list li:last-child { border-bottom: 0; }
+.vj-lib-list strong { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.vj-lib-empty { margin: 8px 0 16px; }

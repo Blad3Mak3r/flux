@@ -177,16 +177,31 @@ impl Session {
         frame_rate: FrameRate,
         mode: crate::ProjectMode,
     ) -> Project {
-        self.recovery_id = Uuid::new_v4().to_string();
-        self.recovery_revision += 1;
-        self.sources.clear();
-        self.voice_sources.clear();
-        self.previews.clear();
         let mut project = Project::new(name, frame_rate);
         if mode == crate::ProjectMode::Vj {
             project.mode = mode;
             project.vj = crate::vj::Vj::starting(|| Uuid::new_v4().to_string());
         }
+        self.start(project)
+    }
+
+    /// Starts a new VJ project with the structure of a template (see [`crate::vj_presets`]),
+    /// called `name`.
+    pub fn new_project_from_template(
+        &mut self,
+        template: &crate::vj_presets::Template,
+        name: &str,
+    ) -> Result<Project> {
+        Ok(self.start(template.project(name)?))
+    }
+
+    /// Makes `project` the new, unsaved document.
+    fn start(&mut self, project: Project) -> Project {
+        self.recovery_id = Uuid::new_v4().to_string();
+        self.recovery_revision += 1;
+        self.sources.clear();
+        self.voice_sources.clear();
+        self.previews.clear();
         self.document = Some(Document::new(project.clone(), None));
         project
     }
