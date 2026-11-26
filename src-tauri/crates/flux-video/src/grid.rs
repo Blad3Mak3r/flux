@@ -12,7 +12,7 @@ use flux_project::VideoFit;
 use flux_project::playhead::{Motion, Playhead, Tick};
 use flux_project::vj::{Autopilot, Side, Transition, Trigger, Vj};
 
-use crate::layers::{Layer, Probe};
+use crate::layers::{GroupLook, Layer, Probe};
 use crate::mapping::Rate;
 
 /// What a layer plays: the clip launched last, and the transition into it while it runs.
@@ -220,6 +220,29 @@ impl GridPlay {
         self.column = Some(column.to_owned());
         for (layer, clip) in vj.column_clips(column) {
             self.start(vj, &layer.id, clip.map(|clip| clip.id.as_str()), tick);
+        }
+        true
+    }
+
+    /// Launches the clips of `column` on the layers of `group` only, as a group's own column
+    /// trigger does in Resolume: a deck layer of the group without a clip in it stops, the layers
+    /// outside the group and the global ones play on. `false` when there is no such group or
+    /// column.
+    pub fn launch_group_column(
+        &mut self,
+        vj: &Vj,
+        group: &str,
+        column: &str,
+        now: impl Into<Tick>,
+    ) -> bool {
+        if vj.group(group).is_none() || vj.column_place(column).is_none() {
+            return false;
+        }
+        let tick = now.into();
+        for (layer, clip) in vj.column_clips(column) {
+            if layer.group.as_deref() == Some(group) {
+                self.start(vj, &layer.id, clip.map(|clip| clip.id.as_str()), tick);
+            }
         }
         true
     }
@@ -479,6 +502,7 @@ impl GridPlay {
                         .collect(),
                     elapsed,
                     beats: tick.beats,
+                    group: layer.group.clone(),
                 })
             };
             let fading = launched.fading(now);
@@ -497,24 +521,57 @@ impl GridPlay {
         shown
     }
 
+    /// Whether `layer` is silenced: it or its group is bypassed, or something is soloed and neither
+    /// it nor its group is.
+    fn muted(vj: &Vj, layer: &flux_project::vj::Layer) -> bool {
+        layer.bypass || vj.group_of(layer).is_some_and(|group| group.bypass) || !vj.solo_lets(layer)
+    }
+
     /// How much of `layer` shows, 0 to 1: its master, opacity and crossfader side, or nothing when it
-    /// is bypassed or another layer is soloed and it is not.
+    /// is bypassed or another layer is soloed and it is not (the same for its group). The group's
+    /// own master and opacity are applied to the mix of its layers, not to each (see
+    /// [`Self::group_looks`]).
     pub fn level(&self, vj: &Vj, layer: &flux_project::vj::Layer) -> f32 {
-        let solo = vj.layers.iter().any(|layer| layer.solo);
-        if layer.bypass || (solo && !layer.solo) {
+        if Self::muted(vj, layer) {
             return 0.0;
         }
         layer.master * layer.opacity * self.side_level(layer.crossfade)
     }
 
-    /// How loud the sound of `layer` is, 0 to 1: its volume, master and crossfader side, or nothing
-    /// when it is bypassed or another layer is soloed and it is not. The opacity is the picture's.
+    /// How loud the sound of `layer` is, 0 to 1: its volume, master and crossfader side times its
+    /// group's master, or nothing when it is bypassed or another layer is soloed and it is not (the
+    /// same for its group). The opacity is the picture's.
     pub fn sound_level(&self, vj: &Vj, layer: &flux_project::vj::Layer) -> f32 {
-        let solo = vj.layers.iter().any(|layer| layer.solo);
-        if layer.bypass || (solo && !layer.solo) {
+        if Self::muted(vj, layer) {
             return 0.0;
         }
-        layer.volume * layer.master * self.side_level(layer.crossfade)
+        let group = vj.group_of(layer).map_or(1.0, |group| group.master);
+        layer.volume * layer.master * group * self.side_level(layer.crossfade)
+    }
+
+    /// How each group that shows is drawn: its mix of the layers is drawn with its master times its
+    /// opacity, its blend and its effects. A group bypassed, or left out by the solos, has none.
+    pub fn group_looks(&self, vj: &Vj) -> Vec<GroupLook> {
+        vj.groups
+            .iter()
+            .filter(|group| {
+                !group.bypass
+                    && (!vj.any_solo()
+                        || group.solo
+                        || vj.group_layers(&group.id).any(|layer| layer.solo))
+            })
+            .map(|group| GroupLook {
+                id: group.id.clone(),
+                opacity: group.master * group.opacity,
+                blend: group.blend,
+                effects: group
+                    .effects
+                    .iter()
+                    .filter(|effect| !effect.bypass)
+                    .cloned()
+                    .collect(),
+            })
+            .collect()
     }
 
     /// How much the crossfader lets a layer on `side` through: each side is full from its end to
@@ -599,6 +656,7 @@ mod tests {
             bypass: false,
             solo: false,
             collapsed: false,
+            group: None,
             effects: Vec::new(),
             modulation: Default::default(),
             clips,
@@ -1164,5 +1222,106 @@ mod tests {
             assert!(play.autopilot(&vj, secs(30.0 + 10.0 * f64::from(pass)), &length));
             assert_ne!(play.playing()["l1"].clip, before, "no repeat");
         }
+    }
+
+    fn group(id: &str) -> flux_project::vj::Group {
+        flux_project::vj::Group {
+            id: id.into(),
+            name: None,
+            master: 1.0,
+            opacity: 1.0,
+            blend: Blend::Alpha,
+            bypass: false,
+            solo: false,
+            collapsed: false,
+            effects: Vec::new(),
+        }
+    }
+
+    /// `grid()` with both layers in one group, off the crossfader.
+    fn grouped() -> Vj {
+        let mut vj = grid();
+        for layer in &mut vj.layers {
+            layer.crossfade = None;
+            layer.group = Some("g".into());
+        }
+        vj.groups = vec![group("g")];
+        vj
+    }
+
+    #[test]
+    fn a_group_should_scale_the_sound_of_its_layers_by_its_master_and_mute_them_when_bypassed() {
+        let mut vj = grouped();
+        let play = GridPlay::default();
+        vj.groups[0].master = 0.5;
+        vj.groups[0].opacity = 0.2;
+        assert_eq!(play.sound_level(&vj, &vj.layers[0]), 0.5);
+        assert_eq!(
+            play.level(&vj, &vj.layers[0]),
+            1.0,
+            "the group draws its mix"
+        );
+        vj.groups[0].bypass = true;
+        assert_eq!(play.sound_level(&vj, &vj.layers[1]), 0.0);
+        assert_eq!(play.level(&vj, &vj.layers[1]), 0.0);
+    }
+
+    #[test]
+    fn a_solo_should_let_a_soloed_group_or_layer_through_and_hold_the_rest_back() {
+        let mut vj = grid();
+        vj.layers[0].crossfade = None;
+        vj.layers[1].crossfade = None;
+        vj.layers[1].group = Some("g".into());
+        vj.groups = vec![group("g")];
+        let play = GridPlay::default();
+        vj.groups[0].solo = true;
+        assert_eq!(play.level(&vj, &vj.layers[0]), 0.0);
+        assert_eq!(play.level(&vj, &vj.layers[1]), 1.0);
+        assert_eq!(play.group_looks(&vj).len(), 1);
+        vj.groups[0].solo = false;
+        vj.layers[0].solo = true;
+        assert_eq!(play.level(&vj, &vj.layers[1]), 0.0);
+        assert!(
+            play.group_looks(&vj).is_empty(),
+            "nothing of the group shows"
+        );
+    }
+
+    #[test]
+    fn the_look_of_a_group_should_carry_its_master_times_opacity_blend_and_effects() {
+        let mut vj = grouped();
+        vj.groups[0].master = 0.5;
+        vj.groups[0].opacity = 0.5;
+        vj.groups[0].blend = Blend::Add;
+        let looks = GridPlay::default().group_looks(&vj);
+        assert_eq!(looks.len(), 1);
+        assert_eq!((looks[0].opacity, looks[0].blend), (0.25, Blend::Add));
+        vj.groups[0].bypass = true;
+        assert!(GridPlay::default().group_looks(&vj).is_empty());
+    }
+
+    #[test]
+    fn the_pictures_of_a_group_should_say_which_group_they_are_in() {
+        let vj = grouped();
+        let mut play = GridPlay::default();
+        play.launch_column(&vj, "c1", secs(0.0));
+        let shown = play.layers(&vj, secs(1.0), &probe);
+        assert_eq!(shown.len(), 2);
+        assert!(shown.iter().all(|l| l.group.as_deref() == Some("g")));
+    }
+
+    #[test]
+    fn a_group_column_should_launch_only_the_layers_of_the_group() {
+        let mut vj = grid();
+        vj.layers[0].group = Some("g".into());
+        vj.groups = vec![group("g")];
+        let mut play = GridPlay::default();
+        assert!(play.launch_group_column(&vj, "g", "c1", secs(0.0)));
+        assert_eq!(play.playing()["l1"].clip.as_deref(), Some("a"));
+        assert!(!play.playing().contains_key("l2"), "outside the group");
+        assert!(play.launch_group_column(&vj, "g", "c2", secs(1.0)));
+        assert_eq!(play.playing()["l1"].clip.as_deref(), Some("b"));
+        assert!(!play.launch_group_column(&vj, "nope", "c1", secs(1.0)));
+        assert!(!play.launch_group_column(&vj, "g", "nope", secs(1.0)));
     }
 }
