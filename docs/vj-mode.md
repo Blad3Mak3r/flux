@@ -109,13 +109,52 @@ The **Output** menu has Resolume's functions for the screens, with its shortcuts
 | Item | Key | Does |
 | --- | --- | --- |
 | **Disable output** | Ctrl+Shift+D | Every screen goes black; press it again to bring the picture back. It affects the show, so while it is on the Output panel shows a solid vermilion **Output disabled** tag (click it to turn the screens back on) and the monitor is dimmed and framed in vermilion. Clips keep playing underneath. |
-| **Show test card** | Ctrl+Shift+L | Every screen shows the test card instead of the picture, so you can line a projector up: a grid, the diagonals and circles that show how a slice leans, colour bars and a grey ramp, the corners told apart by colour, the composition size, the screen's name with the size of its window, a sweeping bar and the time of day, and **each slice outlined** in a colour of its own with its name and size (the slices of [Advanced Output](#advanced-output)). An amber **Test card** tag shows while it is on. Disable output wins over it. |
+| **Show test card** | Ctrl+Shift+L | Every screen shows the [test card](#the-test-card) of each slice instead of the picture, so you can line a wall or a projector up. An amber **Test card** tag shows while it is on. Disable output wins over it. |
 | **Snapshot** | Ctrl+Shift+P | Saves a PNG of the composition, at the composition's resolution, in the snapshot folder (`Pictures/Flux Snapshots` by default, or the app's data folder when there is no Pictures folder) as `Flux <date> <time>.png`, and says so in the status bar. It is the composition before the slices, as the Output monitor draws it but at full size. It needs a VJ show. |
 | **Full screen output > Display N** | Ctrl+Shift+1 to 9 | Puts the main screen's output full screen on display N (counted from 1, in the order the system lists the displays, the same order as Preferences > Video) and remembers the display. Pressing the same key again, or **Windowed**, takes it back to a window on that display. Other screens keep the display chosen in Preferences. |
 
 **Preferences > Snapshots** sets the snapshot folder and whether each snapshot is also added to the project's media as
 an image clip (in the selected layer, as with **File > Import media**). Disable output and the test card are
 not saved with the project: they are off again when FLUX starts.
+
+### The test card
+
+![The test card on a 1536 x 768 slice and a 640 x 384 one: a checker of cabinets in each slice's own colour, one pixel lines on the cabinet edges, cabinet ids, a circle, diagonals and dashed centre lines, the slice's name and resolution on a dark plate, colour bars, a clock and a frame counter](./screenshots/test-card-led.png)
+
+The card is made **for each slice**, in the slice's own pixels, so it can be lined up with the physical LED cabinets behind
+it. A slice's resolution is the size of its rectangle in the composition, in pixels (a slice cut at 1536 x 768 gets a card
+of 1536 x 768). The settings live in the project, per slice, in **Advanced Output > the slice > Test card**:
+
+![The Test card section of a slice's inspector](./screenshots/test-card-settings.png)
+
+| Setting | Does |
+| --- | --- |
+| **Show on this slice** | Lays this slice's card over the show even while the output's card is off, to test one slice while the others play. **Show test card** (Ctrl+Shift+L) shows every slice's card and replaces the picture. |
+| **Fill** | **Pattern**, or one flat colour for dead pixel and uniformity checks: red, green, blue, white, black or a custom colour. A flat colour has no label and no motion. |
+| **Cabinet** | The size in pixels of one physical cabinet: the presets **64**, **104** and **128** (the default, 128 x 128), or any width and height from 8 to 2048. Cabinets that do not divide the slice are cut at its right and bottom edge, and the card says so. |
+| **Base colour** | The colour the whole palette is made from, in OKLCH: two tones for the cabinet checker, the lines on the cabinet edges, the white guides and the dark label plate. Text is always checked to read at 4.5 : 1 or more on what it sits on. **Auto** takes a hue from the slice's place in the list (turned by the golden angle), so neighbouring slices differ. |
+| **Palette** | **Vivid** (two saturated tones of the base, white guides), **Dark** (near black cabinets tinted by the base, for a dark room), **Light**, or **Contrast** (black and white cabinets). |
+| **Numbering** | The cabinet ids: **A1** (column letter, row number: A1, B1, A2), **1.1** (column.row) or **01** (row by row from the top left). Ids are left out where a cabinet is under 44 x 36 pixels, too small to read. |
+| **Layers** | **Grid** (one pixel lines on the first pixel of each cabinet, a 2 pixel outline of the slice and a mark at every cabinet corner), **Ids**, **Circle** and **Diagonals** (they show a stretch: the circle touches the top and bottom of the slice, and a stretched slice shows an ellipse), **Centre lines** (dashed), **Label**, **Bars** (colour bars and a grey ramp) and **Motion**. A mark in the top left corner shows a mirrored or turned wall. |
+| **Guides** | How thick the circle, diagonals and centre lines are, from 1 to 6 pixels. |
+| **Label** | The slice's name, its resolution, the cabinet count and size (`CAB 12 x 6 · 128 x 128 px`) and the screen's name and window size, on a dark rounded plate. **Name**, **Resolution** and **Plate** switch parts off; **Label height** moves it up and down the slice. |
+| **Logo** | **Show logo** (off by default) puts an image in a disc above the label. **Image** picks one of the project's images (PNG, JPEG, WebP and the other stills the media library takes), or **Import image...** adds one to the project's media without putting it on the grid; it is stored in the `.flx` like any other media, so the project stays portable. **Disc** is the colour behind the logo and **Logo size** the disc's diameter, 10 to 60 % of the slice's short side. The logo is fitted inside the disc, keeping its shape, and its transparency shows the disc. |
+| **Copy to all slices** | Gives every slice of the screen these settings, the logo included, each keeping its own colour and its own **Show on this slice**. This is how a logo becomes the same on the whole screen. |
+
+**Motion** is a clock with a frame number (`HH:MM:SS:FF`), eight squares that count the frames in binary and, under them,
+a slim strip with a 2 pixel line that crosses it every three seconds, leaving a short trail. Nothing else on the card
+moves, so the ids and the label stay readable. They are timed by the system clock, so they run together on every screen; a
+frozen output, a stuttering one or a dropped frame shows at once. The cabinet ids are drawn last, each on a small patch
+of its cabinet's tone, so no guide runs through one.
+
+The lines and the text are pixel exact when the slice reaches the wall at 1:1 (its rectangle in the composition is the same
+size as its corners on the output, as when a screen is the size of the composition). A slice that is scaled or leaned on the
+output carries its card with it, so the card shows the scaling and the lean too. A card is read texel by texel, with no
+smoothing, so a one pixel line stays one pixel wherever the slice is 1:1 (the show's pictures keep the smooth filter). While
+a card is on, the composition is drawn to the window without smoothing too, so a scaled slice's lines are hard rather
+than soft.
+
+The Advanced Output canvas shows the cards over the picture while they are on, smaller and with the clock at zero.
 
 ## The BPM bar
 

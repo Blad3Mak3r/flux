@@ -90,16 +90,10 @@ with another resolution.
 ![The test pattern on two projector screens: grid, circles, colour bars, coloured corners, each slice named with its size, the picture size, the time and the white sweep](./screenshots/pattern-1440.jpg)
 
 **Test pattern** shows a test card on every screen wherever there is no picture, to line the slices up on the real
-surface. It has:
-
-- a grid, the diagonals and two circles, which show how a slice leans;
-- colour bars and a grey ramp;
-- a coloured corner in each corner of the picture: red top left, green top right, blue bottom right, yellow bottom
-  left;
-- the picture's size and the time of day in the middle;
-- each slice outlined in a colour of its own, with its name, size and position in pixels;
-- a white bar that sweeps across every three seconds, so each slice shows which way its part of the picture runs. The
-  sweep and the clock are in step on every screen.
+surface. Each slice has a card of its own, drawn in the slice's pixels: a checker of cabinets in the slice's colour with a
+grid you set to the size of the LED cabinets (128 x 128 by default), cabinet ids, a circle and diagonals, the slice's name
+and resolution, colour bars and a moving clock and frame counter. Its settings are in **Advanced Output > the slice > Test
+card**; see [The test card](./vj-mode.md#the-test-card) for all of them.
 
 Turn it off before the show: it is only drawn where no clip is showing, but it is meant for setting up.
 
