@@ -17,7 +17,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -30,14 +30,16 @@ use crate::graphics::IDENTIFIER;
 use crate::transport_commands::{
     SharedOutput, TIMELINE_ADVANCED, is_playing, light_snapshot, release, snapshot,
 };
+use crate::vj_control::{SharedLearn, VjRunner};
 use flux_engine::control::{
-    Binding, ControlAction, Feedback, MidiTrigger, action_for, dedup, seek_target,
+    Binding, ControlAction, Feedback, MidiTrigger, action_for, dedup, osc_action, seek_target,
 };
 use flux_engine::control_in::{Input, ListenError, MidiListener};
 use flux_engine::control_light::{Facts, Lamps, LightPort};
 use flux_engine::devices::{self, MidiPort};
 use flux_engine::output::OutputError;
 use flux_engine::transport::{Command, TransportState};
+use flux_project::vj_mapping::{Command as VjCommand, Target};
 
 const FILE_NAME: &str = "control.json";
 
@@ -210,11 +212,19 @@ pub struct Control {
     engine: Mutex<Engine>,
     /// The next trigger is the one to learn: it is told to the window instead of executed.
     learning: Arc<AtomicBool>,
+    /// The target of a VJ mapping the next control touched is to be learned for (see
+    /// [`crate::vj_control`]).
+    vj_learn: SharedLearn,
 }
 
 pub type SharedControl = Arc<Control>;
 
 impl Control {
+    /// What the window is waiting to map, while it is in map mode.
+    pub fn vj_learn(&self) -> &SharedLearn {
+        &self.vj_learn
+    }
+
     fn lock(&self) -> MutexGuard<'_, Engine> {
         self.engine.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -247,7 +257,7 @@ impl Control {
         self.learning.store(false, Ordering::Relaxed);
         let mut engine = self.lock();
         engine.running = Running::default();
-        let (running, midi, osc) = open(app, &prefs, &self.learning);
+        let (running, midi, osc) = open(app, &prefs, &self.learning, &self.vj_learn);
         *engine = Engine {
             prefs,
             running,
@@ -263,6 +273,7 @@ fn open(
     app: &AppHandle,
     prefs: &ControlPrefs,
     learning: &Arc<AtomicBool>,
+    vj_learn: &SharedLearn,
 ) -> (Running, LinkState, LinkState) {
     let (tx, rx) = mpsc::channel();
     let mut running = Running::default();
@@ -333,10 +344,15 @@ fn open(
     // The inputs hold the only senders, so the thread ends when they are dropped.
     drop(tx);
     if running.midi.is_some() || running.osc.is_some() {
+        let port = match &midi {
+            LinkState::Listening(name) => name.clone(),
+            _ => String::new(),
+        };
         let dispatcher = Dispatcher {
             app: app.clone(),
             bindings: prefs.midi.bindings.clone(),
             learning: Arc::clone(learning),
+            vj: VjRunner::new(app.clone(), Arc::clone(vj_learn), port),
         };
         running.worker = thread::Builder::new()
             .name("flux-control".into())
@@ -494,18 +510,51 @@ struct Dispatcher {
     app: AppHandle,
     bindings: Vec<Binding>,
     learning: Arc<AtomicBool>,
+    vj: VjRunner,
 }
 
 impl Dispatcher {
-    fn run(&self, inputs: &Receiver<Input>) {
-        for input in inputs {
-            self.handle(input);
+    /// Handles what arrives until the inputs are closed. Messages that come together (a knob
+    /// turned fast) are taken as one batch, so only where a control ended is applied; while a
+    /// moving control is being followed the wait is cut short to send its state on time.
+    fn run(mut self, inputs: &Receiver<Input>) {
+        loop {
+            let first = match self.vj.wait() {
+                Some(wait) => match inputs.recv_timeout(wait) {
+                    Ok(input) => Some(input),
+                    Err(RecvTimeoutError::Timeout) => None,
+                    Err(RecvTimeoutError::Disconnected) => break,
+                },
+                None => match inputs.recv() {
+                    Ok(input) => Some(input),
+                    Err(_) => break,
+                },
+            };
+            if let Some(first) = first {
+                let mut commands = Vec::new();
+                self.handle(first, &mut commands);
+                while let Ok(input) = inputs.try_recv() {
+                    self.handle(input, &mut commands);
+                }
+                self.vj.run(commands);
+            }
+            self.vj.tick();
         }
+        // The gesture the last message opened is still the user's.
+        self.vj.finish();
     }
 
-    fn handle(&self, input: Input) {
+    /// A VJ show takes what its mappings are the source of; anything else goes to the cue
+    /// bindings and the fixed `/flux/...` addresses, as before.
+    fn handle(&mut self, input: Input, commands: &mut Vec<(Target, VjCommand)>) {
         match input {
-            Input::Midi(trigger) => {
+            Input::Midi(message) => {
+                if self.vj.midi(&message, commands) {
+                    return;
+                }
+                let Some(trigger) = message.trigger() else {
+                    return;
+                };
                 if self.learning.swap(false, Ordering::Relaxed) {
                     log::info!("remote control: learned {trigger:?}");
                     let _ = self.app.emit(CONTROL_LEARNED, trigger);
@@ -515,7 +564,14 @@ impl Dispatcher {
                     log::debug!("remote control: {trigger:?} has no action");
                 }
             }
-            Input::Action(action) => self.execute(action),
+            Input::Osc(message) => {
+                if self.vj.osc(&message, commands) {
+                    return;
+                }
+                if let Some(action) = osc_action(&message) {
+                    self.execute(action);
+                }
+            }
         }
     }
 

@@ -189,7 +189,7 @@ fn grid_of(session: &SharedSession) -> Result<Vj> {
 
 /// Applies `change` to what the grid plays, with the grid as the project has it, and answers with
 /// the new state.
-fn play(
+pub(crate) fn play(
     app: &AppHandle,
     session: &SharedSession,
     grid: &SharedGrid,
@@ -504,6 +504,16 @@ pub fn vj_beat(
     grid: State<'_, SharedGrid>,
     op: BeatOp,
 ) -> Result<GridState> {
+    beat(&app, &session, &grid, op)
+}
+
+/// Does `op` to the beat clock, as [`vj_beat`] and a controller mapped to a tempo button do.
+pub(crate) fn beat(
+    app: &AppHandle,
+    session: &SharedSession,
+    grid: &SharedGrid,
+    op: BeatOp,
+) -> Result<GridState> {
     let bpm = session
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -516,7 +526,7 @@ pub fn vj_beat(
             BeatOp::Nudge { direction } => grid.nudge(direction, bpm),
         }
     }
-    play(&app, &session, &grid, |_, _, _| Ok(()))
+    play(app, session, grid, |_, _, _| Ok(()))
 }
 
 /// What the grid plays now.

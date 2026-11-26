@@ -735,20 +735,7 @@ impl Session {
     /// edit sent when the hand lets go is the one kept. Any other op is refused.
     pub fn preview_vj(&mut self, op: crate::VjOp) -> Result<()> {
         use crate::VjOp as Op;
-        let level = matches!(
-            op,
-            Op::LayerMaster { .. }
-                | Op::LayerOpacity { .. }
-                | Op::LayerVolume { .. }
-                | Op::LayerTransition { .. }
-                | Op::ClipScale { .. }
-                | Op::ClipPosition { .. }
-                | Op::ClipSpeed { .. }
-                | Op::ClipRegion { .. }
-                | Op::ClipGenerator { .. }
-                | Op::EffectParams { .. }
-                | Op::SetModulation { .. }
-        );
+        let level = op.is_preview();
         if !level {
             return Err(ProjectError::Invalid(
                 "only a level, a transform, a generator, an effect or a modulation is previewed"
@@ -974,6 +961,21 @@ impl Session {
     pub fn grid_copy(&self) -> Option<crate::vj::Vj> {
         let project = &self.document.as_ref()?.project;
         (project.mode == crate::ProjectMode::Vj).then(|| project.vj.clone())
+    }
+
+    /// The project of a VJ show, where it is held.
+    pub fn vj_project(&self) -> Option<&Project> {
+        let project = &self.document.as_ref()?.project;
+        (project.mode == crate::ProjectMode::Vj).then_some(project)
+    }
+
+    /// The project and its active timeline as they are now, copied.
+    pub fn project_state(&self) -> Option<ProjectState> {
+        let document = self.document.as_ref()?;
+        Some(ProjectState {
+            project: document.project.clone(),
+            active: document.active.clone(),
+        })
     }
 
     /// The VJ grid of a VJ project, where it is held.

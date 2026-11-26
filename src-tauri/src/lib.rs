@@ -23,6 +23,7 @@ mod video_commands;
 mod video_output;
 mod vj_audio;
 mod vj_commands;
+mod vj_control;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -153,6 +154,7 @@ pub fn run() {
             vj_commands::vj_crossfader,
             vj_commands::vj_play_state,
             vj_commands::vj_beat,
+            vj_control::vj_learn,
             vj_commands::vj_output_frame,
             vj_commands::vj_preview_frame,
             modulation::vj_modulation_values,

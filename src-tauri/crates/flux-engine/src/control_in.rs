@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use midir::{Ignore, MidiInput, MidiInputConnection};
 
-use crate::control::{ControlAction, MidiTrigger, decode_midi, decode_osc, osc_action};
+use crate::control::{MidiMsg, OscMessage, decode_midi_message, decode_osc};
 use crate::devices::find_by_name;
 
 const MIDI_CLIENT_NAME: &str = "FLUX control";
@@ -26,13 +26,14 @@ const POLL: Duration = Duration::from_millis(100);
 /// Room for any OSC packet a control surface sends; the rest of a bigger datagram is lost.
 const PACKET: usize = 4096;
 
-/// What the inputs deliver.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What the inputs deliver, decoded but not interpreted: what a message does depends on the
+/// bindings of the cues and the mappings of the VJ grid, which the thread that receives it knows.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Input {
-    /// A pad or a control was pressed. Which action it is depends on the user's bindings.
-    Midi(MidiTrigger),
-    /// An OSC message asked for an action, by one of the fixed addresses.
-    Action(ControlAction),
+    /// A note, control change, program change or pitch bend of the port that is open.
+    Midi(MidiMsg),
+    /// An OSC message, from the socket.
+    Osc(OscMessage),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -70,9 +71,9 @@ impl MidiListener {
                 &port,
                 "Flux control in",
                 move |_, bytes, ()| {
-                    if let Some(trigger) = decode_midi(bytes) {
+                    if let Some(message) = decode_midi_message(bytes) {
                         // The receiver is gone while the listener is being replaced.
-                        let _ = inputs.send(Input::Midi(trigger));
+                        let _ = inputs.send(Input::Midi(message));
                     }
                 },
                 (),
@@ -129,9 +130,7 @@ fn run(socket: &UdpSocket, inputs: &Sender<Input>, stop: &AtomicBool) {
             continue;
         };
         for message in decode_osc(&packet[..length]) {
-            if let Some(action) = osc_action(&message) {
-                let _ = inputs.send(Input::Action(action));
-            }
+            let _ = inputs.send(Input::Osc(message));
         }
     }
 }
@@ -160,8 +159,15 @@ mod tests {
             .unwrap();
     }
 
+    fn osc(address: &str, args: &[OscArg]) -> Input {
+        Input::Osc(OscMessage {
+            address: address.into(),
+            args: args.to_vec(),
+        })
+    }
+
     #[test]
-    fn a_packet_should_arrive_as_the_action_it_asks_for() {
+    fn a_packet_should_arrive_as_the_message_it_holds() {
         let (tx, rx) = mpsc::channel();
         let listener = OscListener::bind(0, tx).unwrap();
 
@@ -176,27 +182,23 @@ mod tests {
 
         assert_eq!(
             rx.recv_timeout(WAIT),
-            Ok(Input::Action(ControlAction::Play))
+            Ok(osc("/flux/play", &[OscArg::Int(1)]))
         );
         assert_eq!(
             rx.recv_timeout(WAIT),
-            Ok(Input::Action(ControlAction::GotoCue(3)))
+            Ok(osc("/flux/cue/goto", &[OscArg::Int(3)]))
         );
     }
 
     #[test]
-    fn what_is_not_a_request_should_be_dropped_and_the_next_packet_still_heard() {
+    fn what_is_not_osc_should_be_dropped_and_the_next_packet_still_heard() {
         let (tx, rx) = mpsc::channel();
         let listener = OscListener::bind(0, tx).unwrap();
 
         send_to(listener.port(), b"not osc at all");
-        send_to(listener.port(), &crate::osc::encode("/other/thing", &[]));
         send_to(listener.port(), &crate::osc::encode("/flux/stop", &[]));
 
-        assert_eq!(
-            rx.recv_timeout(WAIT),
-            Ok(Input::Action(ControlAction::Stop))
-        );
+        assert_eq!(rx.recv_timeout(WAIT), Ok(osc("/flux/stop", &[])));
     }
 
     #[test]

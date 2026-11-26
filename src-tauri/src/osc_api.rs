@@ -5,7 +5,7 @@ use crate::{
     transport_commands::{self, SharedOutput},
 };
 use flux_engine::{
-    control::{OscMessage, decode_osc, osc_action},
+    control::{OscMessage, decode_osc},
     control_in::Input,
     osc::encode,
     transport::Command,
@@ -263,9 +263,7 @@ impl Server {
             .into_iter()
             .filter_map(|message| {
                 if !message.address.starts_with("/flux/v1/") {
-                    if let Some(action) = osc_action(&message) {
-                        let _ = self.legacy.send(Input::Action(action));
-                    }
+                    let _ = self.legacy.send(Input::Osc(message));
                     return None;
                 }
                 let id = match message.args.first() {

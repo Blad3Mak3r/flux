@@ -23,6 +23,7 @@ use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit}
 pub use crate::vj_effects::{
     Effect, EffectKind, EffectSpec, EffectTarget, MAX_EFFECTS, MirrorAxis, ParamSpec, Sync,
 };
+pub use crate::vj_mapping::{ButtonMode, Knob, Mapping, Source, Target};
 pub use crate::vj_modulation::{ModTarget, Modulation};
 use crate::{ProjectError, Result};
 
@@ -76,6 +77,13 @@ pub struct Vj {
     /// Draws the composition without its effects; they keep their place and settings.
     #[serde(default, skip_serializing_if = "is_false")]
     pub composition_bypass: bool,
+    /// What a MIDI controller or an OSC address drives (see [`crate::vj_mapping`]); absent is none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mappings: Vec<Mapping>,
+    /// The composition dashboard: up to [`crate::vj_mapping::KNOBS`] knobs, each driving the numbers
+    /// it is linked to; a knob not listed is at 0 with no links.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dashboard: Vec<Knob>,
 }
 
 /// Where the timecode clock of a VJ show comes from: Flux's own transport, or timecode coming in
@@ -362,6 +370,16 @@ pub enum Autopilot {
 impl Autopilot {
     fn is_off(&self) -> bool {
         *self == Self::Off
+    }
+
+    /// The mode after this one, as the cycle button steps: off, next, previous, random, off.
+    pub fn cycled(self) -> Self {
+        match self {
+            Self::Off => Self::Next,
+            Self::Next => Self::Previous,
+            Self::Previous => Self::Random,
+            Self::Random => Self::Off,
+        }
     }
 
     /// The cell to launch after `current` among `filled` (one entry per column, `true` for a clip),
@@ -938,11 +956,98 @@ pub enum VjOp {
         target: ModTarget,
         modulation: Option<Modulation>,
     },
+    /// Makes `source` (a MIDI control or an OSC address, as learned) drive `target`. Latest wins: a
+    /// mapping of the same source or of the same target is replaced, and a target that is mapped
+    /// again keeps the range, inversion and mode it had.
+    AddMapping {
+        source: Source,
+        target: Target,
+    },
+    RemoveMapping {
+        mapping: String,
+    },
+    /// Takes away the mapping of `target`, if it has one.
+    ClearMapping {
+        target: Target,
+    },
+    /// Sets the options of a mapping: the range it scales into (in the target's own units),
+    /// whether it is inverted, and what a button does.
+    SetMapping {
+        mapping: String,
+        min: f32,
+        max: f32,
+        invert: bool,
+        mode: ButtonMode,
+    },
+    /// Turns a knob of the dashboard to `value` (0 to 1) and moves every number linked to it.
+    DashboardValue {
+        knob: usize,
+        value: f32,
+    },
+    /// Links a number to a knob (or changes the range of an existing link): the knob at 0 gives
+    /// `min` and at 1 gives `max`. A bound left out is the target's own, so a new link covers its
+    /// whole range.
+    DashboardLink {
+        knob: usize,
+        target: Target,
+        min: Option<f32>,
+        max: Option<f32>,
+    },
+    DashboardUnlink {
+        knob: usize,
+        target: Target,
+    },
+    RenameKnob {
+        knob: usize,
+        name: String,
+    },
+}
+
+impl VjOp {
+    /// Whether the op only moves a value, so that a fader or a controller can send it many times
+    /// a second without the project being copied and checked each time (see `Session::preview_vj`).
+    pub fn is_preview(&self) -> bool {
+        matches!(
+            self,
+            Self::LayerMaster { .. }
+                | Self::LayerOpacity { .. }
+                | Self::LayerVolume { .. }
+                | Self::LayerTransition { .. }
+                | Self::ClipScale { .. }
+                | Self::ClipPosition { .. }
+                | Self::ClipSpeed { .. }
+                | Self::ClipRegion { .. }
+                | Self::ClipGenerator { .. }
+                | Self::EffectParams { .. }
+                | Self::SetModulation { .. }
+                | Self::DashboardValue { .. }
+        )
+    }
+
+    /// Whether the op can take something a mapping or a link names out of the grid.
+    fn may_remove(&self) -> bool {
+        matches!(
+            self,
+            Self::RemoveLayer { .. }
+                | Self::RemoveDeck { .. }
+                | Self::RemoveColumn { .. }
+                | Self::RemoveClip { .. }
+                | Self::RemoveEffect { .. }
+                | Self::PlaceVideo { .. }
+                | Self::PlaceGenerator { .. }
+                | Self::MoveClip { .. }
+                | Self::ClipGenerator { .. }
+        )
+    }
 }
 
 impl Vj {
     pub(crate) fn is_empty(&self) -> bool {
-        self.layers.is_empty() && self.decks.is_empty() && self.composition_effects.is_empty()
+        self.layers.is_empty()
+            && self.decks.is_empty()
+            && self.composition_effects.is_empty()
+            && self.mappings.is_empty()
+            && self.dashboard.is_empty()
     }
 
     /// The grid of a new VJ project: [`DEFAULT_LAYERS`] layers and one deck of [`DEFAULT_COLUMNS`]
@@ -959,6 +1064,8 @@ impl Vj {
             clock: ClockSource::Internal,
             composition_effects: Vec::new(),
             composition_bypass: false,
+            mappings: Vec::new(),
+            dashboard: Vec::new(),
         }
     }
 
@@ -1044,6 +1151,20 @@ impl Vj {
             .autopilot
             .pick(&filled, here, roll)
             .and_then(|at| cells[at])
+    }
+
+    /// The effect `id` of a clip, a layer or the composition.
+    pub fn find_effect(&self, id: &str) -> Option<&Effect> {
+        let layers = self.layers.iter().flat_map(|layer| {
+            layer
+                .effects
+                .iter()
+                .chain(layer.clips.iter().flat_map(|clip| &clip.effects))
+        });
+        self.composition_effects
+            .iter()
+            .chain(layers)
+            .find(|effect| effect.id == id)
     }
 
     /// The layer showing `clip`, and the clip.
@@ -1157,6 +1278,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
     if project.mode != ProjectMode::Vj {
         return Err(ProjectError::Invalid("only a VJ project has a grid".into()));
     }
+    let prune = op.may_remove();
     let vj = &mut project.vj;
     match op {
         VjOp::AddLayer { global } => {
@@ -1464,6 +1586,37 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             stack[at].modulation.clear();
         }
         VjOp::SetModulation { target, modulation } => set_modulation(vj, target, modulation)?,
+        VjOp::AddMapping { source, target } => {
+            crate::vj_mapping::add_mapping(vj, source, target, new_id())?;
+        }
+        VjOp::RemoveMapping { mapping } => crate::vj_mapping::remove_mapping(vj, &mapping)?,
+        VjOp::ClearMapping { target } => vj.mappings.retain(|m| m.target != target),
+        VjOp::SetMapping {
+            mapping,
+            min,
+            max,
+            invert,
+            mode,
+        } => crate::vj_mapping::set_mapping(vj, &mapping, min, max, invert, mode)?,
+        VjOp::DashboardValue { knob, value } => {
+            crate::vj_mapping::turn_knob(project, knob, value)?;
+        }
+        VjOp::DashboardLink {
+            knob,
+            target,
+            min,
+            max,
+        } => crate::vj_mapping::link_knob(vj, knob, target, min, max)?,
+        VjOp::DashboardUnlink { knob, target } => {
+            crate::vj_mapping::unlink_knob(vj, knob, &target)?;
+        }
+        VjOp::RenameKnob { knob, name } => {
+            let name = typed_name(&name)?;
+            crate::vj_mapping::rename_knob(vj, knob, name)?;
+        }
+    }
+    if prune {
+        crate::vj_mapping::prune(&mut project.vj);
     }
     Ok(())
 }
@@ -1701,6 +1854,7 @@ pub(crate) fn validate<'a>(
             }
         }
     }
+    crate::vj_mapping::validate(vj)?;
     Ok(())
 }
 
@@ -1737,7 +1891,7 @@ fn unique<'a>(seen: &mut HashSet<&'a str>, id: &'a str) -> Result<()> {
     }
 }
 
-fn check_name(name: Option<&str>) -> Result<()> {
+pub(crate) fn check_name(name: Option<&str>) -> Result<()> {
     match name {
         Some(name) if name.trim().is_empty() || name.chars().count() > MAX_CLIP_NAME => {
             Err(ProjectError::Invalid(format!(

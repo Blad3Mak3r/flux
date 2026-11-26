@@ -1012,6 +1012,19 @@ impl EffectKind {
         })
     }
 
+    /// The range of the numeric setting `param`, whether or not a modulation can drive it; `None`
+    /// for a setting that is not a number of this kind.
+    pub fn number_range(&self, param: &str) -> Option<(f32, f32)> {
+        spec_of(&self.name())
+            .ok()?
+            .params
+            .iter()
+            .find_map(|spec| match spec {
+                ParamSpec::Number { key, min, max, .. } if *key == param => Some((*min, *max)),
+                _ => None,
+            })
+    }
+
     /// The kind with the numeric settings `values` (key and number) set, each brought into range
     /// (and to a whole number where it is one); `None` if a key is not a number of this kind.
     pub fn with_numbers(&self, values: &[(String, f32)]) -> Option<Self> {
