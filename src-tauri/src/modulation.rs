@@ -54,6 +54,24 @@ impl Modulation {
         vj_modulation::modulate(vj, &mut modulator, clock, bands)
     }
 
+    /// What to draw of `vj` at `clock`: `vj` itself when nothing is modulated, else `drawn`, a
+    /// copy kept by the caller between frames (it must be reset to `None` whenever `vj`
+    /// changes) and patched in place.
+    pub fn draw<'a>(&self, vj: &'a Vj, drawn: &'a mut Option<Vj>, clock: Clock) -> &'a Vj {
+        if !vj.is_modulated() {
+            *drawn = None;
+            return vj;
+        }
+        let bands = self.analysis.bands.load();
+        let mut modulator = self
+            .modulator
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let copy = drawn.get_or_insert_with(|| vj.clone());
+        vj_modulation::modulate_into(vj, copy, &mut modulator, clock, bands);
+        copy
+    }
+
     /// The modulated values of `vj` at `clock`.
     pub fn values(&self, vj: &Vj, clock: Clock) -> Values {
         let bands: Bands = self.analysis.bands.load();

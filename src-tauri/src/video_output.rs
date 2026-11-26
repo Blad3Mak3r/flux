@@ -115,6 +115,9 @@ pub struct VideoOutputs {
 struct MonitorFrames {
     history: flux_render::History,
     last: Option<Instant>,
+    /// The grid copied from the session, the revision it was copied at, and its modulated copy.
+    grid: Option<(u64, String, Option<flux_project::vj::Vj>)>,
+    drawn: Option<flux_project::vj::Vj>,
 }
 
 pub type SharedVideoOutput = Arc<VideoOutputs>;
@@ -323,6 +326,7 @@ impl VideoOutput {
             grid,
             modulation,
             vj: None,
+            drawn: None,
             last_frame: None,
         };
         let thread = thread::Builder::new()
@@ -533,6 +537,8 @@ struct Render {
     /// Puts the modulated values in the grid it draws.
     modulation: crate::modulation::SharedModulation,
     vj: Option<flux_project::vj::Vj>,
+    /// The grid with its modulated values, kept between frames and patched; reset with `vj`.
+    drawn: Option<flux_project::vj::Vj>,
     /// When the last frame was drawn, to tell the effects with a history how long it has been.
     last_frame: Option<Instant>,
 }
@@ -576,15 +582,15 @@ impl Render {
                     seconds: now.time.as_secs_f64(),
                     beats,
                 };
-                let drawn = self.modulation.apply(vj, clock);
+                let drawn = self.modulation.draw(vj, &mut self.drawn, clock);
                 let shown = self
                     .deck
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
                     .as_mut()
-                    .map(|deck| deck.show_grid(&drawn, &play, now))
+                    .map(|deck| deck.show_grid(drawn, &play, now))
                     .unwrap_or_default();
-                let post = composition_post(&drawn, clock, dt);
+                let post = composition_post(drawn, clock, dt);
                 (shown, beats, post)
             }
             None => (self.timeline_pictures(), 0.0, flux_render::Post::default()),
@@ -704,6 +710,7 @@ impl Render {
         self.seen = (revision, active.to_owned());
         self.timeline = session.active_timeline_copy();
         self.vj = session.grid_copy();
+        self.drawn = None;
         let screens = session.video_screens();
         let this = screens.iter().find(|screen| screen.id == self.screen_id);
         let slices = this.map_or(&[][..], |screen| &screen.slices);
@@ -842,11 +849,22 @@ impl VideoOutputs {
     /// so it shows them with no screen open too.
     pub fn composition(&self, app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
         let session = Arc::clone(&app.state::<SharedSession>());
-        let Some(vj) = session
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .grid_copy()
-        else {
+        // The grid is copied again only when the session moved.
+        let mut guard = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
+        let frames = &mut *guard;
+        {
+            let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+            let (revision, active) = session.revision();
+            if frames
+                .grid
+                .as_ref()
+                .is_none_or(|(r, a, _)| (*r, a.as_str()) != (revision, active))
+            {
+                frames.grid = Some((revision, active.to_owned(), session.grid_copy()));
+                frames.drawn = None;
+            }
+        }
+        let Some(vj) = frames.grid.as_ref().and_then(|(_, _, vj)| vj.as_ref()) else {
             return Ok(None);
         };
         ensure_deck(&self.deck, app)?;
@@ -858,7 +876,7 @@ impl VideoOutputs {
         let (play, now) = {
             let grid = app.state::<crate::vj_commands::SharedGrid>();
             let mut grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
-            let now = grid.tick(&vj, bpm);
+            let now = grid.tick(vj, bpm);
             (grid.play.clone(), now)
         };
         let beats = now.beats;
@@ -867,13 +885,13 @@ impl VideoOutputs {
             beats,
         };
         let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
-        let drawn = modulation.apply(&vj, clock);
+        let drawn = modulation.draw(vj, &mut frames.drawn, clock);
         let shown = self
             .deck
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_mut()
-            .map(|deck| deck.show_grid(&drawn, &play, now))
+            .map(|deck| deck.show_grid(drawn, &play, now))
             .unwrap_or_default();
         let size = composition_size(&session);
         let (width, height) = (
@@ -885,13 +903,12 @@ impl VideoOutputs {
         let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
         picture.extend_from_slice(&(width as u16).to_le_bytes());
         picture.extend_from_slice(&(height as u16).to_le_bytes());
-        let mut frames = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
         let at = Instant::now();
         let dt = frames
             .last
             .replace(at)
             .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
-        let post = composition_post(&drawn, clock, dt);
+        let post = composition_post(drawn, clock, dt);
         picture.extend(flux_render::composite_post(
             &pictures(&shown, size, beats),
             width,

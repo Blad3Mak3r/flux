@@ -971,8 +971,16 @@ impl EffectKind {
     /// The kind with its settings brought into range; a setting that is not a number or a colour
     /// that is not `#rrggbb` is refused.
     pub fn tidy(self) -> Result<Self> {
-        let mut map = self.to_map();
-        let name = self.name();
+        Self::from_tidy_map(self.to_map())
+    }
+
+    /// The kind of `map` with every setting brought into range: one trip through the map instead
+    /// of one per step.
+    fn from_tidy_map(mut map: Map<String, Value>) -> Result<Self> {
+        let name = match map.get("effect") {
+            Some(Value::String(name)) => name.clone(),
+            _ => String::new(),
+        };
         for param in &spec_of(&name)?.params {
             let Some(value) = map.get_mut(param.key()) else {
                 return Err(ProjectError::Invalid(format!(
@@ -1011,7 +1019,7 @@ impl EffectKind {
         for (key, value) in values {
             *map.get_mut(key)? = Value::from(f64::from(*value));
         }
-        Self::from_map(map).ok()?.tidy().ok()
+        Self::from_tidy_map(map).ok()
     }
 
     /// Checks the settings are in range, as [`Self::tidy`] would bring them.

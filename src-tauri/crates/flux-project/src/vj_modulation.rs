@@ -331,9 +331,25 @@ fn seed_of(key: &str) -> u64 {
 #[derive(Debug, Default)]
 pub struct Modulator {
     followers: HashMap<String, (f32, f64)>,
+    /// Evaluations since the followers were last pruned.
+    calls: u32,
 }
 
+/// How many evaluations pass between two prunings of the followers.
+const PRUNE_EVERY: u32 = 600;
+
 impl Modulator {
+    /// Drops the followers of what `vj` no longer has modulated; it only looks every
+    /// [`PRUNE_EVERY`] calls and never allocates.
+    fn prune(&mut self, vj: &Vj) {
+        self.calls += 1;
+        if self.calls < PRUNE_EVERY {
+            return;
+        }
+        self.calls = 0;
+        self.followers.retain(|key, _| vj.has_modulation_key(key));
+    }
+
     /// The 0 to 1 movement of `modulation`, which is `key` (what it moves, unique in the grid).
     pub fn signal(
         &mut self,
@@ -353,10 +369,11 @@ impl Modulator {
                 release,
             } => {
                 let target = (bands.get(band) * gain).clamp(0.0, 1.0);
-                let (value, at) = self
-                    .followers
-                    .entry(key.to_owned())
-                    .or_insert((target, clock.seconds));
+                if !self.followers.contains_key(key) {
+                    self.followers
+                        .insert(key.to_owned(), (target, clock.seconds));
+                }
+                let (value, at) = self.followers.get_mut(key).expect("just inserted");
                 // Several screens ask, each a little after the last: a follower that moves by the
                 // time since it was read gives the same answer however often it is.
                 let dt = (clock.seconds - *at).max(0.0);
@@ -408,6 +425,47 @@ impl Vj {
             .any(|clip| matches!(clip.tempo, crate::vj::Tempo::Beats { .. }))
     }
 
+    /// Whether any modulation of the grid listens to the sound.
+    pub fn has_audio_modulation(&self) -> bool {
+        let audio = |m: &BTreeMap<String, Modulation>| {
+            m.values().any(|m| matches!(m.source, Source::Audio { .. }))
+        };
+        let stack = |s: &[Effect]| s.iter().any(|e| audio(&e.modulation));
+        stack(&self.composition_effects)
+            || self.layers.iter().any(|l| {
+                audio(&l.modulation)
+                    || stack(&l.effects)
+                    || l.clips
+                        .iter()
+                        .any(|c| audio(&c.modulation) || stack(&c.effects))
+            })
+    }
+
+    /// Whether `key` (as the modulator names what it moves) is a modulation of this grid.
+    fn has_modulation_key(&self, key: &str) -> bool {
+        let Some((head, field)) = key.rsplit_once(':') else {
+            return false;
+        };
+        let has = |m: &BTreeMap<String, Modulation>| m.contains_key(field);
+        let in_stack =
+            |id: &str, stack: &[Effect]| stack.iter().any(|e| e.id == id && has(&e.modulation));
+        if let Some(id) = head.strip_prefix("l:") {
+            self.layers.iter().any(|l| l.id == id && has(&l.modulation))
+        } else if let Some(id) = head.strip_prefix("c:") {
+            self.layers
+                .iter()
+                .flat_map(|l| &l.clips)
+                .any(|c| c.id == id && has(&c.modulation))
+        } else if let Some(id) = head.strip_prefix("e:") {
+            in_stack(id, &self.composition_effects)
+                || self.layers.iter().any(|l| {
+                    in_stack(id, &l.effects) || l.clips.iter().any(|c| in_stack(id, &c.effects))
+                })
+        } else {
+            false
+        }
+    }
+
     /// Whether a layer's master or volume is modulated: the sound follows them.
     pub fn is_sound_modulated(&self) -> bool {
         self.layers.iter().any(|layer| {
@@ -420,22 +478,41 @@ fn effect_key(effect: &Effect, param: &str) -> String {
     format!("e:{}:{param}", effect.id)
 }
 
-fn modulate_effect(effect: &mut Effect, modulator: &mut Modulator, clock: Clock, bands: Bands) {
-    if effect.modulation.is_empty() {
+/// Puts the modulated settings of `base` in `out`, its copy.
+fn modulate_effect(
+    base: &Effect,
+    out: &mut Effect,
+    modulator: &mut Modulator,
+    clock: Clock,
+    bands: Bands,
+) {
+    if base.modulation.is_empty() {
         return;
     }
-    let values: Vec<(String, f32)> = effect
+    let values: Vec<(String, f32)> = base
         .modulation
         .iter()
         .map(|(param, m)| {
             (
                 param.clone(),
-                modulator.value(&effect_key(effect, param), m, clock, bands),
+                modulator.value(&effect_key(base, param), m, clock, bands),
             )
         })
         .collect();
-    if let Some(kind) = effect.kind.with_numbers(&values) {
-        effect.kind = kind;
+    if let Some(kind) = base.kind.with_numbers(&values) {
+        out.kind = kind;
+    }
+}
+
+fn modulate_stack(
+    base: &[Effect],
+    out: &mut [Effect],
+    modulator: &mut Modulator,
+    clock: Clock,
+    bands: Bands,
+) {
+    for (base, out) in base.iter().zip(out) {
+        modulate_effect(base, out, modulator, clock, bands);
     }
 }
 
@@ -451,40 +528,52 @@ pub fn modulate<'a>(
         return Cow::Borrowed(vj);
     }
     let mut out = vj.clone();
-    for effect in &mut out.composition_effects {
-        modulate_effect(effect, modulator, clock, bands);
-    }
-    for layer in &mut out.layers {
-        let id = layer.id.clone();
+    modulate_into(vj, &mut out, modulator, clock, bands);
+    Cow::Owned(out)
+}
+
+/// Writes every modulated value of `vj` at `clock` into `drawn`, a copy of `vj` (same layers,
+/// clips and effects), which can be kept between frames: only the modulated fields are written,
+/// each from the stored value, so the rest stays as `vj` has it.
+pub fn modulate_into(
+    vj: &Vj,
+    drawn: &mut Vj,
+    modulator: &mut Modulator,
+    clock: Clock,
+    bands: Bands,
+) {
+    modulator.prune(vj);
+    modulate_stack(
+        &vj.composition_effects,
+        &mut drawn.composition_effects,
+        modulator,
+        clock,
+        bands,
+    );
+    for (layer, out) in vj.layers.iter().zip(&mut drawn.layers) {
         for (field, m) in &layer.modulation {
-            let value = modulator.value(&format!("l:{id}:{field}"), m, clock, bands);
+            let value = modulator.value(&format!("l:{}:{field}", layer.id), m, clock, bands);
             match field.as_str() {
-                "master" => layer.master = value.clamp(0.0, 1.0),
-                "opacity" => layer.opacity = value.clamp(0.0, 1.0),
-                "volume" => layer.volume = value.clamp(0.0, 1.0),
+                "master" => out.master = value.clamp(0.0, 1.0),
+                "opacity" => out.opacity = value.clamp(0.0, 1.0),
+                "volume" => out.volume = value.clamp(0.0, 1.0),
                 _ => {}
             }
         }
-        for effect in &mut layer.effects {
-            modulate_effect(effect, modulator, clock, bands);
-        }
-        for clip in &mut layer.clips {
-            let id = clip.id.clone();
+        modulate_stack(&layer.effects, &mut out.effects, modulator, clock, bands);
+        for (clip, out) in layer.clips.iter().zip(&mut out.clips) {
             for (field, m) in &clip.modulation {
-                let value = modulator.value(&format!("c:{id}:{field}"), m, clock, bands);
+                let value = modulator.value(&format!("c:{}:{field}", clip.id), m, clock, bands);
                 match field.as_str() {
-                    "scale" => clip.scale = value.clamp(0.0, MAX_SCALE),
-                    "positionX" => clip.position[0] = value.clamp(-MAX_OFFSET, MAX_OFFSET),
-                    "positionY" => clip.position[1] = value.clamp(-MAX_OFFSET, MAX_OFFSET),
+                    "scale" => out.scale = value.clamp(0.0, MAX_SCALE),
+                    "positionX" => out.position[0] = value.clamp(-MAX_OFFSET, MAX_OFFSET),
+                    "positionY" => out.position[1] = value.clamp(-MAX_OFFSET, MAX_OFFSET),
                     _ => {}
                 }
             }
-            for effect in &mut clip.effects {
-                modulate_effect(effect, modulator, clock, bands);
-            }
+            modulate_stack(&clip.effects, &mut out.effects, modulator, clock, bands);
         }
     }
-    Cow::Owned(out)
 }
 
 /// The modulated values of a grid at an instant, for the inspector to mark on its controls: by
@@ -498,6 +587,7 @@ pub struct Values {
 
 /// Every modulated value of `vj` at `clock`.
 pub fn values(vj: &Vj, modulator: &mut Modulator, clock: Clock, bands: Bands) -> Values {
+    modulator.prune(vj);
     let mut out = Values::default();
     let mut effects = |stack: &[Effect], modulator: &mut Modulator| {
         for effect in stack.iter().filter(|e| !e.modulation.is_empty()) {
@@ -861,6 +951,51 @@ mod tests {
         assert_eq!(segments, 17.0);
         let list = values(&vj, &mut modulator, at(0.0, 0.5), Bands::default());
         near(list.effects["k"]["segments"], 17.0);
+    }
+
+    #[test]
+    fn modulating_into_a_kept_copy_should_equal_modulating_each_frame() {
+        let mut vj = grid_with_clip();
+        let ramp = lfo(Shape::SawUp, beats(1.0), 0.0, 0.0, 1.0);
+        vj.layers[0].modulation.insert("opacity".into(), ramp);
+        vj.layers[0].clips[0]
+            .modulation
+            .insert("scale".into(), ramp);
+        vj.composition_effects.push(Effect {
+            id: "f".into(),
+            bypass: false,
+            kind: EffectKind::default_of("feedback").unwrap(),
+            modulation: BTreeMap::from([("amount".to_owned(), ramp)]),
+        });
+        let (mut a, mut b) = (Modulator::default(), Modulator::default());
+        let mut kept = vj.clone();
+        for beat in [0.1, 0.4, 0.9, 1.3] {
+            let whole = modulate(&vj, &mut a, at(0.0, beat), Bands::default());
+            modulate_into(&vj, &mut kept, &mut b, at(0.0, beat), Bands::default());
+            assert_eq!(*whole, kept);
+        }
+    }
+
+    #[test]
+    fn followers_of_removed_modulations_should_be_pruned() {
+        let mut vj = grid_with_clip();
+        let m = audio(Band::Low, 1.0, 0.1, 0.1);
+        vj.layers[0].modulation.insert("opacity".into(), m);
+        let key = format!("l:{}:opacity", vj.layers[0].id);
+        let mut modulator = Modulator::default();
+        modulator.signal(
+            &key,
+            &vj.layers[0].modulation["opacity"],
+            at(0.0, 0.0),
+            Bands::default(),
+        );
+        assert!(vj.has_audio_modulation());
+        assert!(vj.has_modulation_key(&key));
+        vj.layers[0].modulation.clear();
+        assert!(!vj.has_modulation_key(&key));
+        modulator.calls = PRUNE_EVERY;
+        modulator.prune(&vj);
+        assert!(modulator.followers.is_empty());
     }
 
     #[test]
