@@ -101,6 +101,7 @@ the task matches:
 ## Conventions
 
 - English for code, comments, docs, commit messages and PR text.
+- Every VJ effect, generator and blend mode is documented in `docs/vj-*.md`, under a heading ending in its serde name in backticks; a test (`flux-project/tests/docs.rs`) enforces it.
 - Commands (npm, run from the repo root unless noted):
   - `npm install` — install frontend dependencies.
   - `npm run tauri dev` — run the desktop app with hot reload.
