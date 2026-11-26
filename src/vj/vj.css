@@ -995,6 +995,10 @@ output.vj-tc-v { color: var(--ink-faint); }
   user-select: none;
 }
 
+/* The sound of the clip, behind the region, the cues and the playhead. */
+.vj-wave { position: absolute; inset: 0; color: var(--vj-audio); pointer-events: none; }
+.vj-wave .clip-wave { opacity: 0.5; }
+
 /* What lies outside the region is dimmed. */
 .vj-outside { position: absolute; top: 0; bottom: 0; background: oklch(0.12 0.01 250 / 0.78); pointer-events: none; }
 .vj-outside.left { left: 0; }

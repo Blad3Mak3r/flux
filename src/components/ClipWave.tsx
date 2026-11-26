@@ -33,6 +33,7 @@ export function ClipWave({
   pxPerSecond,
   startSeconds,
   tint,
+  whole = false,
 }: {
   seed: string;
   /** Pixels the whole wave spans, of which only a slice is drawn. */
@@ -48,13 +49,15 @@ export function ClipWave({
   startSeconds: number;
   /** Changes whenever the colour `currentColor` resolves to does, so the canvas is drawn again. */
   tint?: string;
+  /** Draws the whole wave, for a strip that is not on the timeline (the VJ clip transport). */
+  whole?: boolean;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const dpr = useDevicePixelRatio();
   // Each is a number that only changes when the view crosses into another chunk, so scrolling
   // re-renders the clip once per chunk and not on every pixel.
-  const x0 = useViewport((view) => waveSlice(origin, width, view).x0);
-  const x1 = useViewport((view) => waveSlice(origin, width, view).x1);
+  const x0 = useViewport((view) => (whole ? 0 : waveSlice(origin, width, view).x0));
+  const x1 = useViewport((view) => (whole ? width : waveSlice(origin, width, view).x1));
   const sliceWidth = x1 - x0;
 
   useEffect(() => {
