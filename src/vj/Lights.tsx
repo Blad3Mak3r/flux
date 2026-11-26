@@ -13,7 +13,7 @@ export type PadState = keyof VjLights;
 /** Which states each kind of target shows: a clip or a column is dark, loaded or playing; the rest is off or on. */
 const CLIP_STATES: PadState[] = ["off", "loaded", "on"];
 const SWITCH_STATES: PadState[] = ["off", "on"];
-const SWITCHED = new Set<VjTarget["kind"]>(["layerStop", "deckSelect", "stopAll", "layerBypass", "layerSolo", "effectBypass", "bpmPause"]);
+const SWITCHED = new Set<VjTarget["kind"]>(["layerStop", "deckSelect", "stopAll", "layerBypass", "layerSolo", "groupBypass", "groupSolo", "effectBypass", "bpmPause"]);
 
 /** The states a target's pad shows, or `null` when it has no light. */
 export function padStates(target: VjTarget): PadState[] | null {

@@ -10,7 +10,7 @@ export { hasSlot, keyName, linkable, mappable, sourceKind, sourceLabel, targetCl
 export type { SourceKind } from "./mapTarget";
 export type { TargetClass } from "./mapTarget";
 import { effectKey, genericParamKey, paramKey, specOf } from "./effects";
-import { clipName, layerName } from "./names";
+import { clipName, groupName, layerName } from "./names";
 
 /** The mappings of a grid by the key of their target. */
 export function mappingsByTarget(grid: VjGrid): Map<string, VjMapping[]> {
@@ -26,7 +26,7 @@ const clipOf = (grid: VjGrid, id: string): VjClip | undefined =>
   grid.layers.flatMap((layer) => layer.clips ?? []).find((clip) => clip.id === id);
 
 function effectOf(grid: VjGrid, id: string): VjEffect | undefined {
-  const stacks = [grid.compositionEffects, ...grid.layers.flatMap((layer) => [layer.effects, ...(layer.clips ?? []).map((clip) => clip.effects)])];
+  const stacks = [grid.compositionEffects, ...(grid.groups ?? []).map((group) => group.effects), ...grid.layers.flatMap((layer) => [layer.effects, ...(layer.clips ?? []).map((clip) => clip.effects)])];
   return stacks.flatMap((stack) => stack ?? []).find((effect) => effect.id === id);
 }
 
@@ -75,6 +75,13 @@ export function targetLabel(t: Translate, target: VjTarget, grid: VjGrid, videos
       const layer = grid.layers.find((l) => l.id === target.layer);
       return `${layer ? layerName(t, grid, layer) : "?"} · ${what}`;
     }
+    case "groupBypass":
+    case "groupSolo":
+    case "groupMaster":
+    case "groupOpacity": {
+      const group = grid.groups?.find((g) => g.id === target.group);
+      return `${group ? groupName(t, grid, group) : "?"} · ${what}`;
+    }
     default:
       return what;
   }
@@ -98,6 +105,8 @@ export function targetUnits(target: VjTarget, grid: VjGrid, catalog: VjEffectCat
     case "layerMaster":
     case "layerVolume":
     case "layerOpacity":
+    case "groupMaster":
+    case "groupOpacity":
     case "crossfader":
     case "dashboard":
       return PERCENT;
