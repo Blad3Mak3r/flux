@@ -12,6 +12,8 @@ import type {
   VideoFit,
   VjBlend,
   VjClip,
+  VjGenerator,
+  VjGeneratorKind,
   VjColumn,
   VjDeck,
   VjGrid,
@@ -37,21 +39,23 @@ import {
   release,
   selectClip,
   selectLayer,
+  showBrowser,
   showMedia,
   showTab,
   stopLayer,
   useVj,
 } from "./store";
 import type { MediaKind } from "./store";
+import { GENERATORS, swatch } from "./generators";
 import "./vj.css";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
 const NO_VIDEOS: VideoAsset[] = [];
 
 /** Whether a video can be shown yet: `failed` when the backend cannot read it, `processing` while it reads it. */
-function useVideoState(asset: string): "failed" | "processing" | null {
-  const error = useVideoErrors((errors) => errors[asset]);
-  const ready = useDoc((doc) => asset in doc.video && asset in doc.thumbs);
+function useVideoState(asset: string | undefined): "failed" | "processing" | null {
+  const error = useVideoErrors((errors) => (asset ? errors[asset] : undefined));
+  const ready = useDoc((doc) => !asset || (asset in doc.video && asset in doc.thumbs));
   if (error) return "failed";
   return ready ? null : "processing";
 }
@@ -78,7 +82,7 @@ const FITS: VideoFit[] = ["fit", "fill", "stretch", "none"];
 const MAX_TRANSITION = 10;
 const DRAG = "application/x-flux-vj";
 
-type Dragged = { clip: string } | { asset: string };
+type Dragged = { clip: string } | { asset: string } | { generator: VjGeneratorKind };
 
 const fail = (err: unknown) => sayError(errorMessage(err));
 
@@ -91,24 +95,31 @@ function clock(seconds: number): string {
 const layerName = (t: Translate, grid: VjGrid, layer: VjLayer) =>
   layer.name ?? t("vj.layer.default", { n: grid.layers.indexOf(layer) + 1 });
 
-function clipName(clip: VjClip, videos: VideoAsset[]): string {
-  return clip.name ?? videos.find((video) => video.id === clip.asset)?.name ?? "";
+function clipName(t: Translate, clip: VjClip, videos: VideoAsset[]): string {
+  if (clip.name) return clip.name;
+  if (clip.generator) return t(`vj.generator.${clip.generator.kind}`);
+  return videos.find((video) => video.id === clip.asset)?.name ?? "";
 }
+
+/** The thumbnails of a clip's video; a generator has none. */
+const stripOf = (thumbs: Record<string, VideoStrip>, clip: VjClip | undefined) =>
+  clip?.asset ? thumbs[clip.asset] : undefined;
 
 /** The clip of `layer` in the cell under `column`, the `at`-th of the deck shown. */
 function clipAt(layer: VjLayer, column: VjColumn, at: number): VjClip | undefined {
   return layer.clips?.find((clip) => (layer.global ? clip.slot === at : clip.column === column.id));
 }
 
-/** One picture of a video's thumbnail strip, at `position` (0 to 1) of the video. */
-function Thumb({ strip, position = 0.3, children, className }: {
+/** One picture of a video's thumbnail strip, at `position` (0 to 1) of the video, or what a generator draws. */
+function Thumb({ strip, generator, position = 0.3, children, className }: {
   strip: VideoStrip | undefined;
+  generator?: VjGenerator;
   position?: number;
   children?: ReactNode;
   className?: string;
 }) {
-  const style: CSSProperties = {};
-  if (strip) {
+  const style: CSSProperties = generator ? swatch(generator) : {};
+  if (strip && !generator) {
     const index = Math.min(strip.count - 1, Math.max(0, Math.floor(position * strip.count)));
     style.backgroundImage = `url(${strip.url})`;
     style.backgroundSize = `${strip.count * 100}% 100%`;
@@ -250,7 +261,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         <Fader letter="A" label={t("vj.fader.audio")} value={layer.volume ?? 1} {...level("layerVolume")} />
         <Fader letter="V" label={t("vj.fader.video")} value={layer.opacity ?? 1} {...level("layerOpacity")} />
       </div>
-      <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={clip && thumbs[clip.asset]}>
+      <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={stripOf(thumbs, clip)} generator={clip?.generator}>
         {clip && <PlayTime layer={layer.id} countdown="header" />}
         {transition != null && <span className="vj-tbar"><i style={{ width: `${transition * 100}%` }} /></span>}
       </Thumb>
@@ -272,7 +283,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
           <Marquee className="vj-nm" title={name} onDoubleClick={() => setRenaming(true)}>{name}</Marquee>
         )}
         {layer.global && <span className="vj-global" title={t("vj.layer.global")}><GlobeIcon /></span>}
-        <Marquee className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(clip, videos) : t("vj.layer.noClip")}</Marquee>
+        <Marquee className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(t, clip, videos) : t("vj.layer.noClip")}</Marquee>
         <span className="vj-ab" role="group" aria-label={t("vj.layer.side")}>
           {(["a", "b"] as VjSide[]).map((s) => (
             <button key={s} type="button" className={layer.crossfade === s ? "on" : ""} aria-pressed={layer.crossfade === s}
@@ -293,7 +304,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   // Only the cell whose clip plays, or is selected, draws again when that changes.
   const selected = useVj((vj) => clip !== undefined && vj.clip === clip.id);
   const live = useVj((vj) => clip !== undefined && vj.play.playing.some((p) => p.layer === layer.id && p.clip === clip.id));
-  const state = useVideoState(clip?.asset ?? "");
+  const state = useVideoState(clip?.asset);
 
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -303,6 +314,8 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
     const dragged = JSON.parse(raw) as Dragged;
     if ("clip" in dragged) {
       if (dragged.clip !== clip?.id) void edit({ op: "moveClip", clip: dragged.clip, layer: layer.id, column: column.id });
+    } else if ("generator" in dragged) {
+      void edit({ op: "placeGenerator", generator: { kind: dragged.generator }, layer: layer.id, column: column.id });
     } else void edit({ op: "placeVideo", asset: dragged.asset, layer: layer.id, column: column.id });
   };
   const dropping = {
@@ -322,7 +335,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
         onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} {...dropping} />
     );
   }
-  const name = clipName(clip, videos);
+  const name = clipName(t, clip, videos);
   const piano = clip.trigger === "piano";
   return (
     <div
@@ -344,7 +357,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
       }}
       {...dropping}
     >
-      <Thumb strip={thumbs[clip.asset]} />
+      <Thumb strip={stripOf(thumbs, clip)} generator={clip.generator} />
       <span className="vj-shade" />
       {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
       {state && <VideoState state={state} asset={clip.asset} />}
@@ -540,7 +553,7 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
   const thumbs = useDoc((doc) => doc.thumbs);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const found = grid.layers.flatMap((layer) => (layer.clips ?? []).map((clip) => ({ layer, clip }))).find((x) => x.clip.id === selected);
-  const strip = found && thumbs[found.clip.asset];
+  const strip = stripOf(thumbs, found?.clip);
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     if (!strip || strip.count < 2) return;
@@ -551,11 +564,11 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
     <section className="vj-panel" aria-label={t("vj.preview")}>
       <header className="vj-ph">
         <h2>{t("vj.preview")}</h2>
-        <div className="vj-tools">{found && <Marquee className="vj-dim">{clipName(found.clip, videos)}</Marquee>}</div>
+        <div className="vj-tools">{found && <Marquee className="vj-dim">{clipName(t, found.clip, videos)}</Marquee>}</div>
       </header>
       <div className="vj-pb vj-mon-wrap">
         <div className="vj-mon">
-          {found ? <Thumb strip={strip} position={strip ? (frame + 0.5) / strip.count : 0} /> : <p className="vj-empty">{t("vj.previewEmpty")}</p>}
+          {found ? <Thumb strip={strip} generator={found.clip.generator} position={strip ? (frame + 0.5) / strip.count : 0} /> : <p className="vj-empty">{t("vj.previewEmpty")}</p>}
         </div>
         {found && (
           <div className="vj-acts">
@@ -574,7 +587,7 @@ function PreviewPanel({ grid }: { grid: VjGrid }) {
  * double click on the label puts it back to `reset`. `value` and what it sends are in the backend's units, shown times
  * `shown` (e.g. 100 for a percent).
  */
-function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
+function Scrub({ label, name, value, shown, reset, unit = "%", decimals = 0, onMove, onSet }: {
   /** The handle's short tag. */
   label: string;
   /** What the number is, for a screen reader. */
@@ -582,6 +595,10 @@ function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
   value: number;
   shown: number;
   reset: number;
+  /** Shown after the number. */
+  unit?: string;
+  /** Places after the point it is shown with. */
+  decimals?: number;
   onMove: (value: number) => void;
   onSet: (value: number) => void;
 }) {
@@ -589,7 +606,7 @@ function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
   const [held, setHeld] = useState<{ x: number; from: number; v: number; moved: boolean } | null>(null);
   const [text, setText] = useState<string | null>(null);
   const current = held?.v ?? value;
-  const display = String(Math.round(current * shown));
+  const display = (current * shown).toFixed(decimals);
   // One pixel is one shown unit; with Shift a tenth of one.
   const dragged = (event: PointerEvent<HTMLElement>, from: { x: number; from: number }) =>
     from.from + ((event.clientX - from.x) * (event.shiftKey ? 0.1 : 1)) / shown;
@@ -637,7 +654,7 @@ function Scrub({ label, name, value, shown, reset, onMove, onSet }: {
             onSet(value + (step * (event.shiftKey ? 10 : 1)) / shown);
           }
         }} />
-      <span className="vj-scrub-u">%</span>
+      <span className="vj-scrub-u">{unit}</span>
     </span>
   );
 }
@@ -676,6 +693,75 @@ function NameField({ value, placeholder, label, onCommit }: { value: string; pla
   );
 }
 
+/** A colour picked in place: the output follows while it is picked, and it is kept when the picker closes. */
+function ColourField({ value, label, onMove, onSet }: {
+  value: string;
+  label: string;
+  onMove: (colour: string) => void;
+  onSet: (colour: string) => void;
+}) {
+  const [colour, setColour] = useState(value);
+  useEffect(() => setColour(value), [value]);
+  return (
+    <label className="vj-colour" title={label}>
+      <input type="color" aria-label={label} value={colour}
+        onChange={(event) => { setColour(event.target.value); onMove(event.target.value); }}
+        onBlur={() => { if (colour !== value) onSet(colour); }} />
+      <span className="vj-mono">{colour.toUpperCase()}</span>
+    </label>
+  );
+}
+
+/** The parameters of a generator clip, each with the backend's default where the clip has none. */
+function GeneratorFields({ clip, generator }: { clip: string; generator: VjGenerator }) {
+  const t = useT();
+  const move = (changed: Partial<VjGenerator>) =>
+    preview({ op: "clipGenerator", clip, generator: { ...generator, ...changed } as VjGenerator });
+  const keep = (changed: Partial<VjGenerator>) =>
+    void edit({ op: "clipGenerator", clip, generator: { ...generator, ...changed } as VjGenerator });
+  const colour = (key: "colour" | "from" | "to", value: string, name: string) => (
+    <div className="vj-f"><span>{name}</span>
+      <ColourField value={value} label={name} onMove={(c) => move({ [key]: c })} onSet={(c) => keep({ [key]: c })} />
+    </div>
+  );
+  const number = (key: "rate" | "width" | "angle", value: number, props: { label: string; name: string; shown: number; reset: number; unit: string; decimals?: number; hint?: string }) => (
+    <div className="vj-f" title={props.hint}><span>{props.name}</span>
+      <div className="vj-scrubs one">
+        <Scrub {...props} value={value} onMove={(v) => move({ [key]: v })} onSet={(v) => keep({ [key]: v })} />
+      </div>
+    </div>
+  );
+  switch (generator.kind) {
+    case "solid":
+      return colour("colour", generator.colour ?? "#ffffff", t("vj.gen.colour"));
+    case "strobe":
+      return (
+        <>
+          {colour("colour", generator.colour ?? "#ffffff", t("vj.gen.colour"))}
+          {number("rate", generator.rate ?? 8, { label: "↻", name: t("vj.gen.rate"), shown: 1, reset: 8, unit: "Hz", decimals: 1, hint: t("vj.gen.rateHint") })}
+          {number("width", generator.width ?? 0.5, { label: "▮", name: t("vj.gen.width"), shown: 100, reset: 0.5, unit: "%", hint: t("vj.gen.widthHint") })}
+        </>
+      );
+    case "gradient":
+      return (
+        <>
+          {colour("from", generator.from ?? "#000000", t("vj.gen.from"))}
+          {colour("to", generator.to ?? "#ffffff", t("vj.gen.to"))}
+          {number("angle", generator.angle ?? 0, { label: "∠", name: t("vj.gen.angle"), shown: 1, reset: 0, unit: "°" })}
+        </>
+      );
+    case "noise":
+      return (
+        <>
+          {colour("colour", generator.colour ?? "#ffffff", t("vj.gen.colour"))}
+          {number("rate", generator.rate ?? 30, { label: "↻", name: t("vj.gen.rate"), shown: 1, reset: 30, unit: "Hz", decimals: 1, hint: t("vj.gen.noiseRateHint") })}
+        </>
+      );
+    case "bars":
+      return null;
+  }
+}
+
 function Inspector({ grid }: { grid: VjGrid }) {
   const t = useT();
   // One value each, so the play state polled ten times a second does not draw the inspector again.
@@ -699,34 +785,38 @@ function Inspector({ grid }: { grid: VjGrid }) {
   let body: ReactNode = <p className="vj-empty">{t(tab === "clip" ? "vj.inspector.noClip" : "vj.inspector.noLayer")}</p>;
   if (tab === "clip" && found) {
     const { clip } = found;
+    const { generator } = clip;
     const video = videos.find((v) => v.id === clip.asset);
-    const probe = probes[clip.asset];
+    const probe = clip.asset ? probes[clip.asset] : undefined;
     const deck = grid.decks.find((d) => d.id === grid.deck);
     const scale = clip.scale ?? 1;
     const [x, y] = clip.position ?? [0, 0];
     const columnAt = found.layer.global ? clip.slot ?? 0 : deck?.columns.findIndex((c) => c.id === clip.column) ?? -1;
     body = (
       <div className="vj-insp">
-        <Thumb className="vj-ithumb" strip={thumbs[clip.asset]} />
+        <Thumb className="vj-ithumb" strip={stripOf(thumbs, clip)} generator={generator} />
         <div className="vj-fields">
           <label className="vj-f"><span>{t("vj.clip.name")}</span>
-            <NameField value={clip.name ?? ""} placeholder={video?.name ?? ""} label={t("vj.clip.name")}
+            <NameField value={clip.name ?? ""} placeholder={generator ? t(`vj.generator.${generator.kind}`) : video?.name ?? ""} label={t("vj.clip.name")}
               onCommit={(name) => edit({ op: "renameClip", clip: clip.id, name })} />
           </label>
           <div className="vj-f"><span>{t("vj.clip.trigger")}</span>
             <Segments options={TRIGGERS} value={clip.trigger ?? "normal"} label={(o) => t(`vj.trigger.${o}`)}
               onPick={(trigger) => void edit({ op: "clipTrigger", clip: clip.id, trigger })} />
           </div>
-          {!probe?.still && (
+          {generator && <GeneratorFields clip={clip.id} generator={generator} />}
+          {!generator && !probe?.still && (
             <div className="vj-f"><span>{t("vj.clip.playback")}</span>
               <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}
                 onPick={(playback) => void edit({ op: "clipPlayback", clip: clip.id, playback })} />
             </div>
           )}
-          <div className="vj-f"><span>{t("vj.clip.fit")}</span>
-            <Segments options={FITS} value={clip.fit ?? "fit"} label={(o) => t(`vj.fit.${o}`)}
-              onPick={(fit) => void edit({ op: "clipFit", clip: clip.id, fit })} />
-          </div>
+          {!generator && (
+            <div className="vj-f"><span>{t("vj.clip.fit")}</span>
+              <Segments options={FITS} value={clip.fit ?? "fit"} label={(o) => t(`vj.fit.${o}`)}
+                onPick={(fit) => void edit({ op: "clipFit", clip: clip.id, fit })} />
+            </div>
+          )}
           <div className="vj-f"><span>{t("vj.clip.scale")}</span>
             <div className="vj-scrubs">
               <Scrub label="↔" name={t("vj.clip.scale")} value={scale} shown={100} reset={1}
@@ -746,9 +836,15 @@ function Inspector({ grid }: { grid: VjGrid }) {
           </div>
         </div>
         <dl className="vj-meta">
-          <div><dt>{t("vj.clip.file")}</dt><dd><Marquee>{video?.name ?? ""}</Marquee></dd></div>
-          <div><dt>{t("vj.clip.length")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? t("vj.media.still") : clock(probe.frames * probe.rateDen / probe.rateNum)}</dd></div>
-          <div><dt>{t("vj.clip.video")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? `${probe.codec} · ${probe.width}×${probe.height}` : `${probe.codec} · ${probe.width}×${probe.height} · ${Math.round((probe.rateNum / probe.rateDen) * 100) / 100}`}</dd></div>
+          {generator ? (
+            <div><dt>{t("vj.gen.kind")}</dt><dd>{t(`vj.generator.${generator.kind}`)}</dd></div>
+          ) : (
+            <>
+              <div><dt>{t("vj.clip.file")}</dt><dd><Marquee>{video?.name ?? ""}</Marquee></dd></div>
+              <div><dt>{t("vj.clip.length")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? t("vj.media.still") : clock(probe.frames * probe.rateDen / probe.rateNum)}</dd></div>
+              <div><dt>{t("vj.clip.video")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? `${probe.codec} · ${probe.width}×${probe.height}` : `${probe.codec} · ${probe.width}×${probe.height} · ${Math.round((probe.rateNum / probe.rateDen) * 100) / 100}`}</dd></div>
+            </>
+          )}
           <div><dt>{t("vj.clip.cell")}</dt><dd><Marquee>{layerName(t, grid, found.layer)} · {columnAt + 1}</Marquee></dd></div>
         </dl>
       </div>
@@ -807,6 +903,7 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
     (l.clips ?? []).filter((c) => playingClips.split(" ").includes(c.id)).map((c) => c.asset)));
   const importing = useVj((vj) => vj.importing);
   const kind = useVj((vj) => vj.media);
+  const browser = useVj((vj) => vj.browser);
   // A video still being read is listed under "All" only, until the backend says what it is.
   const shown = kind === "all" ? videos : videos.filter((video) => {
     const still = probes[video.id]?.still;
@@ -822,15 +919,33 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
   return (
     <section className="vj-panel vj-media" aria-label={t("vj.media")}>
       <header className="vj-ph">
-        <h2>{t("vj.media")}</h2>
-        <div className="vj-tools">
-          <Segments options={MEDIA_KINDS} value={kind} label={(o) => t(`vj.media.kind.${o}`)} onPick={showMedia} />
-          <button type="button" className="vj-tb" title={t("vj.media.importNote", { layer: layerName(t, grid, target) })}
-            onClick={() => void importFiles()}><ImportIcon />{t("vj.media.import")}</button>
-        </div>
+        <nav className="vj-tabs" role="tablist">
+          {(["media", "generators"] as const).map((key) => (
+            <button key={key} type="button" role="tab" aria-selected={browser === key} className={browser === key ? "on" : ""}
+              onClick={() => showBrowser(key)}>{t(key === "media" ? "vj.media" : "vj.browser.generators")}</button>
+          ))}
+        </nav>
+        {browser === "media" && (
+          <div className="vj-tools">
+            <Segments options={MEDIA_KINDS} value={kind} label={(o) => t(`vj.media.kind.${o}`)} onPick={showMedia} />
+            <button type="button" className="vj-tb" title={t("vj.media.importNote", { layer: layerName(t, grid, target) })}
+              onClick={() => void importFiles()}><ImportIcon />{t("vj.media.import")}</button>
+          </div>
+        )}
+        {browser === "generators" && <div className="vj-tools"><span className="vj-dim">{t("vj.generators.note")}</span></div>}
       </header>
       <div className="vj-pb">
-        {videos.length === 0 && importing.length === 0 ? (
+        {browser === "generators" ? (
+          <div className="vj-mg">
+            {GENERATORS.map((kind) => (
+              <figure key={kind} className="vj-m" draggable title={t("vj.generators.note")}
+                onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ generator: kind } satisfies Dragged))}>
+                <Thumb strip={undefined} generator={{ kind }} />
+                <figcaption><Marquee>{t(`vj.generator.${kind}`)}</Marquee></figcaption>
+              </figure>
+            ))}
+          </div>
+        ) : videos.length === 0 && importing.length === 0 ? (
           <p className="vj-empty">{t("vj.media.empty")}</p>
         ) : (
           <div className="vj-mg">

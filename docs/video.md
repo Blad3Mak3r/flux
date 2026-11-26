@@ -192,6 +192,17 @@ start), `video_probe` answers `still: true` for it, and `grid_frame` keeps showi
 playback; the play state gives it no `progress` or `remaining`. The media browser filters its items by kind: all, video
 or image.
 
+Generators are clips whose picture Flux makes itself: a solid colour, a strobe, a gradient, colour bars and noise
+(`flux_project::generator`). The media browser lists them under its Generators tab and they are dragged onto the grid
+like media; the inspector edits their colours and numbers (`clipGenerator`, previewed live through `vj_preview` while a
+number is dragged or a colour picked). `GridPlay` gives a generator's layer the milliseconds since its launch instead of
+a video frame, stretched over the composition, and never ends it; `VideoDeck` makes the picture on the CPU
+(`flux_video`'s `generate.rs`) only when it changes and keeps it per clip: one pixel for a solid colour or a strobe's
+flash, a 16:9 picture for a gradient (so its angle is the one drawn), 1792 x 1 for the bars and 320 x 180 for the noise,
+each stretched when drawn. The picture's index changes with its parameters and its phase, so a screen uploads it again
+only then. Between a strobe's flashes the layer shows nothing. The screens and the output monitor draw them as any other
+picture.
+
 ## Mapping
 
 Below the display, **Mapping** cuts the picture into slices for the selected screen, as the advanced output of a media server does. Each slice

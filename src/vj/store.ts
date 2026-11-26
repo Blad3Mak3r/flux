@@ -40,6 +40,8 @@ interface VjState {
   tab: "clip" | "layer";
   /** Which media the browser lists. */
   media: MediaKind;
+  /** What the browser shows: the project's media or the generators. */
+  browser: "media" | "generators";
 }
 
 export type MediaKind = "all" | "video" | "image";
@@ -51,6 +53,7 @@ export const useVj = create<VjState>()(() => ({
   layer: null,
   tab: "clip",
   media: "all",
+  browser: "media",
 }));
 
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -133,6 +136,7 @@ export const selectClip = (clip: string, layer: string) => useVj.setState({ clip
 export const selectLayer = (layer: string) => useVj.setState({ layer, tab: "layer" });
 export const showTab = (tab: VjState["tab"]) => useVj.setState({ tab });
 export const showMedia = (media: MediaKind) => useVj.setState({ media });
+export const showBrowser = (browser: VjState["browser"]) => useVj.setState({ browser });
 
 /** Asks the backend what plays, ten times a second, while the VJ screen is open and in sight. */
 export function bindPlayState(): () => void {

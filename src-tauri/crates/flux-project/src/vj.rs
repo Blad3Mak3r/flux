@@ -17,6 +17,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::generator::Generator;
 use crate::model::{MAX_CLIP_NAME, Project, VideoFit};
 use crate::{ProjectError, Result};
 
@@ -229,7 +230,7 @@ impl Trigger {
     }
 }
 
-/// A video in a cell of the grid.
+/// A video, or a generator, in a cell of the grid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Clip {
@@ -240,9 +241,13 @@ pub struct Clip {
     /// On a global layer, the place of the clip from the left, the same in every deck.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<usize>,
-    /// Id of an entry in `Project::videos`.
+    /// Id of an entry in `Project::videos`; empty (absent) for a generator.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub asset: String,
-    /// Absent is the video's name.
+    /// What makes the clip's picture when it is not a video.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generator: Option<Generator>,
+    /// Absent is the video's name, or the generator's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// What the clip does when it reaches its end; absent is [`Playback::Loop`].
@@ -427,6 +432,12 @@ pub enum VjOp {
         layer: String,
         column: String,
     },
+    /// Puts a new generator in a cell, named as for [`VjOp::PlaceVideo`].
+    PlaceGenerator {
+        generator: Generator,
+        layer: String,
+        column: String,
+    },
     /// Moves a clip to a cell, named as for [`VjOp::PlaceVideo`]; a clip already there takes the
     /// place the moved one left.
     MoveClip {
@@ -444,6 +455,11 @@ pub enum VjOp {
     ClipPlayback {
         clip: String,
         playback: Playback,
+    },
+    /// Changes what a generator clip draws; a video clip stays a video.
+    ClipGenerator {
+        clip: String,
+        generator: Generator,
     },
     ClipTrigger {
         clip: String,
@@ -744,25 +760,15 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             if !project.videos.iter().any(|video| video.id == asset) {
                 return Err(ProjectError::MissingAsset(asset));
             }
-            let cell = vj.cell_of(&layer, &column)?;
-            let layer = vj.layer_mut(&layer)?;
-            layer
-                .clips
-                .retain(|clip| clip.cell().as_ref() != Some(&cell));
-            let mut clip = Clip {
-                id: new_id(),
-                column: None,
-                slot: None,
-                asset,
-                name: None,
-                playback: Playback::Loop,
-                trigger: Trigger::Normal,
-                fit: VideoFit::Fit,
-                scale: 1.0,
-                position: [0.0, 0.0],
-            };
-            clip.put(cell);
-            layer.clips.push(clip);
+            place_clip(vj, &layer, &column, new_clip(new_id(), asset, None))?;
+        }
+        VjOp::PlaceGenerator {
+            generator,
+            layer,
+            column,
+        } => {
+            let clip = new_clip(new_id(), String::new(), Some(generator.tidy()));
+            place_clip(vj, &layer, &column, clip)?;
         }
         VjOp::MoveClip {
             clip,
@@ -797,6 +803,16 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         }
         VjOp::RenameClip { clip, name } => vj.clip_mut(&clip)?.name = typed_name(&name)?,
         VjOp::ClipPlayback { clip, playback } => vj.clip_mut(&clip)?.playback = playback,
+        VjOp::ClipGenerator { clip, generator } => {
+            let clip = vj.clip_mut(&clip)?;
+            if clip.generator.is_none() {
+                return Err(ProjectError::Invalid(format!(
+                    "clip {} is a video, not a generator",
+                    clip.id
+                )));
+            }
+            clip.generator = Some(generator.tidy());
+        }
         VjOp::ClipTrigger { clip, trigger } => vj.clip_mut(&clip)?.trigger = trigger,
         VjOp::ClipFit { clip, fit } => vj.clip_mut(&clip)?.fit = fit,
         VjOp::ClipScale { clip, value } => {
@@ -807,6 +823,34 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             vj.clip_mut(&clip)?.position = [offset(x)?, offset(y)?];
         }
     }
+    Ok(())
+}
+
+fn new_clip(id: String, asset: String, generator: Option<Generator>) -> Clip {
+    Clip {
+        id,
+        column: None,
+        slot: None,
+        asset,
+        generator,
+        name: None,
+        playback: Playback::Loop,
+        trigger: Trigger::Normal,
+        fit: VideoFit::Fit,
+        scale: 1.0,
+        position: [0.0, 0.0],
+    }
+}
+
+/// Puts `clip` in the cell of `layer` that `column` names, in place of the clip that was there.
+fn place_clip(vj: &mut Vj, layer: &str, column: &str, mut clip: Clip) -> Result<()> {
+    let cell = vj.cell_of(layer, column)?;
+    let layer = vj.layer_mut(layer)?;
+    layer
+        .clips
+        .retain(|clip| clip.cell().as_ref() != Some(&cell));
+    clip.put(cell);
+    layer.clips.push(clip);
     Ok(())
 }
 
@@ -920,8 +964,18 @@ pub(crate) fn validate<'a>(
                     layer.id
                 )));
             }
-            if !video_ids.contains(clip.asset.as_str()) {
-                return Err(ProjectError::MissingAsset(clip.asset.clone()));
+            match &clip.generator {
+                Some(generator) if clip.asset.is_empty() => generator.validate()?,
+                Some(_) => {
+                    return Err(ProjectError::Invalid(format!(
+                        "clip {} is both a video and a generator",
+                        clip.id
+                    )));
+                }
+                None if !video_ids.contains(clip.asset.as_str()) => {
+                    return Err(ProjectError::MissingAsset(clip.asset.clone()));
+                }
+                None => {}
             }
             check_name(clip.name.as_deref())?;
             if !(0.0..=MAX_SCALE).contains(&clip.scale)
@@ -1041,6 +1095,52 @@ mod tests {
             asset: "nope".into(),
             layer: "g1".into(),
             column: "g5".into(),
+        };
+        assert!(apply(&mut project, op, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn a_generator_should_be_placed_edited_and_saved_without_a_video() {
+        let (mut project, mut new_id) = vj_project();
+        let strobe = Generator::Strobe {
+            colour: "#ff0000".into(),
+            rate: 4.0,
+            width: 0.25,
+        };
+        let op = VjOp::PlaceGenerator {
+            generator: Generator::Solid {
+                colour: "#ffffff".into(),
+            },
+            layer: "g1".into(),
+            column: "g5".into(),
+        };
+        run(&mut project, op, &mut new_id);
+        let clip = project.vj.layers[0].clips[0].id.clone();
+        let op = VjOp::ClipGenerator {
+            clip: clip.clone(),
+            generator: strobe.clone(),
+        };
+        run(&mut project, op, &mut new_id);
+        let json = serde_json::to_value(&project.vj.layers[0].clips[0]).unwrap();
+        assert!(json.get("asset").is_none(), "{json}");
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(back.generator, Some(strobe));
+        project.vj.layers[0].clips[0].generator = Some(Generator::Noise {
+            colour: "#ffffff".into(),
+            rate: 0.0,
+        });
+        assert!(project.validate().is_err());
+        project.vj.layers[0].clips[0].generator = None;
+        assert!(project.validate().is_err(), "a clip without a video");
+    }
+
+    #[test]
+    fn clip_generator_should_refuse_a_video_clip() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id);
+        let op = VjOp::ClipGenerator {
+            clip: project.vj.layers[0].clips[0].id.clone(),
+            generator: Generator::Bars,
         };
         assert!(apply(&mut project, op, &mut new_id).is_err());
     }

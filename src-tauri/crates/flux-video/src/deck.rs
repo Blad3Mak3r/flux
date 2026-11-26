@@ -4,10 +4,12 @@ use std::sync::Arc;
 
 use std::time::Duration;
 
+use flux_project::generator::Generator;
 use flux_project::vj::Vj;
 use flux_project::{Timeline, TrackKind};
 
 use crate::decode::Frame;
+use crate::generate;
 use crate::grid::GridPlay;
 use crate::layers::{Cue, Layer, layers, upcoming};
 use crate::player::VideoPlayer;
@@ -37,6 +39,8 @@ pub struct VideoDeck {
     players: HashMap<String, VideoPlayer>,
     /// Clips whose file could not be opened, kept so it is not retried on every call.
     failed: HashMap<String, PathBuf>,
+    /// The last picture of each generator clip shown, made again only when it changes.
+    generated: HashMap<String, Arc<Frame>>,
 }
 
 impl VideoDeck {
@@ -46,6 +50,7 @@ impl VideoDeck {
             resolve: Box::new(resolve),
             players: HashMap::new(),
             failed: HashMap::new(),
+            generated: HashMap::new(),
         }
     }
 
@@ -82,17 +87,39 @@ impl VideoDeck {
     }
 
     /// Asks each layer's player for its frame and pairs the layer with the newest one decoded.
-    fn pictures(&self, shown: Vec<Layer>) -> Vec<Shown> {
+    /// A generator's layer gets the picture it makes at its time.
+    fn pictures(&mut self, shown: Vec<Layer>) -> Vec<Shown> {
+        self.generated
+            .retain(|clip, _| shown.iter().any(|layer| &layer.clip == clip));
         shown
             .into_iter()
             .map(|layer| {
-                let frame = self.players.get(&layer.clip).and_then(|player| {
-                    player.request(layer.frame);
-                    player.latest()
-                });
+                let frame = match &layer.generator {
+                    Some(generator) => self.generate(&layer.clip, generator, layer.frame),
+                    None => self.players.get(&layer.clip).and_then(|player| {
+                        player.request(layer.frame);
+                        player.latest()
+                    }),
+                };
                 Shown { layer, frame }
             })
             .collect()
+    }
+
+    /// The picture of `generator`, the clip `clip`, `elapsed_ms` after it was launched.
+    fn generate(
+        &mut self,
+        clip: &str,
+        generator: &Generator,
+        elapsed_ms: u64,
+    ) -> Option<Arc<Frame>> {
+        let index = generate::index(generator, Duration::from_millis(elapsed_ms))?;
+        if let Some(frame) = self.generated.get(clip).filter(|f| f.index == index) {
+            return Some(Arc::clone(frame));
+        }
+        let frame = Arc::new(generate::picture(generator, index));
+        self.generated.insert(clip.to_owned(), Arc::clone(&frame));
+        Some(frame)
     }
 
     /// The layers of the VJ grid to draw `now` on the grid's clock, topmost first: it keeps a player

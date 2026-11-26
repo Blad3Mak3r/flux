@@ -83,14 +83,29 @@ export type VjPlayback = "loop" | "once" | "pingPong";
 /** What a press on a clip does; absent is `normal`. */
 export type VjTrigger = "normal" | "piano";
 
+/** What a generator clip draws, with its parameters; colours are `#rrggbb`. A parameter left out
+ * takes the backend's default. */
+export type VjGenerator =
+  | { kind: "solid"; colour?: string }
+  /** `rate` flashes a second, each lasting `width` (0 to 1) of the time between two. */
+  | { kind: "strobe"; colour?: string; rate?: number; width?: number }
+  /** `angle` in degrees: 0 is left to right, 90 top to bottom. */
+  | { kind: "gradient"; from?: string; to?: string; angle?: number }
+  | { kind: "bars" }
+  /** New snow `rate` times a second. */
+  | { kind: "noise"; colour?: string; rate?: number };
+export type VjGeneratorKind = VjGenerator["kind"];
+
 export interface VjClip {
   id: string;
   /** On a deck layer: the column it is in. */
   column?: string;
   /** On a global layer: its place from the left. */
   slot?: number;
-  /** Id of an entry in `Project.videos`. */
-  asset: string;
+  /** Id of an entry in `Project.videos`; absent for a generator. */
+  asset?: string;
+  /** What makes the picture when the clip is not a video. */
+  generator?: VjGenerator;
   name?: string;
   playback?: VjPlayback;
   trigger?: VjTrigger;

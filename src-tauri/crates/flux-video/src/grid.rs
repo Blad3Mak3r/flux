@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use flux_project::VideoFit;
 use flux_project::vj::{Playback, Side, Transition, Trigger, Vj};
 
 use crate::layers::{Layer, Probe};
@@ -231,7 +232,7 @@ impl GridPlay {
         &self.playing
     }
 
-    /// Every clip that may show `now`, those leaving included, as (clip id, asset id).
+    /// Every video clip that may show `now`, those leaving included, as (clip id, asset id).
     pub fn clips<'a>(&self, vj: &'a Vj, now: Duration) -> Vec<(&'a str, &'a str)> {
         let mut clips = Vec::new();
         for layer in &vj.layers {
@@ -240,7 +241,8 @@ impl GridPlay {
             };
             let leaving = launched.fading(now).and_then(|fade| fade.from.as_ref());
             for id in launched.clip.iter().chain(leaving.map(|(clip, _)| clip)) {
-                if let Some(clip) = layer.clips.iter().find(|c| &c.id == id) {
+                let found = layer.clips.iter().find(|c| &c.id == id);
+                if let Some(clip) = found.filter(|clip| clip.generator.is_none()) {
                     clips.push((clip.id.as_str(), clip.asset.as_str()));
                 }
             }
@@ -284,14 +286,22 @@ impl GridPlay {
             }
             let picture = |clip: &str, at: Duration, opacity: f32| {
                 let clip = layer.clips.iter().find(|c| c.id == clip)?;
-                let (rate, frames) = probe(&clip.asset)?;
-                let frame = grid_frame(now.saturating_sub(at), rate, frames, clip.playback)?;
+                let elapsed = now.saturating_sub(at);
+                // A generator fills the composition and never ends.
+                let (frame, fit) = match &clip.generator {
+                    Some(_) => (elapsed.as_millis() as u64, VideoFit::Stretch),
+                    None => {
+                        let (rate, frames) = probe(&clip.asset)?;
+                        (grid_frame(elapsed, rate, frames, clip.playback)?, clip.fit)
+                    }
+                };
                 (opacity > 0.0).then(|| Layer {
                     track: layer.id.clone(),
                     clip: clip.id.clone(),
                     asset: clip.asset.clone(),
                     frame,
-                    fit: clip.fit,
+                    generator: clip.generator.clone(),
+                    fit,
                     opacity,
                     blend: layer.blend,
                     scale: clip.scale,
@@ -377,6 +387,7 @@ mod tests {
             column: Some(column.into()),
             slot: None,
             asset: "v1".into(),
+            generator: None,
             name: None,
             playback,
             trigger: Trigger::Normal,
@@ -490,6 +501,22 @@ mod tests {
         let shown = play.layers(&vj, secs(2.0), &probe);
         let order: Vec<_> = shown.iter().map(|l| (l.track.as_str(), l.frame)).collect();
         assert_eq!(order, [("l2", 25), ("l1", 25)]);
+    }
+
+    #[test]
+    fn a_generator_should_play_with_no_video_and_never_end() {
+        let mut vj = grid();
+        let clip = &mut vj.layers[0].clips[1];
+        clip.asset.clear();
+        clip.generator = Some(flux_project::generator::Generator::Bars);
+        let mut play = GridPlay::default();
+        play.launch(&vj, "b", secs(0.0));
+        assert!(play.clips(&vj, secs(1.0)).is_empty(), "no video to open");
+        let none = |_: &str| None;
+        let shown = play.layers(&vj, secs(3600.0), &none);
+        assert_eq!(shown.len(), 1, "played once, yet still showing");
+        assert_eq!(shown[0].frame, 3_600_000);
+        assert_eq!(shown[0].fit, VideoFit::Stretch);
     }
 
     #[test]
