@@ -192,7 +192,10 @@ launched when. A clip's speed is not modulatable.
 
 **Analysis source.** An audio modulation listens to what is chosen in Preferences on the **Audio analysis** page (VJ
 shows only): the show's own sound (the default), one channel of an audio input, or nothing. A small meter of the four
-readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page.
+readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page. The analysis only runs while it is needed: while a meter is open (it asks for the
+levels several times a second) or while some parameter of the grid has an audio modulation. A second after the last
+ask, with no audio modulation, it stops listening to the source and the readings fall to zero; opening the meter again
+wakes it.
 
 ## Map mode: MIDI, OSC, DMX and keys
 
