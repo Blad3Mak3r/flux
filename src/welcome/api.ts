@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { FrameRate } from "../project/types";
+import type { FrameRate, ProjectMode } from "../project/types";
 
 // Mirrors src-tauri/src/recents.rs, startup.rs, windows.rs and the `project_delete` command.
 
@@ -31,8 +31,9 @@ export const projectDelete = (path: string) => invoke<void>("project_delete", { 
 export const startupRun = () => invoke<Step[]>("startup_run");
 export const showWelcome = () => invoke<void>("window_show_welcome");
 export const closeEditor = () => invoke<void>("window_close_editor");
-/** Opens the editor on `path`, or on a new show. */
-export const openEditor = (path: string | null) => invoke<void>("window_open_editor", { path });
+/** Opens the editor on `path`, or on a new show of the kind `mode`. */
+export const openEditor = (path: string | null, mode: ProjectMode = "timeline") =>
+  invoke<void>("window_open_editor", { path, mode });
 
 export interface RecoverySummary {
   id: string;

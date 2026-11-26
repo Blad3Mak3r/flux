@@ -281,21 +281,7 @@ impl VideoOutput {
         };
 
         let session = Arc::clone(&app.state::<SharedSession>());
-        {
-            let mut deck = self.deck.lock().unwrap_or_else(PoisonError::into_inner);
-            if deck.is_none() {
-                let cache =
-                    crate::video_commands::video_cache(app).map_err(|err| err.to_string())?;
-                let resolve_session = Arc::clone(&session);
-                *deck = Some(VideoDeck::new(move |asset| {
-                    resolve_session
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .video_file(asset, &cache)
-                        .ok()
-                }));
-            }
-        }
+        ensure_deck(&self.deck, app)?;
         let deck = Arc::clone(&self.deck);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let (width, height) = unpack(size.load(Ordering::Relaxed));
@@ -573,30 +559,7 @@ impl Render {
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
         }
-        // From the top down to the first picture that hides everything under it.
-        let mut pictures: Vec<Picture> = Vec::new();
-        for shown in &shown {
-            let Some(frame) = &shown.frame else { continue };
-            let mut hash = DefaultHasher::new();
-            (&shown.layer.clip, frame.index).hash(&mut hash);
-            let place = flux_render::placement(
-                sizing(shown.layer.fit),
-                (frame.width, frame.height),
-                self.card_size,
-            );
-            pictures.push(Picture {
-                id: hash.finish(),
-                width: frame.width,
-                height: frame.height,
-                rgba: &frame.rgba,
-                place,
-                opacity: shown.layer.opacity,
-            });
-            if shown.layer.opacity >= 1.0 && !frame.alpha && covers(place) {
-                break;
-            }
-        }
-        pictures.reverse();
+        let mut pictures = pictures(&shown, self.card_size);
         let card = pictures.is_empty() && self.sweep_card();
         if card {
             pictures.push(Picture {
@@ -606,6 +569,7 @@ impl Render {
                 rgba: &self.card_frame,
                 place: [0.0, 0.0, 1.0, 1.0],
                 opacity: 1.0,
+                blend: flux_render::Blend::Alpha,
             });
         }
         let drawn = !pictures.is_empty();
@@ -735,18 +699,120 @@ impl Render {
             })
             .collect();
         drop(session);
-        // The composition: the size the clips are sized into, the slices cut and the card drawn.
-        let size = crate::video_commands::picture_size(&self.session)
-            .filter(|&(w, h)| {
-                let sides = flux_project::mapping::COMPOSITION_SIDES;
-                sides.contains(&w) && sides.contains(&h)
-            })
-            .unwrap_or(CARD_SIZE);
+        let size = composition_size(&self.session);
         if (size, &card_slices) != (self.card_size, &self.card_slices) {
             self.card_size = size;
             self.card_slices = card_slices;
             self.card = None;
         }
+    }
+}
+
+/// The composition: the size the clips are sized into, the slices cut and the card drawn.
+fn composition_size(session: &SharedSession) -> (u32, u32) {
+    crate::video_commands::picture_size(session)
+        .filter(|&(w, h)| {
+            let sides = flux_project::mapping::COMPOSITION_SIDES;
+            sides.contains(&w) && sides.contains(&h)
+        })
+        .unwrap_or(CARD_SIZE)
+}
+
+/// What to draw of `shown` (topmost first) in a composition of `composition` pixels, the bottom
+/// first: from the top down to the first picture that hides everything under it.
+fn pictures(shown: &[flux_video::Shown], composition: (u32, u32)) -> Vec<Picture<'_>> {
+    let mut pictures = Vec::new();
+    for shown in shown {
+        let Some(frame) = &shown.frame else { continue };
+        let layer = &shown.layer;
+        let mut hash = DefaultHasher::new();
+        (&layer.clip, frame.index).hash(&mut hash);
+        let place = flux_render::transformed(
+            flux_render::placement(sizing(layer.fit), (frame.width, frame.height), composition),
+            layer.scale,
+            layer.position,
+        );
+        pictures.push(Picture {
+            id: hash.finish(),
+            width: frame.width,
+            height: frame.height,
+            rgba: &frame.rgba,
+            place,
+            opacity: layer.opacity,
+            blend: blend(layer.blend),
+        });
+        let alpha = layer.blend == flux_project::vj::Blend::Alpha;
+        if alpha && layer.opacity >= 1.0 && !frame.alpha && covers(place) {
+            break;
+        }
+    }
+    pictures.reverse();
+    pictures
+}
+
+/// The width of the composition the editor's monitor shows; its height keeps the shape.
+const MONITOR_WIDTH: u32 = 480;
+
+/// Makes the deck every screen draws from, when no window has yet.
+fn ensure_deck(deck: &SharedDeck, app: &AppHandle) -> Result<(), String> {
+    let mut deck = deck.lock().unwrap_or_else(PoisonError::into_inner);
+    if deck.is_none() {
+        let cache = crate::video_commands::video_cache(app).map_err(|err| err.to_string())?;
+        let session = Arc::clone(&app.state::<SharedSession>());
+        *deck = Some(VideoDeck::new(move |asset| {
+            session
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .video_file(asset, &cache)
+                .ok()
+        }));
+    }
+    Ok(())
+}
+
+impl VideoOutputs {
+    /// What a VJ project's grid sends to the screens now, before their mapping, drawn small on
+    /// the CPU: its width and height as two little-endian u16, then its RGBA pixels. `None` for a
+    /// project that is not VJ. It decodes the playing clips itself,
+    /// so it shows them with no screen open too.
+    pub fn composition(&self, app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
+        let session = Arc::clone(&app.state::<SharedSession>());
+        let Some(vj) = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .grid_copy()
+        else {
+            return Ok(None);
+        };
+        ensure_deck(&self.deck, app)?;
+        let (play, now) = {
+            let grid = app.state::<crate::vj_commands::SharedGrid>();
+            let grid = grid.lock().unwrap_or_else(PoisonError::into_inner);
+            (grid.play.clone(), grid.now())
+        };
+        let shown = self
+            .deck
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+            .map(|deck| deck.show_grid(&vj, &play, now))
+            .unwrap_or_default();
+        let size = composition_size(&session);
+        let (width, height) = (
+            MONITOR_WIDTH,
+            (MONITOR_WIDTH * size.1 / size.0.max(1)).max(1),
+        );
+        // Its width and height as two little-endian u16, then its RGBA pixels: no encoding to
+        // wait for on either side.
+        let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
+        picture.extend_from_slice(&(width as u16).to_le_bytes());
+        picture.extend_from_slice(&(height as u16).to_le_bytes());
+        picture.extend(flux_render::composite(
+            &pictures(&shown, size),
+            width,
+            height,
+        ));
+        Ok(Some(picture))
     }
 }
 
@@ -845,4 +911,18 @@ pub async fn video_output_choose(
 #[tauri::command]
 pub fn video_output_pattern(output: State<'_, SharedVideoOutput>, on: bool) {
     output.pattern.store(on, Ordering::Relaxed);
+}
+
+/// The render's blend for a layer's.
+fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
+    use flux_project::vj::Blend as B;
+    match blend {
+        B::Alpha => flux_render::Blend::Alpha,
+        B::Add => flux_render::Blend::Add,
+        B::Subtract => flux_render::Blend::Subtract,
+        B::Multiply => flux_render::Blend::Multiply,
+        B::Screen => flux_render::Blend::Screen,
+        B::Lighten => flux_render::Blend::Lighten,
+        B::Darken => flux_render::Blend::Darken,
+    }
 }

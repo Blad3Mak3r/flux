@@ -117,6 +117,8 @@ pub struct VideoFile {
     decoded: Option<u64>,
     /// The frame the last seek aimed at.
     sought: Option<u64>,
+    /// No packet has been read since the file was opened: it is still at its start.
+    untouched: bool,
     eof: bool,
     decoding: Decoding,
     /// The decoder holds a GPU device, even when FFmpeg went on on the CPU without it.
@@ -165,7 +167,9 @@ impl VideoFile {
             .unwrap_or_else(|| {
                 let micros = ffmpeg_next::Rational::new(1, ffmpeg_next::ffi::AV_TIME_BASE);
                 ticks_to_index(input.duration().max(0), micros, rate)
-            });
+            })
+            // A still image (PNG, JPEG...) has no length at all: it is one frame.
+            .max(1);
         let parameters = stream.parameters();
         // FFmpeg's own VP8 and VP9 decoders leave a WebM alpha track out; libvpx's reads it.
         let alpha_decoder = (stream.metadata().get("alpha_mode") == Some("1"))
@@ -209,6 +213,7 @@ impl VideoFile {
             ahead: None,
             decoded: None,
             sought: None,
+            untouched: true,
             eof: false,
             decoding,
             gpu: decoding != Decoding::Software,
@@ -284,7 +289,10 @@ impl VideoFile {
         let on_course = self
             .decoded
             .is_some_and(|at| at < index && index - at <= DECODE_AHEAD);
-        if !on_course {
+        // A file just opened is at its first frame already. A still image (image2) must not be
+        // sought there: the demuxer loses its only packet.
+        let at_start = index == 0 && self.untouched;
+        if !on_course && !at_start {
             self.seek(index)?;
         }
         let picture = self.decode_up_to(index)?;
@@ -371,6 +379,7 @@ impl VideoFile {
         if self.eof {
             return Err(ffmpeg_next::Error::Eof.into());
         }
+        self.untouched = false;
         for (stream, packet) in self.input.packets() {
             if stream.index() == self.stream {
                 self.decoder.send_packet(&packet)?;

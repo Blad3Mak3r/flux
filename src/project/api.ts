@@ -11,6 +11,7 @@ import type {
   MidiPortRef,
   OscArg,
   Project,
+  ProjectMode,
   ProjectState,
   VideoFit,
 } from "./types";
@@ -38,6 +39,11 @@ const VIDEO_FILTER = {
   extensions: ["mp4", "m4v", "mov", "webm"],
 };
 
+const IMAGE_FILTER = {
+  name: "Image",
+  extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"],
+};
+
 /** Backend errors arrive as plain message strings. */
 export function errorMessage(err: unknown): string {
   const message = typeof err === "string" ? err : err instanceof Error ? err.message : String(err);
@@ -61,8 +67,9 @@ export const projectClose = () => invoke<void>("project_close");
 export const projectSetAutosave = (project: Project, enabled: boolean, intervalSeconds: string) =>
   invoke<ProjectState>("project_set_autosave", { project, enabled, intervalSeconds });
 
-export function newProject(name: string, frameRate: FrameRate): Promise<ProjectState> {
-  return invoke<ProjectState>("project_new", { name, frameRate });
+/** Starts a new project of the kind `mode`, which it keeps for good. */
+export function newProject(name: string, frameRate: FrameRate, mode: ProjectMode = "timeline"): Promise<ProjectState> {
+  return invoke<ProjectState>("project_new", { name, frameRate, mode });
 }
 
 /** Asks for a `.flx` or legacy `.fxtc`. Resolves to `null` when the dialog is cancelled. */
@@ -178,6 +185,12 @@ export async function saveProject(
 /** Asks for video files to import. Resolves to none when the dialog is cancelled. */
 export async function pickVideoPaths(): Promise<string[]> {
   return (await open({ multiple: true, filters: [VIDEO_FILTER] })) ?? [];
+}
+
+/** Asks for videos or still images to import, for a VJ project. */
+export async function pickMediaPaths(): Promise<string[]> {
+  const media = { name: "Media", extensions: [...VIDEO_FILTER.extensions, ...IMAGE_FILTER.extensions] };
+  return (await open({ multiple: true, filters: [media, VIDEO_FILTER, IMAGE_FILTER] })) ?? [];
 }
 
 /** Adds the video at `path` on a new track of the active timeline, with a clip at `at` (frames from the timeline start). */

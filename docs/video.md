@@ -157,19 +157,40 @@ A VJ project ([project format](fxtc-format.md#vj-grid-version-14)) shows its gri
 on a clock of their own, not the transport's: `flux_video::GridPlay` holds which clip plays on each layer and when it was
 launched, and `grid_frame` maps the time since the launch to a frame of the video, looping, stopping after one pass or
 going back and forth (`playback`). The output's render threads ask `VideoDeck::show_grid` for the pictures on every
-refresh, so a launched clip has a player only while it plays. A layer's picture is its `opacity` times its crossfader
-side: each side shows fully from its end to the middle and fades out over the other half. Clip sound is not played yet.
+refresh, so a launched clip has a player only while it plays. A layer's picture is its `master` times its `opacity`
+times its crossfader side: each side shows fully from its end to the middle and fades out over the other half. `bypass`
+hides a layer and a `solo` layer hides every layer that is not soloed. Clip sound is not played yet, so `volume` does
+nothing for now.
+
+A layer with a `transition` time keeps drawing the clip it replaces until the new one has faded in: with the `alpha`
+effect the new clip fades in over the old one, with `add` the old one fades out while the new one fades in. Launching the
+clip that already plays restarts it at once. A clip launched on a layer that plays nothing fades in, and a stopped layer (by hand, by a column without a clip on it, or a piano clip let go) fades out, over the same time. Changing the transition time while a transition runs makes it go on from where it is at the new speed (`GridPlay::retime`, on every command and read of the play state). Each layer is drawn with its `blend` through a fixed GPU blend state
+(`flux_render::Blend`): `add`, `subtract`, `multiply`, `screen`, `lighten` and `darken` combine the layer with what is
+already drawn, and a layer that is not `alpha` never hides the ones below it.
 
 The app crate's `vj_commands.rs` holds what plays, which is never stored. Its commands answer with what plays now
-(`{ playing: [{ layer, clip, seconds }], crossfader }`):
+(`{ playing: [{ layer, clip, seconds, progress, remaining, level, transition, stopping }], column, crossfader }`:
+`progress` is where each clip is in its video, `level` how much of it reaches the output, `transition` how far its
+layer's transition is while one runs, `stopping` whether the layer is fading out, and `column` the column launched last while its
+clips play):
 
 | Command | Arguments | Does |
 | --- | --- | --- |
-| `vj_launch` | `clip` | Plays the clip on its layer from its first frame, in place of what played there; a playing clip starts again. |
-| `vj_launch_column` | `column` | Launches every clip of the column at once; a layer without a clip in it stops. |
+| `vj_launch` | `clip` | Plays the clip on its layer from its first frame, in place of what played there, over the layer's transition; a playing clip starts again. |
+| `vj_release` | `clip` | Stops a `piano` clip when it is let go; a `normal` clip keeps playing. |
+| `vj_launch_column` | `column` | Launches every clip of the column at once; a deck layer without a clip in it stops and global layers are left as they are. |
 | `vj_stop` | `layer?` | Stops the layer, or every layer. |
 | `vj_crossfader` | `position` | Moves the crossfader, 0 (side A) to 1 (side B). |
 | `vj_play_state` | | Reads what plays. |
+
+The VJ screen (`src/vj/`) shows the layers as strips with a fader each for master (M), audio (A), video (V) and
+transition time (T), the deck's tabs under the grid and the crossfader. Its Output panel shows what goes to the screens before their mapping: `vj_output_frame` decodes the playing clips through the same deck as the screens, places them as the screens do (`video_output::pictures`) and draws them small on the CPU (`flux_render::composite`, bilinear, in linear light with the same blends), and the monitor puts the pixels on a canvas thirty times a second, with two asks on the way at most. The VJ screen stops asking for the picture and the play state while its window is hidden; the screens play on. `flux-render` and `jpeg-encoder` are built optimized in dev builds too, so the monitor keeps up in `npm run tauri dev`. A clip's `scale` and `position` (set in the inspector by dragging the number's handle, as in Resolume, or with the arrow keys) move it after its fit (`flux_render::transformed`), on the screens and the monitor alike. While a fader or a transform is dragged, `vj_preview` moves the value in the project the backend holds, without the project going back and forth, and only the newest move is sent while one is on its way; `vj_edit` keeps the value when the hand lets go. In a VJ project `video_thumbnails` decodes only the first frame of a video (`flux_video::poster`), and the waveform and tempo of its sound are not read, so an imported clip is ready sooner; each clip shows while it is importing, being read, or unreadable.
+
+A VJ project also takes still images (PNG, JPEG, WebP, BMP, TIFF, GIF), imported like videos. FFmpeg reads one as a
+video of one frame (`VideoFile` opens a file that has no length as one frame, and does not seek a file still at its
+start), `video_probe` answers `still: true` for it, and `grid_frame` keeps showing it until it is stopped, whatever its
+playback; the play state gives it no `progress` or `remaining`. The media browser filters its items by kind: all, video
+or image.
 
 ## Mapping
 

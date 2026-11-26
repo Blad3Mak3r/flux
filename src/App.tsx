@@ -18,6 +18,7 @@ import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
+import { VjScreen } from "./vj/VjScreen";
 import { bindRemoteControl } from "./control/bind";
 import { bindLive } from "./live/feed";
 import { useLive } from "./live/store";
@@ -74,6 +75,7 @@ function Shell({ devices }: { devices: Devices }) {
   const view = useUi((ui) => ui.view);
   const asking = useUi((ui) => ui.pending !== null);
   const about = useUi((ui) => ui.about);
+  const vj = useDoc((doc) => doc.project.mode === "vj");
   const clockUnpaced = useTransport((transport) => transport.position?.clockUnpaced ?? false);
 
   // The clock of the audio device is the master; one that does not keep real time ruins the timecode.
@@ -198,11 +200,13 @@ function Shell({ devices }: { devices: Devices }) {
   }, [t]);
 
   return (
-    <div className="app">
+    <div className="app" data-vj={vj || undefined}>
       <MenuBar />
-      <Faceplate devices={devices} />
-      <main className="work" data-view={view} data-edit-surface={editSurface} data-inspector-collapsed={collapsed}>
-        {view === "live" ? (
+      {vj ? null : <Faceplate devices={devices} />}
+      <main className="work" data-view={vj ? "vj" : view} data-edit-surface={editSurface} data-inspector-collapsed={collapsed}>
+        {vj ? (
+          <VjScreen key={docKey} />
+        ) : view === "live" ? (
           <Live />
         ) : editSurface === "setlists" ? (
           <SetlistEditor key={docKey} />

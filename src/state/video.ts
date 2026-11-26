@@ -18,14 +18,24 @@ import type { ConvertProgress } from "../video/api";
 import { dispatch, useDoc } from "./store";
 import { say, sayError } from "./ui";
 
-/** Asks the backend about each video; one it cannot read is reported and drawn at the guessed length. */
+/** The videos the backend could not read, by id, with why: their clips show it. */
+export const useVideoErrors = create<Record<string, string>>(() => ({}));
+
+/**
+ * Asks the backend about each video; one it cannot read is reported and drawn at the guessed length.
+ * A VJ project needs neither the waveform nor the tempo of a video's sound.
+ */
 export function probeVideos(assets: VideoAsset[]): Promise<void> {
+  const vj = useDoc.getState().project.mode === "vj";
   return Promise.all(
     assets.map((asset) =>
       probeVideo(asset)
         .then((info) => dispatch({ type: "video", id: asset.id, info }))
-        .then(() => Promise.all([loadThumbs(asset), loadSound(asset)]))
-        .catch((err) => sayError(`${asset.name}: ${errorMessage(err)}`)),
+        .then(() => Promise.all([loadThumbs(asset), vj ? undefined : loadSound(asset)]))
+        .catch((err) => {
+          useVideoErrors.setState({ [asset.id]: errorMessage(err) });
+          sayError(`${asset.name}: ${errorMessage(err)}`);
+        }),
     ),
   ).then(() => undefined);
 }

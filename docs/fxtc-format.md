@@ -35,7 +35,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
 | `videos[]` | `{ id, name, file }` | The video files the video tracks show. `file` is the archive path under `video/`. Ids share one namespace with `assets` (an audio clip cannot point at a video, nor a video clip at audio), and files are unique across both. A video no clip shows is dropped on save. Absent is an empty list. Added in version 13. |
 | `mode` | `timeline` \| `vj` | The kind of project, chosen when it is created and never changed: a timeline project plays its timelines, a VJ project its VJ grid. Absent is `timeline`. Added in version 14. |
-| `vj` | `{ layers, columns }` | The VJ grid, see [VJ grid](#vj-grid-version-14). Present in a VJ project only; a timeline project with a grid is rejected. Added in version 14. |
+| `vj` | `{ layers, decks, deck }` | The VJ grid, see [VJ grid](#vj-grid-version-14). Present in a VJ project only; a timeline project with a grid is rejected. Added in version 14. |
 | `timelines[]` | `{ id, name, timecode, tempo, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
 | `timelines[].tempo` | `{ bpm, beatsPerBar, click }` | The beat grid of the timeline, counted from its origin: `bpm` 20 to 400, `beatsPerBar` 1 to 16 (the beat is a quarter note), `click` whether the metronome plays while this timeline runs. Absent in files written before it existed, read as 120 BPM, 4 beats, click off, without a version bump. Which bars the ruler shows is a view setting of the window and is not stored. |
 | `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
@@ -404,18 +404,23 @@ Adds `mode` and `vj`. Nothing is reshaped: an older project opens as a timeline 
 
 A grid of clips launched by hand, like a media server's clip deck, in a project whose `mode` is `vj`. A project cannot
 change its kind. A VJ project still holds a timeline (the list is never empty), so a later version can let the grid
-follow the clock. A new VJ project starts with 3 layers and 8 columns. Which clip is playing is not stored: it belongs
+follow the clock. A new VJ project starts with one deck of 8 columns and 3 layers. Which clip is playing is not stored: it belongs
 to the running show.
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `vj.columns[]` | `{ id, name? }` | Left first, 1 to 64. `name` absent is the column's number. |
-| `vj.layers[]` | `{ id, name?, opacity?, gainDb?, crossfade?, clips? }` | Drawing order: the first is at the bottom, the last on top. 1 to 16. `opacity` 0 to 1, absent is 1; `gainDb` −60 to 6, the volume of its clips' sound, absent is 0 dB; `crossfade` is `a` or `b`, the crossfader side, absent is neither. Layer and column ids are unique within the grid; names are 1 to 64 characters. |
-| `vj.layers[].clips[]` | `{ id, column, asset, name?, playback?, fit? }` | At most one per column of the layer. `column` is a column id; `asset` an entry of `videos`. `id` is unique among every clip of the project. `playback` is what the clip does at the end of its video: `loop` (absent), `once` or `pingPong`. `fit` as for video clips, absent is `fit`. |
+| `vj.decks[]` | `{ id, name?, columns }` | Sets of columns, 1 to 32, switched by hand while the layers stay. `name` absent is the deck's number. |
+| `vj.decks[].columns[]` | `{ id, name? }` | Left first, 1 to 64 per deck. `name` absent is the column's number. |
+| `vj.deck` | string | The id of the deck shown. |
+| `vj.layers[]` | `{ id, name?, global?, master?, opacity?, volume?, blend?, transition?, transitionEffect?, crossfade?, bypass?, solo?, clips? }` | Drawing order: the first is at the bottom, the last on top. 1 to 16, shared by every deck. A `global` layer keeps its clips when the deck changes and is not launched with a column. `master`, `opacity` (video) and `volume` (audio) are 0 to 1, absent is 1; the picture is `master` × `opacity`. `blend` is how the layer is drawn over the ones below: `alpha` (absent), `add`, `subtract`, `multiply`, `screen`, `lighten` or `darken`. `transition` is how long, 0 to 10 seconds, a launched clip takes to replace the one playing on the layer, absent is 0 (a cut); `transitionEffect` is `alpha` (absent, the new clip fades in over the old) or `add` (one fades out while the other fades in). `crossfade` is `a` or `b`, the crossfader side, absent is neither. `bypass` hides the layer; with any `solo` layer only those show. Ids of layers, decks and columns are unique within the grid; names are 1 to 64 characters. |
+| `vj.layers[].clips[]` | `{ id, column?, slot?, asset, name?, playback?, trigger?, fit?, scale?, position? }` | At most one per cell. A clip of a deck layer has `column`, a column id of any deck; a clip of a global layer has `slot`, its position from the left, the same on every deck. `asset` is an entry of `videos`. `id` is unique among every clip of the project. `playback` is what the clip does at the end of its video: `loop` (absent), `once` or `pingPong`. `trigger` is `normal` (absent, plays until something else replaces it) or `piano` (plays while held). `fit` as for video clips, absent is `fit`. `scale` draws the clip that many times its fitted size about its centre, 0 to 10, absent is 1 (100%). `position` is `[x, y]`, how far its centre moves right and down from where its fit puts it, as fractions of the composition's width and height, -2 to 2 each, absent is `[0, 0]`. |
 
-Commands: `vj_edit` (`project`, `op`) edits the grid of a VJ project; `op` is tagged by `op`: `addLayer`,
-`removeLayer`, `moveLayer`, `renameLayer`, `layerOpacity`, `layerGain`, `layerCrossfade`, `addColumn`, `removeColumn`,
-`moveColumn`, `renameColumn`, `placeVideo` (a video of the project into a cell), `moveClip` (swaps with the clip already
-there), `removeClip`, `renameClip`, `clipPlayback`, `clipFit`. The last layer and column cannot be removed.
-`project_import_vj_video` (`project`, `path`, `layer`, `column`) adds a video file from disk into a cell. Both answer
+Commands: `vj_edit` (`project`, `op`) edits the grid of a VJ project; `op` is tagged by `op`: `addLayer` (`global`),
+`removeLayer`, `moveLayer`, `renameLayer`, `layerMaster`, `layerOpacity`, `layerVolume`, `layerTransition`,
+`layerBlend`, `layerTransitionEffect`, `layerCrossfade`, `layerBypass`, `layerSolo`, `addDeck`, `removeDeck`,
+`moveDeck`, `renameDeck`, `selectDeck`, `addColumn` (to the deck shown), `removeColumn`, `moveColumn`, `renameColumn`,
+`placeVideo` (a video of the project into a cell), `moveClip` (swaps with the clip already there), `removeClip`,
+`renameClip`, `clipPlayback`, `clipTrigger`, `clipFit`, `clipScale` (`value`) and `clipPosition` (`x`, `y`), which clamp to their limits. The last layer, deck and column of a deck cannot be removed.
+`project_import_vj_video` (`project`, `path`, `layer`, `column?`) adds a video file from disk into a cell, or into the
+layer's first empty cell of the deck shown when `column` is absent. Both answer
 with `ProjectState`, and a refusal leaves the document as it was.

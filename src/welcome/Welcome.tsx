@@ -125,6 +125,10 @@ function Welcome() {
             <PlusIcon />
             {t("welcome.new")}
           </button>
+          <button type="button" className="button" disabled={busy} onClick={() => void guarded(() => openEditor(null, "vj"))()}>
+            <PlusIcon />
+            {t("welcome.newVj")}
+          </button>
           <button type="button" className="button" disabled={busy} onClick={() => void openPicked()}>
             <FolderIcon />
             {t("welcome.open")}

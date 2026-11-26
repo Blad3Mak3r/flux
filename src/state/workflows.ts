@@ -86,10 +86,12 @@ export function startDocument(t: Translate, phase: (value: EditorPhase) => void)
     if (found) {
       project = restore(found);
     } else {
-      const path = new URLSearchParams(window.location.search).get("open");
+      const query = new URLSearchParams(window.location.search);
+      const path = query.get("open");
       if (path) project = await openAt(path);
       else {
-        const fresh = await newProject(t("project.untitled"), "fps25");
+        const mode = query.get("new") === "vj" ? "vj" : "timeline";
+        const fresh = await newProject(t("project.untitled"), "fps25", mode);
         load(fresh, null);
       }
     }
