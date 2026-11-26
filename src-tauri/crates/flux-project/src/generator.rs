@@ -377,14 +377,7 @@ impl Generator {
     /// What a text block draws `beats` into the grid's clock: all its text, or the one line its
     /// `line` and `advance` pick; `None` for another generator and when there is nothing to show.
     pub fn shown_text(&self, beats: f64) -> Option<String> {
-        let Self::Text {
-            text,
-            lines,
-            line,
-            advance,
-            ..
-        } = self
-        else {
+        let Self::Text { text, lines, .. } = self else {
             return None;
         };
         if text.trim().is_empty() {
@@ -392,16 +385,34 @@ impl Generator {
         }
         match lines {
             TextLines::All => Some(text.clone()),
-            TextLines::One => {
-                let steps = if *advance == 0 || beats.is_nan() || beats <= 0.0 {
-                    0
-                } else {
-                    (beats / f64::from(*advance)).floor() as u64
-                };
-                let at = shown_line(text, *line, steps)?;
-                text.split('\n').nth(at).map(str::to_owned)
-            }
+            TextLines::One => text
+                .split('\n')
+                .nth(self.shown_line(beats)?)
+                .map(str::to_owned),
         }
+    }
+}
+
+impl Generator {
+    /// The line of its text a text block shows `beats` into the grid's clock, as an index into
+    /// the lines split by `\n`; `None` unless it shows one line at a time and has one to show.
+    pub fn shown_line(&self, beats: f64) -> Option<usize> {
+        let Self::Text {
+            text,
+            lines: TextLines::One,
+            line,
+            advance,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        let steps = if *advance == 0 || beats.is_nan() || beats <= 0.0 {
+            0
+        } else {
+            (beats / f64::from(*advance)).floor() as u64
+        };
+        shown_line(text, *line, steps)
     }
 }
 
@@ -617,6 +628,24 @@ mod tests {
             Some("x\ny"),
             "all lines"
         );
+    }
+
+    #[test]
+    fn shown_line_should_say_which_line_is_on_screen_only_for_one_line_at_a_time() {
+        let block = |lines: &str| {
+            serde_json::from_value::<Generator>(serde_json::json!({
+                "kind": "text", "text": "a\n\nc", "lines": lines, "advance": 1
+            }))
+            .unwrap()
+        };
+        let one = block("one");
+        assert_eq!(
+            [0.0, 1.0, 2.0, 3.0].map(|b| one.shown_line(b)),
+            [Some(0), Some(2), Some(0), Some(2)],
+            "skips the empty line, wraps"
+        );
+        assert_eq!(block("all").shown_line(1.0), None);
+        assert_eq!(Generator::Bars.shown_line(1.0), None);
     }
 
     #[test]

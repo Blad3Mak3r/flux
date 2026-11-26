@@ -117,6 +117,8 @@ export interface PlayingClip {
   transition: number | null;
   /** Whether the layer is fading out to nothing, showing the clip that played. */
   stopping: boolean;
+  /** For a text block that shows one line at a time: the line on screen now, from 0. */
+  line: number | null;
 }
 
 export interface GridState {

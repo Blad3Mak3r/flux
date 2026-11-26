@@ -8,7 +8,7 @@ import type { VjClip, VjGenerator, VjTextAlign, VjTextLines } from "../project/t
 import { ColourField, Segments } from "./controls";
 import { useFonts } from "./fonts";
 import { GeneratorModPanel, GeneratorScrub } from "./Modulation";
-import { edit, preview } from "./store";
+import { edit, preview, useVj } from "./store";
 
 type Text = Extract<VjGenerator, { kind: "text" }>;
 
@@ -46,6 +46,8 @@ type NumberProps = { label: string; name: string; shown: number; reset: number; 
 export function TextFields({ clip, generator, modulation }: { clip: string; generator: Text; modulation: VjClip["modulation"] }) {
   const t = useT();
   const fonts = useFonts();
+  // The line on screen while the clip plays (the backend counts the advance); the stored one otherwise.
+  const shownLine = useVj((vj) => vj.play.playing.find((p) => p.clip === clip && !p.stopping)?.line ?? null);
   const g = {
     text: generator.text ?? "Text",
     font: generator.font ?? "Inter",
@@ -124,7 +126,7 @@ export function TextFields({ clip, generator, modulation }: { clip: string; gene
           {row(t("vj.gen.line"),
             <div className="vj-segs vj-linestep">
               <button type="button" title={t("vj.gen.linePrev")} aria-label={t("vj.gen.linePrev")} onClick={() => void edit({ op: "textLine", clip, step: -1 })}>‹</button>
-              <span className="vj-mono" aria-live="polite">{Math.min(g.line, lineCount - 1) + 1} / {lineCount}</span>
+              <span className="vj-mono" aria-live="polite">{Math.min(shownLine ?? g.line, lineCount - 1) + 1} / {lineCount}</span>
               <button type="button" title={t("vj.gen.lineNext")} aria-label={t("vj.gen.lineNext")} onClick={() => void edit({ op: "textLine", clip, step: 1 })}>›</button>
             </div>, t("vj.gen.lineHint"))}
           {row(t("vj.gen.advance"),

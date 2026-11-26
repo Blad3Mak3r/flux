@@ -163,6 +163,9 @@ pub struct PlayingClip {
     pub transition: Option<f32>,
     /// Whether the layer is fading out to nothing, showing the clip that played.
     pub stopping: bool,
+    /// For a text block that shows one line at a time, the line on screen now (from 0), which
+    /// `advance` moves on from the line stored in the clip.
+    pub line: Option<u32>,
 }
 
 fn grid_of(session: &SharedSession) -> Result<Vj> {
@@ -297,6 +300,11 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid, tick: Tick, bpm: f64) ->
                 pass_seconds: report.pass_seconds,
                 transition,
                 stopping,
+                line: clip
+                    .generator
+                    .as_ref()
+                    .and_then(|generator| generator.shown_line(tick.beats))
+                    .map(|line| line as u32),
             })
         })
         .collect();
