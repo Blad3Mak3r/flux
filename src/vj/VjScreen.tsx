@@ -832,6 +832,8 @@ function EffectRow({ effect, index, count }: { effect: VjEffect; index: number; 
   const values = kind as Record<string, unknown>;
   const fields = EFFECT_FIELDS[kind.effect] ?? [];
   const name = t(`vj.effect.${kind.effect}`);
+  // Each button names its effect, so a screen reader can tell the rows apart.
+  const named = (key: "vj.effect.bypass" | "vj.effect.up" | "vj.effect.down" | "vj.effect.remove") => `${t(key)}: ${name}`;
   const scrub = (field: (typeof fields)[number], label: string) => (
     <Scrub key={field.key} label={field.tag} name={label} value={values[field.key] as number} shown={field.shown} reset={field.reset} unit={field.unit}
       onMove={(v) => move({ [field.key]: v })} onSet={(v) => keep({ [field.key]: v })} />
@@ -840,13 +842,13 @@ function EffectRow({ effect, index, count }: { effect: VjEffect; index: number; 
     <li className={`vj-fx-item${bypass ? " off" : ""}`}>
       <div className="vj-fx-h">
         <span className="vj-fx-n">{name}</span>
-        <button type="button" className="vj-fx-b" aria-pressed={!!bypass} title={t("vj.effect.bypass")} aria-label={t("vj.effect.bypass")}
+        <button type="button" className="vj-fx-b" aria-pressed={!!bypass} title={named("vj.effect.bypass")} aria-label={named("vj.effect.bypass")}
           onClick={() => void edit({ op: "effectBypass", effect: id, bypass: !bypass })}>{bypass ? <EyeOffIcon /> : <EyeIcon />}</button>
-        <button type="button" className="vj-fx-b" disabled={index === 0} title={t("vj.effect.up")} aria-label={t("vj.effect.up")}
+        <button type="button" className="vj-fx-b" disabled={index === 0} title={named("vj.effect.up")} aria-label={named("vj.effect.up")}
           onClick={() => void edit({ op: "moveEffect", effect: id, index: index - 1 })}><ArrowUpIcon /></button>
-        <button type="button" className="vj-fx-b" disabled={index === count - 1} title={t("vj.effect.down")} aria-label={t("vj.effect.down")}
+        <button type="button" className="vj-fx-b" disabled={index === count - 1} title={named("vj.effect.down")} aria-label={named("vj.effect.down")}
           onClick={() => void edit({ op: "moveEffect", effect: id, index: index + 1 })}><ArrowDownIcon /></button>
-        <button type="button" className="vj-fx-b" title={t("vj.effect.remove")} aria-label={t("vj.effect.remove")}
+        <button type="button" className="vj-fx-b" title={named("vj.effect.remove")} aria-label={named("vj.effect.remove")}
           onClick={() => void edit({ op: "removeEffect", effect: id })}><CloseIcon /></button>
       </div>
       <div className="vj-fx-p">

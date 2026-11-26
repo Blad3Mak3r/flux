@@ -918,7 +918,6 @@ pub fn video_output_pattern(output: State<'_, SharedVideoOutput>, on: bool) {
     output.pattern.store(on, Ordering::Relaxed);
 }
 
-/// The render's blend for a layer's.
 /// What the effects of a layer's picture come to for the renderer.
 fn effects(chain: &[flux_project::vj::EffectKind]) -> flux_render::Effects {
     use flux_project::vj::{EffectKind as Kind, MirrorAxis};
@@ -950,6 +949,7 @@ fn effects(chain: &[flux_project::vj::EffectKind]) -> flux_render::Effects {
     flux_render::Effects::new(&chain)
 }
 
+/// The render's blend for a layer's.
 fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
     use flux_project::vj::Blend as B;
     match blend {
