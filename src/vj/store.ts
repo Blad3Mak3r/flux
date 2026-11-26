@@ -40,7 +40,7 @@ interface VjState {
   clip: string | null;
   /** The layer the inspector shows. */
   layer: string | null;
-  tab: "clip" | "layer";
+  tab: "clip" | "layer" | "composition";
   /** Which media the browser lists. */
   media: MediaKind;
   /** What the browser shows: the project's media, the generators or the effects. */

@@ -36,6 +36,10 @@ export interface VjGrid {
   deck: string;
   /** Where the timecode clock comes from; absent is `internal`. */
   clock?: VjClockSource;
+  /** Drawn on the final mix of the layers before the output mapping, the first applied first. */
+  compositionEffects?: VjEffect[];
+  /** The composition's effects are skipped; absent is false. */
+  compositionBypass?: boolean;
 }
 
 /** Flux's own transport, or timecode coming in by LTC or MTC. */

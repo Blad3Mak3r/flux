@@ -22,12 +22,12 @@ export function modKey(target: ModTarget): string {
 }
 
 /** Whether the inspector shows anything modulated: the clip, its layer or an effect of either. */
-export function inspectorModulated(layer: VjLayer | undefined, clip: VjClip | undefined): boolean {
+export function inspectorModulated(layer: VjLayer | undefined, clip: VjClip | undefined, composition?: VjLayer["effects"]): boolean {
   const modulated = (holder: { modulation?: object; effects?: VjLayer["effects"] } | undefined) =>
     !!holder &&
     (Object.keys(holder.modulation ?? {}).length > 0 ||
       (holder.effects ?? []).some((effect) => Object.keys(effectModulation(effect) ?? {}).length > 0));
-  return modulated(layer) || modulated(clip);
+  return modulated(layer) || modulated(clip) || modulated({ effects: composition });
 }
 
 /** How a setting is counted, for the modulation's minimum and maximum. */

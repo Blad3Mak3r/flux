@@ -65,7 +65,8 @@ export type VjOp =
   | { op: "clipFit"; clip: string; fit: VideoFit }
   | { op: "clipScale"; clip: string; value: number }
   | { op: "clipPosition"; clip: string; x: number; y: number }
-  | { op: "addEffect"; target: { clip: string } | { layer: string }; kind: VjEffectName }
+  | { op: "addEffect"; target: { clip: string } | { layer: string } | "composition"; kind: VjEffectName }
+  | { op: "compositionBypass"; bypass: boolean }
   | { op: "removeEffect"; effect: string }
   | { op: "moveEffect"; effect: string; index: number }
   | { op: "effectParams"; effect: string; kind: VjEffectKind }
@@ -146,6 +147,8 @@ export interface VjEffectSpec {
   name: string;
   category: string;
   animated: boolean;
+  /** Needs the frames before it or the pixels around it: only the composition's stack takes it. */
+  compositionOnly: boolean;
   params: VjParamSpec[];
 }
 

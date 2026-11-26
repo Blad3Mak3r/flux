@@ -51,7 +51,8 @@ import type { MediaKind } from "./store";
 import { GENERATORS, swatch } from "./generators";
 import { AdvancedOutput } from "./AdvancedOutput";
 import { ColourField, Scrub, Segments } from "./controls";
-import { EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect } from "./EffectStack";
+import { CompositionFx, EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect, useCompositionDrop } from "./EffectStack";
+import type { EffectTarget } from "./EffectStack";
 import { loadEffectCatalog, useEffectCatalog } from "./effects";
 import { AnalysisMeter, Tempo, TimecodeClock } from "./CompositionBar";
 import { ModPanel, ModScrub, fieldRange, inspectorModulated } from "./Modulation";
@@ -287,7 +288,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   // An effect dropped on the header goes to the layer's stack.
   const dropping = {
     onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (!carriesEffect(event)) return;
+      if (!carriesEffect(event, { layer: layer.id })) return;
       event.preventDefault();
       setOver(true);
     },
@@ -385,7 +386,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   };
   const dropping = {
     onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes(DRAG) && !(clip && carriesEffect(event))) return;
+      if (!event.dataTransfer.types.includes(DRAG) && !(clip && carriesEffect(event, { clip: clip.id }))) return;
       event.preventDefault();
       setOver(true);
     },
@@ -550,6 +551,8 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
   const liveColumn = deck.columns.findIndex((column) => column.id === lit);
   const sideNames = (side: VjSide) => grid.layers.filter((l) => l.crossfade === side).map((l) => layerName(t, grid, l)).join(", ");
   const columns = { "--columns": deck.columns.length } as CSSProperties;
+  // An effect dropped on the composition bar goes to the composition's stack.
+  const composition = useCompositionDrop();
   return (
     <section className="vj-panel vj-deck-panel" aria-label={t("vj.grid")}>
       <header className="vj-ph">
@@ -587,8 +590,8 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
               onClick={() => void edit({ op: "addDeck" })}><PlusIcon /></button>
           </div>
         </div>
-        <div className="vj-comp">
-          <div className="vj-cl"><strong>{t("vj.composition")}</strong><AnalysisMeter /></div>
+        <div className={`vj-comp${composition.over ? " over" : ""}`} {...composition.props}>
+          <div className="vj-cl"><strong>{t("vj.composition")}</strong><AnalysisMeter /><CompositionFx grid={grid} /></div>
           <Tempo />
           <TimecodeClock grid={grid} />
           <button type="button" className="button" onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
@@ -599,8 +602,9 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
 }
 
 /** What the screens show, as the backend draws it (see `bindOutput`). */
-function OutputPanel() {
+function OutputPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
+  const composition = useCompositionDrop();
   const live = useVj((vj) => vj.play.playing.some((p) => p.level > 0));
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => bindOutput((picture) => {
@@ -616,10 +620,10 @@ function OutputPanel() {
     }
   }), []);
   return (
-    <section className="vj-panel" aria-label={t("vj.output")}>
+    <section className={`vj-panel${composition.over ? " over" : ""}`} aria-label={t("vj.output")} {...composition.props}>
       <header className="vj-ph">
         <h2>{t("vj.output")}</h2>
-        <div className="vj-tools">{live && <span className="vj-pill"><i />{t("vj.onAir")}</span>}</div>
+        <div className="vj-tools"><CompositionFx grid={grid} />{live && <span className="vj-pill"><i />{t("vj.onAir")}</span>}</div>
       </header>
       <div className="vj-pb vj-mon-wrap">
         <div className="vj-mon"><canvas ref={canvas} className="vj-out" /></div>
@@ -751,11 +755,11 @@ function Inspector({ grid }: { grid: VjGrid }) {
   const layer = grid.layers.find((l) => l.id === layerId) ?? found?.layer;
   const modCatalog = useEffectCatalog((state) => state.catalog?.modulation);
   // The modulated values are asked for only while the inspector shows something modulated.
-  const modulated = inspectorModulated(layer, found?.clip);
+  const modulated = inspectorModulated(layer, found?.clip, grid.compositionEffects);
   useEffect(() => (modulated ? bindModulation() : undefined), [modulated]);
   const tabs = (
     <nav className="vj-tabs" role="tablist">
-      {(["clip", "layer"] as const).map((key) => (
+      {(["clip", "layer", "composition"] as const).map((key) => (
         <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""} onClick={() => showTab(key)}>
           {t(`vj.inspector.${key}`)}
         </button>
@@ -889,6 +893,13 @@ function Inspector({ grid }: { grid: VjGrid }) {
         <EffectStack target={{ layer: layer.id }} effects={layer.effects ?? NO_EFFECTS} />
       </div>
     );
+  } else if (tab === "composition") {
+    body = (
+      <div className="vj-insp single">
+        <p className="vj-dim vj-fx-empty">{t("vj.composition.note")}</p>
+        <EffectStack target="composition" effects={grid.compositionEffects ?? NO_EFFECTS} />
+      </div>
+    );
   }
   return (
     <section className="vj-panel vj-insp-panel">
@@ -918,10 +929,13 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
   const kind = useVj((vj) => vj.media);
   const browser = useVj((vj) => vj.browser);
   const selectedClip = useVj((vj) => vj.clip);
-  // What a double click on an effect adds it to: the clip selected, or else the layer.
-  const effectTarget = grid.layers.some((l) => l.clips?.some((c) => c.id === selectedClip))
-    ? { clip: selectedClip as string }
-    : { layer: target.id };
+  const tab = useVj((vj) => vj.tab);
+  // What a double click on an effect adds it to: the composition while its tab is shown, else the clip selected, or else the layer.
+  const effectTarget: EffectTarget = tab === "composition"
+    ? "composition"
+    : grid.layers.some((l) => l.clips?.some((c) => c.id === selectedClip))
+      ? { clip: selectedClip as string }
+      : { layer: target.id };
   // A video still being read is listed under "All" only, until the backend says what it is.
   const shown = kind === "all" ? videos : videos.filter((video) => {
     const still = probes[video.id]?.still;
@@ -1007,7 +1021,7 @@ export function VjScreen() {
     <div className="vj-app">
       <DeckPanel grid={grid} />
       <div className="vj-right">
-        <OutputPanel />
+        <OutputPanel grid={grid} />
         <PreviewPanel grid={grid} />
       </div>
       <Inspector grid={grid} />
