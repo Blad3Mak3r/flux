@@ -8,3 +8,4 @@ edition = "2024"
 [dependencies]
 fontdb = "0.24"
 ab_glyph = "0.2"
+rustybuzz = "0.20"

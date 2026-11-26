@@ -1,15 +1,23 @@
 //! Text as a picture: the fonts the system has (and one bundled, so a missing font never stops a
 //! text from drawing), a block of lines laid out and rasterised on the CPU into straight RGBA over a
-//! transparent background. Pure Rust: `fontdb` finds the fonts and `ab_glyph` draws the glyphs.
+//! transparent background. Pure Rust: `fontdb` finds the fonts, `rustybuzz` (a HarfBuzz port) shapes
+//! each line (GPOS kerning, ligatures, marks) and `ab_glyph` draws the glyph ids it returns.
 //!
-//! Kerning comes from the font's legacy `kern` table; a font that only has GPOS pair kerning is
-//! spaced by its advances alone (shortcut: upgrade to `rustybuzz` if that shows).
+//! A character the chosen face does not have is drawn with another face: a face of the system whose
+//! cmap has it (the same style first), else the bundled Inter. A line is cut into runs of one face
+//! and each run is shaped on its own. A colour emoji that a font only has as bitmaps (CBDT, sbix)
+//! has no outline to draw, so it is a blank of its advance; a font that has an outline for it (a
+//! monochrome emoji or symbol face, or the base glyph of a COLR font) draws in the block's colour.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
-use ab_glyph::{Font, FontArc, GlyphId, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontRef, GlyphId, PxScale, ScaleFont, point};
 use fontdb::{Database, Family, Query, Stretch, Style, Weight};
+use rustybuzz::ttf_parser;
 
 /// The family that is bundled: the fallback for a family the machine does not have.
 pub const BUNDLED_FAMILY: &str = "Inter";
@@ -111,10 +119,61 @@ fn parse_style(name: &str) -> (u16, Style) {
     (weight, style)
 }
 
+/// One face of a font file, opened for shaping and for drawing from the same bytes.
+pub struct Face {
+    shaper: rustybuzz::Face<'static>,
+    glyphs: FontRef<'static>,
+    /// Font units in an em.
+    upem: f32,
+    /// Tells two faces apart, for the cache of drawn blocks.
+    key: u64,
+}
+
+impl PartialEq for Face {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
+impl Face {
+    /// `None` when `data` is no font. The bytes live as long as the program: a face is opened once
+    /// and kept (see [`Fonts`]), so they are never freed anyway.
+    fn open(data: &'static [u8], index: u32) -> Option<Arc<Self>> {
+        static KEYS: AtomicU64 = AtomicU64::new(0);
+        let shaper = rustybuzz::Face::from_slice(data, index)?;
+        let glyphs = FontRef::try_from_slice_and_index(data, index).ok()?;
+        Some(Arc::new(Self {
+            upem: shaper.units_per_em().max(1) as f32,
+            shaper,
+            glyphs,
+            key: KEYS.fetch_add(1, Ordering::Relaxed),
+        }))
+    }
+
+    /// Whether the face has a glyph for `ch`.
+    fn has(&self, ch: char) -> bool {
+        self.glyphs.glyph_id(ch).0 != 0
+    }
+
+    /// The scale that draws an em of `em` pixels.
+    fn scale(&self, em: f32) -> PxScale {
+        self.glyphs
+            .pt_to_px_scale(em)
+            .unwrap_or_else(|| PxScale::from(em * 1.2))
+    }
+}
+
+/// A character at a weight, and whether the slant is upright.
+type Wanted = (char, u16, bool);
+
 struct Fonts {
     db: Database,
-    /// Faces already opened, by family and style as asked; `None` is the bundled one.
-    open: Mutex<HashMap<(String, String), FontArc>>,
+    /// Faces already opened, by family and style as asked.
+    named: Mutex<HashMap<(String, String), Arc<Face>>>,
+    /// Faces of the system opened by id, `None` when the file is no font.
+    by_id: Mutex<HashMap<fontdb::ID, Option<Arc<Face>>>>,
+    /// The face the system has for a character at a weight and slant, `None` when none does.
+    fallback: Mutex<HashMap<Wanted, Option<Arc<Face>>>>,
 }
 
 fn fonts() -> &'static Fonts {
@@ -124,9 +183,15 @@ fn fonts() -> &'static Fonts {
         db.load_system_fonts();
         Fonts {
             db,
-            open: Mutex::default(),
+            named: Mutex::default(),
+            by_id: Mutex::default(),
+            fallback: Mutex::default(),
         }
     })
+}
+
+fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Reads the system's fonts now, on a thread of its own, so the first text does not wait for them.
@@ -136,28 +201,68 @@ pub fn warm() {
     });
 }
 
-fn bundled(weight: u16) -> FontArc {
-    static CACHE: OnceLock<[FontArc; 2]> = OnceLock::new();
+fn bundled(weight: u16) -> Arc<Face> {
+    static CACHE: OnceLock<[Arc<Face>; 2]> = OnceLock::new();
     let both = CACHE.get_or_init(|| {
-        [REGULAR, BOLD].map(|bytes| {
-            FontArc::try_from_slice(bytes).expect("the bundled font is a valid font file")
-        })
+        [REGULAR, BOLD]
+            .map(|bytes| Face::open(bytes, 0).expect("the bundled font is a valid font file"))
     });
     both[usize::from(weight >= 600)].clone()
 }
 
+impl Fonts {
+    /// The face of the system with `id`, opened once.
+    fn face(&self, id: fontdb::ID) -> Option<Arc<Face>> {
+        if let Some(found) = locked(&self.by_id).get(&id) {
+            return found.clone();
+        }
+        // The bytes are copied once and kept for good: the face stays in the cache.
+        let opened = self
+            .db
+            .with_face_data(id, |data, index| {
+                Face::open(Box::leak(data.to_vec().into_boxed_slice()), index)
+            })
+            .flatten();
+        locked(&self.by_id).insert(id, opened.clone());
+        opened
+    }
+
+    /// The face of the system that has `ch`, the closest to `want` in weight and slant first; one
+    /// with an outline for it before one that only has bitmaps of it.
+    fn covering(&self, ch: char, want: (u16, Style)) -> Option<Arc<Face>> {
+        let key = (ch, want.0, want.1 == Style::Normal);
+        if let Some(found) = locked(&self.fallback).get(&key) {
+            return found.clone();
+        }
+        let mut faces: Vec<&fontdb::FaceInfo> = self.db.faces().collect();
+        faces.sort_by_key(|f| (f.style != want.1, f.weight.0.abs_diff(want.0)));
+        // The cmap is read from the file without opening the face for drawing.
+        let covers = |face: &fontdb::FaceInfo, outlined: bool| {
+            self.db
+                .with_face_data(face.id, |data, index| {
+                    let face = ttf_parser::Face::parse(data, index).ok()?;
+                    let glyph = face.glyph_index(ch)?;
+                    (!outlined || face.glyph_bounding_box(glyph).is_some()).then_some(())
+                })
+                .flatten()
+                .is_some()
+        };
+        let found = [true, false]
+            .into_iter()
+            .find_map(|outlined| faces.iter().find(|f| covers(f, outlined)))
+            .and_then(|f| self.face(f.id));
+        locked(&self.fallback).insert(key, found.clone());
+        found
+    }
+}
+
 /// The face for `family` in `style`: the closest one the machine has, else the bundled font. It
 /// never fails.
-pub fn font(family: &str, style: &str) -> FontArc {
+pub fn font(family: &str, style: &str) -> Arc<Face> {
     let (weight, slant) = parse_style(style);
     let fonts = fonts();
     let key = (family.to_lowercase(), style.to_lowercase());
-    if let Some(found) = fonts
-        .open
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get(&key)
-    {
+    if let Some(found) = locked(&fonts.named).get(&key) {
         return found.clone();
     }
     let query = Query {
@@ -169,17 +274,9 @@ pub fn font(family: &str, style: &str) -> FontArc {
     let found = fonts
         .db
         .query(&query)
-        .and_then(|id| {
-            fonts.db.with_face_data(id, |data, index| {
-                ab_glyph::FontVec::try_from_vec_and_index(data.to_vec(), index).ok()
-            })?
-        })
-        .map_or_else(|| bundled(weight), FontArc::new);
-    fonts
-        .open
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(key, found.clone());
+        .and_then(|id| fonts.face(id))
+        .unwrap_or_else(|| bundled(weight));
+    locked(&fonts.named).insert(key, found.clone());
     found
 }
 
@@ -220,25 +317,84 @@ pub fn families() -> Vec<FontFamily> {
 // ---------------------------------------------------------------------------------------------
 // Layout and drawing
 
-/// One line of glyphs: where each starts along the line, and how long the line is.
+/// A glyph of a line: its face, its id there, and where it sits against the start of the line and
+/// its baseline (up is positive).
+struct Placed {
+    face: Arc<Face>,
+    id: GlyphId,
+    x: f32,
+    up: f32,
+}
+
+/// One line of glyphs, and how long the line is.
 struct Line {
-    glyphs: Vec<(GlyphId, f32)>,
+    glyphs: Vec<Placed>,
     width: f32,
 }
 
-fn layout_line(font: &FontArc, scale: PxScale, line: &str, tracking: f32) -> Line {
-    let scaled = font.as_scaled(scale);
+/// Whether `ch` joins the glyph before it instead of having a face of its own: a zero width joiner
+/// or mark, or a variation selector, which no font has in its cmap.
+fn joins(ch: char) -> bool {
+    matches!(ch, '\u{200B}'..='\u{200F}' | '\u{2060}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0100}'..='\u{E01EF}')
+}
+
+/// `line` cut into runs of the same face, as `face_of` picks it for each character.
+fn split_runs<F: PartialEq>(line: &str, mut face_of: impl FnMut(char) -> F) -> Vec<(F, &str)> {
+    let mut runs: Vec<(F, usize, usize)> = Vec::new();
+    for (at, ch) in line.char_indices() {
+        let end = at + ch.len_utf8();
+        match runs.last_mut() {
+            Some(last) if joins(ch) => last.2 = end,
+            _ => {
+                let face = face_of(ch);
+                match runs.last_mut() {
+                    Some(last) if last.0 == face => last.2 = end,
+                    _ => runs.push((face, at, end)),
+                }
+            }
+        }
+    }
+    runs.into_iter()
+        .map(|(face, from, to)| (face, &line[from..to]))
+        .collect()
+}
+
+/// The face that draws `ch`: the chosen one, else one of the system that has it, else the bundled
+/// Inter; the chosen one again (its blank glyph) when nobody has it.
+fn face_for(chosen: &Arc<Face>, want: (u16, Style), ch: char) -> Arc<Face> {
+    if chosen.has(ch) || ch.is_whitespace() {
+        return chosen.clone();
+    }
+    if let Some(found) = fonts().covering(ch, want) {
+        return found;
+    }
+    let inter = bundled(want.0);
+    if inter.has(ch) { inter } else { chosen.clone() }
+}
+
+fn layout_line(chosen: &Arc<Face>, want: (u16, Style), em: f32, line: &str, tracking: f32) -> Line {
+    use rustybuzz::{Feature, UnicodeBuffer, ttf_parser::Tag};
     let mut glyphs = Vec::with_capacity(line.len());
     let mut pen = 0.0;
-    let mut last: Option<GlyphId> = None;
-    for ch in line.chars() {
-        let id = font.glyph_id(ch);
-        if let Some(last) = last {
-            pen += scaled.kern(last, id);
+    // Space between glyphs would show a ligature as one stuck glyph: ligatures are off then.
+    let off = |tag: &[u8; 4]| Feature::new(Tag::from_bytes(tag), 0, ..);
+    let features: &[Feature] = &[off(b"liga"), off(b"clig")];
+    let features = if tracking == 0.0 { &[] } else { features };
+    for (face, run) in split_runs(line, |ch| face_for(chosen, want, ch)) {
+        let k = em / face.upem;
+        let mut buffer = UnicodeBuffer::new();
+        buffer.push_str(run);
+        buffer.guess_segment_properties();
+        let shaped = rustybuzz::shape(&face.shaper, features, buffer);
+        for (info, pos) in shaped.glyph_infos().iter().zip(shaped.glyph_positions()) {
+            glyphs.push(Placed {
+                face: face.clone(),
+                id: GlyphId(info.glyph_id as u16),
+                x: pen + pos.x_offset as f32 * k,
+                up: pos.y_offset as f32 * k,
+            });
+            pen += pos.x_advance as f32 * k + tracking;
         }
-        glyphs.push((id, pen));
-        pen += scaled.h_advance(id) + tracking;
-        last = Some(id);
     }
     Line {
         glyphs,
@@ -246,25 +402,54 @@ fn layout_line(font: &FontArc, scale: PxScale, line: &str, tracking: f32) -> Lin
     }
 }
 
-/// The coverage (0 to 255) of a block of lines: its width, its height and the bytes.
-fn draw_block(font: &FontArc, block: &Block<'_>) -> (usize, usize, Vec<u8>) {
+/// The coverage (0 to 255) of a block of lines.
+struct Cover {
+    width: usize,
+    height: usize,
+    bytes: Vec<u8>,
+}
+
+/// The blocks drawn last. Moving, turning and fading a block only resamples its coverage, so the
+/// glyphs are drawn again only when the text, the face or the spacing change.
+static COVERS: Mutex<Vec<(u64, Arc<Cover>)>> = Mutex::new(Vec::new());
+const KEPT_COVERS: usize = 8;
+
+fn draw_block(face: &Arc<Face>, block: &Block<'_>) -> Arc<Cover> {
+    let mut hasher = DefaultHasher::new();
+    (face.key, block.text, block.align as u8).hash(&mut hasher);
+    [block.size, block.tracking, block.leading]
+        .map(f32::to_bits)
+        .hash(&mut hasher);
+    parse_style(block.style).hash(&mut hasher);
+    let id = hasher.finish();
+    if let Some((_, found)) = locked(&COVERS).iter().find(|(key, _)| *key == id) {
+        return found.clone();
+    }
+    let cover = Arc::new(draw_lines(face, block));
+    let mut kept = locked(&COVERS);
+    if kept.len() >= KEPT_COVERS {
+        kept.remove(0);
+    }
+    kept.push((id, cover.clone()));
+    cover
+}
+
+fn draw_lines(face: &Arc<Face>, block: &Block<'_>) -> Cover {
     let em = block.size.max(1.0);
-    let scale = font
-        .pt_to_px_scale(em)
-        .unwrap_or_else(|| PxScale::from(em * 1.2));
-    let scaled = font.as_scaled(scale);
+    let want = parse_style(block.style);
+    let scaled = face.glyphs.as_scaled(face.scale(em));
     let tracking = block.tracking * em;
     let lines: Vec<Line> = block
         .text
         .split('\n')
-        .map(|line| layout_line(font, scale, line, tracking))
+        .map(|line| layout_line(face, want, em, line, tracking))
         .collect();
     let widest = lines.iter().map(|l| l.width).fold(0.0, f32::max);
     let pitch = (scaled.height() + scaled.line_gap() + block.leading * em).max(1.0);
     let width = ((widest.ceil() as usize) + 2 * PAD).clamp(1, MAX_SIDE);
     let height = (((pitch * (lines.len() - 1) as f32 + scaled.height()).ceil() as usize) + 2 * PAD)
         .clamp(1, MAX_SIDE);
-    let mut cover = vec![0u8; width * height];
+    let mut bytes = vec![0u8; width * height];
     for (n, line) in lines.iter().enumerate() {
         let indent = match block.align {
             Align::Left => 0.0,
@@ -272,10 +457,12 @@ fn draw_block(font: &FontArc, block: &Block<'_>) -> (usize, usize, Vec<u8>) {
             Align::Right => widest - line.width,
         };
         let baseline = PAD as f32 + scaled.ascent() + pitch * n as f32;
-        for &(id, at) in &line.glyphs {
-            let glyph =
-                id.with_scale_and_position(scale, point(PAD as f32 + indent + at, baseline));
-            let Some(outline) = font.outline_glyph(glyph) else {
+        for placed in &line.glyphs {
+            let glyph = placed.id.with_scale_and_position(
+                placed.face.scale(em),
+                point(PAD as f32 + indent + placed.x, baseline - placed.up),
+            );
+            let Some(outline) = placed.face.glyphs.outline_glyph(glyph) else {
                 continue;
             };
             let bounds = outline.px_bounds();
@@ -284,12 +471,16 @@ fn draw_block(font: &FontArc, block: &Block<'_>) -> (usize, usize, Vec<u8>) {
                 let (x, y) = (left + i64::from(x), top + i64::from(y));
                 if (0..width as i64).contains(&x) && (0..height as i64).contains(&y) {
                     let at = y as usize * width + x as usize;
-                    cover[at] = cover[at].saturating_add((c * 255.0).round() as u8);
+                    bytes[at] = bytes[at].saturating_add((c * 255.0).round() as u8);
                 }
             });
         }
     }
-    (width, height, cover)
+    Cover {
+        width,
+        height,
+        bytes,
+    }
 }
 
 /// The coverage at `(x, y)` of a bitmap, bilinear; what is outside is nothing.
@@ -311,7 +502,7 @@ fn sample(cover: &[u8], size: (usize, usize), x: f32, y: f32) -> f32 {
 
 /// `block` drawn with `font` on a canvas of `width` x `height`, as straight RGBA: the colour
 /// everywhere, and the alpha where there are glyphs.
-pub fn rasterise_with(font: &FontArc, block: &Block<'_>, width: u32, height: u32) -> Vec<u8> {
+pub fn rasterise_with(font: &Arc<Face>, block: &Block<'_>, width: u32, height: u32) -> Vec<u8> {
     let (w, h) = (width as usize, height as usize);
     let mut out = [block.colour[0], block.colour[1], block.colour[2], 0].repeat(w * h);
     let opacity = if block.opacity.is_nan() {
@@ -322,7 +513,8 @@ pub fn rasterise_with(font: &FontArc, block: &Block<'_>, width: u32, height: u32
     if block.text.trim().is_empty() || opacity == 0.0 || w == 0 || h == 0 {
         return out;
     }
-    let (bw, bh, cover) = draw_block(font, block);
+    let drawn = draw_block(font, block);
+    let (bw, bh, cover) = (drawn.width, drawn.height, &drawn.bytes[..]);
     let (sin, cos) = block.rotation.to_radians().sin_cos();
     let straight = block.rotation == 0.0;
     // Unrotated, the block lands on whole pixels, so its glyphs stay as sharp as they were drawn.
@@ -347,7 +539,7 @@ pub fn rasterise_with(font: &FontArc, block: &Block<'_>, width: u32, height: u32
             // Back into the block's own axes.
             let sx = dx * cos + dy * sin + half_w - 0.5;
             let sy = -dx * sin + dy * cos + half_h - 0.5;
-            let level = sample(&cover, (bw, bh), sx, sy) * opacity;
+            let level = sample(cover, (bw, bh), sx, sy) * opacity;
             out[(y * w + x) * 4 + 3] = level.round().clamp(0.0, 255.0) as u8;
         }
     }
@@ -499,8 +691,73 @@ mod tests {
     #[test]
     fn a_missing_family_should_fall_back_to_the_bundled_font() {
         let font = font("No Such Family 7", "Bold");
-        assert!(font.glyph_id('A').0 != 0);
+        assert!(font.has('A'));
         assert!(families().iter().any(|f| f.name == BUNDLED_FAMILY));
+    }
+
+    fn width_of(text: &str, tracking: f32) -> f32 {
+        let face = bundled(400);
+        layout_line(&face, (400, Style::Normal), 100.0, text, tracking).width
+    }
+
+    #[test]
+    fn shaping_should_kern_pairs_the_font_kerns_in_gpos() {
+        let (pair, apart) = (width_of("AV", 0.0), width_of("A", 0.0) + width_of("V", 0.0));
+        assert!(pair < apart - 1.0, "{pair} is not under {apart}");
+    }
+
+    #[test]
+    fn tracking_should_still_widen_a_shaped_line() {
+        let loose = width_of("AVA", 10.0);
+        assert!(
+            (loose - (width_of("AVA", 0.0) + 20.0)).abs() < 0.5,
+            "{loose}"
+        );
+    }
+
+    #[test]
+    fn runs_should_split_where_the_face_changes_and_keep_joiners_with_what_they_follow() {
+        let face = |c: char| u8::from(c.is_ascii());
+        let runs = split_runs("ab\u{416}\u{200D}c", face);
+        assert_eq!(runs, vec![(1, "ab"), (0, "\u{416}\u{200D}"), (1, "c")]);
+        assert!(split_runs("", face).is_empty());
+    }
+
+    #[test]
+    fn a_character_no_font_has_should_not_stop_the_line_and_keep_the_others_in_place() {
+        // A private use character: no face has it, so it draws as a blank or the face's own gap.
+        let plain = width_of("AB", 0.0);
+        let with = width_of("A\u{10FFFD}B", 0.0);
+        assert!(with >= plain, "{with} {plain}");
+        assert!(with < plain + 200.0, "{with} {plain}");
+        let mut text = block("A\u{10FFFD}B \u{416}\u{2605}\u{1F389}");
+        text.size = 20.0;
+        assert!(covered(&draw(&text)) > 0);
+    }
+
+    #[test]
+    fn a_character_the_chosen_face_lacks_should_fall_through_to_a_face_that_has_it() {
+        // The bundled subset is Latin only: Cyrillic is absent, so another face is looked for.
+        let inter = bundled(400);
+        assert!(!inter.has('\u{416}'));
+        let found = face_for(&inter, (400, Style::Normal), '\u{416}');
+        assert!(
+            found.has('\u{416}') || Arc::ptr_eq(&found, &inter),
+            "a face with it, or the chosen one when the machine has none"
+        );
+        assert!(width_of("\u{416}\u{416}", 0.0) >= 0.0);
+    }
+
+    #[test]
+    fn moving_and_fading_a_block_should_reuse_the_glyphs_it_drew() {
+        let mut a = block("cached");
+        let first = draw_block(&bundled(400), &a);
+        a.centre = [10.0, 10.0];
+        a.rotation = 30.0;
+        a.opacity = 0.5;
+        assert!(Arc::ptr_eq(&first, &draw_block(&bundled(400), &a)));
+        a.size = 41.0;
+        assert!(!Arc::ptr_eq(&first, &draw_block(&bundled(400), &a)));
     }
 
     #[test]
