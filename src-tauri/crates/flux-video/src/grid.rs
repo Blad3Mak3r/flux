@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use flux_project::VideoFit;
 use flux_project::playhead::{Motion, Playhead, Tick};
-use flux_project::vj::{Side, Transition, Trigger, Vj};
+use flux_project::vj::{Autopilot, Side, Transition, Trigger, Vj};
 
 use crate::layers::{Layer, Probe};
 use crate::mapping::Rate;
@@ -90,6 +90,8 @@ pub struct GridPlay {
     crossfader: f32,
     /// The column launched last, until a clip is launched or a layer stopped by hand.
     column: Option<String>,
+    /// Where the layers' random autopilot draws from (xorshift); it moves only when one draws.
+    rng: u64,
 }
 
 impl Default for GridPlay {
@@ -98,7 +100,28 @@ impl Default for GridPlay {
             playing: HashMap::new(),
             crossfader: 0.5,
             column: None,
+            rng: 0x9E37_79B9_7F4A_7C15,
         }
+    }
+}
+
+/// How many seconds a clip lasts, for `length` saying how long an asset's video is and whether it
+/// is a still image; a generator and a still image last the clip's duration.
+fn clip_seconds(
+    clip: &flux_project::vj::Clip,
+    length: &dyn Fn(&str) -> Option<(f64, bool)>,
+) -> Option<f64> {
+    match clip.generator {
+        Some(_) => Some(f64::from(clip.duration)),
+        None => length(&clip.asset)
+            .map(|(seconds, still)| {
+                if still {
+                    f64::from(clip.duration)
+                } else {
+                    seconds
+                }
+            })
+            .filter(|seconds| *seconds > 0.0),
     }
 }
 
@@ -255,18 +278,7 @@ impl GridPlay {
     /// of a still image or a generator is the clip's duration. A clip whose video is not known yet
     /// waits.
     pub fn follow(&mut self, vj: &Vj, tick: Tick, length: &dyn Fn(&str) -> Option<(f64, bool)>) {
-        let seconds = |clip: &flux_project::vj::Clip| match clip.generator {
-            Some(_) => Some(f64::from(clip.duration)),
-            None => length(&clip.asset)
-                .map(|(seconds, still)| {
-                    if still {
-                        f64::from(clip.duration)
-                    } else {
-                        seconds
-                    }
-                })
-                .filter(|seconds| *seconds > 0.0),
-        };
+        let seconds = |clip: &flux_project::vj::Clip| clip_seconds(clip, length);
         for (layer, launched) in &mut self.playing {
             let Some(layer) = vj.layers.iter().find(|l| &l.id == layer) else {
                 continue;
@@ -290,6 +302,51 @@ impl GridPlay {
                 }
             }
         }
+    }
+
+    /// Launches, on each layer whose autopilot is on, the clip that follows the one playing when
+    /// that one has played a whole pass (see [`Playhead::pass_ended`]), through [`Self::launch`] so
+    /// the layer's transition applies. A clip whose length is not known yet waits. `true` when a
+    /// clip was launched.
+    pub fn autopilot(
+        &mut self,
+        vj: &Vj,
+        tick: impl Into<Tick>,
+        length: &dyn Fn(&str) -> Option<(f64, bool)>,
+    ) -> bool {
+        let tick = tick.into();
+        let mut due = Vec::new();
+        for layer in vj.layers.iter().filter(|l| l.autopilot != Autopilot::Off) {
+            let Some((Some(id), Some(head))) = self
+                .playing
+                .get(&layer.id)
+                .map(|launched| (&launched.clip, &launched.head))
+            else {
+                continue;
+            };
+            let Some(clip) = layer.clips.iter().find(|c| &c.id == id) else {
+                continue;
+            };
+            if clip_seconds(clip, length).is_some_and(|seconds| head.pass_ended(tick, seconds)) {
+                due.push((layer, id.clone()));
+            }
+        }
+        let mut launched = false;
+        for (layer, id) in due {
+            // Only the random pick moves the generator.
+            let roll = if layer.autopilot == Autopilot::Random {
+                self.rng ^= self.rng << 13;
+                self.rng ^= self.rng >> 7;
+                self.rng ^= self.rng << 17;
+                self.rng ^ tick.time.as_nanos() as u64
+            } else {
+                0
+            };
+            if let Some(next) = vj.autopilot_next(layer, &id, roll) {
+                launched |= self.launch(vj, &next.id, tick);
+            }
+        }
+        launched
     }
 
     /// Follows a layer's transition time changed while a transition runs, so it goes on from where
@@ -537,6 +594,7 @@ mod tests {
             blend: Blend::Alpha,
             transition: 0.0,
             transition_effect: Transition::Alpha,
+            autopilot: Autopilot::Off,
             crossfade,
             bypass: false,
             solo: false,
@@ -1068,5 +1126,43 @@ mod tests {
         let shown = play.layers(&vj, secs(2.0), &probe);
         let old = shown.iter().find(|l| l.clip == "a").unwrap();
         assert_eq!(old.frame, 75, "1.5 times as fast for 2 s of a 4 s video");
+    }
+
+    #[test]
+    fn autopilot_should_launch_the_next_clip_at_the_end_of_a_pass_and_wrap() {
+        let mut vj = grid();
+        vj.layers[0].autopilot = Autopilot::Next;
+        let length = |_: &str| Some((10.0, false));
+        let playing = |play: &GridPlay| play.playing()["l1"].clip.clone();
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", Duration::ZERO);
+        assert!(!play.autopilot(&vj, secs(9.9), &length));
+        assert_eq!(playing(&play).as_deref(), Some("a"));
+        assert!(play.autopilot(&vj, secs(10.0), &length));
+        assert_eq!(playing(&play).as_deref(), Some("b"));
+        assert!(!play.autopilot(&vj, secs(19.9), &length), "b started at 10");
+        assert!(play.autopilot(&vj, secs(20.0), &length));
+        assert_eq!(playing(&play).as_deref(), Some("a"));
+        assert!(
+            !play.playing().contains_key("l2"),
+            "a layer without autopilot is left alone"
+        );
+    }
+
+    #[test]
+    fn autopilot_should_stay_off_until_a_clip_is_launched_after_a_stop() {
+        let mut vj = grid();
+        vj.layers[0].autopilot = Autopilot::Random;
+        let length = |_: &str| Some((10.0, false));
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", Duration::ZERO);
+        play.stop(&vj, Some("l1"), secs(1.0));
+        assert!(!play.autopilot(&vj, secs(30.0), &length));
+        play.launch(&vj, "a", secs(30.0));
+        for pass in 1..=6 {
+            let before = play.playing()["l1"].clip.clone();
+            assert!(play.autopilot(&vj, secs(30.0 + 10.0 * f64::from(pass)), &length));
+            assert_ne!(play.playing()["l1"].clip, before, "no repeat");
+        }
     }
 }

@@ -65,6 +65,7 @@ export type VjBlend =
   | "alphaCut" | "lumaKey" | "lumaKeyInverted" | "lumaIsAlpha" | "differenceInverted" | "mask50" | "rgb" | "displace";
 export type VjTransition = "alpha" | "add";
 export type VjSide = "a" | "b";
+export type VjAutopilot = "off" | "next" | "previous" | "random";
 
 export interface VjLayer {
   id: string;
@@ -83,6 +84,8 @@ export interface VjLayer {
   transition?: number;
   /** Absent is `alpha`. */
   transitionEffect?: VjTransition;
+  /** What the layer launches when its clip ends a pass; absent is `off`. */
+  autopilot?: VjAutopilot;
   /** The crossfader side; absent is neither. */
   crossfade?: VjSide;
   bypass?: boolean;

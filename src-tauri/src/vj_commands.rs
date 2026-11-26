@@ -25,6 +25,8 @@ pub struct Grid {
     paused: bool,
     /// How much faster (or slower) than the tempo the beats run: 1, except while a nudge is held.
     pace: f64,
+    /// An autopilot launched a clip since [`Self::take_advanced`]: the sound has to follow.
+    advanced: bool,
 }
 
 /// How far a nudge moves the pace of the beats, as a fraction of the tempo.
@@ -40,6 +42,7 @@ impl Default for Grid {
             beat: (Duration::ZERO, 0.0),
             paused: false,
             pace: 1.0,
+            advanced: false,
         }
     }
 }
@@ -108,14 +111,22 @@ impl Grid {
             time,
             beats: self.count(time, bpm),
         };
-        self.play.follow(vj, tick, &|asset| {
+        let length = |asset: &str| {
             let probe = crate::video_commands::probed(asset)?;
             Some((
                 video_seconds(Rate::new(probe.rate_num, probe.rate_den), probe.frames),
                 probe.still,
             ))
-        });
+        };
+        self.play.follow(vj, tick, &length);
+        // A clip ending its pass makes the layer launch the next, whichever screen asked first.
+        self.advanced |= self.play.autopilot(vj, tick, &length);
         tick
+    }
+
+    /// Whether an autopilot launched a clip since the last call.
+    pub fn take_advanced(&mut self) -> bool {
+        std::mem::take(&mut self.advanced)
     }
 }
 
@@ -196,7 +207,8 @@ fn play(
     grid.play.retime(&vj, now.time);
     change(&mut grid.play, &vj, now)?;
     let answer = state(session, &vj, &grid, now, bpm);
-    let changed = grid.play != before;
+    let advanced = grid.take_advanced();
+    let changed = advanced || grid.play != before;
     drop(grid);
     // The window asks for the state all the time; the sound changes only when what plays does.
     if changed {

@@ -1258,6 +1258,7 @@ mod tests {
             blend: Blend::Add,
             transition: 2.0,
             transition_effect: Default::default(),
+            autopilot: Default::default(),
             crossfade: Some(Side::A),
             bypass: true,
             solo: false,

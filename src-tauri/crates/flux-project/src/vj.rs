@@ -183,6 +183,9 @@ pub struct Layer {
     /// How the two clips mix during a transition; absent is [`Transition::Alpha`].
     #[serde(default, skip_serializing_if = "Transition::is_alpha")]
     pub transition_effect: Transition,
+    /// What the layer launches when the clip playing on it ends a pass; absent is [`Autopilot::Off`].
+    #[serde(default, skip_serializing_if = "Autopilot::is_off")]
+    pub autopilot: Autopilot,
     /// The side of the crossfader the layer is on; absent is neither, so the crossfader leaves it alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crossfade: Option<Side>,
@@ -236,6 +239,7 @@ impl Layer {
             blend: Blend::Alpha,
             transition: 0.0,
             transition_effect: Transition::Alpha,
+            autopilot: Autopilot::Off,
             crossfade: None,
             bypass: false,
             solo: false,
@@ -339,6 +343,56 @@ pub enum Transition {
 impl Transition {
     fn is_alpha(&self) -> bool {
         *self == Self::Alpha
+    }
+}
+
+/// Which clip a layer launches by itself when the one playing ends a pass (Resolume's Layer
+/// Autopilot): the next or previous one of the layer in the deck shown, or a random one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Autopilot {
+    #[default]
+    Off,
+    Next,
+    Previous,
+    /// Never the clip that played, when there is another.
+    Random,
+}
+
+impl Autopilot {
+    fn is_off(&self) -> bool {
+        *self == Self::Off
+    }
+
+    /// The cell to launch after `current` among `filled` (one entry per column, `true` for a clip),
+    /// skipping empty cells and wrapping around; `roll` is a random number, used by
+    /// [`Self::Random`]. `None` when the layer has no clip in the deck, or autopilot is off. A layer
+    /// whose only clip is `current` launches it again.
+    pub fn pick(self, filled: &[bool], current: Option<usize>, roll: u64) -> Option<usize> {
+        let n = filled.len();
+        match self {
+            Self::Off => None,
+            Self::Next | Self::Previous => {
+                let forward = self == Self::Next;
+                (1..=n)
+                    .map(|k| match (current, forward) {
+                        (Some(c), true) => (c + k) % n,
+                        (Some(c), false) => (c + n - k % n) % n,
+                        (None, true) => k - 1,
+                        (None, false) => n - k,
+                    })
+                    .find(|&at| filled[at])
+            }
+            Self::Random => {
+                let others: Vec<usize> = (0..n)
+                    .filter(|&at| filled[at] && Some(at) != current)
+                    .collect();
+                match others.len() {
+                    0 => current.filter(|&at| filled.get(at) == Some(&true)),
+                    len => Some(others[(roll % len as u64) as usize]),
+                }
+            }
+        }
     }
 }
 
@@ -674,6 +728,11 @@ pub enum VjOp {
         layer: String,
         side: Option<Side>,
     },
+    /// What the layer launches by itself at the end of a clip's pass.
+    LayerAutopilot {
+        layer: String,
+        mode: Autopilot,
+    },
     LayerBypass {
         layer: String,
         on: bool,
@@ -956,6 +1015,37 @@ impl Vj {
             .map(|(_, column)| column.id.clone())
     }
 
+    /// The clip `layer` launches after `current` by its autopilot, among its clips in the deck
+    /// shown (a column each, the same place on a global layer's slots); `roll` is a random number.
+    pub fn autopilot_next<'a>(
+        &self,
+        layer: &'a Layer,
+        current: &str,
+        roll: u64,
+    ) -> Option<&'a Clip> {
+        let deck = self.shown_deck()?;
+        let cells: Vec<Option<&Clip>> = deck
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(at, column)| {
+                layer.clips.iter().find(|clip| match clip.cell() {
+                    Some(Cell::Column(c)) => c == column.id,
+                    Some(Cell::Slot(s)) => s == at,
+                    None => false,
+                })
+            })
+            .collect();
+        let filled: Vec<bool> = cells.iter().map(Option::is_some).collect();
+        let here = cells
+            .iter()
+            .position(|clip| clip.is_some_and(|clip| clip.id == current));
+        layer
+            .autopilot
+            .pick(&filled, here, roll)
+            .and_then(|at| cells[at])
+    }
+
     /// The layer showing `clip`, and the clip.
     pub fn find_clip(&self, clip: &str) -> Option<(&Layer, &Clip)> {
         self.layers.iter().find_map(|layer| {
@@ -1101,6 +1191,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             vj.layer_mut(&layer)?.transition_effect = effect;
         }
         VjOp::LayerCrossfade { layer, side } => vj.layer_mut(&layer)?.crossfade = side,
+        VjOp::LayerAutopilot { layer, mode } => vj.layer_mut(&layer)?.autopilot = mode,
         VjOp::LayerBypass { layer, on } => vj.layer_mut(&layer)?.bypass = on,
         VjOp::LayerSolo { layer, on } => vj.layer_mut(&layer)?.solo = on,
         VjOp::LayerCollapse { layer, on } => vj.layer_mut(&layer)?.collapsed = on,
@@ -3006,5 +3097,26 @@ mod tests {
         assert!(!json.contains("modulation"));
         let back: Project = serde_json::from_str(&json).unwrap();
         assert!(!back.vj.is_modulated());
+    }
+
+    #[test]
+    fn autopilot_should_pick_next_previous_and_random_skipping_empty_cells() {
+        let cells = [true, false, true, true, false];
+        let pick = |mode: Autopilot, current, roll| mode.pick(&cells, current, roll);
+        assert_eq!(pick(Autopilot::Next, Some(0), 0), Some(2));
+        assert_eq!(pick(Autopilot::Next, Some(3), 0), Some(0), "wraps");
+        assert_eq!(pick(Autopilot::Previous, Some(2), 0), Some(0));
+        assert_eq!(pick(Autopilot::Previous, Some(0), 0), Some(3), "wraps");
+        assert_eq!(pick(Autopilot::Next, None, 0), Some(0));
+        assert_eq!(pick(Autopilot::Previous, None, 0), Some(3));
+        assert_eq!(pick(Autopilot::Off, Some(0), 0), None);
+        for roll in 0..8 {
+            assert_ne!(pick(Autopilot::Random, Some(2), roll), Some(2));
+        }
+        assert_eq!(pick(Autopilot::Random, Some(0), 1), Some(3));
+        assert_eq!(Autopilot::Next.pick(&[false, true], Some(1), 0), Some(1));
+        assert_eq!(Autopilot::Random.pick(&[false, true], Some(1), 5), Some(1));
+        assert_eq!(Autopilot::Next.pick(&[false, false], None, 0), None);
+        assert_eq!(Autopilot::Next.pick(&[], None, 0), None);
     }
 }

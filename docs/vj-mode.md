@@ -68,7 +68,22 @@ Each layer has a header with:
 
 With a transition time above 0, a clip launched on an empty layer fades in, and a stopped layer fades out over the same
 time. A layer's effects apply to both clips while a transition runs. The selected layer's shortcuts are **B**, **S** and
-**X** too. Right-click a layer for the rest (move up and down, rename, remove).
+**X** too. Right-click a layer for the rest (move up and down, rename, Autopilot, remove).
+
+### Autopilot
+
+A layer's **Autopilot** (the Layer tab of the inspector, or the layer's right-click menu) makes it play its clips one
+after the other by itself, as in Resolume. It is **Off**, **Next**, **Prev** or **Random**. When the clip on the layer
+ends a pass, the layer launches the next or previous clip of the same layer in the deck shown, or a random one, through
+a normal launch: the layer's transition and the T fader apply. Empty cells are skipped and the order wraps around;
+Random never repeats the clip that just played when the layer has another.
+
+A pass is one trip through the clip's region: a video's end, or a still image's or a generator's **Duration**. With
+**Loop** the layer moves on at the end of each pass, with **Once** when the clip ends, with ping-pong after the full trip
+there and back, and with a beat **Tempo** at the end of its beats. A paused clip never ends. A layer with an autopilot
+shows a small **AP** badge in its strip. Launching a clip by hand still works; stopping the layer (**X** or the eject
+button) stops the autopilot until a clip is launched again. Global layers follow their own clips. The setting is saved
+with the show.
 
 ## The crossfader
 

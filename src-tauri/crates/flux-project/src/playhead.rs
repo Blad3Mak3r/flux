@@ -166,6 +166,22 @@ impl Playhead {
         self.motion.place(self.phase(tick, length))
     }
 
+    /// Whether the clip has played a whole pass by `tick`: through its region once, or there and
+    /// back for a ping-pong, from the edge it was launched at. A paused clip never does.
+    pub fn pass_ended(&self, tick: Tick, length: f64) -> bool {
+        let pass = if self.motion.playback == Playback::PingPong {
+            2.0
+        } else {
+            1.0
+        };
+        let u = self.phase(tick, length);
+        match self.motion.direction {
+            Direction::Forward => u >= pass,
+            Direction::Reverse => u <= 1.0 - pass,
+            Direction::Pause => false,
+        }
+    }
+
     /// Moves the playhead to `place`, a fraction of the clip's length, brought into its region.
     pub fn jump(&mut self, tick: Tick, place: f64) {
         self.time = tick.time;
@@ -598,5 +614,49 @@ mod tests {
             beat(0.0, 0.0),
         );
         assert_eq!(paused.course(now, LENGTH, 120.0).rate, 0.0);
+    }
+
+    #[test]
+    fn a_pass_should_end_by_playback_direction_and_tempo() {
+        let head = |motion| Playhead::launch(motion, at(0.0));
+        let ended = |motion: Motion, seconds| head(motion).pass_ended(at(seconds), LENGTH);
+        assert!(!ended(motion(), 9.9));
+        assert!(ended(motion(), 10.0), "a loop ends each pass");
+        let once = Motion {
+            playback: Playback::Once,
+            ..motion()
+        };
+        assert!(ended(once, 10.1));
+        let bounce = Motion {
+            playback: Playback::PingPong,
+            ..motion()
+        };
+        assert!(!ended(bounce, 10.1), "there is not back yet");
+        assert!(ended(bounce, 20.0));
+        let reverse = Motion {
+            direction: Direction::Reverse,
+            ..motion()
+        };
+        assert!(!ended(reverse, 9.9));
+        assert!(ended(reverse, 10.0));
+        let reverse_bounce = Motion {
+            playback: Playback::PingPong,
+            ..reverse
+        };
+        assert!(!ended(reverse_bounce, 19.9));
+        assert!(ended(reverse_bounce, 20.0));
+        let paused = Motion {
+            direction: Direction::Pause,
+            ..motion()
+        };
+        assert!(!ended(paused, 1000.0));
+        let beats = Motion {
+            tempo: Tempo::Beats { beats: 4 },
+            ..motion()
+        };
+        let head = Playhead::launch(beats, beat(0.0, 0.0));
+        assert!(!head.pass_ended(beat(1.9, 3.8), LENGTH));
+        assert!(head.pass_ended(beat(2.0, 4.0), LENGTH));
+        assert!(!head.pass_ended(beat(100.0, 3.0), LENGTH), "beats held");
     }
 }

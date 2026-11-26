@@ -21,6 +21,7 @@ import type {
   VjLayer,
   VjPlayback,
   VjSide,
+  VjAutopilot,
   VjTransition,
   VjTrigger,
 } from "../project/types";
@@ -109,6 +110,7 @@ function BlendOptions() {
   );
 }
 const TRANSITIONS: VjTransition[] = ["alpha", "add"];
+const AUTOPILOTS: VjAutopilot[] = ["off", "next", "previous", "random"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
 const TRIGGERS: VjTrigger[] = ["normal", "piano"];
@@ -273,6 +275,12 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
     { label: t("vj.layer.up"), disabled: at === grid.layers.length - 1, run: () => void edit({ op: "moveLayer", layer: layer.id, to: at + 1 }) },
     { label: t("vj.layer.down"), disabled: at === 0, run: () => void edit({ op: "moveLayer", layer: layer.id, to: at - 1 }) },
     "-",
+    { heading: t("vj.layer.autopilot") },
+    ...AUTOPILOTS.map((mode) => ({
+      label: t(`vj.autopilot.${mode}`), checked: (layer.autopilot ?? "off") === mode,
+      run: () => void edit({ op: "layerAutopilot", layer: layer.id, mode }),
+    })),
+    "-",
     { label: t("vj.layer.remove"), disabled: grid.layers.length === 1, run: () => void edit({ op: "removeLayer", layer: layer.id }) },
   ];
   const bs = (
@@ -299,6 +307,11 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         )}
         {layer.global && <span className="vj-global" title={t("vj.layer.global")}><GlobeIcon /></span>}
         <EffectBadge count={layer.effects?.length ?? 0} />
+        {layer.autopilot && layer.autopilot !== "off" && (
+          <span className="vj-ap" title={`${t("vj.layer.autopilot")}: ${t(`vj.autopilot.${layer.autopilot}`)}`}>
+            AP {t(`vj.autopilot.short.${layer.autopilot}`)}
+          </span>
+        )}
         <Marquee className={`vj-clipname${clip ? "" : " idle"}`}>{clip ? clipName(t, clip, videos) : t("vj.layer.noClip")}</Marquee>
         <span className="vj-ab" role="group" aria-label={t("vj.layer.side")}>
           {(["a", "b"] as VjSide[]).map((s) => (
@@ -903,6 +916,10 @@ function Inspector({ grid }: { grid: VjGrid }) {
           <div className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
             <Segments options={TRANSITIONS} value={layer.transitionEffect ?? "alpha"} label={(o) => t(`vj.transition.${o}`)}
               onPick={(effect) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect })} />
+          </div>
+          <div className="vj-f"><span>{t("vj.layer.autopilot")}</span>
+            <Segments options={AUTOPILOTS} value={layer.autopilot ?? "off"} label={(o) => t(`vj.autopilot.${o}`)}
+              onPick={(mode) => void edit({ op: "layerAutopilot", layer: layer.id, mode })} />
           </div>
           <div className="vj-f"><span>{t("vj.layer.transition")}</span>
             <span className="vj-mono">{t("vj.seconds", { n: (layer.transition ?? 0).toFixed(1) })}</span>

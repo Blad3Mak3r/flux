@@ -587,6 +587,7 @@
 .vj-fxb { flex: none; padding: 0 4px; color: var(--phosphor); font: 600 9.5px var(--font-measure); letter-spacing: 0.04em; line-height: 14px; background: oklch(0.1 0.01 250 / 0.7); border: 1px solid var(--phosphor-dim); border-radius: 2px; }
 .vj-clip .vj-fxb { position: absolute; top: 4px; right: 4px; z-index: 1; }
 .vj-lname .vj-fxb { margin-left: 2px; }
+.vj-ap { flex: none; padding: 0 4px; color: var(--phosphor); font: 600 9.5px var(--font-measure); letter-spacing: 0.04em; line-height: 14px; border: 1px solid var(--phosphor-dim); border-radius: 2px; }
 /* The composition's effects: their count, and the switch that bypasses them all. */
 .vj-cfx { display: inline-flex; align-items: center; gap: 4px; }
 .vj-cfx .vj-fxb { cursor: pointer; }
