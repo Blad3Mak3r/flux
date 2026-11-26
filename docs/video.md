@@ -237,7 +237,7 @@ the clip's scale (dragging one moves the output live: `effectParams` through `vj
 animated effects choose between a rate in Hz and a cycle in beats of the show's tempo. A clip's stack applies first,
 from the top down, then its layer's, so a layer's effects also reach both clips while a transition runs.
 
-The 36 effects, by category (settings and ranges are in [the format](fxtc-format.md#vj-effects)):
+The 36 effects of a clip or a layer, by category (settings and ranges are in [the format](fxtc-format.md#vj-effects)):
 
 - **Colour:** brightness, contrast, saturation, hue, tint, invert, levels, colorize (gradient map), solarize.
 - **Distort:** mirror, zoom, shift, rotate, kaleidoscope, polar, wave warp, twirl, bulge (fisheye), tile, pixelate,
@@ -281,6 +281,60 @@ The monitor draws the same program on the CPU, with two cheaper approximations: 
 (`flux_render::effects::CPU_TAPS`), and it samples bilinearly at 480 pixels wide rather than at the screens' resolution,
 so fine noise and one pixel edges differ from the screens. A picture with no effects is drawn exactly as before; one with
 effects never hides what is below it.
+
+### Composition effects
+
+The composition has a stack of its own, as in Resolume: it applies to the final mix of all the layers, before the output
+mapping, and it is the **Composition** tab of the inspector (next to Clip and Layer; up to 16 effects, with the same
+add, fold, bypass, duplicate, reset, reorder, remove and modulation controls). All the effects above work there, as one
+program on the whole composition, and there are three more, in the **Feedback** category, that only exist there and are
+tagged *Composition* in the browser (a clip or a layer refuses them): **Feedback**, **Trails** and **Bloom**.
+
+- **Feedback** draws the previous output again, zoomed (`zoom`), turned (`rotate`), moved (`x`, `y`) and with its hue
+  turned (`hue`), and puts it with the new frame (`blend`: `mix` goes `amount` of the way to the old frame, `add` adds it
+  times `amount`, `lighten` keeps the lighter). The old frame is drawn again every frame, so what it carries shrinks into
+  or grows out of the middle: tunnels and spirals. With an `amount` of 0 it is no effect.
+- **Trails** keeps `decay` of the previous output with the new frame (`mode`: `blend` goes `decay` of the way from the new
+  frame to the old one, an average that never gets brighter, `lighten` keeps the lighter of the two, `add` adds the old
+  frame times `decay`): what moves leaves a trail that fades. With a `decay` of 0 it is no effect.
+- **Bloom** takes what is brighter than `threshold`, spreads it over `radius` (a chain of four blurs, each half the size
+  of the one before) and adds it back `intensity` times.
+
+Drop an effect on the Output panel or on the composition bar to add it to the composition, or double click it in the
+browser while the Composition tab is shown (a composition-only effect always goes there and opens the tab). When the
+stack has effects, the Output panel and the composition bar show an **FX n** badge and a switch that bypasses the whole
+stack at once (`compositionBypass`), which is for the stage: the effects keep their place and settings.
+
+**Render order.** Effects keep the order of the stack within three groups, and the groups run in this order: the history
+effects (feedback and trails), then the program of every other effect, then the blooms. So a bloom is always the last
+thing to touch the picture, and a blur below a feedback in the stack still runs after it. At most two blooms count.
+Each frame the screen draws:
+
+1. every picture of the layers, with its own effects, blend and opacity, into a texture of the composition's size (half
+   floats when the graphics adapter can draw on, filter and blend them, else 8-bit sRGB);
+2. each history effect, reading that texture and the history;
+3. the program of the other effects, as one picture the size of the composition;
+4. a copy of the result into the history, for the next frame;
+5. each bloom: a bright pass at half the size, three more blurs each half the size, added back up the chain and onto the
+   picture;
+6. the texture drawn on the window through the slices and masks, as one picture the size of the composition, so the
+   advanced output mapping works as always.
+
+With no effect in the stack (or all bypassed) none of this happens: the pictures go straight to the window as before.
+
+**History.** What the history holds is what steps 2 and 3 made, so a feedback draws the picture the viewer saw, less its
+bloom (a glow that is drawn again every frame piles its light up until the frame is white). Each output window keeps its own history, in its own GPU memory, and the editor's monitor keeps one on the
+CPU, so a feedback on two screens is two independent tunnels that start from black when the window opens. The history is
+forgotten when the composition changes size and when the stack is empty or bypassed for a frame, so bringing it back
+starts clean. The test card the slices are lined up with is never changed by the effects. Time is a frame step:
+`amount`, `decay` and `zoom` are counted per 60th of a second and the movements per second, all scaled by the time since
+the last frame (at most a quarter of a second, so a stall does not throw the picture), which makes a tunnel the same at
+30 and at 120 frames a second. The program's own time is the grid's clock, like a layer's effects, and the composition's
+settings are modulated like any effect's.
+
+The monitor draws the same on the CPU (`flux_render::composite_post`, with a `History` it keeps between frames) with one
+approximation: its bloom averages 16 pixels for each level where the screens take four filtered taps, so a glow can
+differ by a little.
 
 Generators are clips whose picture Flux makes itself: a solid colour, a strobe, a gradient, colour bars and noise
 (`flux_project::generator`). The media browser lists them under its Generators tab and they are dragged onto the grid
