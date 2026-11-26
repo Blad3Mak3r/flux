@@ -42,8 +42,9 @@ pub struct CardSlice {
     pub input: [f32; 4],
 }
 
-/// The card without the sweep: `width * height` RGBA pixels, rows top to bottom.
-pub fn test_card(width: u32, height: u32, slices: &[CardSlice]) -> Vec<u8> {
+/// The card without the sweep: `width * height` RGBA pixels, rows top to bottom. `caption` (the
+/// screen's name and the resolution of its display) is written above the size.
+pub fn test_card(width: u32, height: u32, slices: &[CardSlice], caption: &str) -> Vec<u8> {
     let mut rgba = background(width, height);
     let mut canvas = Canvas {
         rgba: &mut rgba,
@@ -65,6 +66,17 @@ pub fn test_card(width: u32, height: u32, slices: &[CardSlice]) -> Vec<u8> {
     let text = format!("{width} x {height}");
     let x = (width / 2).saturating_sub(text_width(&text, scale) / 2);
     canvas.label(x, y, &text, scale, [245, 245, 245]);
+    if !caption.is_empty() {
+        let scale = unit * 2;
+        let x = (width / 2).saturating_sub(text_width(caption, scale) / 2);
+        canvas.label(
+            x,
+            y.saturating_sub(24 * unit),
+            caption,
+            scale,
+            [245, 245, 245],
+        );
+    }
     rgba
 }
 
@@ -314,12 +326,26 @@ mod tests {
     #[test]
     fn the_corners_should_be_told_apart_by_colour() {
         let (w, h) = (320, 180);
-        let card = test_card(w, h, &[]);
+        let card = test_card(w, h, &[], "");
         assert_eq!(card.len(), (w * h * 4) as usize);
         assert_eq!(pixel(&card, w, 8, 8), [225, 45, 45]);
         assert_eq!(pixel(&card, w, w - 9, 8), [45, 200, 70]);
         assert_eq!(pixel(&card, w, w - 9, h - 9), [55, 95, 235]);
         assert_eq!(pixel(&card, w, 8, h - 9), [235, 200, 40]);
+    }
+
+    #[test]
+    fn the_caption_should_be_written_above_the_size_and_the_card_should_be_deterministic() {
+        let (w, h) = (640, 360);
+        let plain = test_card(w, h, &[], "");
+        let named = test_card(w, h, &[], "Main 1920x1080");
+        assert_eq!(named, test_card(w, h, &[], "Main 1920x1080"));
+        // The caption's plate sits above the size, centred: its padding is darkened, off the
+        // centre line.
+        let (x, y) = (w / 2 + 40, title_y(h) - 24 * unit(h) - 3 * unit(h));
+        assert_ne!(pixel(&plain, w, x, y), pixel(&named, w, x, y));
+        // The corner and the plain card's other pixels do not change.
+        assert_eq!(pixel(&plain, w, 8, 8), pixel(&named, w, 8, 8));
     }
 
     #[test]
@@ -329,7 +355,7 @@ mod tests {
             name: "Slice 1".into(),
             input: [0.5, 0.5, 0.5, 0.5],
         };
-        let card = test_card(w, h, &[slice]);
+        let card = test_card(w, h, &[slice], "");
         assert_eq!(pixel(&card, w, 200, 90), SLICE_COLOURS[0]);
         assert_eq!(pixel(&card, w, w - 1, h - 1), SLICE_COLOURS[0]);
     }
@@ -337,7 +363,7 @@ mod tests {
     #[test]
     fn the_sweep_should_whiten_where_it_is_and_leave_the_rest() {
         let (w, h) = (320, 180);
-        let card = test_card(w, h, &[]);
+        let card = test_card(w, h, &[], "");
         let mut out = Vec::new();
         // Halfway through, the bar is just past the middle of its travel.
         sweep(&card, &mut out, w, h, SWEEP_SECONDS / 2.0, "");

@@ -479,6 +479,12 @@
 .vj-mon > .vj-empty { position: absolute; inset: 0; display: grid; place-items: center; }
 
 .vj-pill { display: flex; align-items: center; gap: 6px; height: 20px; padding: 0 7px; color: var(--signal); font-size: 11.5px; font-weight: 600; background: oklch(0.7 0.2 32 / 0.16); border-radius: 2px; }
+.vj-pill.off { color: oklch(0.16 0.03 32); background: var(--signal); border: 0; font-family: inherit; cursor: pointer; }
+.vj-pill.off i { background: oklch(0.16 0.03 32); }
+.vj-pill.card { color: var(--amber); background: oklch(0.8 0.15 80 / 0.16); }
+.vj-pill.card i { background: var(--amber); }
+.vj-mon[data-disabled="true"] .vj-out { opacity: 0.25; }
+.vj-mon-off { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; padding: 8px; text-align: center; color: var(--signal); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; box-shadow: inset 0 0 0 2px var(--signal); pointer-events: none; }
 .vj-pill i { width: 6px; height: 6px; background: var(--signal); border-radius: 50%; }
 .vj-acts { display: flex; gap: 6px; }
 .vj-acts .button { flex: 1; justify-content: center; }

@@ -122,7 +122,7 @@ impl Source {
     /// Whether this is a key the app uses itself, so a mapping would fight its shortcuts: one of
     /// the combinations in `vj_shortcuts.json` (the list the window reads too; Resolume's
     /// defaults: Ctrl or Cmd with N, O, S, Z, Y, K, L, T, Ctrl or Cmd and Shift with S, C, K, M,
-    /// O, X, A, and Esc), or a modifier alone. Every other key is free.
+    /// O, X, A, D, L, P, Shift+1 to 9 and Esc), or a modifier alone. Every other key is free.
     pub fn is_app_shortcut(&self) -> bool {
         let Self::Key {
             code,
@@ -2345,6 +2345,11 @@ mod tests {
             combo("KeyK", true, true),
             combo("KeyY", true, false),
             combo("KeyL", true, false),
+            combo("KeyD", true, true),
+            combo("KeyL", true, true),
+            combo("KeyP", true, true),
+            combo("Digit1", true, true),
+            combo("Digit9", true, true),
             key("Escape", false),
             key("ShiftLeft", false),
         ] {

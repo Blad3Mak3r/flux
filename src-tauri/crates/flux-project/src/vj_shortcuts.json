@@ -14,5 +14,17 @@
   { "code": "KeyO", "cmd": true, "shift": true, "action": "mapOsc" },
   { "code": "KeyX", "cmd": true, "shift": true, "action": "mapDmx" },
   { "code": "KeyA", "cmd": true, "shift": true, "action": "output" },
+  { "code": "KeyD", "cmd": true, "shift": true, "action": "disableOutput" },
+  { "code": "KeyL", "cmd": true, "shift": true, "action": "testCard" },
+  { "code": "KeyP", "cmd": true, "shift": true, "action": "snapshot" },
+  { "code": "Digit1", "cmd": true, "shift": true, "action": "fullscreen1" },
+  { "code": "Digit2", "cmd": true, "shift": true, "action": "fullscreen2" },
+  { "code": "Digit3", "cmd": true, "shift": true, "action": "fullscreen3" },
+  { "code": "Digit4", "cmd": true, "shift": true, "action": "fullscreen4" },
+  { "code": "Digit5", "cmd": true, "shift": true, "action": "fullscreen5" },
+  { "code": "Digit6", "cmd": true, "shift": true, "action": "fullscreen6" },
+  { "code": "Digit7", "cmd": true, "shift": true, "action": "fullscreen7" },
+  { "code": "Digit8", "cmd": true, "shift": true, "action": "fullscreen8" },
+  { "code": "Digit9", "cmd": true, "shift": true, "action": "fullscreen9" },
   { "code": "Escape", "cmd": false, "shift": false, "action": "escape" }
 ]

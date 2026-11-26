@@ -1622,6 +1622,7 @@ dependencies = [
  "flux-voice",
  "keyring",
  "log",
+ "png",
  "serde",
  "serde_json",
  "tauri",
