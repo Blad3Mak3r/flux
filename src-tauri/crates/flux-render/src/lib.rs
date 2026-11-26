@@ -104,11 +104,27 @@ pub enum Blend {
     Color,
     /// The picture's luminosity on the hue and saturation below.
     Luminosity,
+    /// A hard cut: where its cover is at least half it replaces what is below, elsewhere it leaves it (Resolume's AlphaCut).
+    AlphaCut,
+    /// Its dark parts turn transparent: its alpha is multiplied by its luma (Resolume's Luma Key).
+    LumaKey,
+    /// Its bright parts turn transparent: its alpha is multiplied by one minus its luma (Resolume's Luma Key I).
+    LumaKeyInverted,
+    /// Its luma replaces its own alpha: bright is opaque, dark is transparent, wherever it has a picture.
+    LumaIsAlpha,
+    /// The inverse of the distance between the two lights, a lighter picture (Resolume's Difference I).
+    DifferenceInverted,
+    /// Acts as a mask: what is below shows where it is bright and goes dark where it is dark; it is not drawn (Resolume's 50Mask).
+    Mask50,
+    /// Takes over what is below one channel at a time as its cover rises: blue, then green, then red.
+    Rgb,
+    /// Shifts what is below sideways by its luma, none at mid grey; it is not drawn.
+    Displace,
 }
 
 impl Blend {
     /// Every blend, in the order of the shader's numbers (see [`Self::shading`]).
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 29] = [
         Self::Alpha,
         Self::Add,
         Self::Subtract,
@@ -130,6 +146,14 @@ impl Blend {
         Self::Saturation,
         Self::Color,
         Self::Luminosity,
+        Self::AlphaCut,
+        Self::LumaKey,
+        Self::LumaKeyInverted,
+        Self::LumaIsAlpha,
+        Self::DifferenceInverted,
+        Self::Mask50,
+        Self::Rgb,
+        Self::Displace,
     ];
 
     /// What the shader gets for it: the blend's place in [`Self::ALL`].

@@ -591,9 +591,28 @@ fn blend_mode(mode: u32, b: vec3f, s: vec3f) -> vec3f {
         case 18u: { return set_lum(set_sat(b, sat(s)), lum(b)); }
         case 19u: { return set_lum(s, lum(b)); }
         case 20u: { return set_lum(b, lum(s)); }
+        case 25u: { return 1.0 - abs(b - s); }
+        case 26u: { return b * lum(s); }
         default: { return s; }
     }
 }
+
+// How much of the picture each channel shows, for the keys: its `cover` (alpha times opacity)
+// changed by what the key reads of the picture `s`. The keys are `Blend::ALL`'s 21 to 24 and 27.
+fn key_cover(mode: u32, cover: f32, opacity: f32, s: vec3f) -> vec3f {
+    let l = lum(s);
+    switch mode {
+        case 21u: { return vec3f(select(0.0, 1.0, cover >= 0.5)); }
+        case 22u: { return vec3f(cover * l); }
+        case 23u: { return vec3f(cover * (1.0 - l)); }
+        case 24u: { return vec3f(select(0.0, opacity, cover > 0.0) * l); }
+        case 27u: { return clamp(3.0 * cover - vec3f(2.0, 1.0, 0.0), vec3f(0.0), vec3f(1.0)); }
+        default: { return vec3f(cover); }
+    }
+}
+
+// Displace shifts the light below sideways by up to this share of the width, either way.
+const DISPLACE: f32 = 0.2;
 
 // A picture composited over the light below, in encoded (gamma) values as Resolume does: where it
 // is clear or shown less the light below stays as it is.
@@ -604,6 +623,13 @@ fn fs_blend(in: Out) -> @location(0) vec4f {
     let b = to_gamma(below.rgb);
     let s = to_gamma(l.colour);
     let mode = u32(in.shading + 0.5);
-    let mixed = mix(b, blend_mode(mode, b, s), l.cover * l.shown);
+    var made = blend_mode(mode, b, s);
+    if mode == 28u {
+        let width = i32(textureDimensions(backdrop).x);
+        let shift = i32(floor((lum(s) - 0.5) * DISPLACE * f32(width) + 0.5));
+        let x = clamp(i32(in.pos.x) + shift, 0, width - 1);
+        made = to_gamma(textureLoad(backdrop, vec2i(x, i32(in.pos.y)), 0).rgb);
+    }
+    let mixed = mix(b, made, key_cover(mode, l.cover, in.opacity, s) * l.shown);
     return vec4f(from_gamma(mixed), below.a);
 }

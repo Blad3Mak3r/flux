@@ -1129,7 +1129,14 @@ mod tests {
             ];
             let image = render(&none, 1, &buffer, &layers);
             let expected = crate::composite::to_linear(
-                crate::composite::blend_light(blend, encoded(above), cover, encoded(below))[0],
+                crate::composite::blend_light(
+                    blend,
+                    encoded(above),
+                    cover,
+                    1.0,
+                    encoded(below),
+                    encoded(below),
+                )[0],
             );
             assert!(
                 (at(&image, 10, 10) - expected).abs() < 0.01,

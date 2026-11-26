@@ -86,13 +86,14 @@ function VideoState({ state, asset }: { state: "importing" | "processing" | "fai
 }
 
 // Grouped as Resolume lists them.
-const BLEND_GROUPS: { group: "general" | "darken" | "lighten" | "contrast" | "comparative" | "colour"; blends: VjBlend[] }[] = [
+const BLEND_GROUPS: { group: "general" | "darken" | "lighten" | "contrast" | "comparative" | "colour" | "keys"; blends: VjBlend[] }[] = [
   { group: "general", blends: ["alpha"] },
   { group: "darken", blends: ["darken", "multiply", "colorBurn"] },
   { group: "lighten", blends: ["lighten", "screen", "colorDodge"] },
   { group: "contrast", blends: ["overlay", "softLight", "hardLight", "linearLight", "vividLight", "pinLight"] },
-  { group: "comparative", blends: ["add", "subtract", "difference", "exclusion"] },
+  { group: "comparative", blends: ["add", "subtract", "difference", "differenceInverted", "exclusion"] },
   { group: "colour", blends: ["hue", "saturation", "color", "luminosity"] },
+  { group: "keys", blends: ["alphaCut", "lumaKey", "lumaKeyInverted", "lumaIsAlpha", "mask50", "rgb", "displace"] },
 ];
 
 function BlendOptions() {

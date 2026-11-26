@@ -80,6 +80,8 @@ pub fn composite_post(
             continue;
         }
         let columns = taps(w, px, pw, sw);
+        // Displace reads the light as it was before this layer, not the pixels it has displaced.
+        let before = (picture.blend == Blend::Displace).then(|| light.clone());
         let opacity = picture.opacity.min(1.0);
         // One source pixel: its light times its cover (premultiplied), and its cover.
         let pixel = |row: usize, column: usize| {
@@ -101,7 +103,20 @@ pub fn composite_post(
                 return;
             }
             let colour = [r, g, b].map(|premultiplied| gamma.of(premultiplied / cover));
-            light[at] = blend_light(picture.blend, colour, cover * opacity, light[at]);
+            let below = light[at];
+            let made = before.as_ref().map(|before| {
+                let x = at % w;
+                let shift = displace_shift(colour, w);
+                before[at - x + (x as i32 + shift).clamp(0, w as i32 - 1) as usize]
+            });
+            light[at] = blend_light(
+                picture.blend,
+                colour,
+                cover * opacity,
+                opacity,
+                below,
+                made.unwrap_or(below),
+            );
         };
         let fx = &picture.effects;
         if fx.is_identity() {
@@ -185,20 +200,54 @@ impl GammaTable {
 /// Entries of the table that turns linear light into its encoded value.
 const SRGB_STEPS: usize = 4096;
 
-/// `src` (a straight, encoded colour) covering `cover` of `below` (encoded too), as the picture
-/// shader draws it: the picture is composited over the light below,
-/// `mix(below, blend(below, src), cover)`.
-pub(crate) fn blend_light(blend: Blend, src: [f32; 3], cover: f32, below: [f32; 3]) -> [f32; 3] {
+/// Displace shifts the light below sideways by up to this share of the width, either way.
+const DISPLACE: f32 = 0.2;
+
+/// How many of `width` pixels Displace shifts the light below for the picture's colour `src`:
+/// none at mid grey, rounded as the shader does.
+pub(crate) fn displace_shift(src: [f32; 3], width: usize) -> i32 {
+    ((lum(src.map(|v| v.clamp(0.0, 1.0))) - 0.5) * DISPLACE * width as f32 + 0.5).floor() as i32
+}
+
+/// How much of the picture each channel shows, for the keys: its `cover` (alpha times `opacity`)
+/// changed by what the key reads of the picture `s`, as the shader's `key_cover` has it.
+fn key_cover(blend: Blend, cover: f32, opacity: f32, s: [f32; 3]) -> [f32; 3] {
+    let l = lum(s);
+    match blend {
+        Blend::AlphaCut => [if cover >= 0.5 { 1.0 } else { 0.0 }; 3],
+        Blend::LumaKey => [cover * l; 3],
+        Blend::LumaKeyInverted => [cover * (1.0 - l); 3],
+        Blend::LumaIsAlpha => [if cover > 0.0 { opacity * l } else { 0.0 }; 3],
+        Blend::Rgb => [2.0, 1.0, 0.0].map(|n| (3.0 * cover - n).clamp(0.0, 1.0)),
+        _ => [cover; 3],
+    }
+}
+
+/// `src` (a straight, encoded colour) of a picture with alpha times `opacity` `cover` over
+/// `below` (encoded too), as the picture shader draws it: `mix(below, blend(below, src), cover)`,
+/// the cover changed per channel by the keys. `displaced` is the light below at the place
+/// Displace reads (`below` for the other blends).
+pub(crate) fn blend_light(
+    blend: Blend,
+    src: [f32; 3],
+    cover: f32,
+    opacity: f32,
+    below: [f32; 3],
+    displaced: [f32; 3],
+) -> [f32; 3] {
     let b = below.map(|v| v.clamp(0.0, 1.0));
     let s = src.map(|v| v.clamp(0.0, 1.0));
+    let cover = key_cover(blend, cover, opacity, s);
     let mixed = match blend {
+        Blend::Displace => displaced.map(|v| v.clamp(0.0, 1.0)),
+        Blend::Mask50 => b.map(|v| v * lum(s)),
         Blend::Hue => set_lum(set_sat(s, sat(b)), lum(b)),
         Blend::Saturation => set_lum(set_sat(b, sat(s)), lum(b)),
         Blend::Color => set_lum(s, lum(b)),
         Blend::Luminosity => set_lum(b, lum(s)),
         _ => std::array::from_fn(|c| separable(blend, b[c], s[c])),
     };
-    std::array::from_fn(|c| (b[c] + (mixed[c] - b[c]) * cover).clamp(0.0, 1.0))
+    std::array::from_fn(|c| (b[c] + (mixed[c] - b[c]) * cover[c]).clamp(0.0, 1.0))
 }
 
 /// The W3C Compositing and Blending formula of a separable blend, of the light below `b` and the
@@ -237,6 +286,7 @@ fn separable(blend: Blend, b: f32, s: f32) -> f32 {
         Blend::Lighten => b.max(s),
         Blend::Darken => b.min(s),
         Blend::Difference => (b - s).abs(),
+        Blend::DifferenceInverted => 1.0 - (b - s).abs(),
         Blend::Exclusion => b + s - 2.0 * b * s,
         Blend::Overlay => hard(s, b),
         Blend::HardLight => hard(b, s),
@@ -868,33 +918,86 @@ mod tests {
         );
     }
 
+    /// `blend_light` for a picture shown at full opacity, displacing nothing.
+    fn mixed(blend: Blend, src: [f32; 3], cover: f32, below: [f32; 3]) -> [f32; 3] {
+        blend_light(blend, src, cover, 1.0, below, below)
+    }
+
+    #[test]
+    fn the_keys_should_cut_the_picture_or_what_is_below_by_its_luma() {
+        let (below, white, black) = ([0.2, 0.5, 0.9], [1.0; 3], [0.0; 3]);
+        // Luma Key shows where it is bright, Luma Key I where it is dark.
+        near(mixed(Blend::LumaKey, white, 1.0, below), white);
+        near(mixed(Blend::LumaKey, black, 1.0, below), below);
+        near(mixed(Blend::LumaKeyInverted, white, 1.0, below), below);
+        near(mixed(Blend::LumaKeyInverted, black, 1.0, below), black);
+        near(mixed(Blend::LumaKey, [0.5; 3], 1.0, [0.0; 3]), [0.25; 3]);
+        // Luma is Alpha takes the opacity, not the picture's alpha: half covered by alpha only,
+        // at full opacity, a white pixel is still opaque.
+        near(
+            blend_light(Blend::LumaIsAlpha, white, 0.5, 1.0, below, below),
+            white,
+        );
+        near(
+            blend_light(Blend::LumaIsAlpha, [0.5; 3], 0.5, 0.5, [0.0; 3], [0.0; 3]),
+            [0.125; 3],
+        );
+        // 50Mask darkens what is below by the mask's luma and does not draw the mask.
+        near(mixed(Blend::Mask50, white, 1.0, below), below);
+        near(mixed(Blend::Mask50, black, 1.0, below), black);
+        near(mixed(Blend::Mask50, [0.5; 3], 1.0, [0.8; 3]), [0.4; 3]);
+        // AlphaCut is a hard switch at half cover.
+        near(mixed(Blend::AlphaCut, [0.3; 3], 0.49, below), below);
+        near(mixed(Blend::AlphaCut, [0.3; 3], 0.5, below), [0.3; 3]);
+        // Difference I is the inverse of difference.
+        near(
+            mixed(Blend::DifferenceInverted, [0.3; 3], 1.0, [0.8; 3]),
+            [0.5; 3],
+        );
+    }
+
+    #[test]
+    fn rgb_should_take_over_one_channel_at_a_time_as_the_cover_rises() {
+        let (below, src) = ([0.0; 3], [1.0; 3]);
+        near(mixed(Blend::Rgb, src, 1.0 / 3.0, below), [0.0, 0.0, 1.0]);
+        near(mixed(Blend::Rgb, src, 2.0 / 3.0, below), [0.0, 1.0, 1.0]);
+        near(mixed(Blend::Rgb, src, 1.0, below), src);
+    }
+
+    #[test]
+    fn displace_should_read_the_light_below_sideways_by_the_picture_luma() {
+        // White pushes the light below one tenth of the width.
+        assert_eq!(displace_shift([0.5; 3], 100), 0);
+        assert_eq!(displace_shift([1.0; 3], 100), 10);
+        assert_eq!(displace_shift([0.0; 3], 100), -10);
+        let ramp = [200, 0, 0, 255, 0, 0, 0, 255];
+        let rgba = [255; 4];
+        let below = Picture {
+            width: 2,
+            ..picture(&ramp, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Alpha)
+        };
+        let white = picture(&rgba, [0.0, 0.0, 1.0, 1.0], 1.0, Blend::Displace);
+        let out = composite(&[below, white], 20, 1);
+        // The left half is the red ramp's bright side; displaced right by 4 pixels, the pixels
+        // near the middle show the dark side's light.
+        assert!(out[8 * 4] < out[4], "{:?}", &out[..80]);
+    }
+
     #[test]
     fn every_blend_should_leave_what_is_below_where_the_picture_is_clear() {
         let below = [0.2, 0.5, 0.9];
         for blend in Blend::ALL {
-            near(blend_light(blend, [0.7, 0.1, 0.4], 0.0, below), below);
+            near(mixed(blend, [0.7, 0.1, 0.4], 0.0, below), below);
         }
     }
 
     #[test]
     fn a_blend_should_fade_from_what_is_below_to_the_blended_light_by_its_cover() {
         // Lighten of 0.2 and 0.8 is 0.8; half covered, it is half way there.
-        near(
-            blend_light(Blend::Lighten, [0.8; 3], 0.5, [0.2; 3]),
-            [0.5; 3],
-        );
-        near(
-            blend_light(Blend::Darken, [0.2; 3], 0.5, [0.8; 3]),
-            [0.5; 3],
-        );
-        near(
-            blend_light(Blend::Multiply, [0.5; 3], 0.5, [0.8; 3]),
-            [0.6; 3],
-        );
-        near(
-            blend_light(Blend::Difference, [0.3; 3], 1.0, [0.8; 3]),
-            [0.5; 3],
-        );
+        near(mixed(Blend::Lighten, [0.8; 3], 0.5, [0.2; 3]), [0.5; 3]);
+        near(mixed(Blend::Darken, [0.2; 3], 0.5, [0.8; 3]), [0.5; 3]);
+        near(mixed(Blend::Multiply, [0.5; 3], 0.5, [0.8; 3]), [0.6; 3]);
+        near(mixed(Blend::Difference, [0.3; 3], 1.0, [0.8; 3]), [0.5; 3]);
     }
 
     #[test]
@@ -919,12 +1022,12 @@ mod tests {
     fn the_non_separable_blends_should_take_their_parts_from_the_right_layer() {
         let (below, picture) = ([0.8, 0.2, 0.2], [0.1, 0.5, 0.9]);
         // Luminosity is the picture's luminosity, and colour keeps the luminosity below.
-        let l = blend_light(Blend::Luminosity, picture, 1.0, below);
+        let l = mixed(Blend::Luminosity, picture, 1.0, below);
         assert!((lum(l) - lum(picture)).abs() < 1e-4);
-        let c = blend_light(Blend::Color, picture, 1.0, below);
+        let c = mixed(Blend::Color, picture, 1.0, below);
         assert!((lum(c) - lum(below)).abs() < 1e-4);
         // A grey picture has no saturation to give.
-        let g = blend_light(Blend::Saturation, [0.5; 3], 1.0, below);
+        let g = mixed(Blend::Saturation, [0.5; 3], 1.0, below);
         assert!(sat(g) < 1e-4);
         // The picture over itself changes nothing.
         for blend in [
@@ -933,7 +1036,7 @@ mod tests {
             Blend::Color,
             Blend::Luminosity,
         ] {
-            near(blend_light(blend, below, 1.0, below), below);
+            near(mixed(blend, below, 1.0, below), below);
         }
     }
 

@@ -1204,6 +1204,14 @@ fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
         B::Saturation => flux_render::Blend::Saturation,
         B::Color => flux_render::Blend::Color,
         B::Luminosity => flux_render::Blend::Luminosity,
+        B::AlphaCut => flux_render::Blend::AlphaCut,
+        B::LumaKey => flux_render::Blend::LumaKey,
+        B::LumaKeyInverted => flux_render::Blend::LumaKeyInverted,
+        B::LumaIsAlpha => flux_render::Blend::LumaIsAlpha,
+        B::DifferenceInverted => flux_render::Blend::DifferenceInverted,
+        B::Mask50 => flux_render::Blend::Mask50,
+        B::Rgb => flux_render::Blend::Rgb,
+        B::Displace => flux_render::Blend::Displace,
     }
 }
 

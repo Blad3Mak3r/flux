@@ -301,6 +301,22 @@ pub enum Blend {
     Color,
     /// The layer's luminosity on the hue and saturation below.
     Luminosity,
+    /// A hard cut by the layer: where its cover is at least half it replaces what is below, elsewhere it leaves it (Resolume's AlphaCut).
+    AlphaCut,
+    /// The layer's dark parts turn transparent: its alpha is multiplied by its luma (Resolume's Luma Key).
+    LumaKey,
+    /// The layer's bright parts turn transparent: its alpha is multiplied by one minus its luma (Resolume's Luma Key I).
+    LumaKeyInverted,
+    /// The layer's luma replaces its own alpha: bright is opaque, dark is transparent, wherever it has a picture.
+    LumaIsAlpha,
+    /// The inverse of the distance between the two lights, a lighter picture (Resolume's Difference I).
+    DifferenceInverted,
+    /// The layer acts as a mask: what is below shows where it is bright and goes dark where it is dark; it is not drawn (Resolume's 50Mask).
+    Mask50,
+    /// The layer takes over what is below one channel at a time as its cover rises: blue, then green, then red.
+    Rgb,
+    /// The layer shifts what is below sideways by its luma, none at mid grey; it is not drawn.
+    Displace,
 }
 
 impl Blend {
@@ -2284,6 +2300,14 @@ mod tests {
             (Blend::ColorDodge, "colorDodge"),
             (Blend::VividLight, "vividLight"),
             (Blend::Luminosity, "luminosity"),
+            (Blend::AlphaCut, "alphaCut"),
+            (Blend::LumaKey, "lumaKey"),
+            (Blend::LumaKeyInverted, "lumaKeyInverted"),
+            (Blend::LumaIsAlpha, "lumaIsAlpha"),
+            (Blend::DifferenceInverted, "differenceInverted"),
+            (Blend::Mask50, "mask50"),
+            (Blend::Rgb, "rgb"),
+            (Blend::Displace, "displace"),
         ] {
             let json = format!("\"{name}\"");
             assert_eq!(serde_json::to_string(&blend).unwrap(), json);

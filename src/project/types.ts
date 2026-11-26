@@ -61,7 +61,8 @@ export interface VjColumn {
 export type VjBlend =
   | "alpha" | "add" | "subtract" | "multiply" | "screen" | "lighten" | "darken"
   | "difference" | "exclusion" | "overlay" | "softLight" | "hardLight" | "colorDodge" | "colorBurn"
-  | "linearLight" | "vividLight" | "pinLight" | "hue" | "saturation" | "color" | "luminosity";
+  | "linearLight" | "vividLight" | "pinLight" | "hue" | "saturation" | "color" | "luminosity"
+  | "alphaCut" | "lumaKey" | "lumaKeyInverted" | "lumaIsAlpha" | "differenceInverted" | "mask50" | "rgb" | "displace";
 export type VjTransition = "alpha" | "add";
 export type VjSide = "a" | "b";
 
