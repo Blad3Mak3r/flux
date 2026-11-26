@@ -16,6 +16,51 @@ export interface Project {
   output: ShowOutputs;
   /** Never empty. The backend decides which one is active; only that one plays. */
   timelines: Timeline[];
+  /** The kind of project, chosen when it is created and never changed; absent is `timeline`. */
+  mode?: ProjectMode;
+  /** The VJ grid; only a VJ project has one. */
+  vj?: VjGrid;
+}
+
+export type ProjectMode = "timeline" | "vj";
+
+/** The VJ grid (mirrors `flux-project/src/vj.rs`): layers bottom first, columns left first. */
+export interface VjGrid {
+  layers: VjLayer[];
+  columns: VjColumn[];
+}
+
+export interface VjColumn {
+  id: string;
+  /** Absent is the column's number. */
+  name?: string;
+}
+
+export interface VjLayer {
+  id: string;
+  /** Absent is the layer's number. */
+  name?: string;
+  /** 0 to 1; absent is 1. */
+  opacity?: number;
+  /** Absent is 0 dB. */
+  gainDb?: number;
+  /** The crossfader side; absent is neither. */
+  crossfade?: "a" | "b";
+  /** At most one per column. */
+  clips?: VjClip[];
+}
+
+/** What a launched clip does at the end of its video; absent is `loop`. */
+export type VjPlayback = "loop" | "once" | "pingPong";
+
+export interface VjClip {
+  id: string;
+  column: string;
+  /** Id of an entry in `Project.videos`. */
+  asset: string;
+  name?: string;
+  playback?: VjPlayback;
+  fit?: VideoFit;
 }
 
 export interface Autosave {

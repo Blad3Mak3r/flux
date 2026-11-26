@@ -54,6 +54,10 @@ pub async fn project_sync(session: State<'_, SharedSession>, project: Project) -
     run(&session, move |s| s.sync(project)).await
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "injected state and arguments of a command"
+)]
 #[tauri::command]
 pub async fn project_new(
     session: State<'_, SharedSession>,
@@ -62,6 +66,7 @@ pub async fn project_new(
     output: State<'_, SharedOutput>,
     name: String,
     frame_rate: FrameRate,
+    mode: Option<flux_project::ProjectMode>,
     voice: State<'_, Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<ProjectState> {
     session
@@ -71,9 +76,10 @@ pub async fn project_new(
     let _voice_transition = voice.begin_transition()?;
     release(&output).await;
     audio.clear();
-    log::info!("new project {name:?}");
+    let mode = mode.unwrap_or_default();
+    log::info!("new {mode:?} project {name:?}");
     recovery::transition(&session, &store, move |s| {
-        let project = s.new_project(&name, frame_rate);
+        let project = s.new_project_of(&name, frame_rate, mode);
         Ok(ProjectState {
             project,
             active: s.active(),
@@ -360,20 +366,60 @@ pub async fn project_import_video(
 ) -> Result<ProjectState> {
     log::info!("importing video {}", path.display());
     run(&session, move |s| {
-        let video = flux_video::VideoFile::open(&path)
-            .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
-        let info = video.info();
-        log::info!(
-            "video {}x{} {} at {}/{} fps, {} frames",
-            info.width,
-            info.height,
-            info.codec,
-            info.rate.num,
-            info.rate.den,
-            info.frames
-        );
+        check_video(&path)?;
         s.update(project);
         s.import_video(&path, at)
+    })
+    .await
+}
+
+/// Adds a video file to the cell of the VJ grid at `layer` and `column`, in place of its clip.
+/// FFmpeg reads it first, like [`project_import_video`].
+#[tauri::command]
+pub async fn project_import_vj_video(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: PathBuf,
+    layer: String,
+    column: String,
+) -> Result<ProjectState> {
+    log::info!("importing video {} into the grid", path.display());
+    run(&session, move |s| {
+        check_video(&path)?;
+        s.update(project);
+        s.import_vj_video(&path, &layer, &column)
+    })
+    .await
+}
+
+/// Opens a video with FFmpeg and logs what it is; a file it cannot decode is refused with the reason.
+fn check_video(path: &Path) -> Result<()> {
+    let video = flux_video::VideoFile::open(path)
+        .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
+    let info = video.info();
+    log::info!(
+        "video {}x{} {} at {}/{} fps, {} frames",
+        info.width,
+        info.height,
+        info.codec,
+        info.rate.num,
+        info.rate.den,
+        info.frames
+    );
+    Ok(())
+}
+
+/// Edits the VJ grid of a VJ project (see [`flux_project::vj`]); the answer is the project with
+/// the edit made.
+#[tauri::command]
+pub async fn vj_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: flux_project::VjOp,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.edit_vj(op)
     })
     .await
 }

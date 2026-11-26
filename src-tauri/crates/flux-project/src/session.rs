@@ -59,6 +59,31 @@ impl Document {
     }
 }
 
+/// A new video asset for the file at `file`, and where its bytes are until the next save.
+fn video_asset(file: &Path) -> Result<(VideoAsset, AssetSource)> {
+    let file = std::path::absolute(file)?;
+    if !fs::metadata(&file)?.is_file() {
+        return Err(ProjectError::Invalid(format!(
+            "not a file: {}",
+            file.display()
+        )));
+    }
+    let file_name = file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| ProjectError::Invalid("video file name is not valid UTF-8".into()))?;
+    let id = Uuid::new_v4().to_string();
+    let asset = VideoAsset {
+        name: file.file_stem().map_or_else(
+            || file_name.to_owned(),
+            |stem| stem.to_string_lossy().into_owned(),
+        ),
+        file: format!("{VIDEO_DIR}{id}_{file_name}"),
+        id,
+    };
+    Ok((asset, AssetSource::Disk(file)))
+}
+
 fn first_timeline(project: &Project) -> String {
     project
         .timelines
@@ -141,12 +166,27 @@ impl Session {
     }
 
     pub fn new_project(&mut self, name: &str, frame_rate: FrameRate) -> Project {
+        self.new_project_of(name, frame_rate, crate::ProjectMode::Timeline)
+    }
+
+    /// Starts a new project of the given kind, which it keeps for good; a VJ project starts with
+    /// the grid of [`crate::vj::Vj::starting`].
+    pub fn new_project_of(
+        &mut self,
+        name: &str,
+        frame_rate: FrameRate,
+        mode: crate::ProjectMode,
+    ) -> Project {
         self.recovery_id = Uuid::new_v4().to_string();
         self.recovery_revision += 1;
         self.sources.clear();
         self.voice_sources.clear();
         self.previews.clear();
-        let project = Project::new(name, frame_rate);
+        let mut project = Project::new(name, frame_rate);
+        if mode == crate::ProjectMode::Vj {
+            project.mode = mode;
+            project.vj = crate::vj::Vj::starting(|| Uuid::new_v4().to_string());
+        }
         self.document = Some(Document::new(project.clone(), None));
         project
     }
@@ -625,26 +665,7 @@ impl Session {
     /// Adds a video file from disk to the project, on a new video track of the active timeline with a
     /// clip at `at` (frames from the timeline start). The caller has checked that it is a video.
     pub fn import_video(&mut self, file: &Path, at: u64) -> Result<ProjectState> {
-        let file = std::path::absolute(file)?;
-        if !fs::metadata(&file)?.is_file() {
-            return Err(ProjectError::Invalid(format!(
-                "not a file: {}",
-                file.display()
-            )));
-        }
-        let file_name = file
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| ProjectError::Invalid("video file name is not valid UTF-8".into()))?;
-        let id = Uuid::new_v4().to_string();
-        let asset = VideoAsset {
-            name: file.file_stem().map_or_else(
-                || file_name.to_owned(),
-                |stem| stem.to_string_lossy().into_owned(),
-            ),
-            file: format!("{VIDEO_DIR}{id}_{file_name}"),
-            id,
-        };
+        let (asset, source) = video_asset(file)?;
         let track = Track {
             audio_output: Default::default(),
             id: Uuid::new_v4().to_string(),
@@ -666,7 +687,6 @@ impl Session {
                 }],
             },
         };
-        let source = AssetSource::Disk(file.clone());
         let state = self.change(|project, active| {
             timeline_mut(project, active)?.tracks.push(track);
             project.videos.push(asset.clone());
@@ -674,6 +694,33 @@ impl Session {
         })?;
         self.sources.insert(asset.id, source);
         Ok(state)
+    }
+
+    /// Adds a video file from disk to the project, in the cell of the VJ grid at `layer` and
+    /// `column`, in place of the clip that was there. The caller has checked that it is a video.
+    pub fn import_vj_video(
+        &mut self,
+        file: &Path,
+        layer: &str,
+        column: &str,
+    ) -> Result<ProjectState> {
+        let (asset, source) = video_asset(file)?;
+        let state = self.change(|project, _| {
+            project.videos.push(asset.clone());
+            let op = crate::VjOp::PlaceVideo {
+                asset: asset.id.clone(),
+                layer: layer.to_owned(),
+                column: column.to_owned(),
+            };
+            crate::vj::apply(project, op, || Uuid::new_v4().to_string())
+        })?;
+        self.sources.insert(asset.id, source);
+        Ok(state)
+    }
+
+    /// Edits the VJ grid of a VJ project (see [`crate::vj`]).
+    pub fn edit_vj(&mut self, op: crate::VjOp) -> Result<ProjectState> {
+        self.change(|project, _| crate::vj::apply(project, op, || Uuid::new_v4().to_string()))
     }
 
     /// Puts the video file at `file` (a converted copy, such as a HAP one) in place of the video
@@ -726,6 +773,14 @@ impl Session {
                         }
                     }
                 }
+            }
+            let grid = project
+                .vj
+                .layers
+                .iter_mut()
+                .flat_map(|layer| &mut layer.clips);
+            for clip in grid.filter(|clip| clip.asset == asset) {
+                clip.asset.clone_from(&id);
             }
             Ok(())
         })?;
@@ -1362,6 +1417,36 @@ mod tests {
         // Undo past the save: the original is still read from where it was imported.
         session.update(before.project);
         assert_eq!(session.video_path(&old, &cache).unwrap(), mp4);
+    }
+
+    #[test]
+    fn import_vj_video_should_fill_the_cell_save_the_file_and_follow_a_replace() {
+        let dir = TempDir::new().unwrap();
+        let mp4 = dir.path().join("loop.mp4");
+        let mov = dir.path().join("loop-hap.mov");
+        fs::write(&mp4, b"h264").unwrap();
+        fs::write(&mov, b"hap").unwrap();
+        let mut session = Session::default();
+        let grid = session
+            .new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj)
+            .vj;
+        let (layer, column) = (&grid.layers[1].id, &grid.columns[2].id);
+
+        let state = session.import_vj_video(&mp4, layer, column).unwrap();
+
+        let asset = state.project.videos[0].clone();
+        let clip = &state.project.vj.layers[1].clips[0];
+        assert_eq!((&clip.asset, &clip.column), (&asset.id, column));
+        let path = dir.path().join("show.flx");
+        session.save(&state.project, &path).unwrap();
+        let (saved, _) = archive::open(&path).unwrap();
+        assert_eq!(saved.videos, vec![asset.clone()]);
+
+        let after = session.replace_video(&asset.id, &mov).unwrap();
+        assert_eq!(
+            after.project.vj.layers[1].clips[0].asset,
+            after.project.videos[0].id
+        );
     }
 
     #[test]
