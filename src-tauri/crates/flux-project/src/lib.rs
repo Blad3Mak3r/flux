@@ -25,6 +25,7 @@ mod video_clips;
 pub mod vj;
 pub mod vj_effects;
 mod vj_file;
+pub mod vj_mapfile;
 pub mod vj_mapping;
 pub mod vj_modulation;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};

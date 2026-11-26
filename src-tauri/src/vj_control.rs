@@ -25,7 +25,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::commands::SharedSession;
 use crate::vj_commands::{BeatOp, SharedGrid, beat, play};
-use flux_engine::control::{MidiMsg, OscMessage};
+use flux_engine::artnet::{self, DmxFrame, DmxLearn, DmxState};
+use flux_engine::control::{KeyMsg, MidiMsg, OscMessage};
 use flux_project::vj_mapping::{
     Command, Heard, Plan, PlayAction, Source, Target, coalesce, osc_command, osc_level, plan, react,
 };
@@ -36,6 +37,9 @@ pub const VJ_CONTROL: &str = "vj-control";
 
 /// The event with the mapping a learn just made.
 pub const VJ_LEARNED: &str = "vj-learned";
+
+/// The event with a key the learn refused because the app uses it (the source that was heard).
+pub const VJ_REFUSED: &str = "vj-learn-refused";
 
 /// The least time between two states sent while a control moves.
 const EMIT_EVERY: Duration = Duration::from_millis(33);
@@ -136,6 +140,10 @@ pub struct VjRunner {
     taps: Vec<f64>,
     started: Instant,
     gesture: Gesture,
+    /// The last frame of each Art-Net universe, to tell what changed.
+    dmx: DmxState,
+    /// What the channels did since a DMX learn began.
+    dmx_learn: DmxLearn,
 }
 
 impl VjRunner {
@@ -148,15 +156,23 @@ impl VjRunner {
             taps: Vec::new(),
             started: Instant::now(),
             gesture: Gesture::default(),
+            dmx: DmxState::default(),
+            dmx_learn: DmxLearn::default(),
         }
     }
 
-    /// How long the thread may wait for the next message before it has to look at the gesture.
+    /// How long the thread may wait for the next message before it has to look at the gesture
+    /// or decide a DMX learn.
     pub fn wait(&self) -> Option<Duration> {
-        match self.gesture.step(Instant::now()) {
+        let now = Instant::now();
+        let gesture = match self.gesture.step(now) {
             Step::Send | Step::Commit => Some(Duration::ZERO),
             Step::Wait(wait) => Some(wait),
             Step::Idle => None,
+        };
+        match (gesture, self.dmx_learn.due_in(now)) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
         }
     }
 
@@ -171,6 +187,13 @@ impl VjRunner {
     /// Sends or closes the gesture if its time has come.
     pub fn tick(&mut self) {
         let now = Instant::now();
+        if let Some((universe, channel)) = self.dmx_learn.take(now) {
+            self.learn_source(Source::Artnet {
+                universe,
+                channel,
+                fine: None,
+            });
+        }
         match self.gesture.step(now) {
             Step::Send => {
                 self.tell(false);
@@ -255,6 +278,48 @@ impl VjRunner {
         taken
     }
 
+    /// Takes the values of an Art-Net universe: to learn the channel that moved, or to run the
+    /// mappings of the channels that changed. Only a change is news (see [`artnet`]).
+    pub fn dmx(&mut self, frame: &DmxFrame, commands: &mut Vec<(Target, Command)>) {
+        let changes = self.dmx.update(frame);
+        if changes.is_empty() {
+            return;
+        }
+        let waiting = self
+            .learn
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some();
+        if waiting {
+            self.dmx_learn
+                .observe(frame.universe, &changes, Instant::now());
+            return;
+        }
+        if !self.dmx_learn.is_idle() {
+            self.dmx_learn.reset();
+        }
+        let sources: Vec<Source> = {
+            let session = self.app.state::<SharedSession>();
+            let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+            session.vj_project().map_or_else(Vec::new, |project| {
+                project
+                    .vj
+                    .mappings
+                    .iter()
+                    .map(|m| m.source.clone())
+                    .collect()
+            })
+        };
+        for heard in artnet::heard(&self.dmx, frame.universe, &changes, &sources) {
+            self.resolve(&heard, commands);
+        }
+    }
+
+    /// Takes a key of the keyboard: to learn, or to run the mappings of it.
+    pub fn key(&mut self, message: &KeyMsg, commands: &mut Vec<(Target, Command)>) {
+        self.hear(message.heard(), commands);
+    }
+
     /// Learns `heard` if the window is waiting for a control; else runs its mappings.
     fn hear(&mut self, heard: Heard, commands: &mut Vec<(Target, Command)>) -> bool {
         self.learn_from(&heard) || self.resolve(&heard, commands)
@@ -279,15 +344,35 @@ impl VjRunner {
     /// Makes `heard` the source of the target the window waits to map, if there is one. A note
     /// that is let go does not count: the press came first.
     fn learn_from(&mut self, heard: &Heard) -> bool {
-        let released_note = matches!(
+        let released_button = matches!(
             heard.source,
             Source::Midi {
                 kind: flux_project::vj_mapping::MidiKind::Note,
                 ..
-            }
+            } | Source::Key { .. }
         ) && !heard.down;
-        if released_note || !self.is_vj() {
+        if released_button || !self.is_vj() {
             return false;
+        }
+        self.learn_source(heard.source.clone())
+    }
+
+    /// Makes `source` the source of the target the window waits to map. A key the app uses
+    /// itself is refused (the window is told and the wait goes on); `true` when it was taken.
+    fn learn_source(&mut self, source: Source) -> bool {
+        if !self.is_vj() {
+            return false;
+        }
+        if source.is_app_shortcut()
+            && self
+                .learn
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .is_some()
+        {
+            log::info!("vj control: {source:?} is used by the app, not learned");
+            let _ = self.app.emit(VJ_REFUSED, &source);
+            return true;
         }
         let Some(target) = self
             .learn
@@ -298,13 +383,13 @@ impl VjRunner {
             return false;
         };
         let op = VjOp::AddMapping {
-            source: heard.source.clone(),
+            source: source.clone(),
             target,
         };
         match self.edit(op) {
             Ok(()) => {
-                log::info!("vj control: learned {:?}", heard.source);
-                let _ = self.app.emit(VJ_LEARNED, &heard.source);
+                log::info!("vj control: learned {source:?}");
+                let _ = self.app.emit(VJ_LEARNED, &source);
             }
             Err(err) => log::warn!("vj control: the control was not learned: {err}"),
         }

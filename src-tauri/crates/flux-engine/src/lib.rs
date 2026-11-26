@@ -3,6 +3,7 @@
 //! testable without a window.
 
 pub mod analysis;
+pub mod artnet;
 pub mod chase;
 pub mod control;
 pub mod control_in;

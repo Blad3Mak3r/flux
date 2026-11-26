@@ -123,6 +123,40 @@ pub fn dedup(bindings: Vec<Binding>) -> Vec<Binding> {
     kept
 }
 
+/// A key of the computer's keyboard the window forwards: pressed or let go, with the modifiers
+/// held when it went down. The VJ mappings read it as a button ([`Self::heard`]).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyMsg {
+    /// `KeyboardEvent.code`: the place of the key, whatever the layout.
+    pub code: String,
+    #[serde(default)]
+    pub ctrl: bool,
+    #[serde(default)]
+    pub alt: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub meta: bool,
+    pub down: bool,
+}
+
+impl KeyMsg {
+    pub fn heard(&self) -> Heard {
+        Heard {
+            source: Source::Key {
+                code: self.code.clone(),
+                ctrl: self.ctrl,
+                alt: self.alt,
+                shift: self.shift,
+                meta: self.meta,
+            },
+            level: if self.down { 1.0 } else { 0.0 },
+            down: self.down,
+        }
+    }
+}
+
 /// What kind of MIDI message arrived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WireKind {

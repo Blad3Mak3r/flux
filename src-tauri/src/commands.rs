@@ -430,6 +430,78 @@ pub async fn vj_edit(
     Ok(state)
 }
 
+/// What importing a mappings file answers: the project with them and how many were taken.
+#[derive(serde::Serialize)]
+pub struct MappingsImported {
+    #[serde(flatten)]
+    state: ProjectState,
+    imported: usize,
+    skipped: usize,
+    kept: usize,
+}
+
+/// Writes the mappings and dashboard links of the VJ grid to a `.flxmap` file.
+#[tauri::command]
+pub async fn vj_mappings_export(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: String,
+) -> Result<()> {
+    run(&session, move |s| {
+        s.update(project);
+        let text = s.export_vj_mappings()?;
+        std::fs::write(&path, text)?;
+        log::info!("mappings exported to {path}");
+        Ok(())
+    })
+    .await
+}
+
+/// What reading a `.flxmap` file would do to the VJ grid: how much resolves and which mappings it
+/// would overwrite. Nothing is changed.
+#[tauri::command]
+pub async fn vj_mappings_import_preview(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: String,
+) -> Result<flux_project::vj_mapfile::ImportPlan> {
+    run(&session, move |s| {
+        let file = flux_project::vj_mapfile::parse(&std::fs::read_to_string(&path)?)?;
+        s.update(project);
+        s.plan_vj_mappings(&file)
+    })
+    .await
+}
+
+/// Reads a `.flxmap` file into the VJ grid as the user decided about what it overwrites; the
+/// answer is the project to show (one undo step) and how many mappings were taken, skipped and
+/// kept.
+#[tauri::command]
+pub async fn vj_mappings_import(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: String,
+    choice: flux_project::vj_mapfile::ImportChoice,
+) -> Result<MappingsImported> {
+    run(&session, move |s| {
+        let file = flux_project::vj_mapfile::parse(&std::fs::read_to_string(&path)?)?;
+        s.update(project);
+        let (state, report) = s.import_vj_mappings(&file, &choice)?;
+        log::info!(
+            "mappings imported from {path}: {} taken, {} skipped",
+            report.imported,
+            report.skipped
+        );
+        Ok(MappingsImported {
+            state,
+            imported: report.imported,
+            skipped: report.skipped,
+            kept: report.kept,
+        })
+    })
+    .await
+}
+
 /// Moves a level or a clip's transform as a fader or a drag goes, without the project going back
 /// and forth; `vj_edit` keeps the value when the hand lets go.
 #[tauri::command]

@@ -70,9 +70,83 @@ pub enum Source {
     Osc {
         address: String,
     },
+    /// A DMX channel of an Art-Net universe, as a console sends it: 0 to 255, or 0 to 65535 with
+    /// a `fine` channel beside it.
+    Artnet {
+        /// The 15-bit Port-Address (net, sub-net and universe), as on the wire.
+        universe: u16,
+        /// From 1 to 512.
+        channel: u16,
+        /// The channel of the low byte of a 16-bit value, from 1 to 512; absent is 8 bits.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fine: Option<u16>,
+    },
+    /// A key of the computer's keyboard, by its position (`KeyboardEvent.code`, whatever the
+    /// layout), with the modifiers held.
+    Key {
+        code: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        ctrl: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        alt: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        shift: bool,
+        #[serde(default, skip_serializing_if = "is_false")]
+        meta: bool,
+    },
 }
 
+/// Most channels a DMX universe has.
+pub const DMX_CHANNELS: u16 = 512;
+/// The largest Port-Address of Art-Net (15 bits).
+pub const MAX_UNIVERSE: u16 = 0x7FFF;
+/// Longest key code a mapping keeps.
+const MAX_CODE: usize = 32;
+
 impl Source {
+    /// Whether this is a key the app uses itself, so a mapping would fight its shortcuts: every
+    /// combination with Ctrl or Cmd, the keys that act on their own (Space, Enter, Delete,
+    /// Escape, Tab, the arrows and page keys), the grid's letters (B, S, X), the digits that
+    /// launch columns and cues (1 to 9, and Shift with 1 to 8), and a modifier alone.
+    pub fn is_app_shortcut(&self) -> bool {
+        let Self::Key {
+            code,
+            ctrl,
+            shift,
+            meta,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        if *ctrl || *meta {
+            return true;
+        }
+        if ["Control", "Meta", "Shift", "Alt", "OS"]
+            .iter()
+            .any(|modifier| code.starts_with(modifier))
+        {
+            return true;
+        }
+        match code.as_str() {
+            "Space" | "Enter" | "NumpadEnter" | "Delete" | "Backspace" | "Escape" | "Tab"
+            | "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Home" | "End" | "PageUp"
+            | "PageDown" | "KeyB" | "KeyS" | "KeyX" => true,
+            c => {
+                let digit = c
+                    .strip_prefix("Digit")
+                    .or_else(|| c.strip_prefix("Numpad"))
+                    .and_then(|d| d.parse::<u8>().ok());
+                // Digits 1 to 9 launch columns; with Shift, 1 to 8 jump to the cues of a clip.
+                // The numpad digit is the same key to the app when Num Lock is on.
+                match digit {
+                    Some(1..=9) => !*shift || c.starts_with("Numpad") || digit <= Some(8),
+                    _ => false,
+                }
+            }
+        }
+    }
+
     /// Whether what was heard (`heard`, with the port it came from) is this source. A mapping
     /// without a port hint, or a message without a port, matches any port; otherwise the names
     /// agree, ignoring case.
@@ -101,6 +175,9 @@ impl Source {
                     }
             }
             (Self::Osc { address }, Self::Osc { address: heard }) => address == heard,
+            // A DMX or key source is heard as exactly itself.
+            (a @ Self::Artnet { .. }, b @ Self::Artnet { .. })
+            | (a @ Self::Key { .. }, b @ Self::Key { .. }) => a == b,
             _ => false,
         }
     }
@@ -130,6 +207,32 @@ impl Source {
                 if !address.starts_with('/') || address.len() > MAX_ADDRESS {
                     return Err(ProjectError::Invalid(
                         "an OSC source is an address that starts with /".into(),
+                    ));
+                }
+            }
+            Self::Artnet {
+                universe,
+                channel,
+                fine,
+            } => {
+                let channel_ok = |c: u16| (1..=DMX_CHANNELS).contains(&c);
+                if *universe > MAX_UNIVERSE
+                    || !channel_ok(*channel)
+                    || fine.is_some_and(|f| !channel_ok(f) || f == *channel)
+                {
+                    return Err(ProjectError::Invalid(
+                        "a DMX source needs a universe of 0 to 32767 and channels of 1 to 512"
+                            .into(),
+                    ));
+                }
+            }
+            Self::Key { code, .. } => {
+                if code.is_empty()
+                    || code.len() > MAX_CODE
+                    || !code.bytes().all(|b| b.is_ascii_alphanumeric())
+                {
+                    return Err(ProjectError::Invalid(
+                        "a key source needs the code of a key".into(),
                     ));
                 }
             }
@@ -340,6 +443,35 @@ pub struct Mapping {
     /// What a button does; absent is [`ButtonMode::Trigger`].
     #[serde(default, skip_serializing_if = "ButtonMode::is_trigger")]
     pub mode: ButtonMode,
+    /// How a clip, layer, column, deck or effect target is followed; absent is [`Follow::Id`].
+    #[serde(default, skip_serializing_if = "Follow::is_id")]
+    pub follow: Follow,
+    /// For [`Follow::Position`]: the slot the mapping stands for (a target whose ids are places,
+    /// see [`crate::vj_mapfile`]). `target` is whatever fills the slot now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<Target>,
+    /// A position mapping whose slot is empty: kept, and answering nothing, until something
+    /// fills the slot again. `target` is then stale.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub parked: bool,
+}
+
+/// What a mapping of a clip, layer, column, deck or effect keeps hold of, as Resolume's shortcut
+/// modes do.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Follow {
+    /// This clip, layer or effect, by id, wherever it moves; deleting it takes the mapping away.
+    #[default]
+    Id,
+    /// The slot (layer N, column M, effect slot K): whatever fills it now.
+    Position,
+}
+
+impl Follow {
+    fn is_id(&self) -> bool {
+        *self == Self::Id
+    }
 }
 
 fn is_false(value: &bool) -> bool {
@@ -418,6 +550,11 @@ fn mode_fits(class: Class, mode: ButtonMode) -> bool {
 
 pub(crate) fn add_mapping(vj: &mut Vj, source: Source, target: Target, id: String) -> Result<()> {
     source.validate()?;
+    if source.is_app_shortcut() {
+        return Err(ProjectError::Invalid(
+            "that key is used by the app's own shortcuts".into(),
+        ));
+    }
     if !target.exists(vj) {
         return Err(ProjectError::Invalid(format!(
             "there is nothing to map: {target:?}"
@@ -425,6 +562,7 @@ pub(crate) fn add_mapping(vj: &mut Vj, source: Source, target: Target, id: Strin
     }
     // The options of a target that is learned again stay.
     let kept = vj.mappings.iter().find(|m| m.target == target).cloned();
+    let kept_none = kept.is_none();
     vj.mappings
         .retain(|m| m.target != target && !m.source.matches(&source));
     if vj.mappings.len() >= MAX_MAPPINGS {
@@ -448,9 +586,95 @@ pub(crate) fn add_mapping(vj: &mut Vj, source: Source, target: Target, id: Strin
             min,
             max,
             invert: false,
+            follow: Follow::Id,
+            place: None,
+            parked: false,
         },
     };
+    let mut mapping = mapping;
+    if kept_none && target_has_place(&mapping.target) && !is_clip_or_effect(&mapping.target) {
+        // New layer, column and deck mappings follow their slot; clips and effects, themselves.
+        if let Some(place) = crate::vj_mapfile::to_places(vj, &mapping.target) {
+            mapping.follow = Follow::Position;
+            mapping.place = Some(place);
+        }
+    }
     vj.mappings.push(mapping);
+    Ok(())
+}
+
+fn target_has_place(target: &Target) -> bool {
+    !matches!(
+        crate::vj_mapfile::kind_of(target),
+        crate::vj_mapfile::Kind::Plain
+    )
+}
+
+fn is_clip_or_effect(target: &Target) -> bool {
+    matches!(
+        crate::vj_mapfile::kind_of(target),
+        crate::vj_mapfile::Kind::Clip | crate::vj_mapfile::Kind::Effect
+    )
+}
+
+/// Moves the position mappings to what fills their slot now; one whose slot is empty is parked,
+/// and one that fills again is woken. A level is held to the range of its new target.
+pub(crate) fn rebind(vj: &mut Vj) {
+    let found: Vec<(usize, Option<Target>)> = vj
+        .mappings
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.follow == Follow::Position)
+        .filter_map(|(at, m)| Some((at, m.place.as_ref()?)))
+        .map(|(at, place)| {
+            let now = crate::vj_mapfile::from_places(vj, place).filter(|t| t.exists(vj));
+            (at, now)
+        })
+        .collect();
+    for (at, now) in found {
+        let range = now.as_ref().and_then(|t| t.range(vj));
+        let mapping = &mut vj.mappings[at];
+        match now {
+            Some(target) => {
+                mapping.target = target;
+                mapping.parked = false;
+                if let Some((lo, hi)) = range {
+                    mapping.min = mapping.min.clamp(lo, hi);
+                    mapping.max = mapping.max.clamp(lo, hi);
+                }
+            }
+            None => mapping.parked = true,
+        }
+    }
+}
+
+pub(crate) fn set_mapping_follow(vj: &mut Vj, id: &str, follow: Follow) -> Result<()> {
+    let at = vj
+        .mappings
+        .iter()
+        .position(|m| m.id == id)
+        .ok_or_else(|| ProjectError::Invalid(format!("no mapping {id}")))?;
+    let target = vj.mappings[at].target.clone();
+    if !target_has_place(&target) {
+        return Err(ProjectError::Invalid(
+            "only a clip, layer, column, deck or effect has a slot to follow".into(),
+        ));
+    }
+    let mapping = &mut vj.mappings[at];
+    match follow {
+        Follow::Id if mapping.parked => {
+            return Err(ProjectError::Invalid(
+                "the slot is empty: there is no clip, layer or effect to follow".into(),
+            ));
+        }
+        Follow::Id => mapping.place = None,
+        Follow::Position => {
+            let place = crate::vj_mapfile::to_places(vj, &target)
+                .ok_or_else(|| ProjectError::Invalid("that has no slot".into()))?;
+            vj.mappings[at].place = Some(place);
+        }
+    }
+    vj.mappings[at].follow = follow;
     Ok(())
 }
 
@@ -490,6 +714,34 @@ pub(crate) fn set_mapping(
     }
     mapping.invert = invert;
     mapping.mode = mode;
+    Ok(())
+}
+
+pub(crate) fn set_mapping_fine(vj: &mut Vj, id: &str, fine: Option<u16>) -> Result<()> {
+    let mapping = vj
+        .mappings
+        .iter_mut()
+        .find(|m| m.id == id)
+        .ok_or_else(|| ProjectError::Invalid(format!("no mapping {id}")))?;
+    let Source::Artnet {
+        universe, channel, ..
+    } = mapping.source
+    else {
+        return Err(ProjectError::Invalid(
+            "only a DMX mapping has a fine channel".into(),
+        ));
+    };
+    let source = Source::Artnet {
+        universe,
+        channel,
+        fine,
+    };
+    source.validate()?;
+    mapping.source = source;
+    // Two mappings of one source would both answer it; the one just set stays.
+    let id = mapping.id.clone();
+    let source = mapping.source.clone();
+    vj.mappings.retain(|m| m.id == id || m.source != source);
     Ok(())
 }
 
@@ -572,7 +824,7 @@ pub fn prune(vj: &mut Vj) {
     let mappings = std::mem::take(&mut vj.mappings);
     vj.mappings = mappings
         .into_iter()
-        .filter(|m| m.target.exists(vj))
+        .filter(|m| m.parked || m.target.exists(vj))
         .collect();
     let mut dashboard = std::mem::take(&mut vj.dashboard);
     for knob in &mut dashboard {
@@ -598,7 +850,15 @@ pub(crate) fn validate(vj: &Vj) -> Result<()> {
         }
         mapping.source.validate()?;
         let class = mapping.target.class();
-        if !mapping.target.exists(vj) {
+        if mapping.parked && mapping.follow != Follow::Position
+            || mapping.follow == Follow::Position && mapping.place.is_none()
+        {
+            return Err(ProjectError::Invalid(format!(
+                "mapping {} follows a slot it does not name",
+                mapping.id
+            )));
+        }
+        if !mapping.parked && !mapping.target.exists(vj) {
             return Err(ProjectError::Invalid(format!(
                 "mapping {} drives something that is not in the grid",
                 mapping.id
@@ -610,7 +870,7 @@ pub(crate) fn validate(vj: &Vj) -> Result<()> {
                 mapping.id
             )));
         }
-        if class == Class::Continuous {
+        if class == Class::Continuous && !mapping.parked {
             let (lo, hi) = mapping.target.range(vj).unwrap_or((0.0, 1.0));
             let inside = |v: f32| v.is_finite() && (lo..=hi).contains(&v);
             if !inside(mapping.min) || !inside(mapping.max) {
@@ -692,12 +952,13 @@ pub enum Command {
 /// The command a mapping gives for a source at `level` that changed by `edge`; `None` when it
 /// asks for nothing (a release of a trigger).
 pub fn command(mapping: &Mapping, level: f32, edge: Edge) -> Option<Command> {
+    // A pad or a key is a button: its press is the level, its release the minimum if held.
     let is_note = matches!(
         mapping.source,
         Source::Midi {
             kind: MidiKind::Note,
             ..
-        }
+        } | Source::Key { .. }
     );
     match mapping.target.class() {
         Class::Continuous => match (is_note, edge) {
@@ -728,7 +989,7 @@ pub fn command(mapping: &Mapping, level: f32, edge: Edge) -> Option<Command> {
 pub fn react(vj: &Vj, heard: &Heard, held: &mut HashSet<String>) -> Vec<(Target, Command)> {
     vj.mappings
         .iter()
-        .filter(|m| m.source.matches(&heard.source))
+        .filter(|m| !m.parked && m.source.matches(&heard.source))
         .filter_map(|m| {
             let edge = edge(held, &m.id, heard.down);
             Some((m.target.clone(), command(m, heard.level, edge)?))
@@ -1178,6 +1439,9 @@ mod tests {
             max: 1.0,
             invert: true,
             mode: ButtonMode::Trigger,
+            follow: Follow::Id,
+            place: None,
+            parked: false,
         };
         assert_eq!(mapping.scale(0.25), 0.75);
         let reversed = Mapping {
@@ -1209,6 +1473,9 @@ mod tests {
             max: 200.0,
             invert: false,
             mode: ButtonMode::Trigger,
+            follow: Follow::Id,
+            place: None,
+            parked: false,
         };
         // The decoder gives value / 16383 as the level.
         let centre = command(&mapping, 8192.0 / 16383.0, Edge::Same).unwrap();
@@ -1419,6 +1686,16 @@ mod tests {
                 target: Target::LayerMaster {
                     layer: layer_id.clone(),
                 },
+            },
+        )
+        .unwrap();
+        // A layer mapping follows its slot unless told to follow the layer itself.
+        let mapping = project.vj.mappings[1].id.clone();
+        apply(
+            &mut project,
+            VjOp::SetMappingFollow {
+                mapping,
+                follow: Follow::Id,
             },
         )
         .unwrap();
@@ -1971,6 +2248,568 @@ mod tests {
                 Autopilot::Random,
                 Autopilot::Off
             ]
+        );
+    }
+
+    fn key(code: &str, shift: bool) -> Source {
+        Source::Key {
+            code: code.into(),
+            ctrl: false,
+            alt: false,
+            shift,
+            meta: false,
+        }
+    }
+
+    fn artnet(universe: u16, channel: u16, fine: Option<u16>) -> Source {
+        Source::Artnet {
+            universe,
+            channel,
+            fine,
+        }
+    }
+
+    #[test]
+    fn a_dmx_and_a_key_source_should_survive_a_round_trip_and_stay_short_in_the_file() {
+        let sources = [
+            artnet(1, 37, None),
+            artnet(0x0231, 5, Some(6)),
+            key("KeyQ", false),
+            key("KeyQ", true),
+        ];
+        for source in sources {
+            let json = serde_json::to_string(&source).unwrap();
+            assert_eq!(serde_json::from_str::<Source>(&json).unwrap(), source);
+        }
+        assert_eq!(
+            serde_json::to_string(&artnet(1, 37, None)).unwrap(),
+            r#"{"type":"artnet","universe":1,"channel":37}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&key("KeyQ", true)).unwrap(),
+            r#"{"type":"key","code":"KeyQ","shift":true}"#
+        );
+    }
+
+    #[test]
+    fn a_file_from_before_dmx_keys_and_follow_modes_should_still_load() {
+        let old = r#"{"id":"m","source":{"type":"osc","address":"/a"},"target":{"kind":"stopAll"},"min":0.0,"max":1.0}"#;
+        let mapping: Mapping = serde_json::from_str(old).unwrap();
+
+        assert_eq!(mapping.follow, Follow::Id);
+        assert!(mapping.place.is_none() && !mapping.parked);
+        assert!(!serde_json::to_string(&mapping).unwrap().contains("follow"));
+    }
+
+    #[test]
+    fn dmx_and_key_sources_should_be_checked() {
+        assert!(artnet(0, 1, None).validate().is_ok());
+        assert!(artnet(MAX_UNIVERSE, 512, Some(511)).validate().is_ok());
+        assert!(artnet(MAX_UNIVERSE + 1, 1, None).validate().is_err());
+        assert!(artnet(0, 0, None).validate().is_err());
+        assert!(artnet(0, 513, None).validate().is_err());
+        assert!(
+            artnet(0, 5, Some(5)).validate().is_err(),
+            "fine is another channel"
+        );
+        assert!(key("KeyQ", false).validate().is_ok());
+        assert!(key("", false).validate().is_err());
+        assert!(key("Key Q!", false).validate().is_err());
+    }
+
+    #[test]
+    fn a_dmx_or_key_source_should_only_match_exactly_itself() {
+        assert!(artnet(1, 37, None).matches(&artnet(1, 37, None)));
+        assert!(!artnet(1, 37, None).matches(&artnet(2, 37, None)));
+        assert!(!artnet(1, 37, Some(38)).matches(&artnet(1, 37, None)));
+        assert!(key("KeyQ", false).matches(&key("KeyQ", false)));
+        assert!(
+            !key("KeyQ", false).matches(&key("KeyQ", true)),
+            "Shift+Q is another key"
+        );
+        assert!(!key("KeyQ", false).matches(&cc(1)));
+    }
+
+    #[test]
+    fn the_keys_the_app_uses_should_be_refused_and_the_others_taken() {
+        let ctrl = |code: &str| Source::Key {
+            code: code.into(),
+            ctrl: true,
+            alt: false,
+            shift: false,
+            meta: false,
+        };
+        for used in [
+            ctrl("KeyM"),
+            ctrl("KeyZ"),
+            ctrl("Digit1"),
+            key("Space", false),
+            key("Enter", false),
+            key("Escape", false),
+            key("Delete", false),
+            key("KeyB", false),
+            key("KeyS", true),
+            key("KeyX", false),
+            key("Digit1", false),
+            key("Digit9", false),
+            key("Digit1", true),
+            key("Digit8", true),
+            key("Numpad3", false),
+            key("ArrowLeft", false),
+            key("ShiftLeft", false),
+        ] {
+            assert!(used.is_app_shortcut(), "{used:?}");
+        }
+        for free in [
+            key("KeyQ", false),
+            key("KeyQ", true),
+            key("KeyA", false),
+            key("F5", false),
+            key("Digit9", true),
+            key("Digit0", false),
+            key("Backquote", false),
+        ] {
+            assert!(!free.is_app_shortcut(), "{free:?}");
+        }
+        assert!(!cc(1).is_app_shortcut());
+    }
+
+    #[test]
+    fn learning_a_key_the_app_uses_should_be_refused_by_the_backend() {
+        let mut project = show();
+        let target = Target::LayerBypass {
+            layer: layer(&project, 0).id.clone(),
+        };
+
+        let refused = apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: key("Space", false),
+                target: target.clone(),
+            },
+        );
+        let taken = apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: key("KeyQ", false),
+                target,
+            },
+        );
+
+        assert!(refused.is_err());
+        assert!(taken.is_ok());
+    }
+
+    #[test]
+    fn a_key_should_press_and_release_like_a_pad() {
+        let mut project = show();
+        let clip = with_generator(&mut project);
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: key("KeyQ", false),
+                target: Target::ClipLaunch { clip: clip.clone() },
+            },
+        )
+        .unwrap();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: key("KeyW", false),
+                target: Target::Crossfader,
+            },
+        )
+        .unwrap();
+        let mut held = HashSet::new();
+
+        let down = react(
+            &project.vj,
+            &heard(key("KeyQ", false), 1.0, true),
+            &mut held,
+        );
+        let up = react(
+            &project.vj,
+            &heard(key("KeyQ", false), 0.0, false),
+            &mut held,
+        );
+        let level_down = react(
+            &project.vj,
+            &heard(key("KeyW", false), 1.0, true),
+            &mut held,
+        );
+        let level_up = react(
+            &project.vj,
+            &heard(key("KeyW", false), 0.0, false),
+            &mut held,
+        );
+
+        assert_eq!(
+            down,
+            vec![(Target::ClipLaunch { clip: clip.clone() }, Command::Press)]
+        );
+        assert_eq!(up, vec![(Target::ClipLaunch { clip }, Command::Release)]);
+        assert_eq!(
+            level_down[0].1,
+            Command::Value(1.0),
+            "a key at a level goes to the maximum"
+        );
+        assert!(
+            level_up.is_empty(),
+            "and stays there unless the mode is hold"
+        );
+    }
+
+    #[test]
+    fn a_held_key_should_press_once_whatever_the_repeats() {
+        let mut project = show();
+        let clip = with_generator(&mut project);
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: key("KeyQ", false),
+                target: Target::ClipLaunch { clip },
+            },
+        )
+        .unwrap();
+        let mut held = HashSet::new();
+        let down = heard(key("KeyQ", false), 1.0, true);
+
+        assert_eq!(react(&project.vj, &down, &mut held).len(), 1);
+        assert!(react(&project.vj, &down, &mut held).is_empty());
+    }
+
+    #[test]
+    fn a_dmx_button_should_toggle_a_switch_on_each_press() {
+        let mut project = show();
+        let target = Target::LayerBypass {
+            layer: layer(&project, 0).id.clone(),
+        };
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: artnet(1, 10, None),
+                target: target.clone(),
+            },
+        )
+        .unwrap();
+        let id = project.vj.mappings[0].id.clone();
+        apply(
+            &mut project,
+            VjOp::SetMapping {
+                mapping: id,
+                min: 0.0,
+                max: 1.0,
+                invert: false,
+                mode: ButtonMode::Toggle,
+            },
+        )
+        .unwrap();
+        let mut held = HashSet::new();
+        let at = |level: f32| heard(artnet(1, 10, None), level, level >= 128.0 / 255.0);
+
+        assert_eq!(
+            react(&project.vj, &at(1.0), &mut held),
+            vec![(target, Command::Toggle)]
+        );
+        assert!(
+            react(&project.vj, &at(0.9), &mut held).is_empty(),
+            "still down"
+        );
+        assert!(
+            react(&project.vj, &at(0.0), &mut held).is_empty(),
+            "a release flips nothing"
+        );
+    }
+
+    #[test]
+    fn a_fine_channel_should_be_set_for_a_dmx_mapping_only() {
+        let mut project = show();
+        let layer_id = layer(&project, 0).id.clone();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: artnet(1, 37, None),
+                target: Target::LayerOpacity {
+                    layer: layer_id.clone(),
+                },
+            },
+        )
+        .unwrap();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: cc(1),
+                target: Target::LayerMaster { layer: layer_id },
+            },
+        )
+        .unwrap();
+        let (dmx, midi) = (
+            project.vj.mappings[0].id.clone(),
+            project.vj.mappings[1].id.clone(),
+        );
+
+        apply(
+            &mut project,
+            VjOp::SetMappingFine {
+                mapping: dmx.clone(),
+                fine: Some(38),
+            },
+        )
+        .unwrap();
+        assert_eq!(project.vj.mappings[0].source, artnet(1, 37, Some(38)));
+        assert!(
+            apply(
+                &mut project,
+                VjOp::SetMappingFine {
+                    mapping: dmx.clone(),
+                    fine: Some(37)
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            apply(
+                &mut project,
+                VjOp::SetMappingFine {
+                    mapping: midi,
+                    fine: Some(2)
+                }
+            )
+            .is_err()
+        );
+        apply(
+            &mut project,
+            VjOp::SetMappingFine {
+                mapping: dmx,
+                fine: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(project.vj.mappings[0].source, artnet(1, 37, None));
+    }
+
+    fn move_clip(project: &mut Project, clip: &str, layer: usize, column: usize) {
+        let (layer, column) = (
+            project.vj.layers[layer].id.clone(),
+            project.vj.decks[0].columns[column].id.clone(),
+        );
+        apply(
+            project,
+            VjOp::MoveClip {
+                clip: clip.into(),
+                layer,
+                column,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_new_layer_mapping_should_follow_its_slot_and_a_clip_mapping_itself() {
+        let mut project = show();
+        let clip = with_generator(&mut project);
+        let layer_id = layer(&project, 1).id.clone();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: cc(1),
+                target: Target::LayerOpacity { layer: layer_id },
+            },
+        )
+        .unwrap();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: cc(2),
+                target: Target::ClipLaunch { clip },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(project.vj.mappings[0].follow, Follow::Position);
+        assert_eq!(project.vj.mappings[1].follow, Follow::Id);
+    }
+
+    #[test]
+    fn a_slot_mapping_should_follow_a_layer_reorder_and_an_id_mapping_the_layer() {
+        let mut project = show();
+        let (bottom, middle) = (layer(&project, 0).id.clone(), layer(&project, 1).id.clone());
+        for (cc_number, id) in [(1, &bottom), (2, &middle)] {
+            apply(
+                &mut project,
+                VjOp::AddMapping {
+                    source: cc(cc_number),
+                    target: Target::LayerOpacity { layer: id.clone() },
+                },
+            )
+            .unwrap();
+        }
+        // The second mapping follows the layer, the first the slot.
+        let by_layer = project.vj.mappings[1].id.clone();
+        apply(
+            &mut project,
+            VjOp::SetMappingFollow {
+                mapping: by_layer,
+                follow: Follow::Id,
+            },
+        )
+        .unwrap();
+
+        apply(
+            &mut project,
+            VjOp::MoveLayer {
+                layer: bottom.clone(),
+                to: 2,
+            },
+        )
+        .unwrap();
+
+        let now = |n: usize| project.vj.layers[n].id.clone();
+        assert_ne!(now(0), bottom, "the layers did move");
+        assert_eq!(
+            project.vj.mappings[0].target,
+            Target::LayerOpacity { layer: now(0) },
+            "slot 0 is whatever is there now"
+        );
+        assert_eq!(
+            project.vj.mappings[1].target,
+            Target::LayerOpacity { layer: middle },
+            "this layer, wherever it went"
+        );
+        project.validate().unwrap();
+    }
+
+    #[test]
+    fn a_clip_mapping_by_slot_should_hit_what_a_swap_leaves_there_and_by_id_the_clip_itself() {
+        let mut project = show();
+        let first = with_generator(&mut project);
+        // A second clip in the next column of the same layer.
+        let (layer_id, column) = (
+            layer(&project, 0).id.clone(),
+            project.vj.decks[0].columns[1].id.clone(),
+        );
+        apply(
+            &mut project,
+            VjOp::PlaceGenerator {
+                generator: crate::generator::Generator::Strobe {
+                    colour: "#ffffff".into(),
+                    rate: 8.0,
+                    width: 0.5,
+                },
+                layer: layer_id,
+                column,
+            },
+        )
+        .unwrap();
+        let second = project.vj.layers[0]
+            .clips
+            .iter()
+            .find(|c| c.id != first)
+            .unwrap()
+            .id
+            .clone();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: cc(1),
+                target: Target::ClipLaunch {
+                    clip: first.clone(),
+                },
+            },
+        )
+        .unwrap();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: cc(2),
+                target: Target::ClipSpeed {
+                    clip: first.clone(),
+                },
+            },
+        )
+        .unwrap();
+        let slot = project.vj.mappings[1].id.clone();
+        apply(
+            &mut project,
+            VjOp::SetMappingFollow {
+                mapping: slot,
+                follow: Follow::Position,
+            },
+        )
+        .unwrap();
+
+        // Move the first clip onto the second's cell: the two swap.
+        move_clip(&mut project, &first, 0, 1);
+
+        assert_eq!(
+            project.vj.mappings[0].target,
+            Target::ClipLaunch {
+                clip: first.clone()
+            },
+            "this clip"
+        );
+        assert_eq!(
+            project.vj.mappings[1].target,
+            Target::ClipSpeed { clip: second },
+            "the clip that is now in that cell"
+        );
+        project.validate().unwrap();
+    }
+
+    #[test]
+    fn a_slot_that_empties_should_park_its_mapping_and_a_clip_that_fills_it_should_wake_it() {
+        let mut project = show();
+        let clip = with_generator(&mut project);
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: cc(2),
+                target: Target::ClipSpeed { clip: clip.clone() },
+            },
+        )
+        .unwrap();
+        let id = project.vj.mappings[0].id.clone();
+        apply(
+            &mut project,
+            VjOp::SetMappingFollow {
+                mapping: id,
+                follow: Follow::Position,
+            },
+        )
+        .unwrap();
+
+        move_clip(&mut project, &clip, 1, 3);
+        assert!(project.vj.mappings[0].parked, "the cell is empty now");
+        assert!(react(&project.vj, &heard(cc(2), 0.5, true), &mut HashSet::new()).is_empty());
+        project.validate().unwrap();
+
+        move_clip(&mut project, &clip, 0, 0);
+        assert!(!project.vj.mappings[0].parked);
+        assert_eq!(project.vj.mappings[0].target, Target::ClipSpeed { clip });
+    }
+
+    #[test]
+    fn a_follow_mode_should_be_refused_for_a_target_with_no_slot() {
+        let mut project = show();
+        apply(
+            &mut project,
+            VjOp::AddMapping {
+                source: cc(1),
+                target: Target::Crossfader,
+            },
+        )
+        .unwrap();
+        let id = project.vj.mappings[0].id.clone();
+
+        assert!(
+            apply(
+                &mut project,
+                VjOp::SetMappingFollow {
+                    mapping: id,
+                    follow: Follow::Position
+                }
+            )
+            .is_err()
         );
     }
 }

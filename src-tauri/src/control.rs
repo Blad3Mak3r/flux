@@ -31,10 +31,11 @@ use crate::transport_commands::{
     SharedOutput, TIMELINE_ADVANCED, is_playing, light_snapshot, release, snapshot,
 };
 use crate::vj_control::{SharedLearn, VjRunner};
+use flux_engine::control::KeyMsg;
 use flux_engine::control::{
     Binding, ControlAction, Feedback, MidiTrigger, action_for, dedup, osc_action, seek_target,
 };
-use flux_engine::control_in::{Input, ListenError, MidiListener};
+use flux_engine::control_in::{ARTNET_UDP_PORT, ArtnetListener, Input, ListenError, MidiListener};
 use flux_engine::control_light::{Facts, Lamps, LightPort};
 use flux_engine::devices::{self, MidiPort};
 use flux_engine::output::OutputError;
@@ -86,11 +87,33 @@ impl Default for OscPrefs {
     }
 }
 
+/// The Art-Net (DMX) input. The port is the protocol's own, 6454.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ArtnetPrefs {
+    pub enabled: bool,
+    /// Only this Port-Address (0 to 32767) is heard; absent hears every universe.
+    pub universe: Option<u16>,
+    /// The interface to listen on; `0.0.0.0` is all of them.
+    pub bind_address: String,
+}
+
+impl Default for ArtnetPrefs {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            universe: None,
+            bind_address: "0.0.0.0".into(),
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ControlPrefs {
     pub midi: MidiPrefs,
     pub osc: OscPrefs,
+    pub artnet: ArtnetPrefs,
 }
 
 /// Whether an action makes sense: a number is a place from 1 and a step moves.
@@ -119,6 +142,14 @@ pub fn normalize(mut prefs: ControlPrefs) -> ControlPrefs {
     prefs.midi.port_name = prefs.midi.port_name.filter(|name| !name.trim().is_empty());
     if prefs.osc.port == 0 {
         prefs.osc.port = DEFAULT_OSC_PORT;
+    }
+    prefs.artnet.universe = prefs
+        .artnet
+        .universe
+        .filter(|universe| *universe <= flux_project::vj_mapping::MAX_UNIVERSE);
+    prefs.artnet.bind_address = prefs.artnet.bind_address.trim().to_owned();
+    if prefs.artnet.bind_address.is_empty() {
+        prefs.artnet.bind_address = ArtnetPrefs::default().bind_address;
     }
     prefs
 }
@@ -170,6 +201,9 @@ pub struct ControlView {
     pub prefs: ControlPrefs,
     pub midi: LinkState,
     pub osc: LinkState,
+    pub artnet: LinkState,
+    /// How many ArtDmx packets arrived since the input was opened.
+    pub artnet_packets: u64,
     pub inputs: Vec<MidiPort>,
     /// Why MIDI cannot be listed, on a system without it.
     pub midi_error: Option<String>,
@@ -183,6 +217,9 @@ pub struct ControlView {
 struct Running {
     midi: Option<MidiListener>,
     osc: Option<crate::osc_api::OscServer>,
+    artnet: Option<ArtnetListener>,
+    /// Where the window's keys go. The worker ends when this and the inputs are dropped.
+    keys: Option<mpsc::Sender<Input>>,
     worker: Option<JoinHandle<()>>,
     lights: Option<Lights>,
 }
@@ -193,6 +230,8 @@ impl Drop for Running {
         self.lights = None;
         self.midi = None;
         self.osc = None;
+        self.artnet = None;
+        self.keys = None;
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
@@ -205,6 +244,7 @@ struct Engine {
     running: Running,
     midi: LinkState,
     osc: LinkState,
+    artnet: LinkState,
 }
 
 #[derive(Default)]
@@ -225,6 +265,15 @@ impl Control {
         &self.vj_learn
     }
 
+    /// Sends a key of the window to the thread that runs the mappings.
+    pub fn key(&self, message: KeyMsg) {
+        let keys = self.lock().running.keys.clone();
+        if let Some(keys) = keys {
+            // The thread is gone while the inputs are being replaced.
+            let _ = keys.send(Input::Key(message));
+        }
+    }
+
     fn lock(&self) -> MutexGuard<'_, Engine> {
         self.engine.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -240,6 +289,12 @@ impl Control {
             prefs: engine.prefs.clone(),
             midi: engine.midi.clone(),
             osc: engine.osc.clone(),
+            artnet: engine.artnet.clone(),
+            artnet_packets: engine
+                .running
+                .artnet
+                .as_ref()
+                .map_or(0, ArtnetListener::packets),
             inputs,
             midi_error,
         }
@@ -257,12 +312,13 @@ impl Control {
         self.learning.store(false, Ordering::Relaxed);
         let mut engine = self.lock();
         engine.running = Running::default();
-        let (running, midi, osc) = open(app, &prefs, &self.learning, &self.vj_learn);
+        let (running, midi, osc, artnet) = open(app, &prefs, &self.learning, &self.vj_learn);
         *engine = Engine {
             prefs,
             running,
             midi,
             osc,
+            artnet,
         };
     }
 }
@@ -274,7 +330,7 @@ fn open(
     prefs: &ControlPrefs,
     learning: &Arc<AtomicBool>,
     vj_learn: &SharedLearn,
-) -> (Running, LinkState, LinkState) {
+) -> (Running, LinkState, LinkState, LinkState) {
     let (tx, rx) = mpsc::channel();
     let mut running = Running::default();
 
@@ -330,6 +386,36 @@ fn open(
         LinkState::Off
     };
 
+    let artnet = if prefs.artnet.enabled {
+        match ArtnetListener::bind(
+            &prefs.artnet.bind_address,
+            ARTNET_UDP_PORT,
+            prefs.artnet.universe,
+            tx.clone(),
+        ) {
+            Ok(listener) => {
+                log::info!(
+                    "remote control: listening to Art-Net on {}:{}",
+                    prefs.artnet.bind_address,
+                    listener.port()
+                );
+                let state = LinkState::Listening(format!(
+                    "{}:{}",
+                    prefs.artnet.bind_address,
+                    listener.port()
+                ));
+                running.artnet = Some(listener);
+                state
+            }
+            Err(err) => {
+                log::warn!("remote control: Art-Net is not available: {err}");
+                LinkState::Error(err.to_string())
+            }
+        }
+    } else {
+        LinkState::Off
+    };
+
     if prefs.midi.enabled && prefs.midi.feedback {
         running.lights = prefs.midi.port_name.as_ref().and_then(|name| {
             Lights::start(
@@ -341,9 +427,10 @@ fn open(
         });
     }
 
-    // The inputs hold the only senders, so the thread ends when they are dropped.
-    drop(tx);
-    if running.midi.is_some() || running.osc.is_some() {
+    // The inputs and `running.keys` hold the only senders, so the thread ends when they are
+    // dropped. It always runs: the keyboard is an input that needs no preferences.
+    running.keys = Some(tx);
+    {
         let port = match &midi {
             LinkState::Listening(name) => name.clone(),
             _ => String::new(),
@@ -360,7 +447,7 @@ fn open(
             .inspect_err(|err| log::warn!("remote control: the thread did not start: {err}"))
             .ok();
     }
-    (running, midi, osc)
+    (running, midi, osc, artnet)
 }
 
 /// The values a binding without its own lights its pad with: those of the controller's preset.
@@ -564,6 +651,8 @@ impl Dispatcher {
                     log::debug!("remote control: {trigger:?} has no action");
                 }
             }
+            Input::Dmx(frame) => self.vj.dmx(&frame, commands),
+            Input::Key(message) => self.vj.key(&message, commands),
             Input::Osc(message) => {
                 if self.vj.osc(&message, commands) {
                     return;
@@ -730,6 +819,12 @@ pub async fn control_set(
     .await)
 }
 
+/// A key the window heard in a VJ show, pressed or let go, for the mappings (or to learn).
+#[tauri::command]
+pub fn control_key(control: State<'_, SharedControl>, key: KeyMsg) {
+    control.key(key);
+}
+
 /// Starts or cancels waiting for a trigger to learn: the next one is sent to the window with
 /// [`CONTROL_LEARNED`] and not executed.
 #[tauri::command]
@@ -827,6 +922,54 @@ mod tests {
 
         assert_eq!(load(&file), prefs);
         assert!(!file.with_extension("json.tmp").exists());
+    }
+
+    #[test]
+    fn art_net_should_be_off_by_default_hear_every_universe_and_survive_a_save() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join(FILE_NAME);
+        assert!(!ControlPrefs::default().artnet.enabled);
+        assert_eq!(ControlPrefs::default().artnet.universe, None);
+
+        let prefs = ControlPrefs {
+            artnet: ArtnetPrefs {
+                enabled: true,
+                universe: Some(3),
+                bind_address: "192.168.1.5".into(),
+            },
+            ..ControlPrefs::default()
+        };
+        save(&file, &prefs).unwrap();
+
+        assert_eq!(load(&file), prefs);
+    }
+
+    #[test]
+    fn normalize_should_drop_a_universe_that_is_not_a_port_address_and_an_empty_interface() {
+        let mut prefs = ControlPrefs::default();
+        prefs.artnet.universe = Some(40_000);
+        prefs.artnet.bind_address = "  ".into();
+
+        let prefs = normalize(prefs);
+
+        assert_eq!(prefs.artnet.universe, None);
+        assert_eq!(prefs.artnet.bind_address, "0.0.0.0");
+    }
+
+    #[test]
+    fn a_file_from_before_art_net_should_load_with_it_off() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join(FILE_NAME);
+        fs::write(
+            &file,
+            r#"{"midi":{"enabled":false},"osc":{"enabled":true,"port":9100}}"#,
+        )
+        .unwrap();
+
+        let prefs = load(&file);
+
+        assert_eq!(prefs.osc.port, 9100);
+        assert_eq!(prefs.artnet, ArtnetPrefs::default());
     }
 
     #[test]

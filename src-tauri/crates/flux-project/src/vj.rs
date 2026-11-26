@@ -979,6 +979,18 @@ pub enum VjOp {
         invert: bool,
         mode: ButtonMode,
     },
+    /// Pairs a DMX mapping with the `fine` channel of its 16-bit value, or back to 8 bits with
+    /// `None`. Only a DMX source has one.
+    SetMappingFine {
+        mapping: String,
+        fine: Option<u16>,
+    },
+    /// Sets how a mapping of a clip, layer, column, deck or effect follows it: by id, or by the
+    /// slot it is in.
+    SetMappingFollow {
+        mapping: String,
+        follow: crate::vj_mapping::Follow,
+    },
     /// Turns a knob of the dashboard to `value` (0 to 1) and moves every number linked to it.
     DashboardValue {
         knob: usize,
@@ -1598,6 +1610,12 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             invert,
             mode,
         } => crate::vj_mapping::set_mapping(vj, &mapping, min, max, invert, mode)?,
+        VjOp::SetMappingFollow { mapping, follow } => {
+            crate::vj_mapping::set_mapping_follow(vj, &mapping, follow)?;
+        }
+        VjOp::SetMappingFine { mapping, fine } => {
+            crate::vj_mapping::set_mapping_fine(vj, &mapping, fine)?;
+        }
         VjOp::DashboardValue { knob, value } => {
             crate::vj_mapping::turn_knob(project, knob, value)?;
         }
@@ -1615,6 +1633,8 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             crate::vj_mapping::rename_knob(vj, knob, name)?;
         }
     }
+    // Position mappings follow their slot, after whatever moved things.
+    crate::vj_mapping::rebind(&mut project.vj);
     if prune {
         crate::vj_mapping::prune(&mut project.vj);
     }

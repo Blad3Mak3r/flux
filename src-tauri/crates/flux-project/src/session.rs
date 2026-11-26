@@ -730,6 +730,45 @@ impl Session {
         self.change(|project, _| crate::vj::apply(project, op, || Uuid::new_v4().to_string()))
     }
 
+    /// Puts the mappings of a `.flxmap` file into the VJ grid (see [`crate::vj_mapfile`]); the
+    /// answer is the project with them and how many were taken and skipped.
+    pub fn import_vj_mappings(
+        &mut self,
+        file: &crate::vj_mapfile::MapFile,
+        choice: &crate::vj_mapfile::ImportChoice,
+    ) -> Result<(ProjectState, crate::vj_mapfile::ImportReport)> {
+        let mut report = crate::vj_mapfile::ImportReport::default();
+        let state = self.change(|project, _| {
+            if project.mode != crate::ProjectMode::Vj {
+                return Err(ProjectError::Invalid("only a VJ show has mappings".into()));
+            }
+            report = crate::vj_mapfile::import(&mut project.vj, file, choice, || {
+                Uuid::new_v4().to_string()
+            });
+            Ok(())
+        })?;
+        Ok((state, report))
+    }
+
+    /// What importing the file would do to the VJ grid, without doing it.
+    pub fn plan_vj_mappings(
+        &self,
+        file: &crate::vj_mapfile::MapFile,
+    ) -> Result<crate::vj_mapfile::ImportPlan> {
+        let grid = self
+            .grid_ref()
+            .ok_or_else(|| ProjectError::Invalid("only a VJ show has mappings".into()))?;
+        Ok(crate::vj_mapfile::plan(grid, file))
+    }
+
+    /// The mappings of the VJ grid as the text of a `.flxmap` file.
+    pub fn export_vj_mappings(&self) -> Result<String> {
+        let grid = self
+            .grid_ref()
+            .ok_or_else(|| ProjectError::Invalid("only a VJ show has mappings".into()))?;
+        crate::vj_mapfile::export(grid)
+    }
+
     /// Moves a layer's level or a clip's transform while a fader or a drag goes, on the project
     /// held, without the copy and full check of an edit: what the screens show follows, and the
     /// edit sent when the hand lets go is the one kept. Any other op is refused.
