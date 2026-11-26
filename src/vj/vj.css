@@ -498,7 +498,7 @@
 .vj-ithumb { width: 200px; aspect-ratio: 16 / 9; border-radius: 1px; box-shadow: 0 0 0 2px var(--phosphor); }
 .vj-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .vj-f { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 10px; }
-.vj-f > span:first-child { color: var(--ink-faint); font-size: 12px; }
+.vj-f > span:first-child { color: var(--ink-faint); font-size: 12px; line-height: 1.25; overflow-wrap: anywhere; }
 
 .vj-input {
   height: 28px;

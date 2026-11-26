@@ -29,7 +29,8 @@ use flux_project::vj_effects::{EdgeMode, Effect, EffectKind, MirrorAxis, Pace, S
 
 use crate::composite::to_linear;
 
-/// Most steps a picture's program holds: two full stacks of 16.
+/// Most steps a picture's program holds: two full stacks of 16, one step each. A twitch can take two
+/// (its jump and its flash) and the blurs together one, so a program past this leaves its last out.
 pub const MAX_STEPS: usize = 32;
 /// The numbers of one step in the shader: its kind, seed, phase and index, then its settings.
 pub const STEP_FLOATS: usize = 16;

@@ -741,11 +741,9 @@ fn vertex_bytes(vertices: &[Vertex]) -> Vec<u8> {
 }
 
 fn effect_bytes(effects: &[[f32; effects::FX_FLOATS]]) -> Vec<u8> {
-    effects
-        .iter()
-        .flatten()
-        .flat_map(|f| f.to_ne_bytes())
-        .collect()
+    let mut bytes = Vec::with_capacity(effects.len() * effects::FX_FLOATS * 4);
+    bytes.extend(effects.iter().flatten().flat_map(|f| f.to_ne_bytes()));
+    bytes
 }
 
 /// The masks' uniform for a window of `window` pixels: at most [`MAX_MASKS`] masks of 3 to
