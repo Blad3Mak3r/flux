@@ -56,7 +56,7 @@ import { CompositionFx, EffectBadge, EffectBrowser, EffectStack, carriesEffect, 
 import type { EffectTarget } from "./EffectStack";
 import { loadEffectCatalog, useEffectCatalog } from "./effects";
 import { AnalysisMeter, Tempo, TimecodeClock } from "./CompositionBar";
-import { ModPanel, ModScrub, fieldRange, inspectorModulated } from "./Modulation";
+import { GeneratorModPanel, GeneratorScrub, ModPanel, ModScrub, fieldRange, inspectorModulated } from "./Modulation";
 import { TextFields } from "./TextFields";
 import { Transport } from "./Transport";
 import "./vj.css";
@@ -703,7 +703,7 @@ function NameField({ value, placeholder, label, onCommit }: { value: string; pla
 }
 
 /** The parameters of a generator clip, each with the backend's default where the clip has none. */
-function GeneratorFields({ clip, generator }: { clip: string; generator: VjGenerator }) {
+function GeneratorFields({ clip, generator, modulation }: { clip: string; generator: VjGenerator; modulation: VjClip["modulation"] }) {
   const t = useT();
   const move = (changed: Partial<VjGenerator>) =>
     preview({ op: "clipGenerator", clip, generator: { ...generator, ...changed } as VjGenerator });
@@ -715,11 +715,14 @@ function GeneratorFields({ clip, generator }: { clip: string; generator: VjGener
     </div>
   );
   const number = (key: "rate" | "width" | "angle", value: number, props: { label: string; name: string; shown: number; reset: number; unit: string; decimals?: number; hint?: string }) => (
-    <div className="vj-f" title={props.hint}><span>{props.name}</span>
-      <div className="vj-scrubs one">
-        <Scrub {...props} value={value} onMove={(v) => move({ [key]: v })} onSet={(v) => keep({ [key]: v })} />
+    <>
+      <div className="vj-f" title={props.hint}><span>{props.name}</span>
+        <div className="vj-scrubs one">
+          <GeneratorScrub {...props} clip={clip} modulation={modulation} field={key} value={value} onMove={(v) => move({ [key]: v })} onSet={(v) => keep({ [key]: v })} />
+        </div>
       </div>
-    </div>
+      <GeneratorModPanel clip={clip} modulation={modulation} field={key} shown={props.shown} unit={props.unit} decimals={props.decimals} />
+    </>
   );
   switch (generator.kind) {
     case "solid":
@@ -748,7 +751,7 @@ function GeneratorFields({ clip, generator }: { clip: string; generator: VjGener
         </>
       );
     case "text":
-      return <TextFields clip={clip} generator={generator} />;
+      return <TextFields clip={clip} generator={generator} modulation={modulation} />;
     case "bars":
       return null;
   }
@@ -822,7 +825,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
             <Segments options={TRIGGERS} value={clip.trigger ?? "normal"} label={(o) => t(`vj.trigger.${o}`)}
               onPick={(trigger) => void edit({ op: "clipTrigger", clip: clip.id, trigger })} />
           </div>
-          {generator && <GeneratorFields clip={clip.id} generator={generator} />}
+          {generator && <GeneratorFields clip={clip.id} generator={generator} modulation={clip.modulation} />}
           {!generator && !probe?.still && (
             <div className="vj-f"><span>{t("vj.clip.playback")}</span>
               <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}

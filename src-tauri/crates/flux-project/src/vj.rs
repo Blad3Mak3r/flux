@@ -1202,7 +1202,14 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                     clip.id
                 )));
             }
-            clip.generator = Some(generator.tidy());
+            let generator = generator.tidy();
+            // A modulation of a number the new kind of generator does not have goes with it.
+            clip.modulation.retain(|field, _| {
+                field
+                    .strip_prefix(crate::vj_modulation::GENERATOR_FIELD)
+                    .is_none_or(|name| generator.numbers().contains(&name))
+            });
+            clip.generator = Some(generator);
         }
         VjOp::TextLine { clip, step } => {
             let clip = vj.clip_mut(&clip)?;
@@ -1358,9 +1365,10 @@ fn set_modulation(vj: &mut Vj, target: ModTarget, modulation: Option<Modulation>
             (&mut vj.layer_mut(&layer)?.modulation, field, range)
         }
         ModTarget::Clip { clip, field } => {
-            let range = crate::vj_modulation::clip_range(&field)
+            let clip = vj.clip_mut(&clip)?;
+            let range = crate::vj_modulation::clip_field_range(clip, &field)
                 .ok_or_else(|| ProjectError::Invalid(format!("{field} cannot be modulated")))?;
-            (&mut vj.clip_mut(&clip)?.modulation, field, range)
+            (&mut clip.modulation, field, range)
         }
     };
     match modulation {
@@ -1511,7 +1519,9 @@ pub(crate) fn validate<'a>(
             check_name(clip.name.as_deref())?;
             check_transport(clip)?;
             crate::vj_effects::validate_stack(&clip.effects, false, item_ids)?;
-            crate::vj_modulation::validate_map(&clip.modulation, crate::vj_modulation::clip_range)?;
+            crate::vj_modulation::validate_map(&clip.modulation, |field| {
+                crate::vj_modulation::clip_field_range(clip, field)
+            })?;
             if !(0.0..=MAX_SCALE).contains(&clip.scale)
                 || clip
                     .position
@@ -2659,6 +2669,83 @@ mod tests {
         // Null removes.
         run(&mut project, set(layer("master"), None), &mut new_id);
         assert!(!project.vj.layers[0].modulation.contains_key("master"));
+    }
+
+    #[test]
+    fn a_generator_number_should_be_modulated_and_go_when_the_generator_changes_kind() {
+        let (mut project, mut new_id) = vj_project();
+        let op = VjOp::PlaceGenerator {
+            generator: Generator::Text {
+                text: "FLUX".into(),
+                font: "Inter".into(),
+                style: "Bold".into(),
+                size: 0.12,
+                colour: "#ffffff".into(),
+                opacity: 1.0,
+                align: Default::default(),
+                position_x: 0.5,
+                position_y: 0.5,
+                rotation: 0.0,
+                tracking: 0.0,
+                leading: 0.0,
+                lines: Default::default(),
+                line: 0,
+                advance: 0,
+            },
+            layer: "g1".into(),
+            column: "g5".into(),
+        };
+        run(&mut project, op, &mut new_id);
+        let id = project.vj.layers[0].clips[0].id.clone();
+        let target = |field: &str| ModTarget::Clip {
+            clip: id.clone(),
+            field: field.into(),
+        };
+        run(
+            &mut project,
+            set(target("generator.rotation"), Some(sine(-9999.0, 90.0))),
+            &mut new_id,
+        );
+        run(
+            &mut project,
+            set(target("generator.size"), Some(sine(0.1, 0.3))),
+            &mut new_id,
+        );
+        let stored = &project.vj.layers[0].clips[0].modulation;
+        assert_eq!(
+            stored["generator.rotation"].min, -360.0,
+            "brought into range"
+        );
+        // A strobe's rate is not a text block's number.
+        assert!(
+            apply(
+                &mut project,
+                set(target("generator.rate"), Some(sine(1.0, 2.0))),
+                &mut new_id
+            )
+            .is_err()
+        );
+        assert!(
+            apply(
+                &mut project,
+                set(target("generator.colour"), Some(sine(0.0, 1.0))),
+                &mut new_id
+            )
+            .is_err()
+        );
+        project.validate().unwrap();
+        // Another kind of generator keeps what it has too, and drops what it does not.
+        let strobe = VjOp::ClipGenerator {
+            clip: id.clone(),
+            generator: Generator::Strobe {
+                colour: "#ffffff".into(),
+                rate: 8.0,
+                width: 0.5,
+            },
+        };
+        run(&mut project, strobe, &mut new_id);
+        assert!(project.vj.layers[0].clips[0].modulation.is_empty());
+        project.validate().unwrap();
     }
 
     #[test]

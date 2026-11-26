@@ -188,6 +188,29 @@ export function ModScrub({ target, modulation, range, ...scrub }: ComponentProps
   return <Scrub {...scrub} marker={marker} trailing={<ModButton target={target} modulation={modulation} range={range} name={scrub.name} />} />;
 }
 
+/** How a number of a generator is counted: the backend's range and start, the control's own units. */
+export function generatorRange(catalog: VjModulationCatalog | undefined, name: string, units: Pick<ModRange, "shown" | "unit" | "decimals">): ModRange | undefined {
+  const spec = catalog?.generator[name];
+  return spec && { min: spec.min, max: spec.max, start: spec.start, ...units };
+}
+
+/** A number of a generator clip: its scrub, with the "~" button when the backend lists the number as modulatable. */
+export function GeneratorScrub({ clip, modulation, name, ...scrub }: ComponentProps<typeof Scrub> & { clip: string; modulation: VjClip["modulation"]; name: string; field: string }) {
+  const catalog = useEffectCatalog((state) => state.catalog?.modulation);
+  const { field, ...rest } = scrub;
+  const range = generatorRange(catalog, field, { shown: rest.shown, unit: rest.unit ?? "%", decimals: rest.decimals ?? 0 });
+  const target = { clip, field: `generator.${field}` };
+  return range ? <ModScrub {...rest} name={name} target={target} modulation={modulation?.[target.field]} range={range} /> : <Scrub {...rest} name={name} />;
+}
+
+/** The sub-row of the modulation of a generator number, under its control while it is open. */
+export function GeneratorModPanel({ clip, modulation, field, shown, unit = "%", decimals = 0 }: { clip: string; modulation: VjClip["modulation"]; field: string; shown: number; unit?: string; decimals?: number }) {
+  const catalog = useEffectCatalog((state) => state.catalog?.modulation);
+  const range = generatorRange(catalog, field, { shown, unit, decimals });
+  const target = { clip, field: `generator.${field}` };
+  return range ? <ModPanel target={target} modulation={modulation?.[target.field]} range={range} /> : null;
+}
+
 /** How a layer's or a clip's modulatable field is counted (a percent), from the backend's catalogue; `undefined` until it has loaded. */
 export function fieldRange(catalog: VjModulationCatalog | undefined, holder: "layer" | "clip", field: string): ModRange | undefined {
   const spec = catalog?.[holder][field];

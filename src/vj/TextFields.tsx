@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import type { VjGenerator, VjTextAlign, VjTextLines } from "../project/types";
-import { ColourField, Scrub, Segments } from "./controls";
+import type { VjClip, VjGenerator, VjTextAlign, VjTextLines } from "../project/types";
+import { ColourField, Segments } from "./controls";
 import { useFonts } from "./fonts";
+import { GeneratorModPanel, GeneratorScrub } from "./Modulation";
 import { edit, preview } from "./store";
 
 type Text = Extract<VjGenerator, { kind: "text" }>;
@@ -39,7 +40,10 @@ function TextBox({ value, label, onCommit }: { value: string; label: string; onC
   );
 }
 
-export function TextFields({ clip, generator }: { clip: string; generator: Text }) {
+type NumberKey = "size" | "opacity" | "positionX" | "positionY" | "rotation" | "tracking" | "leading";
+type NumberProps = { label: string; name: string; shown: number; reset: number; unit: string; decimals?: number };
+
+export function TextFields({ clip, generator, modulation }: { clip: string; generator: Text; modulation: VjClip["modulation"] }) {
   const t = useT();
   const fonts = useFonts();
   const g = {
@@ -61,14 +65,21 @@ export function TextFields({ clip, generator }: { clip: string; generator: Text 
   };
   const move = (changed: Partial<Text>) => preview({ op: "clipGenerator", clip, generator: { ...generator, ...changed } });
   const keep = (changed: Partial<Text>) => void edit({ op: "clipGenerator", clip, generator: { ...generator, ...changed } });
-  const number = (key: "size" | "opacity" | "positionX" | "positionY" | "rotation" | "tracking" | "leading", props: { label: string; name: string; shown: number; reset: number; unit: string; decimals?: number }) => (
-    <Scrub {...props} value={g[key]} onMove={(v) => move({ [key]: v })} onSet={(v) => keep({ [key]: v })} />
+  const number = (key: NumberKey, props: NumberProps) => (
+    <GeneratorScrub {...props} clip={clip} modulation={modulation} field={key} value={g[key]} onMove={(v) => move({ [key]: v })} onSet={(v) => keep({ [key]: v })} />
+  );
+  const panel = (key: NumberKey, props: NumberProps) => (
+    <GeneratorModPanel clip={clip} modulation={modulation} field={key} shown={props.shown} unit={props.unit} decimals={props.decimals} />
   );
   const row = (name: string, control: ReactNode, hint?: string) => (
     <div className="vj-f" title={hint}><span>{name}</span>{control}</div>
   );
-  const one = (key: Parameters<typeof number>[0], name: string, props: Parameters<typeof number>[1]) =>
-    row(name, <div className="vj-scrubs one">{number(key, props)}</div>);
+  const one = (key: NumberKey, name: string, props: NumberProps) => (
+    <>
+      {row(name, <div className="vj-scrubs one">{number(key, props)}</div>)}
+      {panel(key, props)}
+    </>
+  );
 
   const family = fonts.find((f) => f.name === g.font);
   const families = family ? fonts : [{ name: g.font, styles: [g.style] }, ...fonts];
@@ -101,6 +112,8 @@ export function TextFields({ clip, generator }: { clip: string; generator: Text 
           {number("positionX", { label: "X", name: t("vj.gen.positionX"), shown: 100, reset: 0.5, unit: "%" })}
           {number("positionY", { label: "Y", name: t("vj.gen.positionY"), shown: 100, reset: 0.5, unit: "%" })}
         </div>)}
+      {panel("positionX", { label: "X", name: t("vj.gen.positionX"), shown: 100, reset: 0.5, unit: "%" })}
+      {panel("positionY", { label: "Y", name: t("vj.gen.positionY"), shown: 100, reset: 0.5, unit: "%" })}
       {one("rotation", t("vj.gen.rotation"), { label: "R", name: t("vj.gen.rotation"), shown: 1, reset: 0, unit: "°" })}
       {one("tracking", t("vj.gen.tracking"), { label: "X", name: t("vj.gen.tracking"), shown: 100, reset: 0, unit: "%" })}
       {one("leading", t("vj.gen.leading"), { label: "Y", name: t("vj.gen.leading"), shown: 100, reset: 0, unit: "%" })}

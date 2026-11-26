@@ -16,6 +16,30 @@ const TEXT_POSITION: (f32, f32) = (-1.0, 2.0);
 /// The tracking and leading of a text block, in ems.
 const TEXT_SPACE: (f32, f32) = (-0.5, 2.0);
 
+/// The numbers of a generator that a modulation can move: its name, its range and the step a
+/// modulated value is rounded to. Rounding keeps a text block's picture the same while the value
+/// moves less than a step, which saves drawing it again; a step is about a pixel of the picture.
+pub const NUMBERS: [(&str, f32, f32, f32); 10] = [
+    ("rate", 0.01, MAX_RATE, 0.01),
+    ("width", 0.01, 1.0, 0.01),
+    ("angle", -360.0, 360.0, 0.1),
+    ("size", TEXT_SIZE.0, TEXT_SIZE.1, 0.001),
+    ("opacity", 0.0, 1.0, 1.0 / 255.0),
+    ("positionX", TEXT_POSITION.0, TEXT_POSITION.1, 0.0005),
+    ("positionY", TEXT_POSITION.0, TEXT_POSITION.1, 0.001),
+    ("rotation", -360.0, 360.0, 0.1),
+    ("tracking", TEXT_SPACE.0, TEXT_SPACE.1, 0.002),
+    ("leading", TEXT_SPACE.0, TEXT_SPACE.1, 0.002),
+];
+
+/// The range of the generator number `name`, whichever generator has it.
+pub fn number_range(name: &str) -> Option<(f32, f32)> {
+    NUMBERS
+        .iter()
+        .find(|n| n.0 == name)
+        .map(|&(_, lo, hi, _)| (lo, hi))
+}
+
 /// Most characters a text block holds.
 pub const MAX_TEXT: usize = 4000;
 /// Longest a font family or style name is.
@@ -166,6 +190,52 @@ fn text_size() -> f32 {
 }
 
 impl Generator {
+    /// The names of its numbers a modulation can move.
+    pub fn numbers(&self) -> &'static [&'static str] {
+        match self {
+            Self::Strobe { .. } => &["rate", "width"],
+            Self::Noise { .. } => &["rate"],
+            Self::Gradient { .. } => &["angle"],
+            Self::Text { .. } => &[
+                "size",
+                "opacity",
+                "positionX",
+                "positionY",
+                "rotation",
+                "tracking",
+                "leading",
+            ],
+            Self::Solid { .. } | Self::Bars => &[],
+        }
+    }
+
+    fn number_mut(&mut self, name: &str) -> Option<&mut f32> {
+        match (self, name) {
+            (Self::Strobe { rate, .. } | Self::Noise { rate, .. }, "rate") => Some(rate),
+            (Self::Strobe { width, .. }, "width") => Some(width),
+            (Self::Gradient { angle, .. }, "angle") => Some(angle),
+            (Self::Text { size, .. }, "size") => Some(size),
+            (Self::Text { opacity, .. }, "opacity") => Some(opacity),
+            (Self::Text { position_x, .. }, "positionX") => Some(position_x),
+            (Self::Text { position_y, .. }, "positionY") => Some(position_y),
+            (Self::Text { rotation, .. }, "rotation") => Some(rotation),
+            (Self::Text { tracking, .. }, "tracking") => Some(tracking),
+            (Self::Text { leading, .. }, "leading") => Some(leading),
+            _ => None,
+        }
+    }
+
+    /// Sets the number `name` to a modulated `value`, rounded to its step and kept in its range;
+    /// nothing when this generator has no such number.
+    pub fn set_modulated(&mut self, name: &str, value: f32) {
+        let Some(&(_, lo, hi, step)) = NUMBERS.iter().find(|n| n.0 == name) else {
+            return;
+        };
+        if let Some(number) = self.number_mut(name) {
+            *number = ((value / step).round() * step).clamp(lo, hi);
+        }
+    }
+
     /// Its colours, to check.
     fn colours(&self) -> Vec<&str> {
         match self {
@@ -547,6 +617,24 @@ mod tests {
             Some("x\ny"),
             "all lines"
         );
+    }
+
+    #[test]
+    fn modulated_numbers_should_be_rounded_to_their_step_and_kept_in_range() {
+        let mut block = text("x");
+        block.set_modulated("size", 0.123_456);
+        block.set_modulated("rotation", 9999.0);
+        block.set_modulated("rate", 3.0);
+        let Generator::Text { size, rotation, .. } = block else {
+            panic!("text");
+        };
+        assert!((size - 0.123).abs() < 1e-6, "{size}");
+        assert_eq!(rotation, 360.0);
+        // A text block has no rate, and every number has a range.
+        assert!(!text("x").numbers().contains(&"rate"));
+        for name in text("x").numbers() {
+            assert!(number_range(name).is_some());
+        }
     }
 
     #[test]

@@ -190,6 +190,8 @@ export interface VjModulationCatalog {
   audio: VjModSource;
   layer: Record<string, VjModField>;
   clip: Record<string, VjModField>;
+  /** The numbers of a generator, by name; a clip's modulation of one is the field `generator.<name>`. */
+  generator: Record<string, VjModField>;
 }
 
 export interface VjEffectCatalog {

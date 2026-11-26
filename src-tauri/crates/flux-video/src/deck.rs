@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,6 +18,9 @@ use crate::player::VideoPlayer;
 
 /// How far ahead a clip's file is opened and its first frame decoded: two seconds at 30 fps.
 pub const PRELOAD_FRAMES: u64 = 60;
+
+/// How many pictures of a generator clip the deck keeps.
+const KEPT_PICTURES: usize = 4;
 
 /// Gives the file on disk of a video asset id.
 type Resolve = Box<dyn Fn(&str) -> Option<PathBuf> + Send>;
@@ -41,8 +44,10 @@ pub struct VideoDeck {
     players: HashMap<String, VideoPlayer>,
     /// Clips whose file could not be opened, kept so it is not retried on every call.
     failed: HashMap<String, PathBuf>,
-    /// The last picture of each generator clip shown, made again only when it changes.
-    generated: HashMap<String, Arc<Frame>>,
+    /// The last few pictures of each generator clip shown, made again only when it changes. More
+    /// than one, so that screens asking a moment apart for a modulated generator, and the monitor
+    /// and the screens, find the picture another of them made instead of making it again.
+    generated: HashMap<String, VecDeque<Arc<Frame>>>,
 }
 
 impl VideoDeck {
@@ -123,11 +128,15 @@ impl VideoDeck {
         moment: Moment,
     ) -> Option<Arc<Frame>> {
         let index = generate::index(generator, moment)?;
-        if let Some(frame) = self.generated.get(clip).filter(|f| f.index == index) {
+        let made = self.generated.entry(clip.to_owned()).or_default();
+        if let Some(frame) = made.iter().find(|f| f.index == index) {
             return Some(Arc::clone(frame));
         }
         let frame = Arc::new(generate::picture(generator, index, moment));
-        self.generated.insert(clip.to_owned(), Arc::clone(&frame));
+        if made.len() >= KEPT_PICTURES {
+            made.pop_front();
+        }
+        made.push_back(Arc::clone(&frame));
         Some(frame)
     }
 

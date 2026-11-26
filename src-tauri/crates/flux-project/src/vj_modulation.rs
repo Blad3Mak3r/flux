@@ -3,7 +3,8 @@
 //! (the low, mid or high band, or the level).
 //!
 //! A [`Modulation`] is stored with the thing it moves: an effect (any numeric setting of its kind),
-//! a layer (`master`, `opacity`, `volume`) or a clip (`scale`, `positionX`, `positionY`). It never
+//! a layer (`master`, `opacity`, `volume`) or a clip (`scale`, `positionX`, `positionY`, and the
+//! numbers of its generator as `generator.size`, `generator.rotation`...). It never
 //! changes the stored value: the screens and the sound ask [`modulate`] for a copy of the grid
 //! with every modulated value in place of the stored one, and the stored grid stays as it was.
 //!
@@ -18,7 +19,7 @@ use std::f32::consts::{PI, TAU};
 
 use serde::{Deserialize, Serialize};
 
-use crate::vj::{MAX_OFFSET, MAX_SCALE, Vj};
+use crate::vj::{Clip, MAX_OFFSET, MAX_SCALE, Vj};
 use crate::vj_effects::{BEAT_CYCLES, Effect, Pace, Sync};
 use crate::{ProjectError, Result};
 
@@ -182,7 +183,23 @@ pub fn layer_range(field: &str) -> Option<(f32, f32)> {
     LAYER_FIELDS.contains(&field).then_some((0.0, 1.0))
 }
 
-/// The range of a clip's modulatable field.
+/// The prefix of the fields of a clip that move a number of its generator.
+pub const GENERATOR_FIELD: &str = "generator.";
+
+/// The range of the modulatable field `field` of `clip`: its transform, or a number its generator
+/// has.
+pub fn clip_field_range(clip: &Clip, field: &str) -> Option<(f32, f32)> {
+    match field.strip_prefix(GENERATOR_FIELD) {
+        Some(name) => clip
+            .generator
+            .as_ref()
+            .filter(|generator| generator.numbers().contains(&name))
+            .and_then(|_| crate::generator::number_range(name)),
+        None => clip_range(field),
+    }
+}
+
+/// The range of a clip's own modulatable field (its transform).
 pub fn clip_range(field: &str) -> Option<(f32, f32)> {
     match field {
         "scale" => Some((0.0, MAX_SCALE)),
@@ -203,6 +220,20 @@ pub(crate) fn validate_map(
     }
     Ok(())
 }
+
+/// Each number of a generator with the value it starts at and where a new modulation of it starts.
+const GENERATOR_STARTS: [(&str, f32, (f32, f32)); 10] = [
+    ("rate", 8.0, (1.0, 15.0)),
+    ("width", 0.5, (0.1, 0.9)),
+    ("angle", 0.0, (0.0, 360.0)),
+    ("size", 0.12, (0.06, 0.2)),
+    ("opacity", 1.0, (0.0, 1.0)),
+    ("positionX", 0.5, (0.25, 0.75)),
+    ("positionY", 0.5, (0.25, 0.75)),
+    ("rotation", 0.0, (-30.0, 30.0)),
+    ("tracking", 0.0, (0.0, 0.3)),
+    ("leading", 0.0, (0.0, 0.5)),
+];
 
 /// What the inspector draws its modulation controls from, as the effect catalogue is: the shapes,
 /// bands and limits, the modulation a new one starts as, and the range of each field of a layer
@@ -241,6 +272,10 @@ pub fn catalog() -> serde_json::Value {
             "positionX": clip("positionX", 0.0, (-0.5, 0.5)),
             "positionY": clip("positionY", 0.0, (-0.5, 0.5)),
         },
+        "generator": GENERATOR_STARTS.iter().map(|&(name, default, start)| {
+            let range = crate::generator::number_range(name).unwrap_or((0.0, 1.0));
+            (name, field(range, default, start))
+        }).collect::<BTreeMap<_, _>>(),
     })
 }
 
@@ -568,7 +603,12 @@ pub fn modulate_into(
                     "scale" => out.scale = value.clamp(0.0, MAX_SCALE),
                     "positionX" => out.position[0] = value.clamp(-MAX_OFFSET, MAX_OFFSET),
                     "positionY" => out.position[1] = value.clamp(-MAX_OFFSET, MAX_OFFSET),
-                    _ => {}
+                    other => {
+                        let number = other.strip_prefix(GENERATOR_FIELD);
+                        if let (Some(name), Some(generator)) = (number, &mut out.generator) {
+                            generator.set_modulated(name, value);
+                        }
+                    }
                 }
             }
             modulate_stack(&clip.effects, &mut out.effects, modulator, clock, bands);
@@ -925,6 +965,80 @@ mod tests {
         near(vj.layers[0].clips[0].scale, 1.0);
     }
 
+    fn text_clip_grid() -> Vj {
+        let mut vj = grid_with_clip();
+        vj.layers[0].clips[0].asset.clear();
+        vj.layers[0].clips[0].generator =
+            Some(serde_json::from_str(r#"{"kind":"text","text":"FLUX"}"#).unwrap());
+        vj
+    }
+
+    fn text_number(vj: &Vj, name: &str) -> f32 {
+        let json = serde_json::to_value(vj.layers[0].clips[0].generator.as_ref().unwrap()).unwrap();
+        json[name].as_f64().unwrap() as f32
+    }
+
+    #[test]
+    fn a_generators_numbers_should_be_modulated_in_the_copy_and_kept_in_their_range() {
+        let mut vj = text_clip_grid();
+        let ramp = |min, max| lfo(Shape::SawUp, beats(1.0), 0.0, min, max);
+        let clip = &mut vj.layers[0].clips[0];
+        clip.modulation
+            .insert("generator.size".into(), ramp(0.1, 0.3));
+        clip.modulation
+            .insert("generator.rotation".into(), ramp(-90.0, 90.0));
+        // Past the range of the setting, as a file could carry it.
+        clip.modulation
+            .insert("generator.opacity".into(), ramp(0.0, 5.0));
+        let before = vj.clone();
+        let mut modulator = Modulator::default();
+        let out = modulate(&vj, &mut modulator, at(0.0, 0.5), Bands::default());
+        assert_eq!(vj, before, "the stored grid is untouched");
+        near(text_number(&out, "size"), 0.2);
+        near(text_number(&out, "rotation"), 0.0);
+        near(text_number(&out, "opacity"), 1.0);
+        assert_eq!(text_number(&vj, "size"), 0.12, "the stored size stays");
+        let values = values(&vj, &mut modulator, at(0.0, 0.5), Bands::default());
+        near(values.clips["c"]["generator.size"], 0.2);
+    }
+
+    #[test]
+    fn a_modulated_generator_number_should_be_rounded_so_a_small_move_keeps_the_picture() {
+        let mut vj = text_clip_grid();
+        vj.layers[0].clips[0].modulation.insert(
+            "generator.size".into(),
+            lfo(Shape::SawUp, beats(1.0), 0.0, 0.1, 0.3),
+        );
+        let mut modulator = Modulator::default();
+        let size = |beats: f64, modulator: &mut Modulator| {
+            let out = modulate(&vj, modulator, at(0.0, beats), Bands::default());
+            text_number(&out, "size")
+        };
+        // 0.0001 of a beat moves the value by 0.00002: less than its step of 0.001.
+        assert_eq!(size(0.5, &mut modulator), size(0.5001, &mut modulator));
+        assert_ne!(size(0.5, &mut modulator), size(0.6, &mut modulator));
+    }
+
+    #[test]
+    fn the_range_of_a_generator_field_should_be_the_generators_and_only_for_its_numbers() {
+        let vj = text_clip_grid();
+        let clip = &vj.layers[0].clips[0];
+        assert_eq!(clip_field_range(clip, "generator.size"), Some((0.01, 2.0)));
+        assert_eq!(
+            clip_field_range(clip, "generator.rate"),
+            None,
+            "not a text block's"
+        );
+        assert_eq!(clip_field_range(clip, "generator.colour"), None);
+        assert_eq!(clip_field_range(clip, "scale"), Some((0.0, MAX_SCALE)));
+        let video = &grid_with_clip().layers[0].clips[0];
+        assert_eq!(
+            clip_field_range(video, "generator.size"),
+            None,
+            "a video has none"
+        );
+    }
+
     #[test]
     fn a_grid_without_modulation_should_be_borrowed() {
         let vj = grid_with_clip();
@@ -1029,6 +1143,12 @@ mod tests {
             let range = layer_range(field).unwrap();
             assert_eq!(spec["min"], range.0);
             assert_eq!(spec["max"], range.1);
+        }
+        for (name, ..) in crate::generator::NUMBERS {
+            let spec = &catalog["generator"][name];
+            let (lo, hi) = crate::generator::number_range(name).unwrap();
+            assert_eq!(spec["min"].as_f64(), Some(f64::from(lo)), "{name}");
+            assert_eq!(spec["max"].as_f64(), Some(f64::from(hi)), "{name}");
         }
         for field in CLIP_FIELDS {
             let spec = &catalog["clip"][field];
