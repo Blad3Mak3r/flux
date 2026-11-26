@@ -177,6 +177,8 @@ fn run(app: &AppHandle, shared: &Analysis) {
         }
         let Some(ring) = listening.as_ref().and_then(|l| l.ring.as_ref()) else {
             shared.bands.store(Bands::default());
+            // Nothing to read: look again for a new source, no faster.
+            thread::sleep(LOOK);
             continue;
         };
         if ring.rate() != analyzer.rate() {

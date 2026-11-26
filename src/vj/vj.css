@@ -426,8 +426,8 @@
 .vj-meter-b { position: relative; display: flex; flex-direction: column; justify-content: flex-end; width: 12px; }
 .vj-meter-b i { display: block; min-height: 1px; background: var(--phosphor); border-radius: 1px; }
 .vj-meter-b[data-band="level"] i { background: var(--vj-master); }
-.vj-meter-b b { position: absolute; top: -2px; left: 0; right: 0; color: var(--ink-faint); font: 600 8px var(--font-measure); text-align: center; mix-blend-mode: difference; pointer-events: none; }
-.vj-meter[data-state="missing"] i, .vj-meter[data-state="error"] i { background: var(--signal); }
+.vj-meter-b b { position: absolute; top: -2px; left: 0; right: 0; color: var(--ink-dim); font: 600 8px var(--font-measure); text-align: center; pointer-events: none; }
+.vj-meter[data-state="missing"], .vj-meter[data-state="error"] { border-color: var(--signal); }
 .vj-meter[data-state="off"] { opacity: 0.6; }
 
 /* The crossfader, under the layer headers and beside the deck tabs, as in Resolume. */
@@ -498,7 +498,7 @@
 .vj-ithumb { width: 200px; aspect-ratio: 16 / 9; border-radius: 1px; box-shadow: 0 0 0 2px var(--phosphor); }
 .vj-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .vj-f { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 10px; }
-.vj-f > span:first-child { color: var(--ink-faint); font-size: 12px; }
+.vj-f > span:first-child { color: var(--ink-faint); font-size: 12px; line-height: 1.25; overflow-wrap: anywhere; }
 
 .vj-input {
   height: 28px;
@@ -939,20 +939,22 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-scrub .vj-mod-b { width: 22px; margin-right: 1px; }
 .vj-scrub.has-trailing .vj-scrub-l { padding: 0 4px; }
 .vj-scrub.has-trailing .vj-scrub-u { padding: 0 2px 0 1px; }
-.vj-scrub-m { position: absolute; bottom: 0; width: 3px; height: 6px; margin-left: -1px; background: var(--phosphor); box-shadow: 0 0 4px var(--phosphor); pointer-events: none; }
+.vj-scrub-m { position: absolute; bottom: 0; width: 3px; height: 6px; margin-left: -1px; background: var(--phosphor); pointer-events: none; }
 .vj-scrub.modulated::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--phosphor-dim); opacity: 0.5; pointer-events: none; }
 
 .vj-mod {
   display: flex; flex-direction: column; gap: 6px; margin: 0 0 2px 16px; padding: 6px 8px;
-  background: oklch(0.17 0.012 250); border-left: 2px solid var(--phosphor-dim); border-radius: 0 2px 2px 0;
+  background: var(--vj-well); border-left: 2px solid var(--phosphor-dim); border-radius: 0 2px 2px 0;
 }
 .vj-mod .vj-f { grid-template-columns: 68px minmax(0, 1fr); gap: 8px; }
-.vj-mod .vj-segs button { padding: 0 4px; font-size: 11px; }
+.vj-mod .vj-segs button { flex: 1 0 auto; padding: 0 3px; font-size: 11px; }
+.vj-mod .vj-scrub-l { padding: 0 4px; }
+.vj-mod .vj-scrub-u { padding: 0 4px 0 1px; }
 .vj-shape { width: 16px; height: 12px; vertical-align: middle; }
 .vj-mod .vj-segs button .vj-shape { display: block; margin: 0 auto; }
 
 /* A layer fader that is modulated shows a line where the modulated value is now. */
-.vj-fader em { position: absolute; left: 0; right: 0; bottom: calc((100% - 14px) * var(--mv, 0) + 7px); height: 2px; background: var(--phosphor); box-shadow: 0 0 4px var(--phosphor); pointer-events: none; }
+.vj-fader em { position: absolute; left: 0; right: 0; bottom: calc((100% - 14px) * var(--mv, 0) + 7px); height: 2px; background: var(--phosphor); pointer-events: none; }
 .vj-fader.modulated b { box-shadow: 0 0 0 1px var(--phosphor); }
 
 /* ---- Clip transport ---- */
@@ -975,12 +977,12 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-outside { position: absolute; top: 0; bottom: 0; background: oklch(0.12 0.01 250 / 0.78); pointer-events: none; }
 .vj-outside.left { left: 0; }
 .vj-outside.right { right: 0; }
-.vj-handle { position: absolute; top: 0; bottom: 0; width: 9px; background: var(--amber); cursor: col-resize; }
+.vj-handle { position: absolute; top: 0; bottom: 0; width: 9px; background: var(--phosphor); cursor: col-resize; }
 .vj-handle.start { margin-left: 0; border-radius: 2px 0 0 2px; }
 .vj-handle.end { margin-left: -9px; border-radius: 0 2px 2px 0; }
-.vj-handle::after { content: ""; position: absolute; top: 14px; bottom: 14px; left: 3px; right: 3px; border-inline: 1px solid oklch(0.2 0.05 78); }
-.vj-handle:hover, .vj-handle:focus-visible { background: oklch(0.88 0.15 78); outline: 0; }
-.vj-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--signal); box-shadow: 0 0 6px var(--signal); pointer-events: none; }
+.vj-handle::after { content: ""; position: absolute; top: 14px; bottom: 14px; left: 3px; right: 3px; border-inline: 1px solid oklch(0.2 0.05 128); }
+.vj-handle:hover, .vj-handle:focus-visible { background: var(--ink); outline: 0; }
+.vj-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--signal); pointer-events: none; }
 .vj-cuemark {
   position: absolute;
   top: 0;
@@ -989,11 +991,11 @@ output.vj-tc-v { color: var(--ink-faint); }
   color: oklch(0.2 0.02 250);
   font: 600 10px var(--font-measure);
   text-align: center;
-  background: var(--phosphor);
+  background: var(--amber);
   border-radius: 0 0 2px 0;
   pointer-events: none;
 }
-.vj-cuemark::before { content: ""; position: absolute; left: 0; top: 100%; width: 1px; height: 40px; background: var(--phosphor); opacity: 0.6; }
+.vj-cuemark::before { content: ""; position: absolute; left: 0; top: 100%; width: 1px; height: 40px; background: var(--amber); opacity: 0.6; }
 
 .vj-speed { display: flex; gap: 6px; align-items: center; max-width: 220px; }
 .vj-speed .vj-scrub { flex: 1; }
@@ -1025,13 +1027,13 @@ output.vj-tc-v { color: var(--ink-faint); }
 }
 .vj-cue > button:first-child small { display: none; margin-left: 3px; font: 10px var(--font-ui); }
 .vj-cue > button:first-child:hover small { display: inline; }
-.vj-cue.set > button:first-child { color: oklch(0.2 0.02 250); background: var(--phosphor-dim); box-shadow: none; }
-.vj-cue.set > button:first-child:hover { background: var(--phosphor); }
+.vj-cue.set > button:first-child { color: oklch(0.2 0.05 78); background: var(--amber-dim); box-shadow: none; }
+.vj-cue.set > button:first-child:hover { background: var(--amber); }
 .vj-cue-x {
   position: absolute;
   top: -5px;
   right: -3px;
-  display: none;
+  opacity: 0;
   width: 14px;
   height: 14px;
   padding: 0;
@@ -1042,5 +1044,5 @@ output.vj-tc-v { color: var(--ink-faint); }
   border-radius: 7px;
   cursor: pointer;
 }
-.vj-cue:hover .vj-cue-x, .vj-cue:focus-within .vj-cue-x { display: block; }
+.vj-cue:hover .vj-cue-x, .vj-cue:focus-within .vj-cue-x { opacity: 1; }
 .vj-pass:empty { display: none; }

@@ -219,9 +219,9 @@ export function AnalysisMeter() {
     <button type="button" className="vj-meter" data-state={state} title={t("vj.mod.meterOpen", { state: word })} aria-label={t("vj.mod.meterOpen", { state: word })}
       onClick={() => openSetup("analysis")}>
       {BANDS.map((band) => (
-        <span key={band} className="vj-meter-b" data-band={band}>
+        <span key={band} className="vj-meter-b" data-band={band} title={t(`vj.mod.band.${band}` as MessageKey)}>
           <i style={{ height: `${Math.round((levels?.[band] ?? 0) * 100)}%` }} />
-          <b>{t(`vj.mod.meter.${band}` as MessageKey).slice(0, 1)}</b>
+          <b aria-hidden="true">{t(`vj.mod.meter.${band}` as MessageKey)}</b>
         </span>
       ))}
     </button>

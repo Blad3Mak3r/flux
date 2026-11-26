@@ -126,10 +126,15 @@ pub fn set_grid_tap(on: bool) {
     GRID_TAP_ON.store(on, Ordering::Relaxed);
 }
 
+/// Whether the output's callback is copying the grid's mix into the tap.
+pub fn grid_tap_on() -> bool {
+    GRID_TAP_ON.load(Ordering::Relaxed)
+}
+
 /// Called by the output's callback with the grid's own mix of a chunk: queues it as mono when the
 /// tap is on. No allocation, no lock.
 pub fn tap_grid(left: &[f32], right: &[f32], rate: u32) {
-    if !GRID_TAP_ON.load(Ordering::Relaxed) {
+    if !grid_tap_on() {
         return;
     }
     if let Some(ring) = GRID_TAP.get() {

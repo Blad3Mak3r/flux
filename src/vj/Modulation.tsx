@@ -73,10 +73,10 @@ function ShapeIcon({ shape }: { shape: VjLfoShape }) {
 }
 
 /** A length of a cycle in beats, as a musician writes it: 1/4, 1/2, 1, 2... */
-const beatLabel = (beats: number) => (beats < 1 ? `1/${Math.round(1 / beats)}` : String(beats));
+export const beatLabel = (beats: number) => (beats < 1 ? `1/${Math.round(1 / beats)}` : String(beats));
 
 /** The "~" button of a setting: lit while it is modulated. A click starts a modulation and opens its sub-row, or opens and closes it. */
-export function ModButton({ target, modulation, range }: { target: ModTarget; modulation: VjModulation | undefined; range: ModRange }) {
+export function ModButton({ target, modulation, range, name }: { target: ModTarget; modulation: VjModulation | undefined; range: ModRange; name: string }) {
   const t = useT();
   const catalog = useEffectCatalog((state) => state.catalog?.modulation);
   const key = modKey(target);
@@ -93,7 +93,7 @@ export function ModButton({ target, modulation, range }: { target: ModTarget; mo
   };
   return (
     <button type="button" className={`vj-mod-b${modulation ? " on" : ""}${open ? " open" : ""}`} aria-pressed={!!modulation} aria-expanded={modulation ? open : undefined}
-      title={t(modulation ? "vj.mod.edit" : "vj.mod.add")} aria-label={t(modulation ? "vj.mod.edit" : "vj.mod.add")} disabled={!catalog} onClick={click}>
+      title={t(modulation ? "vj.mod.edit" : "vj.mod.add")} aria-label={`${name}: ${t(modulation ? "vj.mod.edit" : "vj.mod.add")}`} disabled={!catalog} onClick={click}>
       <ModulationIcon />
     </button>
   );
@@ -107,14 +107,17 @@ export function ModPanel({ target, modulation, range }: { target: ModTarget; mod
   const open = useVj((vj) => vj.modOpen[key] === true);
   if (!open || !modulation || !catalog) return null;
   const { source } = modulation;
+  // What a double click on a number puts back: the backend's starting LFO and audio source.
+  const lfo0 = catalog.start.source.kind === "lfo" ? catalog.start.source : null;
+  const audio0 = catalog.audio.kind === "audio" ? catalog.audio : null;
   const send = (next: VjModulation | null) => void edit({ op: "setModulation", target, modulation: next });
   const move = (next: VjModulation) => preview({ op: "setModulation", target, modulation: next });
   const withSource = (patch: Partial<VjModSource>) => ({ ...modulation, source: { ...source, ...patch } }) as VjModulation;
   const field = (name: string, control: ReactNode) => (
     <div className="vj-f"><span>{name}</span>{control}</div>
   );
-  const seconds = (label: string, name: string, value: number, patch: (v: number) => Partial<VjModSource>) => (
-    <Scrub label={label} name={name} value={value} shown={1} reset={value} unit="s" decimals={2} perPixel={catalog.maxSmoothing / 200} step={0.01}
+  const seconds = (label: string, name: string, value: number, reset: number, patch: (v: number) => Partial<VjModSource>) => (
+    <Scrub label={label} name={name} value={value} shown={1} reset={reset} unit="s" decimals={2} perPixel={catalog.maxSmoothing / 200} step={0.01}
       onMove={(v) => move(withSource(patch(v)))} onSet={(v) => send(withSource(patch(v)))} />
   );
   const extent = Math.abs(range.max - range.min);
@@ -145,7 +148,7 @@ export function ModPanel({ target, modulation, range }: { target: ModTarget; mod
           {source.pace.sync === "free"
             ? field(t("vj.mod.rate"),
               <div className="vj-scrubs one">
-                <Scrub label="↔" name={t("vj.mod.rate")} value={source.pace.rate} shown={1} reset={0.5} unit="Hz" decimals={2} perPixel={catalog.maxRate / 300} step={0.01}
+                <Scrub label="↔" name={t("vj.mod.rate")} value={source.pace.rate} shown={1} reset={lfo0?.pace.rate ?? source.pace.rate} unit="Hz" decimals={2} perPixel={catalog.maxRate / 300} step={0.01}
                   onMove={(v) => move(withSource({ pace: { ...source.pace, rate: v } }))} onSet={(v) => send(withSource({ pace: { ...source.pace, rate: v } }))} />
               </div>)
             : field(t("vj.mod.beats"),
@@ -153,7 +156,7 @@ export function ModPanel({ target, modulation, range }: { target: ModTarget; mod
                 onPick={(o) => send(withSource({ pace: { ...source.pace, beats: Number(o) } }))} />)}
           {field(t("vj.mod.phase"),
             <div className="vj-scrubs one">
-              <Scrub label="↔" name={t("vj.mod.phase")} value={source.phase} shown={100} reset={0} unit="%" perPixel={1 / 100} step={0.01}
+              <Scrub label="↔" name={t("vj.mod.phase")} value={source.phase} shown={100} reset={lfo0?.phase ?? source.phase} unit="%" perPixel={1 / 100} step={0.01}
                 onMove={(v) => move(withSource({ phase: v }))} onSet={(v) => send(withSource({ phase: v }))} />
             </div>)}
         </>
@@ -164,13 +167,13 @@ export function ModPanel({ target, modulation, range }: { target: ModTarget; mod
               onPick={(band) => send(withSource({ band }))} />)}
           {field(t("vj.mod.gain"),
             <div className="vj-scrubs one">
-              <Scrub label="×" name={t("vj.mod.gain")} value={source.gain} shown={1} reset={1} unit="" decimals={2} perPixel={catalog.maxGain / 200} step={0.05}
+              <Scrub label="×" name={t("vj.mod.gain")} value={source.gain} shown={1} reset={audio0?.gain ?? source.gain} unit="" decimals={2} perPixel={catalog.maxGain / 200} step={0.05}
                 onMove={(v) => move(withSource({ gain: v }))} onSet={(v) => send(withSource({ gain: v }))} />
             </div>)}
           {field(t("vj.mod.smoothing"),
             <div className="vj-scrubs">
-              {seconds(t("vj.mod.attack"), t("vj.mod.attackName"), source.attack, (attack) => ({ attack }))}
-              {seconds(t("vj.mod.release"), t("vj.mod.releaseName"), source.release, (release) => ({ release }))}
+              {seconds(t("vj.mod.attack"), t("vj.mod.attackName"), source.attack, audio0?.attack ?? source.attack, (attack) => ({ attack }))}
+              {seconds(t("vj.mod.release"), t("vj.mod.releaseName"), source.release, audio0?.release ?? source.release, (release) => ({ release }))}
             </div>)}
         </>
       )}
@@ -182,7 +185,7 @@ export function ModPanel({ target, modulation, range }: { target: ModTarget; mod
 /** A number that can be modulated: its box carries the "~" button and a mark where the modulated value is now. */
 export function ModScrub({ target, modulation, range, ...scrub }: ComponentProps<typeof Scrub> & { target: ModTarget; modulation: VjModulation | undefined; range: ModRange }) {
   const marker = useModMarker(target, modulation, range);
-  return <Scrub {...scrub} marker={marker} trailing={<ModButton target={target} modulation={modulation} range={range} />} />;
+  return <Scrub {...scrub} marker={marker} trailing={<ModButton target={target} modulation={modulation} range={range} name={scrub.name} />} />;
 }
 
 /** How a layer's or a clip's modulatable field is counted (a percent), from the backend's catalogue; `undefined` until it has loaded. */

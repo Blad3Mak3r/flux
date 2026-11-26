@@ -46,7 +46,7 @@ function Hearing() {
       <p className="field-note">
         <RowStatus state={lamp} word={`setup.analysis.state.${state}` as MessageKey} />
       </p>
-      <div className="setup-analysis-bars" aria-label={t("setup.analysis.levels")}>
+      <div className="setup-analysis-bars" role="group" aria-label={t("setup.analysis.levels")}>
         {BANDS.map((band) => (
           <div key={band} className="setup-analysis-bar" data-band={band}>
             <span className="setup-analysis-track"><i style={{ width: `${Math.round((levels?.[band] ?? 0) * 100)}%` }} /></span>

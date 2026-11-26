@@ -124,11 +124,11 @@ export interface GridState {
 export const vjLaunch = (clip: string) => invoke<GridState>("vj_launch", { clip });
 export const vjRelease = (clip: string) => invoke<GridState>("vj_release", { clip });
 export const vjLaunchColumn = (column: string) => invoke<GridState>("vj_launch_column", { column });
-/** Stops a layer, or every layer with `null`. */
 /** Moves the playhead of the clip playing on `layer` to `position`, a fraction of the clip's length. */
 export const vjScrub = (layer: string, position: number) => invoke<GridState>("vj_scrub", { layer, position });
 /** Jumps to cue `index` (0 to 7) of a clip, launching the clip there if it is not playing. */
 export const vjCue = (clip: string, index: number) => invoke<GridState>("vj_cue", { clip, index });
+/** Stops a layer, or every layer with `null`. */
 export const vjStop = (layer: string | null) => invoke<GridState>("vj_stop", { layer });
 export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfader", { position });
 export const vjPlayState = () => invoke<GridState>("vj_play_state");
