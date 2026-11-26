@@ -1,0 +1,18 @@
+[
+  { "code": "KeyN", "cmd": true, "shift": false, "action": "new" },
+  { "code": "KeyO", "cmd": true, "shift": false, "action": "open" },
+  { "code": "KeyS", "cmd": true, "shift": false, "action": "save" },
+  { "code": "KeyS", "cmd": true, "shift": true, "action": "saveAs" },
+  { "code": "KeyZ", "cmd": true, "shift": false, "action": "undo" },
+  { "code": "KeyY", "cmd": true, "shift": false, "action": "redo" },
+  { "code": "KeyK", "cmd": true, "shift": false, "action": "newDeck" },
+  { "code": "KeyL", "cmd": true, "shift": false, "action": "newLayer" },
+  { "code": "KeyT", "cmd": true, "shift": false, "action": "newColumn" },
+  { "code": "KeyC", "cmd": true, "shift": true, "action": "composition" },
+  { "code": "KeyK", "cmd": true, "shift": true, "action": "mapKeys" },
+  { "code": "KeyM", "cmd": true, "shift": true, "action": "mapMidi" },
+  { "code": "KeyO", "cmd": true, "shift": true, "action": "mapOsc" },
+  { "code": "KeyX", "cmd": true, "shift": true, "action": "mapDmx" },
+  { "code": "KeyA", "cmd": true, "shift": true, "action": "output" },
+  { "code": "Escape", "cmd": false, "shift": false, "action": "escape" }
+]

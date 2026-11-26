@@ -13,6 +13,7 @@ import { setMapMode, useMap } from "./mapping";
 import { exportMappings, importMappings } from "./mapFile";
 import { hasSlot, sourceKind, sourceLabel, targetClass, targetLabel, targetUnits } from "./mapModel";
 import type { SourceKind } from "./mapModel";
+import { acceleratorOf } from "./shortcuts";
 import { edit } from "./store";
 
 const NO_VIDEOS: VideoAsset[] = [];
@@ -93,7 +94,7 @@ export function MappingsPanel({ grid }: { grid: VjGrid }) {
       <div className="vj-mp-bar">
         <span className="vj-dim">{t("vj.mappings.count", { n: all.length })}</span>
         <button type="button" className={`vj-tb${on ? " on" : ""}`} aria-pressed={on} onClick={() => setMapMode(!on)}>
-          {t("vj.map.mode")}<kbd>Ctrl+M</kbd>
+          {t("vj.map.mode")}<kbd>{acceleratorOf("mapMidi")}</kbd>
         </button>
       </div>
       <div className="vj-mp-bar vj-mp-tools">

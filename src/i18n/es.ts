@@ -1296,7 +1296,7 @@ export const es: Record<MessageKey, string> = {
   "setup.control.artnet.packets": "{n} paquetes recibidos",
   "setup.control.artnet.note": "Escucha en el puerto UDP 6454 y lo comparte con otros programas. Los canales de una mesa se aprenden en el modo asignar del VJ: mueve el fader en la mesa. Solo cuentan los cambios.",
   "vj.mappings.count": "{n} asignadas",
-  "vj.mappings.empty": "Todavía no hay nada asignado. Activa el modo asignar (Ctrl+M), pulsa un control y mueve un control MIDI, envía un mensaje OSC, mueve un canal DMX o pulsa una tecla.",
+  "vj.mappings.empty": "Todavía no hay nada asignado. Activa el modo asignar (Ctrl+Shift+M), pulsa un control y mueve un control MIDI, envía un mensaje OSC, mueve un canal DMX o pulsa una tecla.",
   "vj.mappings.source": "Origen",
   "vj.mappings.target": "Mueve",
   "vj.mappings.options": "Rango o botón",
