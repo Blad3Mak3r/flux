@@ -161,7 +161,7 @@ pub struct ArtnetListener {
 impl ArtnetListener {
     /// Listens on `address` (a bind interface; `0.0.0.0` is every one) at `port` ([`ARTNET_PORT`]
     /// in the app, `0` picks a free one) and sends the frames of `universe` (every one when
-    /// `None`) to `inputs`. The port is shared (`SO_REUSEADDR`), as lighting software does, so
+    /// `None`) to `inputs`. The port is shared (`SO_REUSEADDR`, and `SO_REUSEPORT` on Unix), as lighting software does, so
     /// another program that listens does not keep Flux from it.
     pub fn bind(
         address: &str,
@@ -178,6 +178,9 @@ impl ArtnetListener {
             Some(socket2::Protocol::UDP),
         )?;
         socket.set_reuse_address(true)?;
+        // macOS and the BSDs share a UDP port only with `SO_REUSEPORT` as well.
+        #[cfg(unix)]
+        socket.set_reuse_port(true)?;
         socket.bind(&std::net::SocketAddr::new(address, port).into())?;
         let socket: UdpSocket = socket.into();
         socket.set_read_timeout(Some(POLL))?;
