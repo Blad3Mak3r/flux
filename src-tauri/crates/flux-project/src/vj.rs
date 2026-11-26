@@ -345,6 +345,14 @@ pub struct Clip {
     /// [`MIN_SPEED`] to [`MAX_SPEED`]. Absent is 1.
     #[serde(default = "full_speed", skip_serializing_if = "is_full_speed")]
     pub speed: f32,
+    /// How long a still image or a generator lasts, in seconds, from [`MIN_DURATION`] to
+    /// [`MAX_DURATION`]: the length its transport (region, cues, loop, once, tempo) runs over, as
+    /// a video's file does for a video, which ignores it. Absent is [`DEFAULT_DURATION`].
+    #[serde(
+        default = "default_duration",
+        skip_serializing_if = "is_default_duration"
+    )]
+    pub duration: f32,
     /// Which way the clip plays; absent is [`Direction::Forward`].
     #[serde(default, skip_serializing_if = "Direction::is_forward")]
     pub direction: Direction,
@@ -393,6 +401,14 @@ fn is_centred(position: &[f32; 2]) -> bool {
     *position == [0.0, 0.0]
 }
 
+fn default_duration() -> f32 {
+    DEFAULT_DURATION
+}
+
+fn is_default_duration(duration: &f32) -> bool {
+    *duration == DEFAULT_DURATION
+}
+
 fn full_speed() -> f32 {
     1.0
 }
@@ -408,6 +424,11 @@ fn no_cues(cues: &[Option<f32>; CUES]) -> bool {
 /// Slowest and fastest a clip plays, times its own speed.
 pub const MIN_SPEED: f32 = 0.05;
 pub const MAX_SPEED: f32 = 8.0;
+/// The length of a still image or a generator, in seconds: the shortest, the longest and the one a
+/// new clip has.
+pub const MIN_DURATION: f32 = 0.1;
+pub const MAX_DURATION: f32 = 3600.0;
+pub const DEFAULT_DURATION: f32 = 10.0;
 /// The shortest region of a clip, as a fraction of its length.
 pub const MIN_REGION: f32 = 0.001;
 /// How many cues a clip has.
@@ -708,6 +729,12 @@ pub enum VjOp {
     },
     /// How fast the clip plays, times its own speed, from [`MIN_SPEED`] to [`MAX_SPEED`].
     ClipSpeed {
+        clip: String,
+        value: f32,
+    },
+    /// How long a still image or a generator lasts, in seconds, from [`MIN_DURATION`] to
+    /// [`MAX_DURATION`]; a video keeps the length of its file.
+    ClipDuration {
         clip: String,
         value: f32,
     },
@@ -1170,6 +1197,9 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::ClipSpeed { clip, value } => {
             vj.clip_mut(&clip)?.speed = within(value, MIN_SPEED, MAX_SPEED)?;
         }
+        VjOp::ClipDuration { clip, value } => {
+            vj.clip_mut(&clip)?.duration = within(value, MIN_DURATION, MAX_DURATION)?;
+        }
         VjOp::ClipDirection { clip, direction } => vj.clip_mut(&clip)?.direction = direction,
         VjOp::ClipTempo { clip, tempo } => {
             vj.clip_mut(&clip)?.tempo = match tempo {
@@ -1314,6 +1344,7 @@ pub(crate) fn new_clip(id: String, asset: String, generator: Option<Generator>) 
         playback: Playback::Loop,
         trigger: Trigger::Normal,
         speed: 1.0,
+        duration: DEFAULT_DURATION,
         direction: Direction::Forward,
         tempo: Tempo::Free,
         region: Region::default(),
@@ -1549,9 +1580,14 @@ fn check_transport(clip: &Clip) -> Result<()> {
         .iter()
         .flatten()
         .all(|cue| (0.0..=1.0).contains(cue));
-    if !(MIN_SPEED..=MAX_SPEED).contains(&clip.speed) || !tempo || !clip.region.valid() || !cues {
+    if !(MIN_SPEED..=MAX_SPEED).contains(&clip.speed)
+        || !(MIN_DURATION..=MAX_DURATION).contains(&clip.duration)
+        || !tempo
+        || !clip.region.valid()
+        || !cues
+    {
         return Err(ProjectError::Invalid(format!(
-            "clip {} needs a speed of {MIN_SPEED} to {MAX_SPEED}, a length of 1 to 128 beats, a region of at least {MIN_REGION} inside the clip and cues inside the clip",
+            "clip {} needs a speed of {MIN_SPEED} to {MAX_SPEED}, a duration of {MIN_DURATION} to {MAX_DURATION} seconds, a length of 1 to 128 beats, a region of at least {MIN_REGION} inside the clip and cues inside the clip",
             clip.id
         )));
     }
@@ -1810,7 +1846,8 @@ mod tests {
         assert_eq!(clip.region, Region::default());
         assert_eq!(clip.cues, [None; CUES]);
         let json = serde_json::to_value(clip).unwrap();
-        for field in ["speed", "direction", "tempo", "region", "cues"] {
+        assert_eq!(clip.duration, DEFAULT_DURATION);
+        for field in ["speed", "duration", "direction", "tempo", "region", "cues"] {
             assert!(json.get(field).is_none(), "{field} is left out");
         }
         // A clip written before the transport has the same.
@@ -1916,6 +1953,35 @@ mod tests {
     }
 
     #[test]
+    fn the_duration_op_should_bring_into_range_round_trip_and_refuse_what_is_not_a_number() {
+        let (mut project, mut new_id) = vj_project();
+        place(&mut project, "g1", "g5", &mut new_id); // g13
+        let duration = |value| VjOp::ClipDuration {
+            clip: "g13".into(),
+            value,
+        };
+        run(&mut project, duration(3.0), &mut new_id);
+        assert_eq!(transport(&project).duration, 3.0);
+        run(&mut project, duration(0.0), &mut new_id);
+        assert_eq!(transport(&project).duration, MIN_DURATION);
+        run(&mut project, duration(1e9), &mut new_id);
+        assert_eq!(transport(&project).duration, MAX_DURATION);
+        assert!(apply(&mut project, duration(f32::NAN), &mut new_id).is_err());
+        run(&mut project, duration(2.5), &mut new_id);
+        let json = serde_json::to_value(transport(&project)).unwrap();
+        assert_eq!(json["duration"].as_f64(), Some(2.5));
+        let back: Clip = serde_json::from_value(json).unwrap();
+        assert_eq!(&back, transport(&project));
+        let mut without = serde_json::to_value(transport(&project)).unwrap();
+        without.as_object_mut().unwrap().remove("duration");
+        let old: Clip = serde_json::from_value(without).unwrap();
+        assert_eq!(
+            old.duration, DEFAULT_DURATION,
+            "an old file has the default"
+        );
+    }
+
+    #[test]
     fn validate_should_refuse_a_transport_out_of_range() {
         let (mut project, mut new_id) = vj_project();
         place(&mut project, "g1", "g5", &mut new_id); // g13
@@ -1926,6 +1992,9 @@ mod tests {
         };
         assert!(broken(&|c| c.speed = 9.0));
         assert!(broken(&|c| c.speed = 0.0));
+        assert!(broken(&|c| c.duration = 0.0));
+        assert!(broken(&|c| c.duration = MAX_DURATION + 1.0));
+        assert!(broken(&|c| c.duration = f32::NAN));
         assert!(broken(&|c| c.tempo = Tempo::Beats { beats: 3 }));
         assert!(broken(&|c| c.region = Region {
             start: 0.5,

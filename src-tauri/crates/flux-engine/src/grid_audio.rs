@@ -341,7 +341,6 @@ mod tests {
             tempo: Tempo::Free,
             region: Region::default(),
             playback,
-            generator: false,
         }
     }
 

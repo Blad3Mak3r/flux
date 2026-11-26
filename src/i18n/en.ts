@@ -1159,6 +1159,8 @@ export const en = {
   "vj.transport.direction.pause": "Pause",
   "vj.transport.direction.forward": "Play forwards",
   "vj.transport.speed": "Speed",
+  "vj.transport.duration": "Duration",
+  "vj.transport.durationHint": "How long this image or generator lasts, in seconds: the length the region, cues, loop, once and tempo run over.",
   "vj.transport.speedOff": "The speed does not count while a pass lasts a number of beats",
   "vj.transport.speedReset": "Back to normal speed",
   "vj.transport.tempo": "Tempo",

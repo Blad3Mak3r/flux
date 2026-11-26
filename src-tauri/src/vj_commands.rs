@@ -110,9 +110,9 @@ impl Grid {
         };
         self.play.follow(vj, tick, &|asset| {
             let probe = crate::video_commands::probed(asset)?;
-            Some(video_seconds(
-                Rate::new(probe.rate_num, probe.rate_den),
-                probe.frames,
+            Some((
+                video_seconds(Rate::new(probe.rate_num, probe.rate_den), probe.frames),
+                probe.still,
             ))
         });
         tick
@@ -262,21 +262,26 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid, tick: Tick, bpm: f64) ->
             let (shown, at, head) = launched.shown(now)?;
             let elapsed = now.saturating_sub(at);
             let (_, clip) = vj.find_clip(shown)?;
-            // Only the videos playing are copied, not the whole list on every poll.
-            let length = (clip.generator.is_none())
-                .then(|| {
-                    let asset = session
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .video_copy(&clip.asset)?;
-                    known_probe(session, &asset)
-                })
-                .flatten()
-                // A still image has no length: nothing to count down.
-                .filter(|probe| !probe.still)
-                .map(|probe| {
-                    video_seconds(Rate::new(probe.rate_num, probe.rate_den), probe.frames)
-                });
+            // Only the videos playing are copied, not the whole list on every poll. A generator
+            // and a still image last the clip's duration.
+            let duration = f64::from(clip.duration);
+            let length = if clip.generator.is_some() {
+                Some(duration)
+            } else {
+                let asset = session
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .video_copy(&clip.asset);
+                asset
+                    .and_then(|asset| known_probe(session, &asset))
+                    .map(|probe| {
+                        if probe.still {
+                            duration
+                        } else {
+                            video_seconds(Rate::new(probe.rate_num, probe.rate_den), probe.frames)
+                        }
+                    })
+            };
             let report = Report::of(head, tick, bpm, length);
             let transition = launched.fading(now).map(|fade| fade.progress(now));
             let stopping = launched.clip.is_none();
@@ -589,7 +594,6 @@ mod tests {
             tempo: Tempo::Free,
             region: Region::default(),
             playback: Playback::Loop,
-            generator: false,
         }
     }
 

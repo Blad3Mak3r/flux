@@ -348,23 +348,46 @@ only then. Between a strobe's flashes the layer shows nothing. The screens and t
 picture.
 
 The **Text Block** generator (Resolume's) draws lines of text over a clear background, so what is below shows through. The
-`flux-text` crate does it in pure Rust: `fontdb` finds the system's fonts and `ab_glyph` draws the glyphs (kerning comes
-from the font's legacy `kern` table, so a font with GPOS-only kerning is spaced by its advances). A family or face the
-machine lacks falls back to the bundled Inter (a Latin subset of Regular and Bold, SIL OFL; `crates/flux-text/fonts`), so a
-text always draws; a glyph the font lacks is skipped. `vj_fonts` lists the families and their faces for the inspector's
+`flux-text` crate does it in pure Rust: `fontdb` finds the system's fonts, `rustybuzz` (a HarfBuzz port) shapes each line
+(GPOS and `kern` kerning, ligatures, marks; ligatures are off while `tracking` is not 0) and `ab_glyph` draws the glyph ids it
+returns, from the same font bytes. A family or face the machine lacks falls back to the bundled Inter (a Latin subset of
+Regular and Bold, SIL OFL; `crates/flux-text/fonts`), so a text always draws. A character the chosen face lacks (Cyrillic,
+CJK, symbols, emoji) is drawn with another face: a line is cut into runs by font coverage, and each run is shaped with the
+chosen face first, then the first face of the system whose cmap has the character (the same slant and the nearest weight
+first, one with an outline before one that only has bitmaps; the choice per character is cached), then the bundled Inter; a
+character nobody has draws the chosen face's own missing-glyph box. Zero width joiners and variation selectors stay with the
+character before them. A colour emoji that a font only has as bitmaps (Noto Color Emoji, Apple Color Emoji) has no outline
+to draw, so it leaves a blank of its advance; a font that has outlines for it (a monochrome emoji or symbol face, or the base
+glyph of a COLR font) draws it in the block's colour, never in its own colours. `vj_fonts` lists the families and their faces for the inspector's
 pickers. The picture is the shape of the composition, at most 1920 wide, straight RGBA with the glyphs' alpha, and is made
 once per set of parameters: its index hashes the generator, the line shown and the composition's size, so a still text is
 rasterised once and a change (a typed letter, a scrubbed size) makes one new picture. With `lines` `one`, the line shown is
 `line` plus the whole beats of the grid's clock divided by `advance` (1, 2, 4, 8 or 16; 0 is by hand), going round the lines
 that are not empty. Stepping on the grid's beats rather than the clip's launch keeps the changes on the beat. The previous
 and next buttons are the backend op `textLine` (`step` -1 or 1): `line` is stored in the clip, so it enters the undo history
-and a saved show opens where it was left. Generators are not modulated today, so the text block's numbers are not either.
+and a saved show opens where it was left. The play state (`vj_play_state`) carries `line` for a playing text block that shows
+one line at a time: the line on screen now, which the inspector's readout shows as `shown / total` (the stored `line`
+while the clip does not play).
+
+The numbers of a generator are modulated like a clip's `scale` (see [Modulation](#modulation)): a text block's `size`,
+`opacity`, `positionX`, `positionY`, `rotation`, `tracking` and `leading`, a strobe's `rate` and `width`, a gradient's
+`angle` and a noise's `rate`, each with the "~" button next to its scrub, as the field `generator.<name>` of the clip, with
+the range of the generator's own limits. Drawing the text again is the cost of a moving number, so three things keep it
+cheap. A modulated value is rounded to a step of about a pixel (`generator::NUMBERS`: 0.001 of the height for the size, 0.1
+degree, 1/255 of opacity...) when it is put in the drawn copy of the grid, so the picture's index, which hashes the
+generator, changes only when the value moves a step: a held or slow value costs nothing. The deck keeps the last four
+pictures of each generator clip, so the screens that ask a moment apart, and the output monitor, find the one another made
+instead of drawing their own. And `flux-text` keeps the coverage of the last eight blocks (the glyphs' alpha, before the
+block is placed): a modulated position, rotation or opacity only resamples it, and the glyphs are drawn again only when the
+text, face, size, tracking or leading change. A modulated `size`, `tracking` or `leading` therefore draws the glyphs at
+most once per step of the value.
 
 ### Clip transport
 
 Each clip of the grid has a transport, as in Resolume (fields in the [project format](fxtc-format.md#vj-grid-version-14)):
 a `speed` (0.05 to 8), a `direction` (forward, reverse or pause), a `tempo` (free, or one pass of 1 to 128 beats), a
-`region` (the part of the clip that plays, with in and out points) and 8 `cues`. The Clip tab of the inspector has a
+`region` (the part of the clip that plays, with in and out points) and 8 `cues`; a still image or a generator also has a
+`duration`. The Clip tab of the inspector has a
 Transport section: a strip of the clip's thumbnails with the region shaded and its two handles (dragged live through
 `vj_preview`, kept on release), the playhead, the cue marks, and a click or drag on it scrubs (`vj_scrub`); the
 direction, a speed scrub with a 1x reset, the tempo (Free or 1 to 128 beats, with the length of a pass the backend
@@ -385,8 +408,12 @@ direction, tempo, region or playback anchors the playhead again from where it is
 tick of the grid's clock by the screens, the sound and the commands), so nothing jumps; a region that moves under the
 playhead keeps its place (brought into the new region) and, in a ping-pong, the leg of the bounce. A `scrub` or a `cue`
 anchors it at the place asked, brought into the region, and wakes a clip that played once and ended. A clip a
-transition leaves keeps its own playhead. A generator uses the playhead as its clock only: its milliseconds follow the
-speed and direction (not before its start), and region, cues and tempo do not apply to it. Effects animate on the real
+transition leaves keeps its own playhead. A still image and a generator have no file to
+run over: their length is the clip's `duration` (10 s by default, 0.1 s to 1 h, the op `clipDuration`), and the playhead
+treats them as a video of that length. The strip moves, `once` ends after the duration (the layer shows nothing), `loop`
+restarts, a beat tempo still sets the pass, and the region and cues work. A generator's time (its strobe and noise phase) is
+the place in that length, in milliseconds, so a loop starts it over. The Duration scrub is shown in the Transport section
+of a still or a generator clip only, and the cell's countdown counts down what is left of it. Effects animate on the real
 time since the launch, whatever the speed. The speed is not modulatable: integrating a modulated rate over time is not
 done.
 
@@ -436,7 +463,7 @@ has a small meter of the four readings (`vj_analysis_levels`) that opens the pag
 
 **Drawing.** Each frame step of the screens and of the monitor asks `modulation.rs` for the grid with its modulated values
 in place of the stored ones (`flux_project::vj_modulation::modulate`: effect settings, layer `master` and `opacity`, clip
-`scale` and `position`), and draws that. The stored project is never changed, a whole-number setting is rounded and every
+`scale` and `position`, and a generator's numbers), and draws that. The stored project is never changed, a whole-number setting is rounded and every
 value is cut to its range. A grid with no modulation is not copied.
 
 **Sound.** A layer's `volume` and `master` reach the grid's sound, which is built ahead of the audio callback as a

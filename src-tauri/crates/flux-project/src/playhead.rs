@@ -1,4 +1,5 @@
-//! Where a clip launched on the VJ grid is in its video, and how it moves: the clip's transport
+//! Where a clip launched on the VJ grid is in its video (or, for a still image or a generator, in
+//! its duration), and how it moves: the clip's transport
 //! (speed, direction, tempo, region and what it does at the end of the region) turned into a
 //! position on the grid's clock. The picture ([`Playhead::at`]) and the sound ([`Course`]) fold
 //! the same number the same way, so they never disagree.
@@ -42,24 +43,16 @@ pub struct Motion {
     pub tempo: Tempo,
     pub region: Region,
     pub playback: Playback,
-    /// A generator has no video: its time runs with the speed and direction, and nothing else.
-    pub generator: bool,
 }
 
 impl Motion {
     pub fn of(clip: &Clip) -> Self {
-        let generator = clip.generator.is_some();
         Self {
             speed: clip.speed,
             direction: clip.direction,
-            tempo: if generator { Tempo::Free } else { clip.tempo },
-            region: if generator {
-                Region::default()
-            } else {
-                clip.region
-            },
+            tempo: clip.tempo,
+            region: clip.region,
             playback: clip.playback,
-            generator,
         }
     }
 
@@ -137,7 +130,7 @@ pub struct Playhead {
 impl Playhead {
     /// A clip launched at `tick`: at the start of its region, or at the end when it plays backwards.
     pub fn launch(motion: Motion, tick: Tick) -> Self {
-        let u = if motion.direction == Direction::Reverse && !motion.generator {
+        let u = if motion.direction == Direction::Reverse {
             1.0
         } else {
             0.0
@@ -154,8 +147,8 @@ impl Playhead {
         &self.motion
     }
 
-    /// How many lengths of the region have been played at `tick`, for a video of `length` seconds
-    /// (a generator's is 1).
+    /// How many lengths of the region have been played at `tick`, for a clip of `length` seconds:
+    /// a video's, or the duration of a still image or a generator.
     pub fn phase(&self, tick: Tick, length: f64) -> f64 {
         let sign = self.motion.direction.sign();
         match self.motion.tempo {
@@ -171,11 +164,6 @@ impl Playhead {
     /// once has ended.
     pub fn at(&self, tick: Tick, length: f64) -> Option<f64> {
         self.motion.place(self.phase(tick, length))
-    }
-
-    /// How long a generator has played at `tick`, in seconds: it never goes before its start.
-    pub fn seconds(&self, tick: Tick) -> f64 {
-        self.phase(tick, 1.0).max(0.0)
     }
 
     /// Moves the playhead to `place`, a fraction of the clip's length, brought into its region.
@@ -259,7 +247,6 @@ mod tests {
             tempo: Tempo::Free,
             region: Region::default(),
             playback: Playback::Loop,
-            generator: false,
         }
     }
 
@@ -517,24 +504,61 @@ mod tests {
     }
 
     #[test]
-    fn a_generator_should_run_on_its_own_time_with_speed_and_direction() {
-        let generator = Motion {
-            generator: true,
+    fn a_still_or_generator_should_run_over_its_duration_like_a_video_of_that_length() {
+        // A clip of 3 s: at 1 s a third of the way, and the speed and direction change the pace.
+        near(
+            Playhead::launch(motion(), at(0.0)).at(at(1.0), 3.0),
+            1.0 / 3.0,
+        );
+        let fast = Motion {
             speed: 2.0,
             ..motion()
         };
-        let mut head = Playhead::launch(generator, at(1.0));
-        assert!((head.seconds(at(4.0)) - 6.0).abs() < 1e-9);
-        head.retime(
-            Motion {
-                direction: Direction::Reverse,
-                ..generator
-            },
-            at(4.0),
-            1.0,
+        near(Playhead::launch(fast, at(0.0)).at(at(1.0), 3.0), 2.0 / 3.0);
+        let reverse = Motion {
+            direction: Direction::Reverse,
+            ..motion()
+        };
+        near(
+            Playhead::launch(reverse, at(0.0)).at(at(1.0), 3.0),
+            2.0 / 3.0,
         );
-        assert!((head.seconds(at(5.0)) - 4.0).abs() < 1e-9);
-        assert_eq!(head.seconds(at(100.0)), 0.0, "never before its start");
+    }
+
+    #[test]
+    fn a_clip_of_a_duration_should_end_once_and_restart_in_a_loop() {
+        let once = Motion {
+            playback: Playback::Once,
+            ..motion()
+        };
+        let head = Playhead::launch(once, at(0.0));
+        near(head.at(at(2.9), 3.0), 2.9 / 3.0);
+        assert_eq!(head.at(at(3.1), 3.0), None, "gone after its duration");
+        let looped = Playhead::launch(motion(), at(0.0));
+        near(looped.at(at(3.3), 3.0), 0.1);
+        // A longer duration is the same clip, slower.
+        near(looped.at(at(3.0), 6.0), 0.5);
+    }
+
+    #[test]
+    fn a_beat_tempo_should_override_the_duration_and_a_region_should_still_apply() {
+        let beats = Motion {
+            tempo: Tempo::Beats { beats: 2 },
+            ..motion()
+        };
+        let head = Playhead::launch(beats, beat(0.0, 0.0));
+        // Two beats a pass whatever the 3 s: a quarter of it after half a beat.
+        near(head.at(beat(99.0, 0.5), 3.0), 0.25);
+        let region = Motion {
+            region: Region {
+                start: 0.5,
+                end: 1.0,
+            },
+            ..motion()
+        };
+        // 1.5 s over the second half of 3 s: it starts half way and is at 75% after 0.75 s.
+        near(Playhead::launch(region, at(0.0)).at(at(0.75), 3.0), 0.75);
+        near(Playhead::launch(region, at(0.0)).at(at(0.0), 3.0), 0.5);
     }
 
     #[test]

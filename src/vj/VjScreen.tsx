@@ -814,7 +814,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
     };
     body = (
       <div className="vj-insp">
-        {!probe?.still && <Transport clip={clip} layer={found.layer.id} strip={stripOf(thumbs, clip)} />}
+        <Transport clip={clip} layer={found.layer.id} strip={stripOf(thumbs, clip)} still={probe?.still} />
         <Thumb className="vj-ithumb" strip={stripOf(thumbs, clip)} generator={generator} />
         <div className="vj-fields">
           <label className="vj-f"><span>{t("vj.clip.name")}</span>
@@ -826,12 +826,10 @@ function Inspector({ grid }: { grid: VjGrid }) {
               onPick={(trigger) => void edit({ op: "clipTrigger", clip: clip.id, trigger })} />
           </div>
           {generator && <GeneratorFields clip={clip.id} generator={generator} modulation={clip.modulation} />}
-          {!generator && !probe?.still && (
-            <div className="vj-f"><span>{t("vj.clip.playback")}</span>
-              <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}
-                onPick={(playback) => void edit({ op: "clipPlayback", clip: clip.id, playback })} />
-            </div>
-          )}
+          <div className="vj-f"><span>{t("vj.clip.playback")}</span>
+            <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}
+              onPick={(playback) => void edit({ op: "clipPlayback", clip: clip.id, playback })} />
+          </div>
           {!generator && (
             <div className="vj-f"><span>{t("vj.clip.fit")}</span>
               <Segments options={FITS} value={clip.fit ?? "fit"} label={(o) => t(`vj.fit.${o}`)}

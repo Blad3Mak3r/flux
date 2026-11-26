@@ -59,6 +59,8 @@ export type VjOp =
   | { op: "renameClip"; clip: string; name: string }
   | { op: "clipPlayback"; clip: string; playback: VjPlayback }
   | { op: "clipSpeed"; clip: string; value: number }
+  /** Seconds a still image or a generator lasts, from 0.1 to 3600. */
+  | { op: "clipDuration"; clip: string; value: number }
   | { op: "clipDirection"; clip: string; direction: VjDirection }
   | { op: "clipTempo"; clip: string; tempo: VjTempo }
   | { op: "clipRegion"; clip: string; start: number; end: number }

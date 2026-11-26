@@ -1163,6 +1163,8 @@ export const es: Record<MessageKey, string> = {
   "vj.transport.direction.pause": "Pausa",
   "vj.transport.direction.forward": "Reproducir hacia delante",
   "vj.transport.speed": "Velocidad",
+  "vj.transport.duration": "Duración",
+  "vj.transport.durationHint": "Cuánto dura esta imagen o generador, en segundos: la longitud sobre la que corren la región, los cues, el bucle, el una vez y el tempo.",
   "vj.transport.speedOff": "La velocidad no cuenta mientras una pasada dura un número de tiempos",
   "vj.transport.speedReset": "Volver a la velocidad normal",
   "vj.transport.tempo": "Tempo",

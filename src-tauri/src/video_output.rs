@@ -1212,6 +1212,7 @@ mod tests {
             playback: Playback::Loop,
             trigger: Trigger::Normal,
             speed: 1.0,
+            duration: flux_project::vj::DEFAULT_DURATION,
             direction: Direction::default(),
             tempo: Default::default(),
             region: Default::default(),

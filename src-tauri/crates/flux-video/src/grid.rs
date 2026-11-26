@@ -251,11 +251,21 @@ impl GridPlay {
 
     /// Follows what the clips playing are now: a change of a clip's speed, direction, tempo,
     /// region or playback anchors its playhead again from where it is, so it never jumps. `length`
-    /// says how many seconds a video lasts, by asset; a clip whose video is not known yet waits.
-    pub fn follow(&mut self, vj: &Vj, tick: Tick, length: &dyn Fn(&str) -> Option<f64>) {
+    /// says how many seconds a video lasts and whether it is a still image, by asset; the length
+    /// of a still image or a generator is the clip's duration. A clip whose video is not known yet
+    /// waits.
+    pub fn follow(&mut self, vj: &Vj, tick: Tick, length: &dyn Fn(&str) -> Option<(f64, bool)>) {
         let seconds = |clip: &flux_project::vj::Clip| match clip.generator {
-            Some(_) => Some(1.0),
-            None => length(&clip.asset).filter(|seconds| *seconds > 0.0),
+            Some(_) => Some(f64::from(clip.duration)),
+            None => length(&clip.asset)
+                .map(|(seconds, still)| {
+                    if still {
+                        f64::from(clip.duration)
+                    } else {
+                        seconds
+                    }
+                })
+                .filter(|seconds| *seconds > 0.0),
         };
         for (layer, launched) in &mut self.playing {
             let Some(layer) = vj.layers.iter().find(|l| &l.id == layer) else {
@@ -379,12 +389,17 @@ impl GridPlay {
             let picture = |clip: &str, at: Duration, head: &Playhead, opacity: f32| {
                 let clip = layer.clips.iter().find(|c| c.id == clip)?;
                 let elapsed = now.saturating_sub(at);
-                // A generator fills the composition and never ends.
+                // A generator fills the composition and lasts its duration: its time is the place in
+                // it, in milliseconds, so a loop starts its strobe and noise over.
+                let length = f64::from(clip.duration);
                 let (frame, fit) = match &clip.generator {
-                    Some(_) => ((head.seconds(tick) * 1000.0) as u64, VideoFit::Stretch),
+                    Some(_) => {
+                        let place = head.at(tick, length)?;
+                        ((place * length * 1000.0) as u64, VideoFit::Stretch)
+                    }
                     None => {
                         let (rate, frames) = probe(&clip.asset)?;
-                        (frame_at(head, tick, rate, frames)?, clip.fit)
+                        (frame_at(head, tick, rate, frames, length)?, clip.fit)
                     }
                 };
                 (opacity > 0.0).then(|| Layer {
@@ -462,14 +477,14 @@ pub fn video_seconds(rate: Rate, frames: u64) -> f64 {
 }
 
 /// Which frame of a video of `frames` at `rate` the playhead shows at `tick`, or `None` once a
-/// clip played once has ended. A still image (one frame) never ends: it shows until it is
-/// stopped, whatever its playback.
-pub fn frame_at(head: &Playhead, tick: Tick, rate: Rate, frames: u64) -> Option<u64> {
+/// clip played once has ended. A still image (one frame) lasts `still` seconds, and shows its one
+/// frame until then.
+pub fn frame_at(head: &Playhead, tick: Tick, rate: Rate, frames: u64, still: f64) -> Option<u64> {
     if frames == 0 || rate.num == 0 || rate.den == 0 {
         return None;
     }
     if frames == 1 {
-        return Some(0);
+        return head.at(tick, still).map(|_| 0);
     }
     let place = head.at(tick, video_seconds(rate, frames))?;
     // A little over, so that a place that is a whole frame in theory is not the frame before it.
@@ -498,6 +513,7 @@ mod tests {
             playback,
             trigger: Trigger::Normal,
             speed: 1.0,
+            duration: flux_project::vj::DEFAULT_DURATION,
             direction: Default::default(),
             tempo: Default::default(),
             region: Default::default(),
@@ -602,11 +618,10 @@ mod tests {
                 tempo: Default::default(),
                 region: Default::default(),
                 playback,
-                generator: false,
             },
             Tick::default(),
         );
-        frame_at(&head, secs(seconds).into(), RATE, 100)
+        frame_at(&head, secs(seconds).into(), RATE, 100, 10.0)
     }
 
     #[test]
@@ -623,8 +638,8 @@ mod tests {
     }
 
     #[test]
-    fn a_still_image_should_show_until_it_is_stopped_whatever_its_playback() {
-        for playback in [Playback::Once, Playback::Loop, Playback::PingPong] {
+    fn a_still_image_should_last_its_duration_and_then_follow_its_playback() {
+        let still = |playback, seconds: f64| {
             let head = Playhead::launch(
                 Motion {
                     speed: 1.0,
@@ -632,13 +647,33 @@ mod tests {
                     tempo: Default::default(),
                     region: Default::default(),
                     playback,
-                    generator: false,
                 },
                 Tick::default(),
             );
-            let still = frame_at(&head, secs(60.0).into(), Rate::new(25, 1), 1);
-            assert_eq!(still, Some(0));
-        }
+            frame_at(&head, secs(seconds).into(), Rate::new(25, 1), 1, 3.0)
+        };
+        assert_eq!(still(Playback::Once, 2.9), Some(0));
+        assert_eq!(still(Playback::Once, 3.1), None, "ends after its duration");
+        assert_eq!(still(Playback::Loop, 100.0), Some(0), "restarts for ever");
+        assert_eq!(still(Playback::PingPong, 100.0), Some(0));
+    }
+
+    #[test]
+    fn a_generator_should_last_its_duration_then_end_or_start_over() {
+        let mut vj = grid();
+        let generator = &mut vj.layers[0].clips[1];
+        generator.generator = Some(flux_project::generator::Generator::Bars);
+        generator.asset = String::new();
+        generator.duration = 3.0;
+        generator.playback = Playback::Once;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "b", secs(0.0));
+        assert_eq!(play.layers(&vj, secs(2.0), &probe)[0].frame, 2000);
+        assert!(play.layers(&vj, secs(3.5), &probe).is_empty());
+        vj.layers[0].clips[1].playback = Playback::Loop;
+        play.follow(&vj, secs(3.5).into(), &|_| None);
+        let frame = play.layers(&vj, secs(3.5), &probe)[0].frame;
+        assert!((499..=500).contains(&frame), "a loop starts over: {frame}");
     }
 
     #[test]
@@ -676,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn a_generator_should_play_with_no_video_and_never_end() {
+    fn a_generator_should_play_with_no_video() {
         let mut vj = grid();
         let clip = &mut vj.layers[0].clips[1];
         clip.asset.clear();
@@ -685,9 +720,9 @@ mod tests {
         play.launch(&vj, "b", secs(0.0));
         assert!(play.clips(&vj, secs(1.0)).is_empty(), "no video to open");
         let none = |_: &str| None;
-        let shown = play.layers(&vj, secs(3600.0), &none);
-        assert_eq!(shown.len(), 1, "played once, yet still showing");
-        assert_eq!(shown[0].frame, 3_600_000);
+        let shown = play.layers(&vj, secs(4.0), &none);
+        assert_eq!(shown.len(), 1, "played once, still within its duration");
+        assert_eq!(shown[0].frame, 4000);
         assert_eq!(shown[0].fit, VideoFit::Stretch);
     }
 
@@ -947,7 +982,7 @@ mod tests {
         let mut vj = grid();
         let mut play = GridPlay::default();
         play.launch(&vj, "a", secs(0.0));
-        let length = |_: &str| Some(4.0);
+        let length = |_: &str| Some((4.0, false));
         assert_eq!(frames(&play, &vj, secs(1.0).into()), [("a".into(), 25)]);
         // Twice as fast from 1 s on: no jump at 1 s.
         vj.layers[0].clips[0].speed = 2.0;

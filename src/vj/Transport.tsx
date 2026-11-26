@@ -103,10 +103,10 @@ function Strip({ clip, layer, strip }: { clip: VjClip; layer: string; strip: Vid
   );
 }
 
-/** The transport of a video or a generator clip. A generator has no region or cues: only its direction and speed move it. */
-export function Transport({ clip, layer, strip }: { clip: VjClip; layer: string; strip: VideoStrip | undefined }) {
+/** The transport of a clip. A generator and a still image have no file to run over: their duration is the length of it. */
+export function Transport({ clip, layer, strip, still = false }: { clip: VjClip; layer: string; strip: VideoStrip | undefined; still?: boolean }) {
   const t = useT();
-  const generator = clip.generator !== undefined;
+  const timed = clip.generator !== undefined || still;
   // Primitives, so the play state polled twenty times a second draws this only when the pass length changes.
   const passSeconds = useVj((vj) => vj.play.playing.find((p) => p.clip === clip.id && !p.stopping)?.passSeconds ?? null);
   const speed = clip.speed ?? 1;
@@ -123,13 +123,22 @@ export function Transport({ clip, layer, strip }: { clip: VjClip; layer: string;
   return (
     <div className="vj-transport">
       <div className="vj-tlegend">{t("vj.transport.title")}</div>
-      {!generator && <Strip clip={clip} layer={layer} strip={strip} />}
+      <Strip clip={clip} layer={layer} strip={strip} />
+      {timed && (
+        <div className="vj-f" title={t("vj.transport.durationHint")}><span>{t("vj.transport.duration")}</span>
+          <div className="vj-scrubs one">
+            <Scrub label="⏱" name={t("vj.transport.duration")} value={clip.duration ?? 10} shown={1} reset={10} unit="s" decimals={1} perPixel={0.1} step={1}
+              onMove={(value) => preview({ op: "clipDuration", clip: clip.id, value })}
+              onSet={(value) => void edit({ op: "clipDuration", clip: clip.id, value })} />
+          </div>
+        </div>
+      )}
       <div className="vj-f"><span>{t("vj.transport.direction")}</span>
         <Segments options={DIRECTIONS} value={direction} title={(o) => t(`vj.transport.direction.${o}`)}
           label={(o) => { const Glyph = DIRECTION_ICON[o]; return <Glyph />; }}
           onPick={(next) => void edit({ op: "clipDirection", clip: clip.id, direction: next })} />
       </div>
-      <div className={`vj-f${beats !== null && !generator ? " off" : ""}`} title={beats !== null && !generator ? t("vj.transport.speedOff") : undefined}>
+      <div className={`vj-f${beats !== null ? " off" : ""}`} title={beats !== null ? t("vj.transport.speedOff") : undefined}>
         <span>{t("vj.transport.speed")}</span>
         <div className="vj-speed">
           <Scrub label="×" name={t("vj.transport.speed")} value={speed} shown={1} reset={1} unit="×" decimals={2} perPixel={0.02} step={0.05}
@@ -139,45 +148,41 @@ export function Transport({ clip, layer, strip }: { clip: VjClip; layer: string;
             onClick={() => void edit({ op: "clipSpeed", clip: clip.id, value: 1 })}>1×</button>
         </div>
       </div>
-      {!generator && (
-        <div className="vj-f"><span>{t("vj.transport.tempo")}</span>
-          <div className="vj-tempo">
-            <Segments options={[...TEMPOS]} value={tempo}
-              label={(o) => (o === "free" ? t("vj.transport.free") : o)}
-              title={(o) => (o === "free" ? t("vj.transport.free") : t("vj.transport.beats", { n: o }))}
-              onPick={(next) => void edit({ op: "clipTempo", clip: clip.id, tempo: next === "free" ? { kind: "free" } : { kind: "beats", beats: Number(next) } })} />
-            <span className="vj-pass vj-mono">
-              {beats === null ? "" : passSeconds != null ? t("vj.transport.pass", { seconds: passSeconds.toFixed(2) }) : t("vj.transport.passIdle")}
-            </span>
-          </div>
+      <div className="vj-f"><span>{t("vj.transport.tempo")}</span>
+        <div className="vj-tempo">
+          <Segments options={[...TEMPOS]} value={tempo}
+            label={(o) => (o === "free" ? t("vj.transport.free") : o)}
+            title={(o) => (o === "free" ? t("vj.transport.free") : t("vj.transport.beats", { n: o }))}
+            onPick={(next) => void edit({ op: "clipTempo", clip: clip.id, tempo: next === "free" ? { kind: "free" } : { kind: "beats", beats: Number(next) } })} />
+          <span className="vj-pass vj-mono">
+            {beats === null ? "" : passSeconds != null ? t("vj.transport.pass", { seconds: passSeconds.toFixed(2) }) : t("vj.transport.passIdle")}
+          </span>
         </div>
-      )}
-      {!generator && (
-        <div className="vj-f"><span>{t("vj.transport.cues")}</span>
-          <div className="vj-cues" role="group" aria-label={t("vj.transport.cues")}>
-            {Array.from({ length: CUES }, (_, index) => {
-              const set = cues[index] != null;
-              const n = index + 1;
-              return (
-                <span key={index} className={`vj-cue${set ? " set" : ""}`}>
-                  <button type="button"
-                    title={t(set ? "vj.transport.cue.jump" : "vj.transport.cue.set", { n })}
-                    aria-label={t(set ? "vj.transport.cue.jump" : "vj.transport.cue.set", { n })}
-                    onClick={(event) => {
-                      if (!set) setCue(index);
-                      else if (event.altKey) void edit({ op: "clipCue", clip: clip.id, index, position: null });
-                      else void cue(clip.id, index);
-                    }}>{set ? n : <>{n}<small>{t("vj.transport.cue.empty")}</small></>}</button>
-                  {set && (
-                    <button type="button" className="vj-cue-x" title={t("vj.transport.cue.clear", { n })} aria-label={t("vj.transport.cue.clear", { n })}
-                      onClick={() => void edit({ op: "clipCue", clip: clip.id, index, position: null })}>×</button>
-                  )}
-                </span>
-              );
-            })}
-          </div>
+      </div>
+      <div className="vj-f"><span>{t("vj.transport.cues")}</span>
+        <div className="vj-cues" role="group" aria-label={t("vj.transport.cues")}>
+          {Array.from({ length: CUES }, (_, index) => {
+            const set = cues[index] != null;
+            const n = index + 1;
+            return (
+              <span key={index} className={`vj-cue${set ? " set" : ""}`}>
+                <button type="button"
+                  title={t(set ? "vj.transport.cue.jump" : "vj.transport.cue.set", { n })}
+                  aria-label={t(set ? "vj.transport.cue.jump" : "vj.transport.cue.set", { n })}
+                  onClick={(event) => {
+                    if (!set) setCue(index);
+                    else if (event.altKey) void edit({ op: "clipCue", clip: clip.id, index, position: null });
+                    else void cue(clip.id, index);
+                  }}>{set ? n : <>{n}<small>{t("vj.transport.cue.empty")}</small></>}</button>
+                {set && (
+                  <button type="button" className="vj-cue-x" title={t("vj.transport.cue.clear", { n })} aria-label={t("vj.transport.cue.clear", { n })}
+                    onClick={() => void edit({ op: "clipCue", clip: clip.id, index, position: null })}>×</button>
+                )}
+              </span>
+            );
+          })}
         </div>
-      )}
+      </div>
     </div>
   );
 }

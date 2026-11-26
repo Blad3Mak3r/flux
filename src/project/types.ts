@@ -200,6 +200,8 @@ export interface VjClip {
   trigger?: VjTrigger;
   /** How fast it plays when its tempo is free; absent is 1. */
   speed?: number;
+  /** Seconds a still image or a generator lasts (0.1 to 3600); absent is 10. A video keeps its file's length. */
+  duration?: number;
   /** Absent is forward. */
   direction?: VjDirection;
   /** Absent is free. */
