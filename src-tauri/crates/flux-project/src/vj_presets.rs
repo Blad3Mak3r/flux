@@ -729,6 +729,7 @@ mod tests {
             id: "v".into(),
             name: "v".into(),
             file: "video/v.mp4".into(),
+            link: None,
         });
         assert!(!project.vj.layers[0].clips.is_empty());
         let template = Template::of(&project, "Club").unwrap();

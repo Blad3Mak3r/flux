@@ -11,9 +11,11 @@ use super::clips::{self, ClipOp};
 use super::cue_ops::{self, CueEdited, CueOp};
 use super::error::{ProjectError, Result};
 use super::item_ops::{self, ItemOp};
+use super::media;
 use super::model::{
-    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, Project, TimecodeSettings, Timeline, Track,
-    TrackKind, VIDEO_DIR, VideoAsset, VideoClip, check_asset_path, check_video_path,
+    AUDIO_DIR, AudioAsset, AudioClip, FORMAT_VERSION, MediaLink, Project, TimecodeSettings,
+    Timeline, Track, TrackKind, VIDEO_DIR, VideoAsset, VideoClip, check_asset_path,
+    check_video_path,
 };
 use super::preview::{AudioStamp, Preview, StoredPreview};
 use super::video_clips::{self, VideoClipOp};
@@ -59,8 +61,8 @@ impl Document {
     }
 }
 
-/// A new video asset for the file at `file`, and where its bytes are until the next save.
-fn video_asset(file: &Path) -> Result<(VideoAsset, AssetSource)> {
+/// A new video asset linked to the file at `file`: its bytes stay where they are.
+fn video_asset(file: &Path) -> Result<VideoAsset> {
     let file = std::path::absolute(file)?;
     if !fs::metadata(&file)?.is_file() {
         return Err(ProjectError::Invalid(format!(
@@ -79,9 +81,13 @@ fn video_asset(file: &Path) -> Result<(VideoAsset, AssetSource)> {
             |stem| stem.to_string_lossy().into_owned(),
         ),
         file: format!("{VIDEO_DIR}{id}_{file_name}"),
+        link: Some(MediaLink {
+            path: file.to_string_lossy().into_owned(),
+            relative: None,
+        }),
         id,
     };
-    Ok((asset, AssetSource::Disk(file)))
+    Ok(asset)
 }
 
 fn first_timeline(project: &Project) -> String {
@@ -210,7 +216,10 @@ impl Session {
     pub fn open(&mut self, path: &Path) -> Result<Project> {
         self.ensure_editable()?;
         let path = std::path::absolute(path)?;
-        let (project, _archive) = archive::open(&path)?;
+        let (mut project, _archive) = archive::open(&path)?;
+        // A file that moved with the project is found again; the rest stays offline, and opening
+        // never fails for it.
+        media::resolve(&mut project, &path);
         self.recovery_id = Uuid::new_v4().to_string();
         self.recovery_revision += 1;
         self.sources = archive_sources(&project, &path);
@@ -646,7 +655,8 @@ impl Session {
         self.document.clone()
     }
 
-    /// Registers an audio file from disk and returns the asset to add to the project.
+    /// Links an audio file from disk and returns the asset to add to the project; the file stays
+    /// where it is.
     pub fn import_audio(&mut self, file: &Path) -> Result<AudioAsset> {
         let file = std::path::absolute(file)?;
         if !fs::metadata(&file)?.is_file() {
@@ -667,20 +677,34 @@ impl Session {
                 |stem| stem.to_string_lossy().into_owned(),
             ),
             file: format!("{AUDIO_DIR}{id}_{file_name}"),
+            link: Some(MediaLink {
+                path: file.to_string_lossy().into_owned(),
+                relative: None,
+            }),
             id,
             bpm: None,
         };
         check_asset_path(&asset.file)?;
-        self.sources
-            .insert(asset.id.clone(), AssetSource::Disk(file.to_path_buf()));
         self.recovery_revision += 1;
+        Ok(asset)
+    }
+
+    /// Like [`Self::import_audio`] but the asset is kept inside the project, as a legacy one is.
+    #[cfg(test)]
+    pub(crate) fn import_embedded(&mut self, file: &Path) -> Result<AudioAsset> {
+        let mut asset = self.import_audio(file)?;
+        asset.link = None;
+        self.sources.insert(
+            asset.id.clone(),
+            AssetSource::Disk(std::path::absolute(file)?),
+        );
         Ok(asset)
     }
 
     /// Adds a video file from disk to the project, on a new video track of the active timeline with a
     /// clip at `at` (frames from the timeline start). The caller has checked that it is a video.
     pub fn import_video(&mut self, file: &Path, at: u64) -> Result<ProjectState> {
-        let (asset, source) = video_asset(file)?;
+        let asset = video_asset(file)?;
         let track = Track {
             audio_output: Default::default(),
             id: Uuid::new_v4().to_string(),
@@ -702,13 +726,11 @@ impl Session {
                 }],
             },
         };
-        let state = self.change(|project, active| {
+        self.change(|project, active| {
             timeline_mut(project, active)?.tracks.push(track);
-            project.videos.push(asset.clone());
+            project.videos.push(asset);
             Ok(())
-        })?;
-        self.sources.insert(asset.id, source);
-        Ok(state)
+        })
     }
 
     /// Adds a video file from disk to the project, in the cell of the VJ grid at `layer` and
@@ -720,8 +742,8 @@ impl Session {
         layer: &str,
         column: Option<&str>,
     ) -> Result<ProjectState> {
-        let (asset, source) = video_asset(file)?;
-        let state = self.change(|project, _| {
+        let asset = video_asset(file)?;
+        self.change(|project, _| {
             let column = match column {
                 Some(column) => column.to_owned(),
                 None => project.vj.empty_column(layer).ok_or_else(|| {
@@ -735,21 +757,17 @@ impl Session {
                 column,
             };
             crate::vj::apply(project, op, || Uuid::new_v4().to_string())
-        })?;
-        self.sources.insert(asset.id, source);
-        Ok(state)
+        })
     }
 
     /// Adds an image file from disk to the project's media, placed nowhere: the test card's logo
     /// uses it. The caller has checked that FFmpeg reads it.
     pub fn import_media(&mut self, file: &Path) -> Result<ProjectState> {
-        let (asset, source) = video_asset(file)?;
-        let state = self.change(|project, _| {
-            project.videos.push(asset.clone());
+        let asset = video_asset(file)?;
+        self.change(|project, _| {
+            project.videos.push(asset);
             Ok(())
-        })?;
-        self.sources.insert(asset.id, source);
-        Ok(state)
+        })
     }
 
     /// Edits the VJ grid of a VJ project (see [`crate::vj`]).
@@ -823,8 +841,9 @@ impl Session {
     /// `asset`: it becomes a new asset, in the same place of the project's list and under the same
     /// name, and every clip of every timeline that showed the old one shows the new one, keeping
     /// its place, trim and settings. The old file stays known, so undo brings it back; a save
-    /// leaves it out once nothing uses it.
-    pub fn replace_video(&mut self, asset: &str, file: &Path) -> Result<ProjectState> {
+    /// leaves it out once nothing uses it. The new file is linked, or with `link` off kept inside
+    /// the project (a copy made from a video that was).
+    pub fn replace_video(&mut self, asset: &str, file: &Path, link: bool) -> Result<ProjectState> {
         let file = std::path::absolute(file)?;
         if !fs::metadata(&file)?.is_file() {
             return Err(ProjectError::Invalid(format!(
@@ -837,6 +856,10 @@ impl Session {
             .and_then(|e| e.to_str())
             .ok_or_else(|| ProjectError::Invalid("video file has no extension".into()))?;
         let id = Uuid::new_v4().to_string();
+        let link_to = link.then(|| MediaLink {
+            path: file.to_string_lossy().into_owned(),
+            relative: None,
+        });
         let state = self.change(|project, _| {
             let slot = project
                 .videos
@@ -859,6 +882,7 @@ impl Session {
                 id: id.clone(),
                 name: slot.name.clone(),
                 file: format!("{VIDEO_DIR}{id}_{stem}.{extension}"),
+                link: link_to,
             };
             check_video_path(&slot.file)?;
             for timeline in &mut project.timelines {
@@ -880,7 +904,9 @@ impl Session {
             }
             Ok(())
         })?;
-        self.sources.insert(id, AssetSource::Disk(file));
+        if !link {
+            self.sources.insert(id, AssetSource::Disk(file));
+        }
         Ok(state)
     }
 
@@ -902,6 +928,7 @@ impl Session {
                     .and_then(|e| e.to_str())
                     .ok_or_else(|| ProjectError::Invalid("missing recording format".into()))?
             ),
+            link: None,
             bpm: None,
         };
         let source = AssetSource::Disk(path);
@@ -939,6 +966,9 @@ impl Session {
 
     /// The bytes of an asset, from wherever the session knows them to be.
     pub fn asset_bytes(&self, asset: &AudioAsset) -> Result<Vec<u8>> {
+        if let Some(link) = &asset.link {
+            return fs::read(&link.path).map_err(|_| ProjectError::MissingAsset(link.path.clone()));
+        }
         match self.sources.get(&asset.id) {
             Some(AssetSource::Disk(path)) => Ok(fs::read(path)?),
             Some(AssetSource::Archive(path)) => {
@@ -954,6 +984,13 @@ impl Session {
     /// A file FFmpeg can open for a video: the imported file itself, or the entry of the archive it
     /// lives in, copied once into `cache` (named by the asset's id, which never changes its bytes).
     pub fn video_path(&self, asset: &VideoAsset, cache: &Path) -> Result<PathBuf> {
+        if let Some(link) = &asset.link {
+            // Offline media is an error for this one video, which its caller shows as offline.
+            return Path::new(&link.path)
+                .is_file()
+                .then(|| PathBuf::from(&link.path))
+                .ok_or_else(|| ProjectError::MissingAsset(link.path.clone()));
+        }
         match self.sources.get(&asset.id) {
             Some(AssetSource::Disk(path)) => Ok(path.clone()),
             Some(AssetSource::Archive(path)) => {
@@ -987,6 +1024,85 @@ impl Session {
             .find(|video| video.id == id)
             .ok_or_else(|| ProjectError::MissingAsset(id.to_owned()))?;
         self.video_path(asset, cache)
+    }
+
+    /// The media of the document, linked or embedded, and which of them are offline.
+    pub fn media_list(&self) -> media::MediaList {
+        self.document.as_ref().map_or(
+            media::MediaList {
+                items: Vec::new(),
+                missing: 0,
+            },
+            |d| media::list(&d.project),
+        )
+    }
+
+    /// Links the media `id` to the file at `file`, and the other offline media found beside it.
+    /// Answers with how many it linked.
+    pub fn media_relink(&mut self, id: &str, file: &Path) -> Result<(ProjectState, usize)> {
+        let mut count = 0;
+        let state = self.change(|project, _| {
+            count = media::relink(project, id, file)?;
+            Ok(())
+        })?;
+        Ok((state, count))
+    }
+
+    /// Looks for the offline media in `folder` and under it. Answers with how many it found and how
+    /// many are still offline.
+    pub fn media_search(&mut self, folder: &Path) -> Result<(ProjectState, usize, usize)> {
+        let (mut found, mut left) = (0, 0);
+        let state = self.change(|project, _| {
+            (found, left) = media::search_folder(project, folder)?;
+            Ok(())
+        })?;
+        Ok((state, found, left))
+    }
+
+    /// What collecting the media would copy, for [`media::CollectPlan::run`] to do without the
+    /// session. The project must be saved: the media goes beside its file.
+    pub fn media_collect_plan(&self) -> Result<media::CollectPlan> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let flx = document
+            .path
+            .as_deref()
+            .ok_or_else(|| ProjectError::Invalid("media.error.unsaved".into()))?;
+        media::plan_collect(
+            &document.project,
+            flx,
+            |id| self.sources.get(id).cloned(),
+            archive::entry_size,
+        )
+    }
+
+    /// Links the media to the files [`media::CollectPlan::run`] made. The project is changed, so it
+    /// must be saved to keep them; that save leaves the media out of the archive.
+    pub fn media_collect_apply(&mut self, placed: &[(String, PathBuf)]) -> Result<ProjectState> {
+        let flx = self.path().map(Path::to_path_buf);
+        let embedded: HashSet<String> = self
+            .document
+            .iter()
+            .flat_map(|d| {
+                let audio = d.project.assets.iter().filter(|a| a.link.is_none());
+                let video = d.project.videos.iter().filter(|v| v.link.is_none());
+                audio
+                    .map(|a| a.id.clone())
+                    .chain(video.map(|v| v.id.clone()))
+            })
+            .collect();
+        let state = self.change(|project, _| {
+            media::apply_collected(project, placed);
+            if let Some(flx) = &flx {
+                media::relativize(project, flx);
+            }
+            Ok(())
+        })?;
+        // An undo can bring the embedded asset back: it re-embeds from the collected copy.
+        for (id, dest) in placed.iter().filter(|(id, _)| embedded.contains(id)) {
+            self.sources
+                .insert(id.clone(), AssetSource::Disk(dest.clone()));
+        }
+        Ok(state)
     }
 
     /// Tells a reader whether the document changed: it changes whenever an edit is made.
@@ -1079,10 +1195,41 @@ impl Session {
         if let Some(stored) = self.previews.get(&asset.id) {
             return Ok(Some(stored.preview.clone()));
         }
+        if asset.link.is_some() {
+            // Linked audio has no entry in the archive, so its stamp is the file's own.
+            let (Some(stamp), Some(path)) = (self.stamp_of(asset, None), self.path()) else {
+                return Ok(None);
+            };
+            return archive::read_preview_of(path, asset, Some(stamp)).or(Ok(None));
+        }
         match self.sources.get(&asset.id) {
             Some(AssetSource::Archive(path)) => archive::read_preview(path, asset),
             _ => Ok(None),
         }
+    }
+
+    /// The file the document was opened from or saved to.
+    fn path(&self) -> Option<&Path> {
+        self.document.as_ref()?.path.as_deref()
+    }
+
+    /// What identifies the audio a preview was made from: the size and CRC of its bytes, or for
+    /// linked audio (read without the bytes) its size and modification time. `None` when a linked
+    /// file is gone.
+    pub fn stamp_of(&self, asset: &AudioAsset, bytes: Option<&[u8]>) -> Option<AudioStamp> {
+        let Some(link) = &asset.link else {
+            return bytes.map(AudioStamp::of);
+        };
+        let meta = fs::metadata(&link.path).ok()?;
+        let seconds = meta
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |since| since.as_secs());
+        Some(AudioStamp {
+            size: meta.len(),
+            crc32: crc32fast::hash(&seconds.to_le_bytes()),
+        })
     }
 
     /// Keeps the waveform of the audio with this `stamp` for the next save.
@@ -1101,7 +1248,8 @@ impl Session {
         // Removing a video track leaves its file behind; the save drops what no clip shows.
         let used: HashSet<String> = saved.used_assets().into_iter().map(String::from).collect();
         saved.videos.retain(|video| used.contains(&video.id));
-        archive::save(&path, &saved, &self.sources, &self.previews)?;
+        media::relativize(&mut saved, &path);
+        archive::save_from(&path, &saved, &self.sources, &self.previews, self.path())?;
         let before = std::mem::replace(&mut self.sources, archive_sources(&saved, &path));
         self.sources.extend(self.voice_sources.clone());
         // What the save left out stays known where it was, so an undo past the save finds it: a
@@ -1153,8 +1301,16 @@ fn timeline_mut<'a>(project: &'a mut Project, id: &str) -> Result<&'a mut Timeli
 }
 
 fn archive_sources(project: &Project, path: &Path) -> HashMap<String, AssetSource> {
-    let audio = project.assets.iter().map(|asset| &asset.id);
-    let video = project.videos.iter().map(|video| &video.id);
+    let audio = project
+        .assets
+        .iter()
+        .filter(|a| a.link.is_none())
+        .map(|a| &a.id);
+    let video = project
+        .videos
+        .iter()
+        .filter(|v| v.link.is_none())
+        .map(|v| &v.id);
     audio
         .chain(video)
         .map(|id| (id.clone(), AssetSource::Archive(path.to_path_buf())))
@@ -1241,7 +1397,7 @@ mod tests {
 
         let mut session = Session::default();
         let mut project = session.new_project("Show", FrameRate::Fps25);
-        let asset = session.import_audio(&wav).unwrap();
+        let asset = session.import_embedded(&wav).unwrap();
         project.timelines[0].tracks.push(Track {
             audio_output: Default::default(),
             id: "t1".into(),
@@ -1503,14 +1659,12 @@ mod tests {
 
         let path = dir.path().join("show.flx");
         session.save(&state.project, &path).unwrap();
-        let (_, mut archive) = archive::open(&path).unwrap();
-        let mut bytes = Vec::new();
-        archive
-            .video_reader(&asset.file)
-            .unwrap()
-            .read_to_end(&mut bytes)
-            .unwrap();
-        assert_eq!(bytes, b"not decoded here");
+        let (reopened, mut archive) = archive::open(&path).unwrap();
+        // The video stays where it is: the archive holds only the link.
+        assert!(archive.video_reader(&asset.file).is_err());
+        let link = reopened.videos[0].link.as_ref().unwrap();
+        assert_eq!(link.path, mp4.to_string_lossy());
+        assert_eq!(link.relative.as_deref(), Some("intro.mp4"));
     }
 
     #[test]
@@ -1525,7 +1679,7 @@ mod tests {
         let before = session.import_video(&mp4, 10).unwrap();
         let old = before.project.videos[0].clone();
 
-        let after = session.replace_video(&old.id, &mov).unwrap();
+        let after = session.replace_video(&old.id, &mov, false).unwrap();
 
         let new = &after.project.videos[0];
         assert_eq!(after.project.videos.len(), 1);
@@ -1682,9 +1836,13 @@ mod tests {
         let path = dir.path().join("show.flx");
         session.save(&state.project, &path).unwrap();
         let (saved, _) = archive::open(&path).unwrap();
-        assert_eq!(saved.videos, vec![asset.clone()]);
+        assert_eq!(saved.videos[0].id, asset.id);
+        assert_eq!(
+            saved.videos[0].link.as_ref().unwrap().path,
+            asset.link.as_ref().unwrap().path
+        );
 
-        let after = session.replace_video(&asset.id, &mov).unwrap();
+        let after = session.replace_video(&asset.id, &mov, false).unwrap();
         assert_eq!(
             after.project.vj.layers[1].clips[0].asset,
             after.project.videos[0].id
@@ -1699,7 +1857,7 @@ mod tests {
         let mut session = Session::default();
         session.new_project("Show", FrameRate::Fps25);
 
-        let result = session.replace_video("nope", &mov);
+        let result = session.replace_video("nope", &mov, false);
 
         assert!(matches!(result, Err(ProjectError::MissingAsset(_))));
     }
@@ -1711,8 +1869,13 @@ mod tests {
         fs::write(&mp4, b"frames").unwrap();
         let mut session = Session::default();
         session.new_project("Show", FrameRate::Fps25);
-        let state = session.import_video(&mp4, 0).unwrap();
+        let mut state = session.import_video(&mp4, 0).unwrap();
+        // A legacy project holds its video inside the archive.
+        state.project.videos[0].link = None;
         let asset = state.project.videos[0].clone();
+        session
+            .sources
+            .insert(asset.id.clone(), AssetSource::Disk(mp4.clone()));
         let cache = dir.path().join("cache");
         assert_eq!(session.video_path(&asset, &cache).unwrap(), mp4);
 
@@ -1753,6 +1916,7 @@ mod tests {
             id: "v1".into(),
             name: "Intro".into(),
             file: "video/intro.mp4".into(),
+            link: None,
         });
 
         let saved = session

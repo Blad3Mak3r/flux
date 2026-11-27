@@ -3730,6 +3730,7 @@ mod tests {
             id: "a".into(),
             name: "Voice".into(),
             file: "audio/voice.mp3".into(),
+            link: None,
             bpm: None,
         });
         project.timelines[0].tracks.push(Track {

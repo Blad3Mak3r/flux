@@ -673,7 +673,7 @@ mod tests {
         let mut session = Session::default();
         let mut project = session.new_project("Show", FrameRate::Fps25);
         let active = project.timelines[0].id.clone();
-        let asset = session.import_audio(&audio).unwrap();
+        let asset = session.import_embedded(&audio).unwrap();
         let mut ready = order();
         ready.generated.as_mut().unwrap().asset = asset.id.clone();
         let pending = VoiceOrder {
@@ -738,7 +738,7 @@ mod tests {
         std::fs::write(&voice, b"old generation").unwrap();
         let mut session = Session::default();
         let mut original = session.new_project("Show", FrameRate::Fps25);
-        let asset = session.import_audio(&voice).unwrap();
+        let asset = session.import_embedded(&voice).unwrap();
         original.assets.push(asset.clone());
         session.update(original.clone());
         let path = dir.path().join("show.fxtc");

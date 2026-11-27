@@ -162,6 +162,11 @@ impl VideoDeck {
         self.pictures(shown, size)
     }
 
+    /// Tries again the clips whose file failed to open: it may have been relinked.
+    pub fn retry_failed(&mut self) {
+        self.failed.clear();
+    }
+
     /// Clips whose file failed to open, with the path tried, for Show check to report.
     pub fn failed(&self) -> impl Iterator<Item = (&str, &PathBuf)> {
         self.failed.iter().map(|(clip, path)| (clip.as_str(), path))

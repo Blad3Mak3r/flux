@@ -219,7 +219,7 @@ mod tests {
         fs::write(&original, b"original archive untouched").unwrap();
         let mut session = Session::default();
         session.new_project("Show", FrameRate::Fps25);
-        let asset = session.import_audio(&audio).unwrap();
+        let asset = session.import_embedded(&audio).unwrap();
         let mut record = session.recovery().unwrap();
         record.document.project.assets.push(asset);
         record.document.path = Some(original.clone());
@@ -287,13 +287,13 @@ mod tests {
         let mut project = session.new_project("Show", FrameRate::Fps25);
         project
             .assets
-            .push(session.import_audio(&archive_audio).unwrap());
+            .push(session.import_embedded(&archive_audio).unwrap());
         let original = dir.path().join("show.fxtc");
         let mut project = session.save(&project, &original).unwrap();
         let original_bytes = fs::read(&original).unwrap();
         project
             .assets
-            .push(session.import_audio(&imported_audio).unwrap());
+            .push(session.import_embedded(&imported_audio).unwrap());
         project.name = "Recovered show".into();
         project.autosave = crate::Autosave {
             enabled: false,

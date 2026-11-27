@@ -477,6 +477,7 @@ mod tests {
             id: "audio".into(),
             name: "Go".into(),
             file: "audio/go.mp3".into(),
+            link: None,
             bpm: None,
         });
         p.timelines[0].tracks.push(Track {
