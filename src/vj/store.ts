@@ -44,6 +44,8 @@ interface VjState {
   importing: Importing[];
   /** The clip the inspector shows. */
   clip: string | null;
+  /** The empty slot selected instead of a clip (`layer/column`): the monitor and the inspector show nothing. */
+  slot: string | null;
   /** The layer the inspector shows. */
   layer: string | null;
   /** The group the inspector shows. */
@@ -74,6 +76,7 @@ export const useVj = create<VjState>()(() => ({
   play: { playing: [], column: null, crossfader: 0.5, beats: 0, beatsPaused: false },
   importing: [],
   clip: null,
+  slot: null,
   layer: null,
   group: null,
   picked: [],
@@ -154,7 +157,7 @@ const played = (run: () => Promise<GridState>) =>
     .catch(fail);
 
 export const launch = (clip: string, layer: string) => {
-  useVj.setState({ clip, layer, tab: "clip" });
+  useVj.setState({ clip, slot: null, layer, tab: "clip" });
   reveal("clip");
   return played(() => vjLaunch(clip));
 };
@@ -184,7 +187,12 @@ let scrubbing: Promise<void> = Promise.resolve();
 export const moveCrossfader = (position: number) => played(() => vjCrossfader(position));
 
 export const selectClip = (clip: string, layer: string) => {
-  useVj.setState({ clip, layer, tab: "clip" });
+  useVj.setState({ clip, slot: null, layer, tab: "clip" });
+  reveal("clip");
+};
+/** Selects an empty slot: no clip is selected, so the preview and the clip panel show their empty state. */
+export const selectSlot = (layer: string, column: string) => {
+  useVj.setState({ clip: null, slot: `${layer}/${column}`, layer, tab: "clip" });
   reveal("clip");
 };
 /** Shows the layer in the inspector; with `pick` it also joins (or leaves) the layers picked for a group. */

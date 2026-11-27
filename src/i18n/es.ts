@@ -1172,6 +1172,7 @@ export const es: Record<MessageKey, string> = {
   "vj.blend.mask50": "Máscara 50",
   "vj.blend.rgb": "RGB",
   "vj.blend.displace": "Desplazar",
+  "vj.cell.select": "Seleccionar este espacio vacío",
   "vj.cell.empty": "Haz clic para parar la capa, o suelta aquí un vídeo, una imagen o un generador",
   "vj.clip.remove": "Quitar clip",
   "vj.clip.name": "Nombre",

@@ -185,10 +185,13 @@
 
 .vj-row {
   display: grid;
-  grid-template-columns: var(--vj-header) repeat(var(--columns), minmax(88px, 1fr));
-  gap: 3px;
-  height: 64px;
-  margin-top: 3px;
+  /* Fixed columns as in Resolume (a 120 px pitch): the ones that do not fit scroll, the room left over stays empty. */
+  grid-template-columns: var(--vj-header) repeat(var(--columns), 116px);
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  height: 104px;
+  margin-top: 4px;
 }
 
 .vj-row.head { position: sticky; top: 0; z-index: 2; height: 24px; margin: 0; background: var(--vj-panel); }
@@ -392,15 +395,22 @@
 .vj-ab button.on { color: var(--ink); background: var(--vj-ctl-hi); }
 
 /* Cells */
+/* A slot is a picture over a name bar, as in Resolume; an empty one keeps both: the picture stops the layer, the bar selects the slot. */
 .vj-slot {
-  display: grid;
-  place-items: center;
-  color: transparent;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   background: var(--vj-well);
   border-radius: 2px;
 }
 
-.vj-slot:hover, .vj-slot.over { color: var(--ink-dim); background: var(--vj-row); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.vj-slot-pic { flex: 1; min-height: 0; background: var(--vj-black); border-radius: 2px 2px 0 0; }
+.vj-slot .vj-pick { position: static; flex: none; height: 24px; background: var(--vj-row); }
+.vj-slot-pic:hover { background: var(--vj-well); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.vj-slot::after { content: ""; position: absolute; inset: 0; border-radius: 2px; pointer-events: none; }
+.vj-slot.over::after { box-shadow: inset 0 0 0 2px var(--ink-dim); }
+.vj-slot.sel::after { box-shadow: inset 0 0 0 2px var(--phosphor); }
 
 .vj-clip {
   position: relative;
@@ -410,31 +420,32 @@
   user-select: none;
 }
 
-.vj-clip .vj-thumb { position: absolute; inset: 0; filter: saturate(0.92) brightness(0.9); }
+.vj-pic { position: absolute; inset: 0 0 24px; overflow: hidden; }
+/* The picture fits inside the area, at 16:9, on black. */
+.vj-clip .vj-thumb { position: absolute; left: 0; right: 0; top: 50%; aspect-ratio: 16 / 9; transform: translateY(-50%); filter: saturate(0.92) brightness(0.9); }
 .vj-clip.on-air .vj-thumb { filter: none; }
-.vj-shade { position: absolute; inset: 0; background: linear-gradient(to top, oklch(0.1 0.01 250 / 0.85), transparent 46%); }
-.vj-pick { position: absolute; left: 0; right: 0; bottom: 0; height: 20px; cursor: default; }
-.vj-pick:hover { background: oklch(0.1 0.01 250 / 0.55); box-shadow: inset 0 1px 0 var(--phosphor); }
+.vj-shade { display: none; }
+.vj-pick { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 0 6px; height: 24px; background: var(--vj-row); cursor: default; }
+.vj-pick:hover { background: var(--vj-ctl); box-shadow: inset 0 1px 0 var(--phosphor); }
+.vj-clip.on-air .vj-pick { color: oklch(0.16 0.03 32); background: var(--signal); box-shadow: none; }
 
 .vj-cn {
-  position: absolute;
-  left: 6px;
-  right: 28px;
-  bottom: 4px;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
+  color: var(--ink-dim);
   font-size: 11px;
-  font-weight: 500;
+  line-height: 24px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-shadow: 0 1px 2px oklch(0 0 0 / 0.6);
 }
 
-.vj-cm { position: absolute; right: 5px; bottom: 4px; color: oklch(0.93 0.012 85 / 0.7); font: 10px var(--font-measure); }
-.vj-clip.on-air .vj-cn, .vj-clip.on-air .vj-cm { bottom: 7px; }
+.vj-clip.on-air .vj-cn, .vj-clip.on-air .vj-cm { color: oklch(0.16 0.03 32); }
+.vj-cm { flex: none; color: var(--ink-faint); font: 10px var(--font-measure); }
 .vj-clip::after { content: ""; position: absolute; inset: 0; border-radius: 2px; pointer-events: none; box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.06); }
 .vj-clip.sel::after { box-shadow: inset 0 0 0 2px var(--phosphor); }
-.vj-clip.on-air::after { box-shadow: inset 0 0 0 2px var(--signal); }
-.vj-clip.on-air.sel::after { box-shadow: inset 0 0 0 2px var(--signal), inset 0 0 0 4px var(--phosphor); }
+.vj-clip.on-air::after { box-shadow: inset 0 0 0 1px var(--signal); }
+.vj-clip.on-air.sel::after { box-shadow: inset 0 0 0 2px var(--phosphor); }
 .vj-clip.over::after { box-shadow: inset 0 0 0 2px var(--ink-dim); }
 
 .vj-air {
@@ -958,16 +969,24 @@
 .vj-lh.folded .vj-bs button { height: 20px; }
 .vj-lh.folded .vj-lname { grid-column: auto; }
 .vj-row.folded .vj-cm { display: none; }
-.vj-row.folded .vj-pick { left: 28px; height: 100%; }
+.vj-row.folded .vj-pic { inset: 0; }
+.vj-row.folded .vj-clip .vj-thumb { top: 0; bottom: 0; height: 100%; aspect-ratio: auto; transform: none; }
+.vj-row.folded .vj-shade { display: block; }
+.vj-row.folded .vj-pick, .vj-row.folded .vj-slot .vj-pick { left: 28px; height: 100%; background: none; }
+.vj-row.folded .vj-slot { flex-direction: row; }
+.vj-row.folded .vj-slot-pic { flex: none; width: 28px; border-radius: 2px 0 0 2px; }
+.vj-row.folded .vj-slot .vj-pick { flex: 1; position: static; }
+.vj-row.folded .vj-clip.on-air .vj-pick { background: none; }
+.vj-row.folded .vj-clip.on-air .vj-cn { color: var(--ink); }
 .vj-go { position: absolute; z-index: 2; left: 0; top: 0; bottom: 0; width: 28px; padding: 0; background: oklch(0.1 0.01 250 / 0.55); border: 0; }
 .vj-go::before { content: ""; position: absolute; inset: 8px; border: 2px solid var(--ink-dim); border-radius: 1px; }
 .vj-go:hover::before { border-color: var(--phosphor); }
 .vj-go.on::before { background: var(--phosphor); border-color: var(--phosphor); }
 .vj-go:focus-visible { outline: 2px solid var(--phosphor); outline-offset: -2px; }
 .vj-row.folded .vj-air { left: auto; right: 4px; top: 50%; height: 16px; transform: translateY(-50%); }
-.vj-row.folded .vj-cn { bottom: 50%; transform: translateY(50%); }
+.vj-row.folded .vj-cn { line-height: 28px; color: var(--ink); text-shadow: 0 1px 2px oklch(0 0 0 / 0.6); }
 /* The time badge keeps its width at the right: the name ends before it. */
-.vj-row.folded .vj-clip.on-air .vj-cn { right: 52px; }
+.vj-row.folded .vj-clip.on-air .vj-pick { padding-right: 52px; }
 .vj-row.folded .vj-air .icon { display: none; }
 
 .vj-fold {

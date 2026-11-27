@@ -1168,6 +1168,7 @@ export const en = {
   "vj.blend.mask50": "50 Mask",
   "vj.blend.rgb": "RGB",
   "vj.blend.displace": "Displace",
+  "vj.cell.select": "Select this empty slot",
   "vj.cell.empty": "Click to stop the layer, or drop a video, image or generator here",
   "vj.clip.remove": "Remove clip",
   "vj.clip.name": "Name",

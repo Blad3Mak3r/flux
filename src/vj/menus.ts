@@ -175,7 +175,7 @@ function editMenu(t: Translate): MenuItem[] {
     { label: t("menu.redo"), shortcut: acceleratorOf("redo"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
     "-",
     { label: t("vj.clip.remove"), disabled: !clip, run: removeSelected },
-    { label: t("menu.deselect"), disabled: !clip, run: () => useVj.setState({ clip: null }) },
+    { label: t("menu.deselect"), disabled: !clip, run: () => useVj.setState({ clip: null, slot: null }) },
   ];
 }
 

@@ -46,6 +46,7 @@ import {
   preview,
   release,
   selectClip,
+  selectSlot,
   selectGroup,
   selectLayer,
   showMedia,
@@ -423,6 +424,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   const selected = useVj((vj) => clip !== undefined && vj.clip === clip.id);
   const live = useVj((vj) => clip !== undefined && vj.play.playing.some((p) => p.layer === layer.id && p.clip === clip.id));
   const state = useVideoState(clip?.asset);
+  const slotSelected = useVj((vj) => vj.slot === `${layer.id}/${column.id}`);
 
   const dropping = useDropTarget({
     accepts: (data) => DRAG in data || (clip !== undefined && carriesEffect(data, { clip: clip.id })),
@@ -446,8 +448,10 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   if (!clip) {
     // As on a media server, an empty cell stops its layer, over the layer's transition.
     return (
-      <div className={`vj-slot${lit ? " over" : ""}`} title={t("vj.cell.empty")} data-drop-layer={layer.id} data-drop-column={column.id}
-        onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} ref={dropping} />
+      <div className={`vj-slot${lit ? " over" : ""}${slotSelected ? " sel" : ""}`} data-drop-layer={layer.id} data-drop-column={column.id} ref={dropping}>
+        <div className="vj-slot-pic" title={t("vj.cell.empty")} onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} />
+        <div className="vj-pick" title={t("vj.cell.select")} onPointerDown={(event) => { if (event.button === 0) selectSlot(layer.id, column.id); }} />
+      </div>
     );
   }
   const name = clipName(t, clip, videos);
@@ -476,19 +480,21 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
         ] });
       }}
     >
-      <Thumb strip={stripOf(thumbs, clip)} generator={clip.generator} />
-      <span className="vj-shade" />
-      <EffectBadge count={clip.effects?.length ?? 0} />
-      {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
-      {state && <VideoState state={state} asset={clip.asset} />}
-      {clip.asset && <MediaProgressBar asset={clip.asset} />}
-      {/* A folded row has no room to click the cell: its square launches the clip, as the cell does (the pointer reaches the cell). */}
-      {layer.collapsed && (
-        <button type="button" className={`vj-go${live ? " on" : ""}`} aria-pressed={live}
-          title={t("vj.clip.launchNamed", { clip: name })} aria-label={t("vj.clip.launchNamed", { clip: name })}
-          onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !event.repeat) { event.preventDefault(); void launch(clip.id, layer.id); } }}
-          onKeyUp={(event) => { if (piano && (event.key === "Enter" || event.key === " ")) void release(clip.id); }} />
-      )}
+      <div className="vj-pic">
+        <Thumb strip={stripOf(thumbs, clip)} generator={clip.generator} />
+        <span className="vj-shade" />
+        <EffectBadge count={clip.effects?.length ?? 0} />
+        {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
+        {state && <VideoState state={state} asset={clip.asset} />}
+        {clip.asset && <MediaProgressBar asset={clip.asset} />}
+        {/* A folded row has no room to click the cell: its square launches the clip, as the cell does (the pointer reaches the cell). */}
+        {layer.collapsed && (
+          <button type="button" className={`vj-go${live ? " on" : ""}`} aria-pressed={live}
+            title={t("vj.clip.launchNamed", { clip: name })} aria-label={t("vj.clip.launchNamed", { clip: name })}
+            onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !event.repeat) { event.preventDefault(); void launch(clip.id, layer.id); } }}
+            onKeyUp={(event) => { if (piano && (event.key === "Enter" || event.key === " ")) void release(clip.id); }} />
+        )}
+      </div>
       {/* The name strip selects the clip without launching it. */}
       <div className="vj-pick" aria-label={t("vj.clip.select")}
         onPointerDown={(event) => { event.stopPropagation(); if (event.button === 0) selectClip(clip.id, layer.id); }}
