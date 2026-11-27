@@ -35,6 +35,7 @@ export interface Preferences {
   snapshotDir?: string | null;
   /** A snapshot is also added to the project's media. */
   snapshotMedia?: boolean;
+  recordingsDir?: string | null;
   revision: number;
   warning?: string | null;
 }

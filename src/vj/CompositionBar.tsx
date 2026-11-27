@@ -14,6 +14,7 @@ import { formatFrames, parseTimecode } from "../timecode";
 import { pause, play, seek, stop } from "../transport/playback";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
 import { vjAnalysisLevels } from "./api";
+import { stopRecording, useRecord } from "./record";
 import { mappable } from "./mapModel";
 import type { AnalysisLevels } from "./api";
 import { beatClock, edit, useVj } from "./store";
@@ -116,6 +117,7 @@ export function Tempo() {
       <button type="button" className="vj-tap vj-hold" {...mappable({ kind: "bpmPause" })} aria-pressed={paused} title={t("vj.beat.pauseNote")} onClick={() => void beatClock({ op: "pause", on: !paused })}>
         {t("vj.beat.pause")}
       </button>
+      <RecordIndicator />
     </div>
   );
 }
@@ -214,6 +216,34 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
           {t("vj.clock.in", { source: sourceName })}
         </button>
       )}
+    </div>
+  );
+}
+
+/** Elapsed milliseconds as `H:MM:SS`. */
+const elapsed = (ms: number) => {
+  const total = Math.floor(ms / 1000);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${Math.floor(total / 3600)}:${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`;
+};
+
+/** Shown while the composition is being recorded: the word REC beside its dot, how long, the frames that were late, and the key that stops it. */
+function RecordIndicator() {
+  const t = useT();
+  const recording = useRecord((r) => r.recording);
+  const elapsedMs = useRecord((r) => r.elapsedMs);
+  const dropped = useRecord((r) => r.dropped);
+  const path = useRecord((r) => r.path);
+  if (!recording) return null;
+  return (
+    <div className="vj-rec" role="group" aria-label={t("vj.record.label")} title={path ?? undefined}>
+      <span className="vj-rec-dot" aria-hidden="true" />
+      <b>{t("vj.record.rec")}</b>
+      <output className="vj-rec-time">{elapsed(elapsedMs)}</output>
+      {dropped > 0 && <span className="vj-rec-drop" title={t("vj.record.droppedNote")}>{t("vj.record.dropped", { n: dropped })}</span>}
+      <button type="button" title={t("vj.menu.recordStop")} aria-label={t("vj.menu.recordStop")} onClick={() => void stopRecording()}>
+        <StopIcon />
+      </button>
     </div>
   );
 }

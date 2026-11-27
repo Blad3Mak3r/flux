@@ -144,6 +144,56 @@ pub fn tap_grid(left: &[f32], right: &[f32], rate: u32) {
     }
 }
 
+/// The ring the output's callback copies the grid's mix into while a recording is made: stereo,
+/// the left sample then the right one, every frame the callback plays (silence included, so the
+/// sound keeps the pace of the picture).
+static RECORD_TAP: OnceLock<Arc<Ring>> = OnceLock::new();
+static RECORD_TAP_ON: AtomicBool = AtomicBool::new(false);
+
+/// The recording's tap, made on first use. Not for the audio callback, which only reads it.
+pub fn record_tap() -> Arc<Ring> {
+    Arc::clone(RECORD_TAP.get_or_init(|| Arc::new(Ring::new(1 << 18))))
+}
+
+/// Whether the callback copies the grid's mix into the recording's tap.
+pub fn set_record_tap(on: bool) {
+    RECORD_TAP_ON.store(on, Ordering::Relaxed);
+}
+
+pub fn record_tap_on() -> bool {
+    RECORD_TAP_ON.load(Ordering::Relaxed)
+}
+
+/// Called by the output's callback with the grid's own mix of a chunk: queues it as stereo when
+/// a recording is on. No allocation, no lock.
+pub fn tap_record(left: &[f32], right: &[f32], rate: u32) {
+    if !record_tap_on() {
+        return;
+    }
+    if let Some(ring) = RECORD_TAP.get() {
+        let frames = left.len().min(right.len());
+        ring.set_rate(rate);
+        ring.push_with(frames * 2, |at| {
+            if at % 2 == 0 {
+                left[at / 2]
+            } else {
+                right[at / 2]
+            }
+        });
+    }
+}
+
+/// Called by the callback for `frames` frames in which the grid is silent.
+pub fn tap_record_silence(frames: usize, rate: u32) {
+    if !record_tap_on() {
+        return;
+    }
+    if let Some(ring) = RECORD_TAP.get() {
+        ring.set_rate(rate);
+        ring.push_with(frames * 2, |_| 0.0);
+    }
+}
+
 /// The bands the analysis last read, left for any thread to read without a lock.
 #[derive(Debug, Default)]
 pub struct SharedBands {

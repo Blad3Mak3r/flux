@@ -406,6 +406,33 @@ of all the layers, before the output mapping. Every effect works there, and Feed
 Drop an effect on the Output panel or the composition bar to add it. An **FX** badge and a switch in the composition
 bar bypass the whole stack at once. See [VJ effects](vj-effects.md#effect-stacks).
 
+## Recording
+
+**Composition > Start recording** saves the composition to a video file, as Resolume's Record does; **Stop recording**
+(or the stop key of the REC indicator) ends it. There is no keyboard shortcut. A VJ show is needed, and so is an FFmpeg
+that can write HAP: without it the item is disabled and says so.
+
+- **Format.** HAP in a QuickTime `.mov`, at the composition's size and the project's frame rate (the one the timecode
+  clock shows; the rate is constant). HAP needs sides that are multiples of 4, so a composition that is not gets black
+  pixels added on the right and the bottom. It is the composition before the slices and masks, as **Snapshot** takes it.
+  The frames are drawn by the GPU, as the output windows draw them, on a device of their own: recording works with the
+  output windows closed, and the file is the GPU's picture, not the Output monitor's approximation.
+- **Where.** The recordings folder of **Preferences > Recordings** (`Videos/FLUX` by default, or `Recordings` in the
+  app's data when there is no Videos folder), named `<project> <date> <time>.mov`. When it stops, the file is added to
+  the project's media, linked by its path like any other video (one step of undo), so it shows in **File > Media...**
+  and can be dropped on a layer.
+- **Sound.** While an audio output runs, the file carries the grid's programme mix (what the clips' sound sends to the
+  output, at the layers' levels) as 16-bit PCM at 48 kHz stereo, in step with the picture. With no audio output running,
+  the file has no sound. The sound is the grid's: the click, the operator's voice and a timeline's tracks are not in it.
+- **Dropped frames.** If the GPU or the encoder cannot keep up, a frame that is not ready in time is dropped and the one
+  before is repeated in its place, so the file keeps its frame rate and its length and stays in step with the sound.
+  The REC indicator shows how many (`n dropped`) once there are any, and the log says it when the recording stops.
+- **Indicator.** While recording, the composition bar shows a vermilion dot with the word REC, the time elapsed, the
+  dropped frames and a stop key.
+
+The backend does all of it (`vj_record_start`, `vj_record_stop`, `vj_record_state`; `src-tauri/src/vj_record.rs`); the
+screen only shows `vj_record_state` and sends start and stop. See [Video decoding](video.md#recording-the-composition).
+
 ## Panels and layouts
 
 The VJ screen is made of panels docked inside the main window, as in Resolume: there are no floating windows.

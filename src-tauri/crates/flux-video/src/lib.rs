@@ -12,6 +12,7 @@ mod hap;
 mod layers;
 mod mapping;
 mod player;
+mod record;
 mod thumbs;
 
 pub use audio::audio_wav;
@@ -22,6 +23,7 @@ pub use hap::{convert_to_hap, hap_available};
 pub use layers::{Cue, GroupLook, Layer, Probe, layers, upcoming};
 pub use mapping::{Rate, source_frame, timeline_frames};
 pub use player::{PlayerStats, VideoPlayer};
+pub use record::{Config as RecordConfig, Counters as RecordCounters, Recorder, encoded_size};
 pub use thumbs::{POSTER_HEIGHT, THUMB_HEIGHT, Thumbs, jpeg, poster, thumbnails, thumbnails_with};
 
 /// Starts FFmpeg's global state. Safe to call more than once; [`VideoFile::open`] calls it.

@@ -284,10 +284,12 @@ impl GridPlayer {
     /// Adds one chunk of the grid's sound to `left` and `right` and moves the clock on.
     pub fn chunk(&mut self, left: &mut [f32], right: &mut [f32]) {
         let Some(now) = self.clock else {
+            crate::analysis::tap_record_silence(left.len(), ENGINE_RATE);
             return;
         };
         let frames = left.len();
-        if crate::analysis::grid_tap_on() && frames <= MIX_CHUNK && right.len() == frames {
+        let tapped = crate::analysis::grid_tap_on() || crate::analysis::record_tap_on();
+        if tapped && frames <= MIX_CHUNK && right.len() == frames {
             // The grid's own sound, apart from what it is added to, is what the analysis hears:
             // the voices and the tails fading out, the same mix that is played.
             let mut own_left = [0.0f32; MIX_CHUNK];
@@ -300,6 +302,7 @@ impl GridPlayer {
                 &mut own_right[..frames],
             );
             crate::analysis::tap_grid(&own_left[..frames], &own_right[..frames], ENGINE_RATE);
+            crate::analysis::tap_record(&own_left[..frames], &own_right[..frames], ENGINE_RATE);
             for at in 0..frames {
                 left[at] += own_left[at];
                 right[at] += own_right[at];

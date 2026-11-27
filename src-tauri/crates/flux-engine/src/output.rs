@@ -743,6 +743,7 @@ impl Renderer {
     /// programme's channels; `data` is silent then.
     fn mix_grid_alone<T: Sample + FromSample<f32>>(&mut self, data: &mut [T]) {
         if self.grid.is_silent() {
+            crate::analysis::tap_record_silence(data.len() / self.channels, ENGINE_RATE);
             return;
         }
         for chunk in data.chunks_mut(self.channels * MIX_CHUNK) {

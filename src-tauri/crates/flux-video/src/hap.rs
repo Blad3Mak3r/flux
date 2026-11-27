@@ -50,35 +50,16 @@ fn convert(
     let info = video.info().clone();
     let (width, height) = (info.width.div_ceil(4) * 4, info.height.div_ceil(4) * 4);
     video.set_output_size(width, height);
-    let hap = encoder::find_by_name("hap").ok_or(VideoError::NoHap)?;
 
     let mut output = format::output_as(dst, "mov")?;
-    let global = output
-        .format()
-        .flags()
-        .contains(format::Flags::GLOBAL_HEADER);
-    // One tick per frame: frame `n` is written at `n`.
-    let time_base = Rational::new(info.rate.den as i32, info.rate.num as i32);
-    let mut encoder = CodecContext::new_with_codec(hap).encoder().video()?;
-    encoder.set_width(width);
-    encoder.set_height(height);
-    encoder.set_format(Pixel::RGBA);
-    encoder.set_time_base(time_base);
-    encoder.set_frame_rate(Some(Rational::new(
-        info.rate.num as i32,
-        info.rate.den as i32,
-    )));
-    if global {
-        encoder.set_flags(codec::Flags::GLOBAL_HEADER);
-    }
-    let mut options = Dictionary::new();
-    options.set("format", if info.alpha { "hap_alpha" } else { "hap" });
-    let mut encoder = encoder.open_with(options)?;
-    {
-        let mut stream = output.add_stream(hap)?;
-        stream.set_parameters(&encoder);
-        stream.set_time_base(time_base);
-    }
+    let rate = (info.rate.num as i32, info.rate.den as i32);
+    let (mut encoder, time_base) = video_encoder(
+        &mut output,
+        (width, height),
+        rate,
+        if info.alpha { "hap_alpha" } else { "hap" },
+        None,
+    )?;
     let mut sound = if info.has_audio {
         Sound::open(src, &mut output, 1)?
     } else {
@@ -129,7 +110,67 @@ fn fill(picture: &mut frame::Video, decoded: &Frame) {
     }
 }
 
-fn write_packets(
+/// Adds the HAP video stream (the first of `output`) and opens its encoder: `size` rounded to a
+/// multiple of 4 by the caller, `rate` as numerator and denominator, `format` `hap` or `hap_alpha`,
+/// `chunks` the pieces each frame is compressed in at once (more of them use more threads). The
+/// time base is one tick per frame: frame `n` is written at `n`.
+pub(crate) fn video_encoder(
+    output: &mut Output,
+    size: (u32, u32),
+    rate: (i32, i32),
+    format: &str,
+    chunks: Option<u32>,
+) -> Result<(encoder::Video, Rational), VideoError> {
+    let hap = encoder::find_by_name("hap").ok_or(VideoError::NoHap)?;
+    let global = output
+        .format()
+        .flags()
+        .contains(format::Flags::GLOBAL_HEADER);
+    let time_base = Rational::new(rate.1, rate.0);
+    let mut encoder = CodecContext::new_with_codec(hap).encoder().video()?;
+    encoder.set_width(size.0);
+    encoder.set_height(size.1);
+    encoder.set_format(Pixel::RGBA);
+    encoder.set_time_base(time_base);
+    encoder.set_frame_rate(Some(Rational::new(rate.0, rate.1)));
+    if global {
+        encoder.set_flags(codec::Flags::GLOBAL_HEADER);
+    }
+    let mut options = Dictionary::new();
+    options.set("format", format);
+    if let Some(chunks) = chunks {
+        options.set("chunks", &chunks.clamp(1, 64).to_string());
+    }
+    let encoder = encoder.open_with(options)?;
+    let mut stream = output.add_stream(hap)?;
+    stream.set_parameters(&encoder);
+    stream.set_time_base(time_base);
+    Ok((encoder, time_base))
+}
+
+/// Adds a 16-bit PCM stream of `channels` at `rate` Hz to `output`; its time base is one tick per
+/// sample.
+pub(crate) fn pcm_stream(
+    output: &mut Output,
+    rate: u32,
+    channels: u16,
+) -> Result<Rational, VideoError> {
+    let pcm_codec = encoder::find(codec::Id::PCM_S16LE)
+        .ok_or_else(|| VideoError::Encode("FFmpeg has no PCM encoder".into()))?;
+    let mut pcm = CodecContext::new_with_codec(pcm_codec).encoder().audio()?;
+    let time_base = Rational::new(1, rate as i32);
+    pcm.set_rate(rate as i32);
+    pcm.set_format(Sample::I16(Layout::Packed));
+    pcm.set_channel_layout(ChannelLayout::default(i32::from(channels)));
+    pcm.set_time_base(time_base);
+    let pcm = pcm.open()?;
+    let mut out = output.add_stream(pcm_codec)?;
+    out.set_parameters(&pcm);
+    out.set_time_base(time_base);
+    Ok(time_base)
+}
+
+pub(crate) fn write_packets(
     encoder: &mut encoder::Video,
     output: &mut Output,
     from: Rational,
@@ -174,18 +215,7 @@ impl Sound {
         if rate == 0 {
             return Ok(None);
         }
-        let pcm_codec = encoder::find(codec::Id::PCM_S16LE)
-            .ok_or_else(|| VideoError::Encode("FFmpeg has no PCM encoder".into()))?;
-        let mut pcm = CodecContext::new_with_codec(pcm_codec).encoder().audio()?;
-        let time_base = Rational::new(1, rate as i32);
-        pcm.set_rate(rate as i32);
-        pcm.set_format(Sample::I16(Layout::Packed));
-        pcm.set_channel_layout(ChannelLayout::default(i32::from(channels)));
-        pcm.set_time_base(time_base);
-        let pcm = pcm.open()?;
-        let mut out = output.add_stream(pcm_codec)?;
-        out.set_parameters(&pcm);
-        out.set_time_base(time_base);
+        let time_base = pcm_stream(output, rate, channels)?;
         Ok(Some(Self {
             input,
             index,
