@@ -13,6 +13,7 @@ import { formatFrames } from "../timecode";
 import { listTimecodeMidiInputs, useTimecodeIn } from "../vj/timecodeIn";
 import type { TimecodeInSource } from "../vj/timecodeIn";
 import { RowStatus } from "./pages";
+import { Select } from "../components/Select";
 
 interface Input {
   name: string;
@@ -87,19 +88,19 @@ export function TimecodeInPage() {
       <h4>{t("vj.timecodeIn.ltc")}</h4>
       <Field label={t("voice.inputDriver")}>
         {({ id }) => (
-          <select id={id} value={driver ?? ""} onChange={(event) => chooseLtc(ltc?.device ?? "", 1, event.target.value || null)}>
+          <Select id={id} value={driver ?? ""} onChange={(value) => chooseLtc(ltc?.device ?? "", 1, value || null)}>
             <option value="">{t("voice.systemDriver")}</option>
             {hosts.map((host) => (
               <option key={host.name} value={host.name}>
                 {host.name}
               </option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <Field label={t("vj.timecodeIn.ltcDevice")}>
         {({ id }) => (
-          <select id={id} value={ltc?.device ?? ""} disabled={inputs === null} onChange={(event) => chooseLtc(event.target.value, 1)}>
+          <Select id={id} value={ltc?.device ?? ""} disabled={inputs === null} onChange={(value) => chooseLtc(value, 1)}>
             <option value="">{t(inputs === null ? "voice.loadingInputs" : "vj.timecodeIn.none")}</option>
             {ltc?.device && inputs && !selected && <option value={ltc.device}>{t("voice.inputMissing", { name: ltc.device })}</option>}
             {inputs?.map((input) => (
@@ -107,23 +108,23 @@ export function TimecodeInPage() {
                 {input.name}
               </option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <Field label={t("vj.timecodeIn.channel")}>
         {({ id }) => (
-          <select
+          <Select
             id={id}
             value={ltc?.channel ?? 1}
             disabled={!selected}
-            onChange={(event) => ltc && chooseLtc(ltc.device, Number(event.target.value))}
+            onChange={(value) => ltc && chooseLtc(ltc.device, Number(value))}
           >
             {(selected?.channels ?? [ltc?.channel ?? 1]).map((channel) => (
               <option key={channel} value={channel}>
                 {channel}
               </option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <Reading source="ltc" />
@@ -131,11 +132,11 @@ export function TimecodeInPage() {
       <h4>{t("vj.timecodeIn.mtc")}</h4>
       <Field label={t("setup.control.midi.port")}>
         {({ id }) => (
-          <select
+          <Select
             id={id}
             value={mtc ?? ""}
             disabled={ports === null}
-            onChange={(event) => void changePreferences({ op: "mtcIn", port: event.target.value || null }).catch(() => undefined)}
+            onChange={(value) => void changePreferences({ op: "mtcIn", port: value || null }).catch(() => undefined)}
           >
             <option value="">{t(ports === null ? "voice.loadingInputs" : "vj.timecodeIn.none")}</option>
             {mtc && ports && !ports.includes(mtc) && <option value={mtc}>{t("out.notConnected", { name: mtc })}</option>}
@@ -144,7 +145,7 @@ export function TimecodeInPage() {
                 {port}
               </option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <Reading source="mtc" />

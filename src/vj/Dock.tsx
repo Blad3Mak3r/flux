@@ -11,6 +11,9 @@ import type { Translate } from "../i18n";
 import { startDrag, useDropTarget } from "../state/pointerDrag";
 import type { DragAt } from "../state/pointerDrag";
 import type { DockNode, DockZone, LayoutState, MonitorKind } from "./api";
+import { useDoc } from "../state/store";
+import { listedScreens } from "../video/mapping";
+import type { VideoScreen } from "../video/mapping";
 import { layoutActivate, layoutClose, layoutEqualize, layoutMove, layoutReorder, layoutResize, useVj } from "./store";
 
 /** What a dragged tab carries: the id of its panel. */
@@ -30,8 +33,9 @@ const KIND_TITLES: Record<MonitorKind["type"], "vj.composition" | "vj.preview" |
   screen: "vj.monitor.screen",
 };
 
-/** The name of a monitor's kind. */
-export const kindTitle = (t: Translate, kind: MonitorKind) => t(KIND_TITLES[kind.type]);
+/** The name of a monitor's kind; a Screen monitor takes the name of its screen when `screens` has it. */
+export const kindTitle = (t: Translate, kind: MonitorKind, screens?: VideoScreen[]) =>
+  (kind.type === "screen" && screens?.find((s) => s.id === kind.screen)?.name) || t(KIND_TITLES[kind.type]);
 
 const FIXED_TITLES = {
   composition: "vj.inspector.composition",
@@ -49,10 +53,10 @@ const FIXED_TITLES = {
 export const FIXED_PANELS = ["clip", "layer", "group", "composition", "dashboard", "mappings", "files", "generators", "effects"] as const;
 
 /** The title of a panel: a fixed one by its name, a monitor by what it shows. */
-export function panelTitle(t: Translate, id: string, layout: LayoutState): string {
+export function panelTitle(t: Translate, id: string, layout: LayoutState, screens?: VideoScreen[]): string {
   if (id in FIXED_TITLES) return t(FIXED_TITLES[id as keyof typeof FIXED_TITLES]);
   const monitor = layout.current.monitors.find((m) => m.id === id);
-  return monitor ? t("vj.monitor.title", { kind: kindTitle(t, monitor.kind) }) : id;
+  return monitor ? t("vj.monitor.title", { kind: kindTitle(t, monitor.kind, screens) }) : id;
 }
 
 interface DockContext {
@@ -182,6 +186,7 @@ function Tab({ id, active, group, index, title }: { id: string; active: boolean;
 function Group({ node }: { node: Extract<DockNode, { type: "tabs" }> }) {
   const t = useT();
   const { state, renderPanel } = useDock();
+  const screens = useDoc((doc) => doc.project.output.screens);
   const strip = useRef<HTMLDivElement>(null);
   const drop = useTabDrop(node.id, strip, node.panels);
   const active = node.panels[node.active];
@@ -193,7 +198,7 @@ function Group({ node }: { node: Extract<DockNode, { type: "tabs" }> }) {
     <section className="vj-panel vj-group" ref={drop.ref}>
       <div className="vj-dtabs" role="tablist" aria-label={t("vj.dock.tabs")} ref={strip} onWheel={wheel}>
         {node.panels.map((id, index) => (
-          <Tab key={id} id={id} group={node.id} index={index} active={id === active} title={panelTitle(t, id, state)} />
+          <Tab key={id} id={id} group={node.id} index={index} active={id === active} title={panelTitle(t, id, state, listedScreens(screens))} />
         ))}
       </div>
       <div className="vj-dbody" role="tabpanel">{renderPanel(active)}</div>

@@ -7,6 +7,7 @@ import { sayError } from "../state/ui";
 import { changePreferences, usePreferences } from "../preferences/store";
 import { selectMode, useTransport } from "../transport/store";
 import { acceptTake, discardTake, leaveRecording, listenJob, startRecording, stopListening, stopRecording, useRecording, useVoice, voiceError } from "./store";
+import { Select } from "../components/Select";
 
 interface Input { name: string; channels: number[] }
 interface CaptureStatus { duration: string; peak: number; done: boolean; error: string | null }
@@ -59,21 +60,21 @@ export function RecordingPanel({ orderId }: { orderId: string }) {
   };
   return <section className="voice-recording" aria-label={t("voice.recordMicrophone")}>
     <h4>{t("voice.recordMicrophone")}</h4>
-    <Field label={t("voice.inputDriver")}>{({ id }) => <select id={id} value={driver ?? ""} disabled={locked} onChange={(e) => choose(mic?.device ?? "", 1, e.target.value || null)}>
+    <Field label={t("voice.inputDriver")}>{({ id }) => <Select id={id} value={driver ?? ""} disabled={locked} onChange={(value) => choose(mic?.device ?? "", 1, value || null)}>
       <option value="">{t("voice.systemDriver")}</option>
       {hosts.map((h) => <option key={h.name} value={h.name}>{h.name}</option>)}
-    </select>}</Field>
-    <Field label={t("voice.inputDevice")}>{({ id }) => <select id={id} value={mic?.device ?? ""} disabled={locked || loading} onChange={(e) => choose(e.target.value, 1)}>
+    </Select>}</Field>
+    <Field label={t("voice.inputDevice")}>{({ id }) => <Select id={id} value={mic?.device ?? ""} disabled={locked || loading} onChange={(value) => choose(value, 1)}>
       <option value="" disabled>{t(loading ? "voice.loadingInputs" : "voice.chooseInput")}</option>
       {mic?.device && !selected && <option value={mic.device}>{t("voice.inputMissing", { name: mic.device })}</option>}
       {inputs.map((input) => <option key={input.name} value={input.name}>{input.name}</option>)}
-    </select>}</Field>
-    <Field label={t("voice.inputChannel")}>{({ id }) => <select id={id} value={mic?.channel ?? 1} disabled={locked || !selected} onChange={(e) => {
-      const channel = selected?.channels.find((c) => String(c) === e.target.value);
+    </Select>}</Field>
+    <Field label={t("voice.inputChannel")}>{({ id }) => <Select id={id} value={mic?.channel ?? 1} disabled={locked || !selected} onChange={(value) => {
+      const channel = selected?.channels.find((c) => String(c) === value);
       if (channel && mic) choose(mic.device, channel);
     }}>
       {selected?.channels.map((c) => <option key={c} value={c}>{c}</option>)}
-    </select>}</Field>
+    </Select>}</Field>
     <button type="button" className="button" disabled={locked} onClick={() => setRefresh((r) => r + 1)}>{t("voice.refreshInputs")}</button>
     {preferencesError && <p className="error" role="alert">{preferencesError}</p>}
     {active === orderId && <>

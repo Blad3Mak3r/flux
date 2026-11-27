@@ -7,6 +7,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { VjLights, VjTarget } from "../project/types";
 import { vjLightsPreset } from "./api";
+import { Select } from "../components/Select";
 
 export type PadState = keyof VjLights;
 
@@ -69,11 +70,11 @@ export function PadColours({ port, states, value, fallback, name, onSet }: {
         <label key={state} className={`vj-light${apc ? ` c${shown[state]}` : ""}`} title={t(`vj.lights.note.${state}` as MessageKey)}>
           <span>{t(`vj.lights.${state}` as MessageKey)}</span>
           {apc ? (
-            <select value={shown[state]} aria-label={`${name}: ${t(`vj.lights.${state}` as MessageKey)}`} onChange={(event) => set(state, Number(event.target.value))}>
+            <Select value={shown[state]} aria-label={`${name}: ${t(`vj.lights.${state}` as MessageKey)}`} onChange={(value) => set(state, Number(value))}>
               {(APC_VALUES.includes(shown[state]) ? APC_VALUES : [...APC_VALUES, shown[state]]).map((v) => (
                 <option key={v} value={v}>{v <= 6 ? t(`vj.lights.apc.${v}` as MessageKey) : String(v)}</option>
               ))}
-            </select>
+            </Select>
           ) : (
             <input type="number" min={0} max={127} step={1} value={shown[state]} aria-label={`${name}: ${t(`vj.lights.${state}` as MessageKey)}`}
               onChange={(event) => {

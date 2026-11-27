@@ -54,7 +54,7 @@ const Tab = memo(function Tab({
       data-playing={active && playing}
       data-dragging={dragging}
       onPointerDown={(event) => onGrab(event, id)}
-      title={locked ? t("timeline.lockedPlaying") : label}
+      title={locked ? `${label}\n${t("timeline.lockedPlaying")}` : label}
       onClick={() => void selectTimeline(id)}
       onDoubleClick={() => void openTimelineSettings(id)}
       onContextMenu={(event) => menuAtPointer(event, timelineMenu(t, id))}

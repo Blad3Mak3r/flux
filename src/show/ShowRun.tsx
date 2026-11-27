@@ -4,6 +4,7 @@ import { useDoc } from "../state/store";
 import { openSetlists, useUi } from "../state/ui";
 import { useShow } from "./store";
 import { closeShow, prepareShow, showAction } from "./api";
+import { Select } from "../components/Select";
 
 /** Choose a setlist and prepare it. Live keeps its ordinary layout until a show is prepared. */
 export function ShowPrepare() {
@@ -17,7 +18,7 @@ export function ShowPrepare() {
   return <section className="show-prepare" aria-labelledby="prepare-show-title">
     <div className="show-prepare-copy"><h3 id="prepare-show-title">{t("show.setlist")}</h3><p>{t(setlist ? "show.liveHelp" : "show.createInEdit")}</p></div>
     <div className="show-prepare-actions">
-      {setlist && <><select aria-label={t("show.setlist")} value={setlist.id} disabled={preparing} onChange={(e) => setSelected(e.target.value)}>{setlists?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+      {setlist && <><Select aria-label={t("show.setlist")} value={setlist.id} disabled={preparing} onChange={(value) => setSelected(value)}>{setlists?.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>
         <button type="button" className="button primary" disabled={preparing} onClick={() => void prepareShow(setlist.id)}>{t(preparing ? "show.preparing" : "show.startShow")}</button></>}
       <button type="button" className="button" disabled={preparing} onClick={openSetlists}><ListIcon />{t("show.manage")}</button>
     </div>

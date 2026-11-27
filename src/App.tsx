@@ -63,7 +63,9 @@ const ZOOM_STEP = 1.25;
 function isTyping(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
-    (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))
+    (target.isContentEditable ||
+      ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName) ||
+      target.getAttribute("aria-haspopup") === "listbox")
   );
 }
 

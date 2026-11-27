@@ -9,6 +9,7 @@ import { ColourField, Segments } from "./controls";
 import { useFonts } from "./fonts";
 import { GeneratorModPanel, GeneratorScrub } from "./Modulation";
 import { edit, preview, useVj } from "./store";
+import { Select } from "../components/Select";
 
 type Text = Extract<VjGenerator, { kind: "text" }>;
 
@@ -93,19 +94,19 @@ export function TextFields({ clip, generator, modulation }: { clip: string; gene
     <>
       {row(t("vj.gen.text"), <TextBox value={g.text} label={t("vj.gen.text")} onCommit={(text) => keep({ text })} />, t("vj.gen.textHint"))}
       {row(t("vj.gen.font"),
-        <select className="vj-select wide" value={g.font} aria-label={t("vj.gen.font")}
-          onChange={(event) => {
-            const next = fonts.find((f) => f.name === event.target.value);
+        <Select className="vj-select wide" value={g.font} aria-label={t("vj.gen.font")}
+          onChange={(value) => {
+            const next = fonts.find((f) => f.name === value);
             // The same face if the family has it, else its regular one.
             const style = next?.styles.includes(g.style) ? g.style : next?.styles.includes("Regular") ? "Regular" : (next?.styles[0] ?? g.style);
-            keep({ font: event.target.value, style });
+            keep({ font: value, style });
           }}>
           {families.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
-        </select>)}
+        </Select>)}
       {row(t("vj.gen.style"),
-        <select className="vj-select wide" value={g.style} aria-label={t("vj.gen.style")} onChange={(event) => keep({ style: event.target.value })}>
+        <Select className="vj-select wide" value={g.style} aria-label={t("vj.gen.style")} onChange={(value) => keep({ style: value })}>
           {styles.map((s) => <option key={s} value={s}>{styleName(s)}</option>)}
-        </select>)}
+        </Select>)}
       {row(t("vj.gen.colour"), <ColourField value={g.colour} label={t("vj.gen.colour")} onMove={(colour) => move({ colour })} onSet={(colour) => keep({ colour })} />)}
       {one("size", t("vj.gen.size"), { label: "S", name: t("vj.gen.size"), shown: 100, reset: 0.12, unit: "%", decimals: 1 })}
       {one("opacity", t("vj.gen.opacity"), { label: "O", name: t("vj.gen.opacity"), shown: 100, reset: 1, unit: "%" })}

@@ -82,6 +82,7 @@ import { GeneratorModPanel, GeneratorScrub, ModPanel, ModScrub, fieldRange, insp
 import { TextFields } from "./TextFields";
 import { Transport } from "./Transport";
 import "./vj.css";
+import { Select } from "../components/Select";
 
 /** One empty list for a project without videos, so a store selector answers the same value each time. */
 const NO_VIDEOS: VideoAsset[] = [];
@@ -120,8 +121,8 @@ const BLEND_GROUPS: { group: "general" | "darken" | "lighten" | "contrast" | "co
   { group: "keys", blends: ["alphaCut", "lumaKey", "lumaKeyInverted", "lumaIsAlpha", "mask50", "rgb", "displace"] },
 ];
 
-function BlendOptions() {
-  const t = useT();
+/** The blend options, as a call: `Select` reads them as children, so they cannot hide in a component. */
+function blendOptions(t: ReturnType<typeof useT>) {
   return (
     <>
       {BLEND_GROUPS.map(({ group, blends }) => (
@@ -395,10 +396,10 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
       </button>
       <div className="vj-bsb">
         {bs}
-        <select className="vj-select" value={layer.blend ?? "alpha"} title={t("vj.layer.blend")} aria-label={t("vj.layer.blend")}
-          onChange={(event) => void edit({ op: "layerBlend", layer: layer.id, blend: event.target.value as VjBlend })}>
-          <BlendOptions />
-        </select>
+        <Select className="vj-select" value={layer.blend ?? "alpha"} title={t("vj.layer.blend")} aria-label={t("vj.layer.blend")}
+          onChange={(value) => void edit({ op: "layerBlend", layer: layer.id, blend: value as VjBlend })}>
+          {blendOptions(t)}
+        </Select>
       </div>
       <div className="vj-faders">
         <Fader letter="M" map={{ kind: "layerMaster", layer: layer.id }} label={t("vj.fader.master")} value={layer.master ?? 1} {...level("layerMaster")}
@@ -415,11 +416,11 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
       <div className="vj-tcol">
         <Fader letter="T" map={{ kind: "layerTransition", layer: layer.id }} label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION}
           progress={transition} {...level("layerTransition", MAX_TRANSITION)} />
-        <select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
+        <Select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
-          onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjBlend })}>
-          <BlendOptions />
-        </select>
+          onChange={(value) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend })}>
+          {blendOptions(t)}
+        </Select>
       </div>
       {nameRow}
     </div>
@@ -708,11 +709,11 @@ function GroupRow({ grid, group, deck }: { grid: VjGrid; group: VjGroup; deck: V
           </button>
           <div className="vj-bsb">
             {bs}
-            <select className="vj-select" value={group.blend ?? "alpha"} title={t("vj.group.blend")} aria-label={t("vj.group.blend")}
+            <Select className="vj-select" value={group.blend ?? "alpha"} title={t("vj.group.blend")} aria-label={t("vj.group.blend")}
               onClick={(event) => event.stopPropagation()}
-              onChange={(event) => void edit({ op: "groupBlend", group: group.id, blend: event.target.value as VjBlend })}>
-              <BlendOptions />
-            </select>
+              onChange={(value) => void edit({ op: "groupBlend", group: group.id, blend: value as VjBlend })}>
+              {blendOptions(t)}
+            </Select>
           </div>
           <div className="vj-faders two">
             <Fader letter="M" map={{ kind: "groupMaster", group: group.id }} label={t("vj.fader.master")} value={group.master ?? 1} {...level("groupMaster")} />
@@ -983,16 +984,16 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
               onCommit={(name) => edit({ op: "renameLayer", layer: layer.id, name })} />
           </label>
           <label className="vj-f"><span>{t("vj.layer.blend")}</span>
-            <select className="vj-select wide" value={layer.blend ?? "alpha"}
-              onChange={(event) => void edit({ op: "layerBlend", layer: layer.id, blend: event.target.value as VjBlend })}>
-              <BlendOptions />
-            </select>
+            <Select className="vj-select wide" value={layer.blend ?? "alpha"}
+              onChange={(value) => void edit({ op: "layerBlend", layer: layer.id, blend: value as VjBlend })}>
+              {blendOptions(t)}
+            </Select>
           </label>
           <label className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
-            <select className="vj-select wide" value={layer.transitionEffect ?? "alpha"}
-              onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjBlend })}>
-              <BlendOptions />
-            </select>
+            <Select className="vj-select wide" value={layer.transitionEffect ?? "alpha"}
+              onChange={(value) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend })}>
+              {blendOptions(t)}
+            </Select>
           </label>
           <div className="vj-f" {...mappable({ kind: "layerAutopilot", layer: layer.id })}><span>{t("vj.layer.autopilot")}</span>
             <Segments options={AUTOPILOTS} value={layer.autopilot ?? "off"} label={(o) => t(`vj.autopilot.${o}`)}
@@ -1038,10 +1039,10 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
               onCommit={(name) => edit({ op: "renameGroup", group: group.id, name })} />
           </label>
           <label className="vj-f"><span>{t("vj.layer.blend")}</span>
-            <select className="vj-select wide" value={group.blend ?? "alpha"}
-              onChange={(event) => void edit({ op: "groupBlend", group: group.id, blend: event.target.value as VjBlend })}>
-              <BlendOptions />
-            </select>
+            <Select className="vj-select wide" value={group.blend ?? "alpha"}
+              onChange={(value) => void edit({ op: "groupBlend", group: group.id, blend: value as VjBlend })}>
+              {blendOptions(t)}
+            </Select>
           </label>
           {([["master", "groupMaster", "vj.fader.master", "M"], ["opacity", "groupOpacity", "vj.fader.video", "V"]] as const).map(([field, op, label, tag]) => (
             <div key={field} className="vj-f"><span>{t(label)}</span>

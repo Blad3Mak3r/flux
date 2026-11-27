@@ -182,16 +182,13 @@ function Scope({ project = false }: { project?: boolean }) {
   );
 }
 
-function DeviceOptions({
-  current,
-  devices,
+/** The options of a device list, as a call: `Select` reads them as children, so they cannot hide in a component. */
+function deviceOptions(
+  t: ReturnType<typeof useT>,
+  current: string,
+  devices: Devices,
   optional = true,
-}: {
-  current: string;
-  devices: Devices;
-  optional?: boolean;
-}) {
-  const t = useT();
+) {
   return (
     <>
       {optional && <option value={UNASSIGNED}>{t("setup.unassigned")}</option>}
@@ -249,11 +246,7 @@ export function AudioRoute({
         disabled={!devices.available}
         onChange={(text) => change("device", text)}
       >
-        <DeviceOptions
-          current={current}
-          devices={devices}
-          optional={kind !== "audio" || Boolean(outputId)}
-        />
+        {deviceOptions(t, current, devices, kind !== "audio" || Boolean(outputId))}
       </SelectField>
       {route && (
         <SelectField
@@ -480,7 +473,7 @@ export function LtcPage({ devices }: { devices: Devices }) {
                   routeEdit("ltc", "device", text, signal.slot)
                 }
               >
-                <DeviceOptions current={current} devices={devices} />
+                {deviceOptions(t, current, devices)}
               </SelectField>
               {route && (
                 <>

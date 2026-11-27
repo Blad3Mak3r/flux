@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import type { FrameRate } from "../project/types";
+import { Select } from "./Select";
 import { formatFrames, parseTimecode } from "../timecode";
 
 /** A labelled control. The label is a real <label>, so clicking it focuses the input. */
@@ -193,15 +194,9 @@ export function SelectField({
   return (
     <Field label={label} hint={hint}>
       {({ id, describedBy }) => (
-        <select
-          id={id}
-          value={value}
-          disabled={disabled}
-          aria-describedby={describedBy}
-          onChange={(event) => onChange(event.target.value)}
-        >
+        <Select id={id} value={value} disabled={disabled} aria-describedby={describedBy} onChange={onChange}>
           {children}
-        </select>
+        </Select>
       )}
     </Field>
   );

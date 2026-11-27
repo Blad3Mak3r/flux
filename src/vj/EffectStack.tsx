@@ -31,6 +31,7 @@ import { ModPanel, ModScrub, beatLabel } from "./Modulation";
 import type { ModRange } from "./Modulation";
 import { edit, foldEffect, preview, showTab, useVj } from "./store";
 import { applyPreset, managePresets, presetKind, presetMenu, suggestionFor, usePresets } from "./presets";
+import { Select } from "../components/Select";
 
 /** What an effect dragged from the browser carries: the name of its kind. */
 export const DRAG_EFFECT = "application/x-flux-vj-effect";
@@ -266,9 +267,9 @@ export function EffectStack({ target, effects }: { target: EffectTarget; effects
         <h3>{title}<span className="vj-dim vj-fx-count">{effects.length}/{catalog?.max ?? "–"}</span></h3>
         <button type="button" className="vj-fx-b" title={t("vj.preset.button")} aria-label={t("vj.preset.button")} aria-haspopup="menu"
           onClick={(event) => presetMenu(t, event.currentTarget, { stack: target }, { stack: target }, title, undefined, effects.length > 0)}><PresetIcon /></button>
-        <select className="vj-select wide vj-fx-add" value="" disabled={full || !catalog} aria-label={t("vj.effect.add")}
+        <Select className="vj-select wide vj-fx-add" value="" disabled={full || !catalog} aria-label={t("vj.effect.add")}
           title={full ? t("vj.effect.full", { n: max }) : undefined}
-          onChange={(event) => { if (event.target.value) void edit({ op: "addEffect", target, kind: event.target.value }); }}>
+          onChange={(value) => { if (value) void edit({ op: "addEffect", target, kind: value }); }}>
           <option value="">{t("vj.effect.add")}</option>
           {catalog?.categories.filter((category) => composition || catalog.effects.some((spec) => spec.category === category && !spec.compositionOnly)).map((category) => (
             <optgroup key={category} label={t(categoryKey(category))}>
@@ -277,7 +278,7 @@ export function EffectStack({ target, effects }: { target: EffectTarget; effects
               ))}
             </optgroup>
           ))}
-        </select>
+        </Select>
       </header>
       {effects.length === 0 ? <p className="vj-dim vj-fx-empty">{t(composition ? "vj.composition.empty" : "vj.effect.empty")}</p> : (
         <ol className="vj-fx-list">

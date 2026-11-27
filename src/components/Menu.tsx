@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { closeMenu, useUi } from "../state/ui";
 import type { MenuItem, OpenMenu } from "../state/ui";
 import { CheckIcon, ChevronRightIcon } from "./icons";
@@ -88,7 +89,8 @@ function MenuPopup({ menu }: { menu: OpenMenu }) {
     el.style.left = `${Math.max(EDGE, Math.min(menu.x, window.innerWidth - width - EDGE))}px`;
     el.style.top = `${Math.max(EDGE, menu.y + height > window.innerHeight - EDGE ? menu.y - height : menu.y)}px`;
     el.classList.toggle("menu-flip", el.getBoundingClientRect().right + SUB_WIDTH > window.innerWidth);
-    el.querySelector<HTMLElement>(ITEMS)?.focus();
+    // A select list opens on its current option.
+    (el.querySelector<HTMLElement>('[aria-checked="true"]:not(:disabled)') ?? el.querySelector<HTMLElement>(ITEMS))?.focus();
   }, [menu]);
 
   // Listens only while a menu is open. The keyboard belongs to the menu: the transport and
@@ -99,7 +101,7 @@ function MenuPopup({ menu }: { menu: OpenMenu }) {
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       // The menu bar title that owns the menu toggles it itself on click.
-      if (!target || el.contains(target) || target.closest('[aria-haspopup="menu"]')) return;
+      if (!target || el.contains(target) || target.closest('[aria-haspopup="menu"], [aria-haspopup="listbox"]')) return;
       closeMenu();
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -162,14 +164,22 @@ function MenuPopup({ menu }: { menu: OpenMenu }) {
   }, []);
 
   return (
-    <div ref={box} className="menu" role="menu" style={{ left: menu.x, top: menu.y }}>
+    <div
+      ref={box}
+      className={menu.select ? "menu menu-list" : "menu"}
+      role="menu"
+      style={{ left: menu.x, top: menu.y, minWidth: menu.select?.width }}
+    >
       <Items items={menu.items} />
     </div>
   );
 }
 
-/** The one menu on show, whichever opened it. */
+/** The one menu on show, whichever opened it. Over a modal dialog it is drawn inside it: the rest of the page sits behind and out of reach. */
 export function MenuHost() {
   const menu = useUi((ui) => ui.menu);
-  return menu ? <MenuPopup menu={menu} /> : null;
+  if (!menu) return null;
+  const dialog = document.querySelector("dialog[open]");
+  const popup = <MenuPopup menu={menu} />;
+  return dialog ? createPortal(popup, dialog) : popup;
 }

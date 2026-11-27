@@ -277,16 +277,11 @@
   background: var(--vj-well);
   border: 0;
   border-radius: 2px;
-  appearance: none;
-  text-overflow: ellipsis;
 }
 
-.vj-select:not(.short) {
-  padding-right: 12px;
-  background: var(--vj-well) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4'%3E%3Cpath d='M0 0h7L3.5 4z' fill='%23889'/%3E%3C/svg%3E") no-repeat right 4px center;
-}
-
-.vj-select.short { padding: 0 1px; font-size: 9.5px; text-align: center; text-align-last: center; }
+.vj-select .select-chevron svg { width: 9px; height: 9px; }
+.vj-select.short { padding: 0 1px; font-size: 9.5px; justify-content: center; }
+.vj-select.short .select-chevron { display: none; }
 .vj-select.wide { height: 28px; font-size: 12.5px; }
 
 .vj-faders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
@@ -564,6 +559,9 @@
 .vj-mon > .vj-thumb { position: absolute; inset: 0; }
 .vj-out { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .vj-mon > .vj-empty { position: absolute; inset: 0; display: grid; place-items: center; }
+.vj-mon > .vj-empty-pick { align-content: center; justify-items: center; gap: 10px; text-align: center; }
+.vj-empty-pick p { margin: 0; }
+.vj-empty-pick .button { color: var(--ink); }
 
 .vj-pill { display: flex; align-items: center; gap: 6px; height: 20px; padding: 0 7px; color: var(--signal); font-size: 11.5px; font-weight: 600; background: oklch(0.7 0.2 32 / 0.16); border-radius: 2px; }
 .vj-pill.off { color: oklch(0.16 0.03 32); background: var(--signal); border: 0; font-family: inherit; cursor: pointer; }
@@ -1342,12 +1340,12 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-mp-pads { justify-content: flex-start; gap: 12px; }
 .vj-lights { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .vj-light { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-dim); font-size: 11px; }
-.vj-light input, .vj-light select { height: 22px; padding: 0 4px; color: var(--ink); font-family: var(--font-measure); font-size: 11px; background: var(--vj-well); border: 0; border-radius: 2px; }
+.vj-light input, .vj-light .select { height: 22px; padding: 0 4px; color: var(--ink); font-family: var(--font-measure); font-size: 11px; background: var(--vj-well); border: 0; border-radius: 2px; }
 .vj-light input { width: 44px; text-align: right; }
-.vj-light select { border-left: 6px solid var(--ink-faint); }
-.vj-light.c1 select, .vj-light.c2 select { border-left-color: #3ec46d; }
-.vj-light.c3 select, .vj-light.c4 select { border-left-color: #e0503f; }
-.vj-light.c5 select, .vj-light.c6 select { border-left-color: var(--amber); }
+.vj-light .select { border-left: 6px solid var(--ink-faint); }
+.vj-light.c1 .select, .vj-light.c2 .select { border-left-color: #3ec46d; }
+.vj-light.c3 .select, .vj-light.c4 .select { border-left-color: #e0503f; }
+.vj-light.c5 .select, .vj-light.c6 .select { border-left-color: var(--amber); }
 .vj-knob.modulated .vj-knob-arc { stroke: var(--amber); }
 
 /* Presets under an effect of the browser, and the dialogs of presets and templates. */
