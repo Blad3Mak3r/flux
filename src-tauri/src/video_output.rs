@@ -80,6 +80,8 @@ struct Live {
     thread: Option<JoinHandle<()>>,
     /// The last error the GPU reported while drawing.
     gpu_errors: flux_render::Errors,
+    /// The window covers its display.
+    fullscreen: bool,
 }
 
 /// The window of one screen.
@@ -88,7 +90,20 @@ struct VideoOutput {
     live: Mutex<Option<Live>>,
     error: Mutex<Option<String>>,
     pattern: Arc<AtomicBool>,
+    controls: Arc<Controls>,
+    /// `Some(true)` puts the window full screen even on the editor's display, `Some(false)` makes
+    /// it a window even on another; absent, it is full screen anywhere but the editor's display.
+    fullscreen: Mutex<Option<bool>>,
     deck: SharedDeck,
+}
+
+/// What Output > Disable Output and Show Test Card set, for every screen at once.
+#[derive(Default)]
+struct Controls {
+    /// Every screen is black.
+    disabled: AtomicBool,
+    /// Every screen shows the test card instead of the picture.
+    card: AtomicBool,
 }
 
 /// The one deck every screen's window draws from, so a clip is decoded once however many screens
@@ -101,6 +116,7 @@ pub struct VideoOutputs {
     outputs: Mutex<BTreeMap<String, Arc<VideoOutput>>>,
     /// A test pattern is shown where there is no picture, to line the slices up with.
     pattern: Arc<AtomicBool>,
+    controls: Arc<Controls>,
     deck: SharedDeck,
     /// The app is quitting: no window opens again.
     closing: AtomicBool,
@@ -181,8 +197,13 @@ impl VideoOutput {
     fn apply(self: &Arc<Self>, app: &AppHandle, chosen: Option<&str>, name: &str, index: usize) {
         {
             let mut live = self.live.lock().unwrap_or_else(PoisonError::into_inner);
+            let wish = *self
+                .fullscreen
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
             if let Some(live) = live.as_mut()
                 && chosen == Some(live.display.as_str())
+                && wish.is_none_or(|full| full == live.fullscreen)
             {
                 if live.name != name {
                     let _ = live.window.set_title(&title(name));
@@ -231,7 +252,12 @@ impl VideoOutput {
         if let Some(icon) = app.default_window_icon().cloned() {
             builder = builder.icon(icon).map_err(|err| err.to_string())?;
         }
-        let window = if display.main {
+        let wish = *self
+            .fullscreen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let fullscreen = wish.unwrap_or(!display.main);
+        let window = if !fullscreen {
             // Each screen a little further in, so windows on one display do not hide each other.
             let step = 80.0 + 40.0 * index as f64;
             builder
@@ -304,6 +330,7 @@ impl VideoOutput {
         let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
         let render_stop = Arc::clone(&stop);
         let pattern = Arc::clone(&self.pattern);
+        let controls = Arc::clone(&self.controls);
         let screen_id = self.screen.clone();
         let render = move |screen| Render {
             screen,
@@ -314,6 +341,8 @@ impl VideoOutput {
             size,
             stop: render_stop,
             pattern,
+            controls,
+            screen_name: String::new(),
             timeline: None,
             quads: Vec::new(),
             masks: Vec::new(),
@@ -322,6 +351,7 @@ impl VideoOutput {
             card: None,
             card_size: CARD_SIZE,
             card_slices: Vec::new(),
+            card_caption: String::new(),
             card_frame: Vec::new(),
             card_id: 0,
             decoding: None,
@@ -361,6 +391,7 @@ impl VideoOutput {
             stop,
             thread: Some(thread),
             gpu_errors,
+            fullscreen,
         });
         Ok(())
     }
@@ -389,6 +420,11 @@ impl VideoOutput {
             .or(gpu_error);
         (open, error)
     }
+}
+
+/// What the test card says of a screen: its name and the size of its window in pixels.
+fn card_caption(name: &str, width: u32, height: u32) -> String {
+    format!("{name}  {width} x {height}")
 }
 
 fn title(name: &str) -> String {
@@ -426,6 +462,8 @@ impl VideoOutputs {
                             live: Mutex::default(),
                             error: Mutex::default(),
                             pattern: Arc::clone(&self.pattern),
+                            controls: Arc::clone(&self.controls),
+                            fullscreen: Mutex::default(),
                             deck: Arc::clone(&self.deck),
                         })
                     });
@@ -517,6 +555,9 @@ struct Render {
     size: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     pattern: Arc<AtomicBool>,
+    controls: Arc<Controls>,
+    /// The screen's name, for the test card.
+    screen_name: String,
     /// The timeline and the slices last copied from the session, and the revision they were
     /// copied at.
     timeline: Option<Timeline>,
@@ -529,6 +570,8 @@ struct Render {
     card: Option<Vec<u8>>,
     card_size: (u32, u32),
     card_slices: Vec<CardSlice>,
+    /// What the card says of the screen, made again when it changes.
+    card_caption: String,
     card_frame: Vec<u8>,
     card_id: u64,
     /// Where the clips were decoded at the last refresh, written to the log when it changes.
@@ -610,8 +653,14 @@ impl Render {
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
         }
-        let mut pictures = items(&shown, &looks, self.card_size, time);
-        let card = pictures.is_empty() && self.sweep_card();
+        let disabled = self.controls.disabled.load(Ordering::Relaxed);
+        let forced = self.controls.card.load(Ordering::Relaxed);
+        let mut pictures = if disabled || forced {
+            Vec::new()
+        } else {
+            items(&shown, &looks, self.card_size, time)
+        };
+        let card = !disabled && (forced || pictures.is_empty()) && self.sweep_card(forced);
         if card {
             pictures.push(flux_render::Item::Picture(Picture {
                 id: self.card_id,
@@ -626,7 +675,7 @@ impl Render {
         }
         let drawn = !pictures.is_empty();
         // The test card is what the slices are lined up with: nothing changes it.
-        let post = if card {
+        let post = if card || disabled {
             flux_render::Post::default()
         } else {
             post
@@ -690,15 +739,21 @@ impl Render {
     }
 
     /// Draws the sweep on the test card where it is now; `false` while the pattern is off.
-    fn sweep_card(&mut self) -> bool {
-        if !self.pattern.load(Ordering::Relaxed) {
+    fn sweep_card(&mut self, forced: bool) -> bool {
+        if !forced && !self.pattern.load(Ordering::Relaxed) {
             return false;
         }
         let (width, height) = self.card_size;
-        let slices = &self.card_slices;
+        let (window_width, window_height) = unpack(self.size.load(Ordering::Relaxed));
+        let caption = card_caption(&self.screen_name, window_width, window_height);
+        if caption != self.card_caption {
+            self.card_caption = caption;
+            self.card = None;
+        }
+        let (slices, caption) = (&self.card_slices, &self.card_caption);
         let card = self
             .card
-            .get_or_insert_with(|| flux_render::pattern::test_card(width, height, slices));
+            .get_or_insert_with(|| flux_render::pattern::test_card(width, height, slices, caption));
         // Timed by the system clock, so the sweep crosses every screen together, a minute being a
         // whole number of sweeps.
         let millis = SystemTime::now()
@@ -735,6 +790,9 @@ impl Render {
                 invert: mask.invert,
             })
             .collect();
+        if let Some(screen) = this {
+            self.screen_name.clone_from(&screen.name);
+        }
         let shown = slices.iter().filter(|slice| !slice.hidden);
         let rect = |r: &flux_project::mapping::Rect| [r.x, r.y, r.width, r.height];
         self.quads = shown
@@ -820,7 +878,6 @@ fn items<'a>(
     items
 }
 /// The pictures of `shown` (topmost first) without groups, the bottom first.
-/// of them hides what is below.
 #[cfg(test)]
 fn pictures(shown: &[flux_video::Shown], composition: (u32, u32), beats: f64) -> Vec<Picture<'_>> {
     run_pictures(shown, composition, beats).0
@@ -915,19 +972,18 @@ fn ensure_deck(deck: &SharedDeck, app: &AppHandle) -> Result<(), String> {
 /// The monitor's picture of `shown` through the composition's effects: its width and height as
 /// two little-endian u16, then its RGBA pixels (no encoding to wait for on either side). The
 /// output and the preview monitors both come from here, so a clip looks the same in each.
+#[allow(clippy::too_many_arguments)]
 fn monitor_picture(
     shown: &[flux_video::Shown],
     looks: &[flux_video::GroupLook],
     vj: &flux_project::vj::Vj,
     size: (u32, u32),
+    width: u32,
     clock: flux_project::vj_modulation::Clock,
     last: &mut Option<Instant>,
     history: &mut flux_render::History,
 ) -> Vec<u8> {
-    let (width, height) = (
-        MONITOR_WIDTH,
-        (MONITOR_WIDTH * size.1 / size.0.max(1)).max(1),
-    );
+    let height = (u64::from(width) * u64::from(size.1) / u64::from(size.0.max(1))).max(1) as u32;
     let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
     picture.extend_from_slice(&(width as u16).to_le_bytes());
     picture.extend_from_slice(&(height as u16).to_le_bytes());
@@ -1024,6 +1080,16 @@ impl VideoOutputs {
     /// project that is not VJ. It decodes the playing clips itself,
     /// so it shows them with no screen open too.
     pub fn composition(&self, app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
+        self.draw_composition(app, Some(MONITOR_WIDTH))
+    }
+
+    /// The composition as [`Self::composition`] draws it, `width` pixels across (its own width
+    /// when `None`, from a history of its own so the monitor's is left alone).
+    fn draw_composition(
+        &self,
+        app: &AppHandle,
+        width: Option<u32>,
+    ) -> Result<Option<Vec<u8>>, String> {
         let session = Arc::clone(&app.state::<SharedSession>());
         // The grid is copied again only when the session moved.
         let mut guard = self.monitor.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1070,14 +1136,21 @@ impl VideoOutputs {
             .as_mut()
             .map(|deck| deck.show_grid(drawn, &play, now, size))
             .unwrap_or_default();
+        let mut fresh = flux_render::History::default();
+        let history = if width.is_some() {
+            &mut frames.history
+        } else {
+            &mut fresh
+        };
         Ok(Some(monitor_picture(
             &shown,
             &play.group_looks(drawn),
             drawn,
             size,
+            width.unwrap_or(size.0),
             clock,
             &mut frames.last,
-            &mut frames.history,
+            history,
         )))
     }
 
@@ -1146,6 +1219,7 @@ impl VideoOutputs {
             &preview.grid.play.group_looks(drawn),
             drawn,
             size,
+            MONITOR_WIDTH,
             clock,
             &mut preview.last,
             &mut preview.history,
@@ -1244,6 +1318,199 @@ pub async fn video_output_choose(
     .map_err(|err| err.to_string())
 }
 
+/// What the Output menu shows of the output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputState {
+    /// Every screen is black.
+    pub disabled: bool,
+    /// Every screen shows the test card.
+    pub test_card: bool,
+    /// How many displays there are to put the output full screen on.
+    pub displays: u32,
+    /// The display (from 1) the main screen covers; absent while it is a window.
+    pub fullscreen: Option<u32>,
+}
+
+/// What the Output menu switches.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Control {
+    Disable,
+    TestCard,
+}
+
+/// The snapshot that was saved.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Snapshot {
+    pub path: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The display `n` counts from 1, in the order the system lists them, as Resolume's
+/// Output > Fullscreen > Display N.
+fn display_at(displays: &[Display], n: u32) -> Option<&Display> {
+    displays.get(usize::try_from(n.checked_sub(1)?).ok()?)
+}
+
+impl VideoOutputs {
+    fn output_state(&self, app: &AppHandle) -> OutputState {
+        let displays: Vec<Display> = displays(app).into_iter().map(|(d, _)| d).collect();
+        let main = self
+            .outputs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(flux_project::mapping::MAIN_SCREEN)
+            .cloned();
+        let on = main.and_then(|output| {
+            let live = output.live.lock().unwrap_or_else(PoisonError::into_inner);
+            live.as_ref()
+                .filter(|live| live.fullscreen && !live.stop.load(Ordering::Relaxed))
+                .map(|live| live.display.clone())
+        });
+        OutputState {
+            disabled: self.controls.disabled.load(Ordering::Relaxed),
+            test_card: self.controls.card.load(Ordering::Relaxed),
+            displays: displays.len() as u32,
+            fullscreen: on
+                .and_then(|id| displays.iter().position(|d| d.id == id))
+                .map(|at| at as u32 + 1),
+        }
+    }
+
+    /// Puts the main screen full screen on display `n` (from 1), or back in a window on the
+    /// display it is on.
+    fn set_fullscreen(&self, app: &AppHandle, display: Option<u32>) -> Result<(), String> {
+        let main = self
+            .outputs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(flux_project::mapping::MAIN_SCREEN)
+            .cloned()
+            .ok_or("the project has no output screen")?;
+        let wish = match display {
+            Some(n) => {
+                let all: Vec<Display> = displays(app).into_iter().map(|(d, _)| d).collect();
+                let id = display_at(&all, n)
+                    .ok_or_else(|| format!("there is no display {n}"))?
+                    .id
+                    .clone();
+                preferences::preferences_change(
+                    app.clone(),
+                    app.state::<preferences::Store>(),
+                    Change::VideoDisplay {
+                        screen: flux_project::mapping::MAIN_SCREEN.into(),
+                        display: Some(id),
+                    },
+                )?;
+                true
+            }
+            None => false,
+        };
+        *main
+            .fullscreen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(wish);
+        self.sync(app);
+        let (open, error) = main.state();
+        match (open, error) {
+            (_, Some(error)) => Err(error),
+            (false, None) => Err("the output is not on a display".into()),
+            _ => Ok(()),
+        }
+    }
+
+    /// Saves the composition's picture as a PNG in `dir`.
+    fn snapshot(&self, app: &AppHandle, dir: &std::path::Path) -> Result<Snapshot, String> {
+        let picture = self
+            .draw_composition(app, None)?
+            .ok_or("a snapshot needs a VJ show")?;
+        let size = |at: usize| u32::from(u16::from_le_bytes([picture[at], picture[at + 1]]));
+        let (width, height) = (size(0), size(2));
+        let stamp = chrono::Local::now().format("%Y-%m-%d %H-%M-%S").to_string();
+        let path = crate::snapshot::save(dir, &stamp, &picture[4..], width, height)?;
+        Ok(Snapshot {
+            path: path.to_string_lossy().into_owned(),
+            width,
+            height,
+        })
+    }
+}
+
+/// Whether the output is disabled or showing the test card, and where it is full screen.
+#[tauri::command]
+pub fn video_output_state(app: AppHandle, output: State<'_, SharedVideoOutput>) -> OutputState {
+    output.output_state(&app)
+}
+
+/// Flips Disable Output or Show Test Card, and answers the state.
+#[tauri::command]
+pub fn video_output_toggle(
+    app: AppHandle,
+    output: State<'_, SharedVideoOutput>,
+    control: Control,
+) -> OutputState {
+    let flag = match control {
+        Control::Disable => &output.controls.disabled,
+        Control::TestCard => &output.controls.card,
+    };
+    let on = !flag.fetch_xor(true, Ordering::Relaxed);
+    log::info!(
+        "video output: {control:?} {}",
+        if on { "on" } else { "off" }
+    );
+    output.output_state(&app)
+}
+
+/// Puts the output full screen on display `display` (from 1), or in a window when there is none.
+#[tauri::command]
+pub async fn video_output_fullscreen(
+    app: AppHandle,
+    output: State<'_, SharedVideoOutput>,
+    display: Option<u32>,
+) -> Result<OutputState, String> {
+    let output = Arc::clone(&output);
+    let worker_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        output.set_fullscreen(&worker_app, display)?;
+        Ok(output.output_state(&worker_app))
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+/// Saves a PNG of the composition in the snapshot folder of the preferences.
+#[tauri::command]
+pub async fn video_output_snapshot(
+    app: AppHandle,
+    output: State<'_, SharedVideoOutput>,
+) -> Result<Snapshot, String> {
+    let output = Arc::clone(&output);
+    let worker_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let chosen = preferences::preferences_get(
+            worker_app.clone(),
+            worker_app.state::<preferences::Store>(),
+        )?
+        .snapshot_dir;
+        let data = worker_app
+            .path()
+            .app_data_dir()
+            .map_err(|err| err.to_string())?;
+        let dir = crate::snapshot::folder(chosen.as_deref(), dirs::picture_dir(), &data);
+        let saved = output.snapshot(&worker_app, &dir);
+        match &saved {
+            Ok(shot) => log::info!("video output: snapshot saved to {}", shot.path),
+            Err(err) => log::warn!("video output: snapshot failed: {err}"),
+        }
+        saved
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
 /// Shows or hides the test pattern where there is no picture.
 #[tauri::command]
 pub fn video_output_pattern(output: State<'_, SharedVideoOutput>, on: bool) {
@@ -1289,6 +1556,39 @@ fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn display(id: &str) -> Display {
+        Display {
+            id: id.into(),
+            width: 1920,
+            height: 1080,
+            main: false,
+        }
+    }
+
+    #[test]
+    fn display_at_should_count_from_one_in_the_order_of_the_system() {
+        let list = [display("a"), display("b")];
+        assert_eq!(display_at(&list, 1).map(|d| d.id.as_str()), Some("a"));
+        assert_eq!(display_at(&list, 2).map(|d| d.id.as_str()), Some("b"));
+        assert!(display_at(&list, 0).is_none());
+        assert!(display_at(&list, 3).is_none());
+    }
+
+    #[test]
+    fn controls_should_start_off_and_flip_one_flag_at_a_time() {
+        let controls = Controls::default();
+        assert!(!controls.disabled.load(Ordering::Relaxed));
+        assert!(!controls.card.load(Ordering::Relaxed));
+        assert!(!controls.disabled.fetch_xor(true, Ordering::Relaxed));
+        assert!(controls.disabled.load(Ordering::Relaxed));
+        assert!(!controls.card.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn card_caption_should_name_the_screen_and_the_window_size() {
+        assert_eq!(card_caption("Main", 1920, 1080), "Main  1920 x 1080");
+    }
     use flux_project::playhead::Tick;
     use flux_project::vj::{Blend, Clip, Layer, Playback, Side, Trigger, Vj};
     use flux_project::{VideoFit, vj::Direction};

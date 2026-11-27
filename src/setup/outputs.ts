@@ -10,7 +10,7 @@ import type { MtcOutputConfig } from "../project/types";
 export const SETUP_GROUPS = [
   { id: "show", sections: ["project", "timeline"] },
   { id: "audio", sections: ["audio", "audioOutputs", "metronome", "operator", "analysis"] },
-  { id: "outputs", sections: ["video", "ltc", "mtc", "osc"] },
+  { id: "outputs", sections: ["video", "snapshots", "ltc", "mtc", "osc"] },
   { id: "control", sections: ["timecodeIn", "controlMidi", "controlOsc", "controlArtnet", "http"] },
   { id: "app", sections: ["graphics", "general"] },
 ] as const;
@@ -27,7 +27,7 @@ export const SETUP_SECTIONS: readonly SetupSection[] = SETUP_GROUPS.flatMap((gro
 const NOT_VJ: readonly SetupSection[] = ["timeline", "metronome", "operator", "ltc", "mtc", "osc", "video"];
 
 /** The pages only a VJ show has: Flux is otherwise the master clock and reads no timecode, and only a VJ grid is modulated by sound. */
-const ONLY_VJ: readonly SetupSection[] = ["timecodeIn", "analysis"];
+const ONLY_VJ: readonly SetupSection[] = ["timecodeIn", "analysis", "snapshots"];
 
 /** Whether a page is listed for a show of this kind. */
 export const isListed = (section: SetupSection, vj: boolean): boolean =>

@@ -81,9 +81,16 @@ impl Analysis {
         self.state.store(at(&STATES, state), Ordering::Relaxed);
     }
 
-    fn polled_lately(&self) -> bool {
+    /// A meter asked for the levels at `now` (milliseconds on [`START`]): wakes the analysis.
+    fn touch(&self, now: u64) {
+        self.polled.store(now + 1, Ordering::Relaxed);
+    }
+
+    /// Whether the analysis has to run at `now`: a meter asked within the grace, or a modulation
+    /// of the grid follows the sound. Otherwise it is parked.
+    fn needed(&self, now: u64, modulated: bool) -> bool {
         let at = self.polled.load(Ordering::Relaxed);
-        at != 0 && (START.elapsed().as_millis() as u64 + 1).saturating_sub(at) <= METER_GRACE_MS
+        modulated || (at != 0 && (now + 1).saturating_sub(at) <= METER_GRACE_MS)
     }
 
     fn kind(&self) -> SourceKind {
@@ -172,13 +179,12 @@ fn run(app: &AppHandle, shared: &Analysis) {
             looked = Instant::now();
             // Only listen while a meter is open or a modulation of the grid follows the sound.
             let session = app.state::<SharedSession>();
-            let needed = shared.polled_lately()
-                || session
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .grid_ref()
-                    .is_some_and(Vj::has_audio_modulation);
-            if !needed {
+            let modulated = session
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .grid_ref()
+                .is_some_and(Vj::has_audio_modulation);
+            if !shared.needed(START.elapsed().as_millis() as u64, modulated) {
                 if listening.take().is_some() {
                     analysis::set_grid_tap(false);
                 }
@@ -253,9 +259,7 @@ pub struct Levels {
 /// composition bar.
 #[tauri::command]
 pub fn vj_analysis_levels(analysis: State<'_, SharedAnalysis>) -> Levels {
-    analysis
-        .polled
-        .store(START.elapsed().as_millis() as u64 + 1, Ordering::Relaxed);
+    analysis.touch(START.elapsed().as_millis() as u64);
     let bands = analysis.bands.load();
     Levels {
         low: bands.low,
@@ -264,5 +268,40 @@ pub fn vj_analysis_levels(analysis: State<'_, SharedAnalysis>) -> Levels {
         level: bands.level,
         source: analysis.kind(),
         state: analysis.state(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn analysis_should_be_parked_until_something_reads_it() {
+        let analysis = Analysis::default();
+        assert!(!analysis.needed(0, false));
+        assert!(!analysis.needed(10_000, false));
+    }
+
+    #[test]
+    fn a_read_should_wake_the_analysis_and_it_should_park_after_the_grace() {
+        let analysis = Analysis::default();
+        analysis.touch(5_000);
+        assert!(analysis.needed(5_000, false));
+        assert!(analysis.needed(5_000 + METER_GRACE_MS, false));
+        assert!(!analysis.needed(5_000 + METER_GRACE_MS + 1, false));
+    }
+
+    #[test]
+    fn a_read_after_parking_should_wake_it_again() {
+        let analysis = Analysis::default();
+        analysis.touch(0);
+        assert!(!analysis.needed(METER_GRACE_MS + 500, false));
+        analysis.touch(METER_GRACE_MS + 500);
+        assert!(analysis.needed(METER_GRACE_MS + 600, false));
+    }
+
+    #[test]
+    fn audio_modulation_should_keep_the_analysis_running_without_a_meter() {
+        assert!(Analysis::default().needed(99_000, true));
     }
 }

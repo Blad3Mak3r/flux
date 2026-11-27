@@ -31,6 +31,10 @@ export interface Preferences {
   metronome: OutputConfig["audio"];
   ltc: Record<string, OutputConfig["ltc"][number]>;
   mtc: Record<string, OutputConfig["mtc"][number]>;
+  /** The folder Output > Snapshot saves into; none is Pictures/Flux Snapshots. */
+  snapshotDir?: string | null;
+  /** A snapshot is also added to the project's media. */
+  snapshotMedia?: boolean;
   revision: number;
   warning?: string | null;
 }

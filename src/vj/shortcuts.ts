@@ -18,6 +18,6 @@ export function shortcutOf(event: KeyboardEvent): ShortcutAction | undefined {
 export function acceleratorOf(action: ShortcutAction): string | undefined {
   const s = list.find((entry) => entry.action === action);
   if (!s) return undefined;
-  const key = s.code === "Escape" ? "Esc" : s.code.replace(/^Key/, "");
+  const key = s.code === "Escape" ? "Esc" : s.code.replace(/^(Key|Digit)/, "");
   return `${s.cmd ? `${MOD_KEY}+` : ""}${s.shift ? "⇧+" : ""}${key}`;
 }

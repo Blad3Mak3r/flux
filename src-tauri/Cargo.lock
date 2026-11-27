@@ -1601,7 +1601,9 @@ name = "flux-text"
 version = "0.2.2"
 dependencies = [
  "ab_glyph",
+ "ab_glyph_rasterizer",
  "fontdb",
+ "png",
  "rustybuzz",
 ]
 
@@ -1622,6 +1624,7 @@ dependencies = [
  "flux-voice",
  "keyring",
  "log",
+ "png",
  "serde",
  "serde_json",
  "tauri",

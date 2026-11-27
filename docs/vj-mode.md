@@ -139,6 +139,22 @@ Double click the fader to centre it. The Composition menu can set it all A, midd
 
 Both stop updating while the window is hidden; the screens keep playing.
 
+### The Output menu
+
+The **Output** menu has Resolume's functions for the screens, with its shortcuts
+([Resolume's shortcuts](https://resolume.com/support/en/shortcuts)):
+
+| Item | Key | Does |
+| --- | --- | --- |
+| **Disable output** | Ctrl+Shift+D | Every screen goes black; press it again to bring the picture back. It affects the show, so while it is on the Output panel shows a solid vermilion **Output disabled** tag (click it to turn the screens back on) and the monitor is dimmed and framed in vermilion. Clips keep playing underneath. |
+| **Show test card** | Ctrl+Shift+L | Every screen shows the test card instead of the picture, so you can line a projector up: a grid, the diagonals and circles that show how a slice leans, colour bars and a grey ramp, the corners told apart by colour, the composition size, the screen's name with the size of its window, a sweeping bar and the time of day, and **each slice outlined** in a colour of its own with its name and size (the slices of [Advanced Output](#advanced-output)). An amber **Test card** tag shows while it is on. Disable output wins over it. |
+| **Snapshot** | Ctrl+Shift+P | Saves a PNG of the composition, at the composition's resolution, in the snapshot folder (`Pictures/Flux Snapshots` by default, or the app's data folder when there is no Pictures folder) as `Flux <date> <time>.png`, and says so in the status bar. It is the composition before the slices, as the Output monitor draws it but at full size. It needs a VJ show. |
+| **Full screen output > Display N** | Ctrl+Shift+1 to 9 | Puts the main screen's output full screen on display N (counted from 1, in the order the system lists the displays, the same order as Preferences > Video) and remembers the display. Pressing the same key again, or **Windowed**, takes it back to a window on that display. Other screens keep the display chosen in Preferences. |
+
+**Preferences > Snapshots** sets the snapshot folder and whether each snapshot is also added to the project's media as
+an image clip (in the selected layer, as with **File > Import media**). Disable output and the test card are
+not saved with the project: they are off again when FLUX starts.
+
 ## The BPM bar
 
 The composition bar under the grid holds the show's tempo, which the clips' beat-based pacing, the effects set to Beats
@@ -214,7 +230,10 @@ launched when. A clip's speed is not modulatable.
 
 **Analysis source.** An audio modulation listens to what is chosen in Preferences on the **Audio analysis** page (VJ
 shows only): the show's own sound (the default), one channel of an audio input, or nothing. A small meter of the four
-readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page.
+readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page. The analysis only runs while it is needed: while a meter is open (it asks for the
+levels several times a second) or while some parameter of the grid has an audio modulation. A second after the last
+ask, with no audio modulation, it stops listening to the source and the readings fall to zero; opening the meter again
+wakes it.
 
 ## Map mode: MIDI, OSC, DMX and keys
 
@@ -359,6 +378,9 @@ are in the menus. The backend refuses to learn exactly these keys (the list is `
 | Ctrl+Shift+C | Composition settings (the inspector's Composition tab). |
 | Ctrl+Shift+M, Ctrl+Shift+K, Ctrl+Shift+O, Ctrl+Shift+X | Map mode (MIDI, keys, OSC, DMX: one mode learns all four); Esc stops it. |
 | Ctrl+Shift+A | Open the advanced output. |
+| Ctrl+Shift+D / Ctrl+Shift+L | Disable output / show the test card (see [The Output menu](#the-output-menu)). |
+| Ctrl+Shift+P | Snapshot of the composition. |
+| Ctrl+Shift+1 to 9 | Output full screen on display 1 to 9; again, back to a window. |
 | Esc | Cancels a learn, then leaves the map mode. Nothing else. |
 
 (On macOS Ctrl reads as Cmd.)

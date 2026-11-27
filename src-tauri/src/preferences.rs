@@ -39,6 +39,10 @@ pub struct Preferences {
     /// screen not listed stays closed.
     #[serde(default)]
     pub video_displays: BTreeMap<String, String>,
+    /// The folder Output > Snapshot saves into; absent is `Pictures/Flux Snapshots`.
+    pub snapshot_dir: Option<String>,
+    /// A snapshot is also added to the project's media as an image clip.
+    pub snapshot_media: bool,
     #[serde(skip_deserializing)]
     pub revision: u64,
     #[serde(skip_deserializing)]
@@ -111,6 +115,12 @@ pub enum Change {
         #[serde(default = "main_screen")]
         screen: String,
         display: Option<String>,
+    },
+    SnapshotDir {
+        dir: Option<String>,
+    },
+    SnapshotMedia {
+        on: bool,
     },
     Locale {
         locale: Locale,
@@ -279,6 +289,10 @@ impl Preferences {
                 }
             }
             Change::Voice { voice } => self.voice = voice,
+            Change::SnapshotDir { dir } => {
+                self.snapshot_dir = dir.filter(|dir| !dir.trim().is_empty());
+            }
+            Change::SnapshotMedia { on } => self.snapshot_media = on,
             Change::VideoDisplay { screen, display } => {
                 if screen == flux_project::mapping::MAIN_SCREEN {
                     self.video_display = None;
