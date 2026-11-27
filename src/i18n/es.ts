@@ -701,6 +701,8 @@ export const es: Record<MessageKey, string> = {
   "status.restored": "Recuperado {name} donde lo dejaste",
   "status.opened": "Abierto {name}",
   "status.imported": "Importado {name}",
+  "status.dropSkipped": "{count} archivos soltados no se pueden importar y se omitieron",
+  "status.importedMany": "Importados {count} archivos",
   "status.convertedHap": "{name} convertido a HAP",
   "status.convertCancelled": "Conversión de {name} cancelada",
   "status.tempoFound": "{name}: {bpm} BPM",

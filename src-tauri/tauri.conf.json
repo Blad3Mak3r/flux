@@ -45,7 +45,7 @@
         "center": true,
         "maximized": true,
         "decorations": false,
-        "dragDropEnabled": false,
+        "dragDropEnabled": true,
         "create": false
       }
     ],

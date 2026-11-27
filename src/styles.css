@@ -1305,6 +1305,45 @@ input:disabled {
   pointer-events: none;
 }
 
+/* Files dragged in from the file explorer: the lane they would join and the time they would start at. */
+.lane[data-drop="true"] {
+  box-shadow: inset 0 0 0 1px var(--phosphor);
+}
+
+.drop-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 0;
+  border-left: 2px solid var(--phosphor);
+  pointer-events: none;
+}
+
+/* The label that follows the pointer while something inside the window is dragged. */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  max-width: 240px;
+  padding: 2px 8px;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--panel-hi);
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+body.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .track-kind {
   display: grid;
   color: var(--ink-dim);

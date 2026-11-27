@@ -73,6 +73,13 @@ The following steps of issue #106 add that output window and the timeline clips.
 
 ## Importing
 
+**Dragging files from the file explorer** onto the timeline places audio files as audio clips and videos as video
+clips, one after another, from the time under the pointer (snapped like a clip being moved, as the magnet is set). They
+go on the track under the pointer when it is of their kind, else on a new track of their kind. The lane under the pointer
+and a line at the start time light up while dragging. Other files are left out and counted in the status bar
+(`project_drop_timeline`). Drops need `dragDropEnabled` on the window, so the page's own drags (layers, clips, effects)
+are made with the pointer, not with HTML5 drag and drop.
+
 **File > Import > Video** (`project_import_video`) opens the file with FFmpeg first, so a file it cannot read is
 refused with the reason, and then adds it on a new video track of the active timeline with a clip at the playhead.
 The file is copied into the project's `video/` folder when the project is saved, like audio.

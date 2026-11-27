@@ -27,8 +27,11 @@ transport.
 | **Global layers** | A layer added as global keeps its clips in slots that are the same in every deck, so they stay when the deck changes. |
 | **Clips** | A video, a still image or a [generator](vj-generators.md), at most one per cell. |
 
-Import media with **Ctrl+I** (videos and still images: PNG, JPEG, WebP, BMP, TIFF, GIF) or drag files in, then drag
-them from the browser onto cells. Generators are in the **Generators** tab of the browser, and effects in the
+Import media with **Ctrl+I** (videos and still images: PNG, JPEG, WebP, BMP, TIFF, GIF), then drag
+them from the browser onto cells. You can also drag files from the file explorer straight onto a cell: the first goes
+in that cell, in place of its clip, and each next one in the next cell to the right on the same layer. The cell under the
+pointer lights up. Files that are not videos or images, that FFmpeg cannot read, or that find no cell are left out, and
+the status bar says how many (`project_drop_vj`). Generators are in the **Generators** tab of the browser, and effects in the
 **Effects** tab.
 
 ## Launching clips

@@ -3,6 +3,7 @@
 mod archive;
 mod clips;
 mod cue_ops;
+mod dropped;
 mod error;
 mod events;
 pub mod generator;
@@ -37,6 +38,7 @@ pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Tr
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
 pub use clips::{ClipOp, apply as apply_clip_op};
 pub use cue_ops::{CueEdited, CueOp, CueTrackKind};
+pub use dropped::{Dropped, MediaKind, Staged, media_kind};
 pub use error::{ProjectError, Result};
 pub use events::{
     MidiEvent, MidiMessage, MidiPortRef, MscCommand, OscArg, OscDestination, OscEvent,

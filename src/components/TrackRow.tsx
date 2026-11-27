@@ -1,6 +1,7 @@
 import { useAudioOutputName } from "../audio/routing";
 import { usePreferences } from "../preferences/store";
 import { setCollapsed } from "../state/ui";
+import { useFileDrop } from "../state/fileDrop";
 import { addOrder, operatorEdit, useVoice } from "../voice/store";
 import type { VoiceOrder } from "../project/types";
 import { memo, useRef, useState } from "react";
@@ -716,6 +717,8 @@ export const TrackLane = memo(function TrackLane({
 }) {
   const t = useT();
   const height = laneHeight(track);
+  // Files from the file explorer are over this lane.
+  const dropping = useFileDrop((drop) => drop.timeline?.track === track.id);
   // A double click on the empty part of a notes, MIDI or OSC lane adds one there.
   const addHere = (event: MouseEvent<HTMLDivElement>) => {
     const kind = track.kind.type;
@@ -731,6 +734,8 @@ export const TrackLane = memo(function TrackLane({
     <div
       className="lane"
       style={{ height, ...traceStyle(track.color) }}
+      data-drop-track={track.id}
+      data-drop={dropping}
       data-muted={track.muted}
       data-kind={track.kind.type}
       data-dragging={dragging}
