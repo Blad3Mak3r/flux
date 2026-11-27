@@ -122,13 +122,20 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
     : kind.type === "layer" ? (layer ? `${layerName(t, grid, layer)} · ${px}` : t("vj.inspector.layer"))
     : kind.type === "screen" ? t("vj.monitor.screen")
     : group ? `${groupName(t, grid, group)} · ${px}` : t("vj.inspector.group");
+  const gear = (at: DOMRect) => openMenu({ x: at.left, y: at.bottom, items: gearItems(t, grid, listedScreens(listed), id, kind, row) });
   const empty = kind.type === "preview" ? "vj.previewEmpty" : kind.type === "layer" ? "vj.inspector.noLayer" : kind.type === "screen" ? "vj.monitor.screenMissing" : "vj.inspector.noGroup";
 
   return (
     <>
       <div className={`vj-pb vj-mon-wrap${kind.type === "composition" && composition.over ? " over" : ""}`} ref={kind.type === "composition" ? composition.ref : undefined}>
         <div className="vj-mon" data-disabled={kind.type === "composition" && disabled}>
-          {source.start ? <canvas ref={canvas} className="vj-out" /> : <p className="vj-empty">{t(empty)}</p>}
+          {source.start ? <canvas ref={canvas} className="vj-out" /> : kind.type === "screen" ? (
+            // The layout is kept per machine and the screens belong to the project: this one may not exist in the project now open.
+            <div className="vj-empty vj-empty-pick">
+              <p>{t("vj.monitor.screenMissing")}</p>
+              <button type="button" className="button" aria-haspopup="menu" onClick={(event) => gear(event.currentTarget.getBoundingClientRect())}>{t("vj.monitor.choose")}</button>
+            </div>
+          ) : <p className="vj-empty">{t(empty)}</p>}
           {kind.type === "composition" && disabled && <p className="vj-mon-off" role="status">{t("vj.output.disabledNote")}</p>}
         </div>
         {clip && (
@@ -151,10 +158,7 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
           </>
         )}
         <button type="button" className="vj-tb vj-gear" title={t("vj.monitor.settings")} aria-label={t("vj.monitor.settings")} aria-haspopup="menu"
-          onClick={(event) => {
-            const at = event.currentTarget.getBoundingClientRect();
-            openMenu({ x: at.left, y: at.bottom, items: gearItems(t, grid, listedScreens(listed), id, kind, row) });
-          }}>
+          onClick={(event) => gear(event.currentTarget.getBoundingClientRect())}>
           <GearIcon />
         </button>
       </footer>
