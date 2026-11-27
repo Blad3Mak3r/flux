@@ -77,8 +77,24 @@ pub enum Node {
 pub enum MonitorKind {
     Composition,
     Preview,
-    Layer { layer: Option<String> },
-    Group { group: Option<String> },
+    Layer {
+        layer: Option<String>,
+    },
+    Group {
+        group: Option<String>,
+    },
+    /// What a screen of the output shows, by its id.
+    Screen {
+        screen: String,
+    },
+}
+
+impl MonitorKind {
+    /// A screen monitor needs the id of a screen (whether it exists is the project's, so the
+    /// monitor then shows that it is not found).
+    fn bad_screen(&self) -> bool {
+        matches!(self, Self::Screen { screen } if screen.is_empty() || screen.chars().count() > 200)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -328,6 +344,9 @@ impl Layout {
         {
             return fail(format!("monitor {} is not in the layout", m.id));
         }
+        if let Some(m) = self.monitors.iter().find(|m| m.kind.bad_screen()) {
+            return fail(format!("monitor {} shows a screen with no id", m.id));
+        }
         let mut ids: Vec<&str> = tabs.iter().map(|(id, _)| *id).collect();
         self.check(&self.root, &mut ids)
     }
@@ -481,6 +500,9 @@ impl Layout {
             if self.monitors.len() >= MAX_MONITORS {
                 return fail(format!("at most {MAX_MONITORS} monitors"));
             }
+            if monitor.as_ref().is_some_and(MonitorKind::bad_screen) {
+                return fail("a screen monitor needs a screen");
+            }
             let id = format!("{MONITOR_PREFIX}{}", new_id());
             self.monitors.push(Monitor {
                 id: id.clone(),
@@ -559,6 +581,9 @@ impl Layout {
     }
 
     pub fn set_monitor(&mut self, id: &str, kind: MonitorKind) -> Result<()> {
+        if kind.bad_screen() {
+            return fail("a screen monitor needs a screen");
+        }
         match self.monitors.iter_mut().find(|m| m.id == id) {
             Some(monitor) => {
                 monitor.kind = kind;
@@ -1054,6 +1079,22 @@ mod tests {
         l.set_monitor(&id, kind.clone()).unwrap();
         assert_eq!(l.monitors[0].kind, kind);
         assert!(l.set_monitor("monitor:none", kind).is_err());
+    }
+
+    #[test]
+    fn screen_monitor_needs_a_screen_id() {
+        let mut l = Layout::default();
+        let id = monitor_ids(&l)[0].clone();
+        let screen = |s: &str| MonitorKind::Screen { screen: s.into() };
+        assert!(l.set_monitor(&id, screen("")).is_err());
+        l.set_monitor(&id, screen("main")).unwrap();
+        l.validate().unwrap();
+        assert!(l.open_panel("monitor", Some(screen(""))).is_err());
+        assert!(l.open_panel("monitor", Some(screen("s2"))).is_ok());
+        let json = serde_json::to_string(&l.monitors[0].kind).unwrap();
+        assert_eq!(json, r#"{"type":"screen","screen":"main"}"#);
+        l.monitors[0].kind = screen("");
+        assert!(l.validate().is_err());
     }
 
     #[test]

@@ -22,11 +22,12 @@ const EDGE = 0.25;
 
 const nodeId = (node: DockNode) => (node.type === "deck" ? "deck" : node.id);
 
-const KIND_TITLES: Record<MonitorKind["type"], "vj.composition" | "vj.preview" | "vj.inspector.layer" | "vj.inspector.group"> = {
+const KIND_TITLES: Record<MonitorKind["type"], "vj.composition" | "vj.preview" | "vj.inspector.layer" | "vj.inspector.group" | "vj.monitor.screen"> = {
   composition: "vj.composition",
   preview: "vj.preview",
   layer: "vj.inspector.layer",
   group: "vj.inspector.group",
+  screen: "vj.monitor.screen",
 };
 
 /** The name of a monitor's kind. */

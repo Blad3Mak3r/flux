@@ -194,6 +194,7 @@ pub fn run() {
             vj_commands::vj_beat,
             vj_control::vj_learn,
             vj_commands::vj_output_frame,
+            video_output::vj_screen_frame,
             vj_commands::vj_preview_frame,
             modulation::vj_modulation_values,
             analysis::vj_analysis_levels,

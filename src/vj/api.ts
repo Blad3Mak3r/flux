@@ -187,6 +187,7 @@ export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfad
 export const vjPlayState = () => invoke<GridState>("vj_play_state");
 /** What the grid sends to the screens now, as a small picture (see `bindOutput`); empty outside a VJ project. */
 export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");
+export const vjScreenFrame = (screen: string) => invoke<ArrayBuffer>("vj_screen_frame", { screen });
 /** What `clip` alone looks like in the composition, as a small picture (see `bindPreview`); it plays on its own, whatever is on air. */
 export const vjPreviewFrame = (clip: string) => invoke<ArrayBuffer>("vj_preview_frame", { clip });
 /** What one layer or group contributes to the composition, as a small picture (see `bindMonitor`). */
@@ -202,7 +203,7 @@ export type DockNode =
   | { type: "split"; id: string; dir: DockDir; children: DockNode[]; sizes: number[] }
   | { type: "tabs"; id: string; panels: string[]; active: number }
   | { type: "deck" };
-export type MonitorKind = { type: "composition" } | { type: "preview" } | { type: "layer"; layer: string | null } | { type: "group"; group: string | null };
+export type MonitorKind = { type: "composition" } | { type: "preview" } | { type: "layer"; layer: string | null } | { type: "group"; group: string | null } | { type: "screen"; screen: string };
 export type DockZone = "center" | "left" | "right" | "top" | "bottom";
 /** Where a panel is dropped: a tab group id or `"deck"`, and the zone of it. */
 export interface DockTarget {

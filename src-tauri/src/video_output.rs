@@ -1698,6 +1698,84 @@ pub async fn video_output_snapshot(
     .map_err(|err| err.to_string())?
 }
 
+/// What screen `screen` outputs, small, as the picture of [`vj_output_frame`]: the composition cut
+/// by its visible slices and masks at the shape of its display (the composition's when it has
+/// none), black while the screen or the whole output is off. Empty for an unknown screen or a
+/// project that is not VJ.
+#[tauri::command]
+pub async fn vj_screen_frame(
+    app: AppHandle,
+    output: State<'_, SharedVideoOutput>,
+    screen: String,
+) -> Result<tauri::ipc::Response, String> {
+    let output = Arc::clone(&output);
+    let bytes = tauri::async_runtime::spawn_blocking(move || output.screen_frame(&app, &screen))
+        .await
+        .map_err(|err| err.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+impl VideoOutputs {
+    fn screen_frame(&self, app: &AppHandle, id: &str) -> Result<Vec<u8>, String> {
+        let session = Arc::clone(&app.state::<SharedSession>());
+        let Some(found) = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .video_screens()
+            .into_iter()
+            .find(|s| s.id == id)
+        else {
+            return Ok(Vec::new());
+        };
+        let chosen = preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
+            .ok()
+            .and_then(|p| p.video_display_for(id));
+        let (ow, oh) = chosen
+            .and_then(|id| displays(app).into_iter().find(|(d, _)| d.id == id))
+            .map_or_else(
+                || composition_size(&session),
+                |(d, _)| (d.width.max(1), d.height.max(1)),
+            );
+        let off = !found.enabled || self.controls.disabled.load(Ordering::Relaxed);
+        let width = MONITOR_WIDTH;
+        let height = (u64::from(width) * u64::from(oh) / u64::from(ow)).max(1) as u32;
+        let rgba = if off {
+            [0, 0, 0, 255].repeat((width * height) as usize)
+        } else {
+            let Some(frame) = self.composition(app)? else {
+                return Ok(Vec::new());
+            };
+            let size = composition_size(&session);
+            let (cw, ch) = (
+                usize::from(u16::from_le_bytes([frame[0], frame[1]])),
+                usize::from(u16::from_le_bytes([frame[2], frame[3]])),
+            );
+            let quads: Vec<Quad> = if found.slices.is_empty() {
+                vec![flux_render::fitted_quad(size, (ow, oh))]
+            } else {
+                found
+                    .slices
+                    .iter()
+                    .filter(|slice| !slice.hidden)
+                    .map(quad_of)
+                    .collect()
+            };
+            flux_render::map_screen(
+                &frame[4..],
+                (cw, ch),
+                &quads,
+                &masks_of(&found.masks),
+                (width as usize, height as usize),
+            )
+        };
+        let mut out = Vec::with_capacity(rgba.len() + 4);
+        out.extend_from_slice(&(width as u16).to_le_bytes());
+        out.extend_from_slice(&(height as u16).to_le_bytes());
+        out.extend_from_slice(&rgba);
+        Ok(out)
+    }
+}
+
 /// The test cards of a screen's slices laid out on the composition, small, as the Advanced Output
 /// shows them over the picture: the width and height as two little-endian u16, then RGBA, clear
 /// where no card is shown. Empty while no card is.

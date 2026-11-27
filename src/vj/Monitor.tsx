@@ -12,13 +12,15 @@ import type { VideoAsset, VjGrid } from "../project/types";
 import { useDoc } from "../state/store";
 import { openMenu } from "../state/ui";
 import type { MenuItem } from "../state/ui";
-import { useComposition } from "../video/mapping";
+import { listedScreens, useComposition } from "../video/mapping";
+import type { VideoScreen } from "../video/mapping";
+import { useOutputStatus } from "../setup/VideoPage";
 import { kindTitle } from "./Dock";
 import type { MonitorKind } from "./api";
 import { CompositionFx, useCompositionDrop } from "./EffectStack";
 import { clipName, groupName, layerName } from "./names";
 import { toggleDisable, useOutput } from "./output";
-import { bindMonitor, bindOutput, bindPreview, launch, layoutSetMonitor, useVj } from "./store";
+import { bindMonitor, bindOutput, bindPreview, bindScreen, launch, layoutSetMonitor, useVj } from "./store";
 
 const NO_VIDEOS: VideoAsset[] = [];
 type Draw = (picture: ImageData | null) => void;
@@ -45,13 +47,17 @@ interface Source {
 }
 
 /** The gear: what the monitor shows, and for a layer or a group, the selection it follows or the one it is fixed on. */
-function gearItems(t: Translate, grid: VjGrid, id: string, kind: MonitorKind): MenuItem[] {
+function gearItems(t: Translate, grid: VjGrid, screens: VideoScreen[], id: string, kind: MonitorKind): MenuItem[] {
   const set = (next: MonitorKind) => () => void layoutSetMonitor(id, next);
   const kinds: MonitorKind[] = [{ type: "composition" }, { type: "preview" }, { type: "layer", layer: null }, { type: "group", group: null }];
   const items: MenuItem[] = [
     { heading: t("vj.monitor.show") },
     ...kinds.map((next) => ({ label: kindTitle(t, next), checked: next.type === kind.type, run: set(next) })),
   ];
+  items.push("-", { heading: t("vj.monitor.screens") });
+  for (const screen of screens) {
+    items.push({ label: screen.name, checked: kind.type === "screen" && kind.screen === screen.id, run: set({ type: "screen", screen: screen.id }) });
+  }
   if (kind.type === "layer") {
     items.push("-", { label: t("vj.monitor.follow"), checked: kind.layer === null, run: set({ type: "layer", layer: null }) });
     for (const layer of [...grid.layers].reverse()) {
@@ -67,6 +73,16 @@ function gearItems(t: Translate, grid: VjGrid, id: string, kind: MonitorKind): M
   return items;
 }
 
+/** "Screen 1 · 1920×1080": the screen's name and the size of the display it is on (the composition's without one). */
+function ScreenLabel({ screen }: { screen: VideoScreen }) {
+  const size = useComposition();
+  const { status } = useOutputStatus();
+  const chosen = status?.screens.find((s) => s.id === screen.id)?.chosen;
+  const display = status?.displays.find((d) => d.id === chosen);
+  const label = `${screen.name} · ${display ? `${display.width}×${display.height}` : `${size.width}×${size.height}`}`;
+  return <Marquee className="vj-mlabel" title={label}>{label}</Marquee>;
+}
+
 /** The monitor `id` of the layout, showing `kind`. */
 export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: MonitorKind }) {
   const t = useT();
@@ -79,7 +95,10 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
   const selectedClip = useVj((vj) => vj.clip);
   const selectedLayer = useVj((vj) => vj.layer);
   const selectedGroup = useVj((vj) => vj.group);
+  const listed = useDoc((doc) => doc.project.output.screens);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const screen = kind.type === "screen" ? listedScreens(listed).find((s) => s.id === kind.screen) : undefined;
+  const screenOff = screen?.enabled === false;
 
   const clip = kind.type === "preview"
     ? grid.layers.flatMap((layer) => (layer.clips ?? []).map((c) => ({ layer, clip: c }))).find((x) => x.clip.id === selectedClip)
@@ -90,6 +109,7 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
     kind.type === "composition" ? { key: "composition", start: bindOutput }
     : kind.type === "preview" ? { key: `preview ${clip?.clip.id}`, start: clip ? (draw) => bindPreview(clip.clip.id, draw) : null }
     : kind.type === "layer" ? { key: `layer ${layer?.id}`, start: layer ? (draw) => bindMonitor("layer", layer.id, draw) : null }
+    : kind.type === "screen" ? { key: `screen ${screen?.id}`, start: screen ? (draw) => bindScreen(screen.id, draw) : null }
     : { key: `group ${group?.id}`, start: group ? (draw) => bindMonitor("group", group.id, draw) : null };
   useEffect(() => source.start?.(painter(canvas)), [source.key]);
 
@@ -98,8 +118,9 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
     kind.type === "composition" ? `${t("vj.composition")} · ${px}`
     : kind.type === "preview" ? (clip ? `${t("vj.preview")} · ${clipName(t, clip.clip, videos)}` : t("vj.preview"))
     : kind.type === "layer" ? (layer ? `${layerName(t, grid, layer)} · ${px}` : t("vj.inspector.layer"))
+    : kind.type === "screen" ? t("vj.monitor.screen")
     : group ? `${groupName(t, grid, group)} · ${px}` : t("vj.inspector.group");
-  const empty = kind.type === "preview" ? "vj.previewEmpty" : kind.type === "layer" ? "vj.inspector.noLayer" : "vj.inspector.noGroup";
+  const empty = kind.type === "preview" ? "vj.previewEmpty" : kind.type === "layer" ? "vj.inspector.noLayer" : kind.type === "screen" ? "vj.monitor.screenMissing" : "vj.inspector.noGroup";
 
   return (
     <>
@@ -117,7 +138,8 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
         )}
       </div>
       <footer className="vj-mfoot">
-        <Marquee className="vj-mlabel" title={label}>{label}</Marquee>
+        {screen ? <ScreenLabel screen={screen} /> : <Marquee className="vj-mlabel" title={label}>{label}</Marquee>}
+        {screenOff && <span className="vj-pill off"><i />{t("vj.monitor.screenOff")}</span>}
         {kind.type === "composition" && (
           <>
             <CompositionFx grid={grid} />
@@ -129,7 +151,7 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
         <button type="button" className="vj-tb vj-gear" title={t("vj.monitor.settings")} aria-label={t("vj.monitor.settings")} aria-haspopup="menu"
           onClick={(event) => {
             const at = event.currentTarget.getBoundingClientRect();
-            openMenu({ x: at.left, y: at.bottom, items: gearItems(t, grid, id, kind) });
+            openMenu({ x: at.left, y: at.bottom, items: gearItems(t, grid, listedScreens(listed), id, kind) });
           }}>
           <GearIcon />
         </button>

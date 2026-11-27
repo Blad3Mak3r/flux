@@ -17,6 +17,7 @@ import {
   vjLayout,
   vjMonitorFrame,
   vjOutputFrame,
+  vjScreenFrame,
   vjPreviewFrame,
   vjPreview,
   vjPlayState,
@@ -342,6 +343,11 @@ const OUTPUT_EVERY = 1000 / 30;
  */
 export function bindOutput(draw: (picture: ImageData | null) => void): () => void {
   return bindFrames(vjOutputFrame, draw);
+}
+
+/** Like {@link bindOutput}, for what one screen outputs: the composition through its slices and masks. */
+export function bindScreen(screen: string, draw: (picture: ImageData | null) => void): () => void {
+  return bindFrames(() => vjScreenFrame(screen), draw);
 }
 
 /** Like {@link bindOutput}, for what one layer or group alone contributes to the composition. */
