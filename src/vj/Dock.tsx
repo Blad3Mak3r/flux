@@ -11,7 +11,7 @@ import type { Translate } from "../i18n";
 import { startDrag, useDropTarget } from "../state/pointerDrag";
 import type { DragAt } from "../state/pointerDrag";
 import type { DockNode, DockZone, LayoutState, MonitorKind } from "./api";
-import { layoutActivate, layoutClose, layoutMove, layoutReorder, layoutResize, useVj } from "./store";
+import { layoutActivate, layoutClose, layoutEqualize, layoutMove, layoutReorder, layoutResize, useVj } from "./store";
 
 /** What a dragged tab carries: the id of its panel. */
 const PANEL = "application/x-flux-vj-panel";
@@ -271,7 +271,7 @@ function Split({ node }: { node: Extract<DockNode, { type: "split" }> }) {
         return (
           <Fragment key={nodeId(child)}>
             {i > 0 && (
-              <div className="vj-sash" role="separator" tabIndex={0} aria-orientation={row ? "vertical" : "horizontal"} aria-label={t("vj.dock.resize")}
+              <div className="vj-sash" role="separator" tabIndex={0} aria-orientation={row ? "vertical" : "horizontal"} aria-label={t("vj.dock.resize")} title={t("vj.dock.equalTip")} onDoubleClick={() => void layoutEqualize(node.id)}
                 style={{ flex: `0 0 ${state.gap}px` }} onPointerDown={hold} onPointerMove={(event) => drag(i - 1, event)} onPointerUp={release} onPointerCancel={release} onKeyDown={(event) => keys(i - 1, event)} />
             )}
             <div className="vj-dn" style={{ flex: `${sizes[i] * 1000} 1 0px`, minWidth: w, minHeight: h }}>

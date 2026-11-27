@@ -1646,6 +1646,8 @@ export const en = {
   "vj.dock.close": "Close panel",
   "vj.dock.tabs": "Panels",
   "vj.dock.resize": "Resize the panels",
+  "vj.dock.equalTip": "Double-click: equal sizes",
+  "vj.monitor.equalWidths": "Equal widths in this row",
   "vj.menu.panels": "Panels",
   "vj.menu.newMonitor": "New monitor",
   "vj.menu.layouts": "Layouts",

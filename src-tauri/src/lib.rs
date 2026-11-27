@@ -164,6 +164,7 @@ pub fn run() {
             vj_layout_commands::vj_layout_close,
             vj_layout_commands::vj_layout_open,
             vj_layout_commands::vj_layout_resize,
+            vj_layout_commands::vj_layout_equalize,
             vj_layout_commands::vj_layout_set_monitor,
             vj_layout_commands::vj_layout_apply,
             vj_layout_commands::vj_layout_save,

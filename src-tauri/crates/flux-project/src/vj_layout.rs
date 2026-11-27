@@ -580,6 +580,22 @@ impl Layout {
         Ok(())
     }
 
+    /// Gives every child of a split the same share.
+    pub fn equalize(&mut self, split: &str) -> Result<()> {
+        fn find<'a>(node: &'a Node, split: &str) -> Option<&'a Node> {
+            match node {
+                Node::Split { id, .. } if id == split => Some(node),
+                Node::Split { children, .. } => children.iter().find_map(|c| find(c, split)),
+                _ => None,
+            }
+        }
+        let Some(Node::Split { children, .. }) = find(&self.root, split) else {
+            return fail(format!("no split {split}"));
+        };
+        let equal = vec![1.0; children.len()];
+        self.resize(split, equal)
+    }
+
     pub fn set_monitor(&mut self, id: &str, kind: MonitorKind) -> Result<()> {
         if kind.bad_screen() {
             return fail("a screen monitor needs a screen");
@@ -750,6 +766,32 @@ pub struct State {
     pub mins: BTreeMap<String, (u32, u32)>,
     /// The gap a splitter takes between two children, in px.
     pub gap: u32,
+    /// For each monitor that shares a row (a `row` split) with another monitor, the id of that
+    /// split: the nearest row around it. The UI offers equal widths for it.
+    #[serde(rename = "rowOf")]
+    pub row_of: BTreeMap<PanelId, String>,
+}
+
+fn collect_rows(node: &Node, row: Option<&str>, out: &mut Vec<(PanelId, String)>) {
+    match node {
+        Node::Split {
+            id, dir, children, ..
+        } => {
+            let row = if *dir == Dir::Row {
+                Some(id.as_str())
+            } else {
+                row
+            };
+            children.iter().for_each(|c| collect_rows(c, row, out));
+        }
+        Node::Tabs { panels, .. } => out.extend(row.into_iter().flat_map(|r| {
+            panels
+                .iter()
+                .filter(|p| is_monitor(p))
+                .map(move |p| (p.clone(), r.to_owned()))
+        })),
+        Node::Deck => {}
+    }
 }
 
 fn collect_mins(node: &Node, out: &mut BTreeMap<String, (u32, u32)>) {
@@ -812,8 +854,16 @@ impl Store {
     pub fn state(&self) -> State {
         let mut mins = BTreeMap::new();
         collect_mins(&self.current.root, &mut mins);
+        let mut rows = Vec::new();
+        collect_rows(&self.current.root, None, &mut rows);
+        let row_of = rows
+            .iter()
+            .filter(|(_, r)| rows.iter().filter(|(_, o)| o == r).count() > 1)
+            .cloned()
+            .collect();
         State {
             mins,
+            row_of,
             gap: SPLITTER_GAP,
             current: self.current.clone(),
             saved: self
@@ -1067,6 +1117,31 @@ mod tests {
         assert_eq!(l.monitors.len(), MAX_MONITORS - 1);
         assert!(l.monitors.iter().all(|m| m.id != id));
         l.validate().unwrap();
+    }
+
+    #[test]
+    fn equalize_and_rows() {
+        fn sizes_of(n: &Node, id: &str) -> Option<Vec<f32>> {
+            match n {
+                Node::Split { id: i, sizes, .. } if i == id => Some(sizes.clone()),
+                Node::Split { children, .. } => children.iter().find_map(|c| sizes_of(c, id)),
+                _ => None,
+            }
+        }
+        let mut store = Store::default();
+        store.apply("monitors").unwrap();
+        let row_of = store.state().row_of;
+        assert_eq!(row_of.len(), 4);
+        let row = row_of.values().next().unwrap().clone();
+        assert!(row_of.values().all(|r| *r == row));
+        store
+            .current
+            .resize(&row, vec![0.1, 0.2, 0.3, 0.4])
+            .unwrap();
+        store.current.equalize(&row).unwrap();
+        let got = sizes_of(&store.current.root, &row).unwrap();
+        assert!(got.iter().all(|s| (s - 0.25).abs() < 1e-6));
+        assert!(store.current.equalize("nope").is_err());
     }
 
     #[test]

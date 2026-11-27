@@ -73,6 +73,11 @@ pub fn vj_layout_resize(app: AppHandle, split: String, sizes: Vec<f32>) -> Resul
 }
 
 #[tauri::command]
+pub fn vj_layout_equalize(app: AppHandle, split: String) -> Result<State> {
+    on_current(&app, |layout| layout.equalize(&split))
+}
+
+#[tauri::command]
 pub fn vj_layout_set_monitor(app: AppHandle, id: String, kind: MonitorKind) -> Result<State> {
     on_current(&app, |layout| layout.set_monitor(&id, kind))
 }

@@ -230,6 +230,8 @@ export interface LayoutState {
   mins: Record<string, [number, number]>;
   /** The gap a splitter takes, in px. */
   gap: number;
+  /** For each monitor that shares a row with another one, the split of that row. */
+  rowOf: Record<string, string>;
 }
 /** One command of the layout (`vj_layout_<op>`); each answers with the whole state. */
 export const vjLayout = (op: string, args?: Record<string, unknown>) => invoke<LayoutState>(`vj_layout_${op}`, args);

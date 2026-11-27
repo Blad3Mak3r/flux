@@ -246,6 +246,7 @@ export const layoutActivate = (group: string, index: number) => laid(() => vjLay
 export const layoutClose = (panel: string) => laid(() => vjLayout("close", { panel }));
 export const layoutOpen = (panel: string, monitor?: MonitorKind) => laid(() => vjLayout("open", { panel, monitor }));
 export const layoutResize = (split: string, sizes: number[]) => laid(() => vjLayout("resize", { split, sizes }));
+export const layoutEqualize = (split: string) => laid(() => vjLayout("equalize", { split }));
 export const layoutSetMonitor = (id: string, kind: MonitorKind) => laid(() => vjLayout("set_monitor", { id, kind }));
 export const layoutApply = (id: string) => laid(() => vjLayout("apply", { id }));
 export const layoutSave = (name: string) => laid(() => vjLayout("save", { name }));

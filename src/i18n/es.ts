@@ -1650,6 +1650,8 @@ export const es: Record<MessageKey, string> = {
   "vj.dock.close": "Cerrar panel",
   "vj.dock.tabs": "Paneles",
   "vj.dock.resize": "Cambiar el tamaño de los paneles",
+  "vj.dock.equalTip": "Doble clic: tamaños iguales",
+  "vj.monitor.equalWidths": "Mismo ancho en esta fila",
   "vj.menu.panels": "Paneles",
   "vj.menu.newMonitor": "Nuevo monitor",
   "vj.menu.layouts": "Disposiciones",

@@ -20,7 +20,7 @@ import type { MonitorKind } from "./api";
 import { CompositionFx, useCompositionDrop } from "./EffectStack";
 import { clipName, groupName, layerName } from "./names";
 import { toggleDisable, useOutput } from "./output";
-import { bindMonitor, bindOutput, bindPreview, bindScreen, launch, layoutSetMonitor, useVj } from "./store";
+import { bindMonitor, bindOutput, bindPreview, bindScreen, launch, layoutEqualize, layoutSetMonitor, useVj } from "./store";
 
 const NO_VIDEOS: VideoAsset[] = [];
 type Draw = (picture: ImageData | null) => void;
@@ -47,7 +47,7 @@ interface Source {
 }
 
 /** The gear: what the monitor shows, and for a layer or a group, the selection it follows or the one it is fixed on. */
-function gearItems(t: Translate, grid: VjGrid, screens: VideoScreen[], id: string, kind: MonitorKind): MenuItem[] {
+function gearItems(t: Translate, grid: VjGrid, screens: VideoScreen[], id: string, kind: MonitorKind, row: string | undefined): MenuItem[] {
   const set = (next: MonitorKind) => () => void layoutSetMonitor(id, next);
   const kinds: MonitorKind[] = [{ type: "composition" }, { type: "preview" }, { type: "layer", layer: null }, { type: "group", group: null }];
   const items: MenuItem[] = [
@@ -70,6 +70,7 @@ function gearItems(t: Translate, grid: VjGrid, screens: VideoScreen[], id: strin
       items.push({ label: groupName(t, grid, group), checked: kind.group === group.id, run: set({ type: "group", group: group.id }) });
     }
   }
+  if (row) items.push("-", { label: t("vj.monitor.equalWidths"), run: () => void layoutEqualize(row) });
   return items;
 }
 
@@ -96,6 +97,7 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
   const selectedLayer = useVj((vj) => vj.layer);
   const selectedGroup = useVj((vj) => vj.group);
   const listed = useDoc((doc) => doc.project.output.screens);
+  const row = useVj((vj) => vj.layout?.rowOf[id]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const screen = kind.type === "screen" ? listedScreens(listed).find((s) => s.id === kind.screen) : undefined;
   const screenOff = screen?.enabled === false;
@@ -151,7 +153,7 @@ export function Monitor({ grid, id, kind }: { grid: VjGrid; id: string; kind: Mo
         <button type="button" className="vj-tb vj-gear" title={t("vj.monitor.settings")} aria-label={t("vj.monitor.settings")} aria-haspopup="menu"
           onClick={(event) => {
             const at = event.currentTarget.getBoundingClientRect();
-            openMenu({ x: at.left, y: at.bottom, items: gearItems(t, grid, listedScreens(listed), id, kind) });
+            openMenu({ x: at.left, y: at.bottom, items: gearItems(t, grid, listedScreens(listed), id, kind, row) });
           }}>
           <GearIcon />
         </button>
