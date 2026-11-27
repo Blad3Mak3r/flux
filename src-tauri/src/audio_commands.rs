@@ -31,11 +31,14 @@ fn decode_asset(
     asset: &AudioAsset,
 ) -> Result<(AudioStamp, Decoded), AudioError> {
     // The lock is held only to read the bytes, never while decoding.
-    let bytes = session
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .asset_bytes(asset)?;
-    let stamp = AudioStamp::of(&bytes);
+    let (bytes, stamp) = {
+        let session = session.lock().unwrap_or_else(PoisonError::into_inner);
+        let bytes = session.asset_bytes(asset)?;
+        let stamp = session
+            .stamp_of(asset, Some(&bytes))
+            .unwrap_or_else(|| AudioStamp::of(&bytes));
+        (bytes, stamp)
+    };
     let extension = Path::new(&asset.file)
         .extension()
         .and_then(|extension| extension.to_str());

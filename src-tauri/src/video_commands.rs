@@ -145,6 +145,19 @@ pub fn known_probe(session: &SharedSession, asset: &VideoAsset) -> Option<VideoP
     None
 }
 
+/// Forgets what was learned of the videos while they were offline or elsewhere: what FFmpeg read,
+/// and which it gave up on, so each is read again.
+pub fn media_changed() {
+    shared_probes()
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clear();
+    if let Some(asked) = ASKED.get() {
+        asked.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
+}
+
 /// The video cache folder, once the app has said where it is.
 static CACHE: OnceLock<PathBuf> = OnceLock::new();
 
@@ -489,9 +502,9 @@ pub const CONVERT_PROGRESS: &str = "video-convert-progress";
 static CONVERTING: AtomicBool = AtomicBool::new(false);
 static CANCEL: AtomicBool = AtomicBool::new(false);
 
-/// Writes a HAP copy of a video of the project and answers with where it is: beside the imported
-/// file (`<name> (HAP).mov`), or in the video cache for a video kept inside the project or a
-/// folder that cannot be written. The project does not change: [`project_replace_video`] puts the
+/// Writes a HAP copy of a video of the project and answers with where it is: beside the linked
+/// file (`<name> (HAP).mov`; an error when that folder cannot be written), or in the video cache for
+/// a video kept inside the project. The project does not change: [`project_replace_video`] puts the
 /// copy in, against the project as it is when the conversion ends.
 #[tauri::command]
 pub async fn video_convert_hap(
@@ -529,19 +542,18 @@ pub async fn video_convert_hap(
                 );
             }
         };
-        let dst = (!src.starts_with(&cache))
-            .then(|| src.parent())
-            .flatten()
-            .map(|dir| free_name(dir, &asset.name))
-            .filter(|dst| writable(dst))
-            .map_or_else(
-                || {
-                    let dir = cache.join("converted");
-                    std::fs::create_dir_all(&dir)?;
-                    Ok::<_, ProjectError>(free_name(&dir, &asset.name))
-                },
-                Ok,
-            )?;
+        // A video that is linked gets its copy beside it, which is where it stays linked; one kept
+        // inside the project (from an older version) has none, so its copy goes to the cache.
+        let dst = if src.starts_with(&cache) {
+            let dir = cache.join("converted");
+            std::fs::create_dir_all(&dir)?;
+            free_name(&dir, &asset.name)
+        } else {
+            src.parent()
+                .map(|dir| free_name(dir, &asset.name))
+                .filter(|dst| writable(dst))
+                .ok_or_else(|| ProjectError::Invalid("media.error.hapFolder".into()))?
+        };
         flux_video::convert_to_hap(&src, &dst, &mut progress, &CANCEL)
             .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
         Ok(dst)
@@ -608,7 +620,9 @@ pub async fn project_replace_video(
             .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
         let mut s = session.lock().unwrap_or_else(PoisonError::into_inner);
         s.update(project);
-        s.replace_video(&asset, &path)
+        // A copy in the video cache is kept in the project; any other is linked.
+        let link = CACHE.get().is_none_or(|cache| !path.starts_with(cache));
+        s.replace_video(&asset, &path, link)
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?

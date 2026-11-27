@@ -440,6 +440,16 @@ fn card_slice(slice: &flux_project::mapping::Slice) -> CardSlice {
 /// The logos read so far, by the id of the project's image; `None` for one that could not be.
 static LOGOS: OnceLock<Mutex<HashMap<String, Option<Logo>>>> = OnceLock::new();
 
+/// Forgets the logos that could not be read, which may be there now.
+fn retry_logos() {
+    if let Some(known) = LOGOS.get() {
+        known
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|_, logo| logo.is_some());
+    }
+}
+
 /// Reads the image `id` of the project, once: FFmpeg decodes its first picture.
 fn logo_for(session: &SharedSession, cache: &Path, id: &str) -> Option<Logo> {
     let known = LOGOS.get_or_init(Default::default);
@@ -486,6 +496,19 @@ fn title(name: &str) -> String {
 }
 
 impl VideoOutputs {
+    /// Media was relinked: clips and logos that could not be opened are tried again.
+    pub fn retry_media(&self) {
+        retry_logos();
+        if let Some(deck) = self
+            .deck
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+        {
+            deck.retry_failed();
+        }
+    }
+
     /// Opens, moves, renames or closes a window for every screen of the project, as the
     /// preferences place them.
     pub fn sync(&self, app: &AppHandle) {

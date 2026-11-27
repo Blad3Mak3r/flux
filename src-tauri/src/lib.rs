@@ -9,6 +9,7 @@ mod diagnostics;
 mod export_commands;
 mod graphics;
 mod live_commands;
+mod media_commands;
 mod modulation;
 mod osc_api;
 mod preferences;
@@ -188,6 +189,10 @@ pub fn run() {
             video_commands::video_convert_hap,
             video_commands::video_convert_cancel,
             video_commands::project_replace_video,
+            media_commands::media_list,
+            media_commands::media_relink,
+            media_commands::media_search_folder,
+            media_commands::media_collect,
             video_commands::video_mask_edit,
             video_output::video_output_pattern,
             video_output::video_card_preview,
