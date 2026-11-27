@@ -16,6 +16,7 @@ import { escapeMap, toggleMapMode, useMap } from "./mapping";
 import { acceleratorOf, shortcutOf } from "./shortcuts";
 import type { ShortcutAction } from "./shortcuts";
 import { exportMappings, importMappings } from "./mapFile";
+import { managePresets, saveTemplate } from "./presets";
 import { fullscreenOn, saveSnapshot, toggleDisable, toggleTestCard, useOutput } from "./output";
 import { usePreferences } from "../preferences/store";
 import { say } from "../state/ui";
@@ -141,6 +142,7 @@ function fileMenu(t: Translate): MenuItem[] {
   return [
     { label: t("vj.menu.newVj"), shortcut: acceleratorOf("new"), run: () => newDocument(t, "vj") },
     { label: t("vj.menu.newCue"), run: () => newDocument(t, "timeline") },
+    { label: t("vj.menu.newFromTemplate"), run: () => managePresets("templates") },
     { label: t("menu.open"), shortcut: acceleratorOf("open"), run: openDocument },
     "-",
     { label: t("menu.save"), shortcut: acceleratorOf("save"), run: () => void saveDocument(false) },
@@ -148,6 +150,7 @@ function fileMenu(t: Translate): MenuItem[] {
     { label: t("menu.close"), run: closeDocument },
     "-",
     { label: t("vj.menu.importMedia"), run: () => void importMedia() },
+    { label: t("vj.menu.saveTemplate"), run: () => saveTemplate(t) },
     "-",
     { label: t("menu.setup"), run: () => openSetup() },
     ...(hasNativeWindow()

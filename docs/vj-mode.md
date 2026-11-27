@@ -62,12 +62,13 @@ Each layer has a header with:
 | **A** | **Audio**: the level of the sound of the layer's clips. |
 | **V** | **Video**: the opacity of the layer over the layers below. |
 | **T** | **Transition** time, 0 to 10 s. 0 is a cut. |
-| Transition effect | **Alpha** (the new clip fades in over the old one) or **Add** (the old one fades out while the new one fades in). |
+| Transition mode | How the new clip mixes with the old one while the transition runs: **Alpha** (the default, a crossfade: the new clip fades in over the old one) or any of the 29 [blend modes](vj-blend-modes.md#transitions-with-a-blend-mode), in the same grouped menu as the layer's blend. |
 | Side A / B | Which side of the crossfader the layer is on. |
 | Fold arrow | Folds the layer to a thin row. It keeps playing; the fold is saved with the show. |
 
 With a transition time above 0, a clip launched on an empty layer fades in, and a stopped layer fades out over the same
-time. A layer's effects apply to both clips while a transition runs. Bypass, solo and eject are in the **Layer** menu and on the layer's buttons, with no key by default.
+time. A layer's effects apply to both clips while a transition runs. A transition with a blend mode mixes the two clips
+as the T fader moves, as Resolume's transition modes do; see [Transitions with a blend mode](vj-blend-modes.md#transitions-with-a-blend-mode). Bypass, solo and eject are in the **Layer** menu and on the layer's buttons, with no key by default.
 Right-click a layer for the rest (move up and down, rename, Autopilot, remove).
 
 ## Groups
@@ -354,6 +355,24 @@ The composition has an effect stack of its own, in the **Composition** tab of th
 of all the layers, before the output mapping. Every effect works there, and Feedback, Trails and Bloom work only there.
 Drop an effect on the Output panel or the composition bar to add it. An **FX** badge and a switch in the composition
 bar bypass the whole stack at once. See [VJ effects](vj-effects.md#effect-stacks).
+
+## Presets and templates
+
+Both are **yours**, not the show's: FLUX keeps them in its app data folder (like Resolume keeps its presets in the user's
+Documents folder), so they are there in every show and the show files stay self-contained. Using one copies it into the
+show; the show never refers back to it, and deleting a preset or a template changes no show.
+
+- **Effect presets.** The bookmark button in an effect's header lists the presets of that kind of effect: pick one to
+  give the effect its settings. **Save as preset…** keeps the effect's settings (and its modulation) under a name. The
+  same button in the header of a stack saves the **whole stack** as a preset, and lists every preset to add to the
+  stack. In the **Effects** tab of the browser, each effect shows its presets under it: click one to add the effect with
+  those settings to the selected clip or layer. **Manage presets…** renames and deletes them. See
+  [VJ effects](vj-effects.md#effect-presets).
+- **Templates.** **File > Save as template…** keeps the structure of the show under a name: its layers (blends,
+  transitions, levels, effects), groups, decks and columns, the composition's effects, the mappings and dashboard, the pad
+  colours, the clock and the output (screens, slices and masks). It leaves out the **clips and the media files**, and the
+  mappings and knob links that pointed at a clip. **File > New from template…** (or a template on the welcome window)
+  opens a new, unsaved show with that structure, ready for clips.
 
 ## Advanced Output
 

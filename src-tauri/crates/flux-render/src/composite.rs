@@ -1228,6 +1228,26 @@ mod tests {
     }
 
     #[test]
+    fn a_blend_transition_should_go_from_the_old_clip_to_the_new_one_through_the_blend() {
+        let (old, new) = ([200, 200, 200, 255], [100, 100, 100, 255]);
+        let whole = [0.0, 0.0, 1.0, 1.0];
+        let at = |t: f32, blend| {
+            let pictures = [
+                picture(&old, whole, 1.0 - t, Blend::Alpha),
+                picture(&new, whole, t, blend),
+            ];
+            mix(&[group(&pictures, 1.0, Blend::Alpha)], 1)[0]
+        };
+        for blend in [Blend::Multiply, Blend::Add, Blend::Screen] {
+            let (start, mid, end) = (at(0.0, blend), at(0.5, blend), at(1.0, blend));
+            assert_eq!((start, end), (200, 100), "{blend:?}");
+            assert!(mid != start && mid != end, "{blend:?} {mid}");
+        }
+        // Added, the middle is brighter than when multiplied.
+        assert!(at(0.5, Blend::Multiply) < at(0.5, Blend::Add));
+    }
+
+    #[test]
     fn a_group_at_full_alpha_with_no_effects_should_draw_as_its_layers_flat() {
         let (back, mid, top) = ([90, 120, 200, 255], [200, 50, 50, 128], [20, 240, 90, 255]);
         let (whole, right) = ([0.0, 0.0, 1.0, 1.0], [0.5, 0.0, 0.5, 1.0]);

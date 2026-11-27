@@ -19,7 +19,6 @@ import type {
   VjTempo,
   VjAutopilot,
   VjSide,
-  VjTransition,
   VjTrigger,
   VjButtonMode,
   VjFollow,
@@ -38,7 +37,7 @@ export type VjOp =
   | { op: "renameLayer"; layer: string; name: string }
   | { op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition"; layer: string; value: number }
   | { op: "layerBlend"; layer: string; blend: VjBlend }
-  | { op: "layerTransitionEffect"; layer: string; effect: VjTransition }
+  | { op: "layerTransitionEffect"; layer: string; effect: VjBlend }
   | { op: "layerAutopilot"; layer: string; mode: VjAutopilot }
   | { op: "layerCrossfade"; layer: string; side: VjSide | null }
   | { op: "layerBypass" | "layerSolo" | "layerCollapse"; layer: string; on: boolean }
@@ -299,3 +298,43 @@ export const vjMappingsImportPreview = (project: Project, path: string) =>
   invoke<MapImportPlan>("vj_mappings_import_preview", { project, path });
 export const vjMappingsImport = (project: Project, path: string, choice: MapImportChoice) =>
   invoke<MapImported>("vj_mappings_import", { project, path, choice });
+
+// Presets and templates: mirrors src-tauri/crates/flux-project/src/vj_presets.rs and src-tauri/src/vj_presets_commands.rs.
+
+/** One effect of a preset: its settings as stored, `effect` naming the kind. */
+export interface VjPresetEffect {
+  settings: { effect: string } & Record<string, unknown>;
+  bypass?: boolean;
+}
+
+/** A named set of effect settings kept for the user: one effect, or several (a stack). */
+export interface VjPreset {
+  id: string;
+  name: string;
+  effects: VjPresetEffect[];
+}
+
+/** What a preset is made from, or used on: one effect, or a whole stack. */
+export type VjPresetSource = { effect: string } | { stack: { clip: string } | { layer: string } | { group: string } | "composition" };
+
+/** What a template is listed as. */
+export interface VjTemplate {
+  id: string;
+  name: string;
+  layers: number;
+  decks: number;
+  columns: number;
+}
+
+export const vjPresetsList = () => invoke<VjPreset[]>("vj_presets_list");
+export const vjPresetSave = (project: Project, source: VjPresetSource, name: string) =>
+  invoke<VjPreset[]>("vj_preset_save", { project, source, name });
+export const vjPresetRename = (id: string, name: string) => invoke<VjPreset[]>("vj_preset_rename", { id, name });
+export const vjPresetDelete = (id: string) => invoke<VjPreset[]>("vj_preset_delete", { id });
+export const vjPresetApply = (project: Project, id: string, to: VjPresetSource) =>
+  invoke<ProjectState>("vj_preset_apply", { project, id, to });
+export const vjTemplatesList = () => invoke<VjTemplate[]>("vj_templates_list");
+export const vjTemplateSave = (project: Project, name: string) => invoke<VjTemplate[]>("vj_template_save", { project, name });
+export const vjTemplateRename = (id: string, name: string) => invoke<VjTemplate[]>("vj_template_rename", { id, name });
+export const vjTemplateDelete = (id: string) => invoke<VjTemplate[]>("vj_template_delete", { id });
+export const vjTemplateNew = (id: string, name: string) => invoke<ProjectState>("vj_template_new", { id, name });

@@ -23,7 +23,6 @@ import type {
   VjSide,
   VjTarget,
   VjAutopilot,
-  VjTransition,
   VjTrigger,
 } from "../project/types";
 import { useDoc } from "../state/store";
@@ -59,6 +58,8 @@ import { groupItems } from "./menus";
 import { Dashboard } from "./Dashboard";
 import { MapBar, MapLayer } from "./MapLayer";
 import { MapImportDialog } from "./MapImportDialog";
+import { LibraryDialog, NameDialog } from "./PresetDialogs";
+import { loadPresets } from "./presets";
 import { bindVjControl, useMap } from "./mapping";
 import { mappable } from "./mapModel";
 import { MappingsPanel } from "./Mappings";
@@ -122,7 +123,6 @@ function BlendOptions() {
     </>
   );
 }
-const TRANSITIONS: VjTransition[] = ["alpha", "add"];
 const AUTOPILOTS: VjAutopilot[] = ["off", "next", "previous", "random"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
@@ -406,8 +406,8 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
           progress={transition} {...level("layerTransition", MAX_TRANSITION)} />
         <select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
-          onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjTransition })}>
-          {TRANSITIONS.map((effect) => <option key={effect} value={effect}>{t(`vj.transition.short.${effect}`)}</option>)}
+          onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjBlend })}>
+          <BlendOptions />
         </select>
       </div>
       {nameRow}
@@ -1069,10 +1069,12 @@ function Inspector({ grid }: { grid: VjGrid }) {
               <BlendOptions />
             </select>
           </label>
-          <div className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
-            <Segments options={TRANSITIONS} value={layer.transitionEffect ?? "alpha"} label={(o) => t(`vj.transition.${o}`)}
-              onPick={(effect) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect })} />
-          </div>
+          <label className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
+            <select className="vj-select wide" value={layer.transitionEffect ?? "alpha"}
+              onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjBlend })}>
+              <BlendOptions />
+            </select>
+          </label>
           <div className="vj-f" {...mappable({ kind: "layerAutopilot", layer: layer.id })}><span>{t("vj.layer.autopilot")}</span>
             <Segments options={AUTOPILOTS} value={layer.autopilot ?? "off"} label={(o) => t(`vj.autopilot.${o}`)}
               onPick={(mode) => void edit({ op: "layerAutopilot", layer: layer.id, mode })} />
@@ -1263,7 +1265,7 @@ export function VjScreen() {
   useEffect(bindPlayState, []);
   useEffect(bindVjControl, []);
   useEffect(bindOutputState, []);
-  useEffect(() => { void loadEffectCatalog(); }, []);
+  useEffect(() => { void loadEffectCatalog(); void loadPresets(); }, []);
   if (!grid) return null;
   return (
     <div className="vj-app">
@@ -1277,6 +1279,8 @@ export function VjScreen() {
       <AdvancedOutput />
       <MapLayer grid={grid} />
       <MapImportDialog />
+      <NameDialog />
+      <LibraryDialog />
     </div>
   );
 }
