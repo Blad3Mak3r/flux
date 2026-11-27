@@ -213,7 +213,7 @@ The "~" button next to a number opens its **modulation**: the value moves by its
 you choose. Min can be above Max, which inverts the movement. The stored value is never changed: the modulation
 moves it while the show plays.
 
-What can be modulated: a clip's Scale and Position, a layer's Master, Opacity and Audio level, any number of an
+What can be modulated: a knob of the [dashboard](#dashboard), a clip's Scale and Position, a layer's Master, Opacity and Audio level, any number of an
 [effect](vj-effects.md#settings) (not the Rate and Cycle of its pace) and the numbers of a
 [generator](vj-generators.md#modulating-generator-numbers).
 
@@ -231,7 +231,10 @@ launched when. A clip's speed is not modulatable.
 
 **Analysis source.** An audio modulation listens to what is chosen in Preferences on the **Audio analysis** page (VJ
 shows only): the show's own sound (the default), one channel of an audio input, or nothing. A small meter of the four
-readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page.
+readings (L, M, H, Lv) in the composition bar shows what it hears; click it to open that page. The analysis only runs while it is needed: while a meter is open (it asks for the
+levels several times a second) or while some parameter of the grid has an audio modulation. A second after the last
+ask, with no audio modulation, it stops listening to the source and the readings fall to zero; opening the meter again
+wakes it.
 
 ## Map mode: MIDI, OSC, DMX and keys
 
@@ -276,7 +279,8 @@ The **Mappings** tab of the inspector lists every mapping: its source, what it d
 | **Hold** | Buttons | On while the button is held, off when released. On a clip, Hold plays it while the pad is down, as the Piano trigger does. |
 
 | **By position** / **This one** | Clips, layers, columns, decks, effects | What the mapping keeps hold of, as Resolume's shortcut modes. **This one** follows that clip, layer or effect by id wherever it moves, and deleting it removes the mapping. **By position** follows the slot (layer N, column M, effect K): if clips are moved or swapped, or layers reordered, it drives whatever is in the slot now, and if the slot is emptied the mapping waits (shown as "Empty slot") until something is put there. New mappings of **clips and effects** start as **This one**, those of **layers, columns and decks** as **By position**; mappings of older files stay **This one**. |
-| **16-bit** | DMX sources | The channel of the low byte, to read a 16-bit value from two channels. |
+| **16-bit** | DMX sources | The channel of the low byte, to read a 16-bit value from two channels. Learning pairs it for you (see [DMX 16-bit](#dmx-16-bit)); you can still type it. |
+| **Off / Clip / On** | MIDI note and control pads | The value the controller's pad is sent for each state, see [Pad feedback](#pad-feedback-leds). **Default** goes back to the grid's colours. |
 
 The **All / MIDI / OSC / DMX / Key** buttons above the list filter it by kind of source. **Import / Export** read and
 write the mappings as a `.flxmap` file for another show (see [Remote control](remote-control.md#mapping-files)); an
@@ -285,6 +289,49 @@ import that would overwrite mappings asks, per mapping or for all at once.
 The trash button deletes a mapping. The mappings are part of the show and go through undo like any other edit. One
 sweep of a fader is **one** undo step, however many values it sent. A mapping whose target is removed (a deleted clip,
 layer or effect) is removed with it; a file that holds a mapping to something that is not there is refused.
+
+### DMX 16-bit
+
+When you learn a DMX source, move the fader slowly through its range. If two **neighbouring channels** both moved, and
+one of them wrapped over most of 0 to 255 while the other stepped only a few times (at least twice as often), they are
+a coarse and a fine byte: the mapping is learned as **16-bit** with the fine channel filled in, whichever of the two is
+the lower number. Anything else stays 8-bit, with the single channel that travelled furthest. The **16-bit** field in the
+Mappings tab stays: type a channel or clear it to correct a guess.
+
+### Pad feedback (LEDs)
+
+With **MIDI feedback** turned on in the control preferences, the pads of a controller light up as in Resolume. The pad
+that a mapping was learned from is sent a note or control change back, on the same channel and number, through the MIDI
+**output port with the name of the input** it was learned on (ALSA's `client:port` numbers and case are ignored, so it
+survives a re-plug). Only a change is sent, from a thread that never touches the audio or video; the whole state is sent when
+the project opens or the port connects, and every pad is put out when the project closes, the feedback is turned off
+or the app quits.
+
+| Pad of | Empty slot | Clip loaded | Playing |
+| --- | --- | --- | --- |
+| A clip or a column | Off | Clip colour | On colour |
+
+| Pad of | Off | On |
+| --- | --- | --- |
+| Layer bypass or solo, effect bypass, Pause beats | The switch is off | The switch is on |
+| Stop layer, Stop all | Nothing plays | Something plays |
+| Deck select | Another deck | The deck shown |
+
+Faders, knobs and taps have no light, whatever their button mode. A mapping that waits on an empty slot is dark.
+
+What a value means is the controller's. The AKAI **APC40** and **APC mini** pick a colour with the velocity, and
+Flux starts those with **Clip = yellow, On = green**, as Resolume does:
+
+| Velocity | 0 | 1 | 2 | 3 | 4 | 5 | 6 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Colour | Off | Green | Green blink | Red | Red blink | Yellow | Yellow blink |
+
+Any other controller starts with Clip = 32 (dim) and On = 127 (full), Off = 0, and you type the values its manual says.
+The **Pad colours** row at the top of the Mappings tab sets the values for the whole show; each MIDI row can override
+them. OSC feedback (sending values back to a mapped OSC address) is not implemented.
+
+A `.flxmap` file carries the colours of each mapping, and a file written before them imports with none. The
+grid-wide **Pad colours** and a knob's modulation belong to the show, not to the file, so they are not exported.
 
 ### Dashboard
 
@@ -296,7 +343,11 @@ The **Composition** tab of the inspector holds a **dashboard** of eight knobs, a
   one to the other as the knob turns, and the first can be above the second.
 - A knob has a name (the field above its links) and can be mapped to a controller like any other control, so one fader
   can move many things at once.
-- The dashboard is saved with the show. A knob is not modulated by an LFO.
+- A knob can be **modulated** like any other number: the **~** button beside **Link numbers** opens the same LFO or
+  audio controls as an effect's setting, between a Min and a Max (0 to 100). The knob then turns by itself, drawn
+  moving, and moves everything linked to it; the stored knob stays where you left it. A number the knob drives and
+  that has a modulation of its own follows its own modulation. The tempo (BPM) is not moved by a modulated knob.
+- The dashboard, with its modulations, is saved with the show.
 
 ## Composition effects
 

@@ -453,6 +453,10 @@ pub struct Mapping {
     /// fills the slot again. `target` is then stale.
     #[serde(default, skip_serializing_if = "is_false")]
     pub parked: bool,
+    /// What the pad of a MIDI source is sent for each state (see [`crate::vj_feedback`]); absent
+    /// uses the grid's colours, then the controller's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lights: Option<crate::vj_feedback::Lights>,
 }
 
 /// What a mapping of a clip, layer, column, deck or effect keeps hold of, as Resolume's shortcut
@@ -498,6 +502,10 @@ pub struct Knob {
     /// What the knob moves, each into a range of its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<Link>,
+    /// What turns the knob by itself, 0 to 1 (see [`crate::vj_modulation`]). The stored `value`
+    /// stays as it was: the drawn grid moves what the knob is linked to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modulation: Option<crate::vj_modulation::Modulation>,
 }
 
 /// A number a knob drives: at 0 the knob gives `min`, at 1 `max` (units of the target).
@@ -588,6 +596,7 @@ pub(crate) fn add_mapping(vj: &mut Vj, source: Source, target: Target, id: Strin
             follow: Follow::Id,
             place: None,
             parked: false,
+            lights: None,
         },
     };
     let mut mapping = mapping;
@@ -716,6 +725,23 @@ pub(crate) fn set_mapping(
     Ok(())
 }
 
+/// Sets the colours of a mapping's pad, or with `None` takes them away.
+pub(crate) fn set_mapping_lights(
+    vj: &mut Vj,
+    id: &str,
+    lights: Option<crate::vj_feedback::Lights>,
+) -> Result<()> {
+    if let Some(lights) = lights {
+        lights.validate()?;
+    }
+    vj.mappings
+        .iter_mut()
+        .find(|m| m.id == id)
+        .ok_or_else(|| ProjectError::Invalid(format!("no mapping {id}")))?
+        .lights = lights;
+    Ok(())
+}
+
 pub(crate) fn set_mapping_fine(vj: &mut Vj, id: &str, fine: Option<u16>) -> Result<()> {
     let mapping = vj
         .mappings
@@ -790,6 +816,85 @@ pub(crate) fn link_knob(
     Ok(())
 }
 
+/// Sets or takes away the modulation of a knob, brought into 0 to 1.
+pub(crate) fn modulate_knob(
+    vj: &mut Vj,
+    knob: usize,
+    modulation: Option<crate::vj_modulation::Modulation>,
+) -> Result<()> {
+    let modulation = modulation.map(|m| m.tidy(0.0, 1.0)).transpose()?;
+    knob_mut(vj, knob)?.modulation = modulation;
+    Ok(())
+}
+
+/// Sets the number `target` names directly in `vj`, as a knob's link does in the drawn copy of a
+/// modulated grid. Ranges are held as the edits hold them; a target that is gone is skipped.
+pub(crate) fn drive(vj: &mut Vj, target: &Target, value: f32) {
+    if !value.is_finite() {
+        return;
+    }
+    let unit = value.clamp(0.0, 1.0);
+    match target {
+        Target::LayerMaster { layer } => {
+            if let Ok(l) = vj.layer_mut(layer) {
+                l.master = unit;
+            }
+        }
+        Target::LayerVolume { layer } => {
+            if let Ok(l) = vj.layer_mut(layer) {
+                l.volume = unit;
+            }
+        }
+        Target::LayerOpacity { layer } => {
+            if let Ok(l) = vj.layer_mut(layer) {
+                l.opacity = unit;
+            }
+        }
+        Target::LayerTransition { layer } => {
+            if let Ok(l) = vj.layer_mut(layer) {
+                l.transition = value.clamp(0.0, MAX_TRANSITION);
+            }
+        }
+        Target::ClipSpeed { clip } => {
+            if let Ok(c) = vj.clip_mut(clip) {
+                c.speed = value.clamp(MIN_SPEED, MAX_SPEED);
+            }
+        }
+        Target::EffectParam { effect, param } => {
+            if let Ok((stack, at)) = vj.effect_mut(effect)
+                && let Some(kind) = stack[at].kind.with_numbers(&[(param.clone(), value)])
+            {
+                stack[at].kind = kind;
+            }
+        }
+        Target::GeneratorNumber { clip, name } => {
+            if let Ok(c) = vj.clip_mut(clip)
+                && let Some(generator) = &mut c.generator
+            {
+                generator.set_modulated(name, value);
+            }
+        }
+        // The tempo is the session's, not the grid's: a modulated knob cannot move it.
+        _ => {}
+    }
+}
+
+/// Moves what the knob `index` of `vj` is linked to, as if it stood at `value`.
+pub(crate) fn drive_knob(vj: &mut Vj, index: usize, value: f32) {
+    let Some(knob) = vj.dashboard.get_mut(index) else {
+        return;
+    };
+    knob.value = value.clamp(0.0, 1.0);
+    let moves: Vec<(Target, f32)> = knob
+        .links
+        .iter()
+        .map(|link| (link.target.clone(), link.at(value)))
+        .collect();
+    for (target, v) in moves {
+        drive(vj, &target, v);
+    }
+}
+
 pub(crate) fn unlink_knob(vj: &mut Vj, knob: usize, target: &Target) -> Result<()> {
     knob_mut(vj, knob)?.links.retain(|l| &l.target != target);
     Ok(())
@@ -848,6 +953,9 @@ pub(crate) fn validate(vj: &Vj) -> Result<()> {
             )));
         }
         mapping.source.validate()?;
+        if let Some(lights) = mapping.lights {
+            lights.validate()?;
+        }
         let class = mapping.target.class();
         if mapping.parked && mapping.follow != Follow::Position
             || mapping.follow == Follow::Position && mapping.place.is_none()
@@ -887,6 +995,9 @@ pub(crate) fn validate(vj: &Vj) -> Result<()> {
             ));
         }
         crate::vj::check_name(knob.name.as_deref())?;
+        if let Some(m) = &knob.modulation {
+            m.validate(0.0, 1.0)?;
+        }
         for link in &knob.links {
             let (lo, hi) = link.target.range(vj).unwrap_or((1.0, 0.0));
             let inside = |v: f32| v.is_finite() && (lo..=hi).contains(&v);
@@ -1441,6 +1552,7 @@ mod tests {
             follow: Follow::Id,
             place: None,
             parked: false,
+            lights: None,
         };
         assert_eq!(mapping.scale(0.25), 0.75);
         let reversed = Mapping {
@@ -1475,6 +1587,7 @@ mod tests {
             follow: Follow::Id,
             place: None,
             parked: false,
+            lights: None,
         };
         // The decoder gives value / 16383 as the level.
         let centre = command(&mapping, 8192.0 / 16383.0, Edge::Same).unwrap();

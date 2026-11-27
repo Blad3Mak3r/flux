@@ -93,6 +93,17 @@ the task matches:
 
 ## Agents
 
+Work is split by model:
+
+| Role | Model | Does |
+| --- | --- | --- |
+| Lead (the main session) | Opus 5.5 (`claude-opus-5-5`) | Thinks: understands the request, reads the plan out of the code, decides the design, splits the work, reviews what comes back and talks to the user. It does not write the code itself. |
+| `coder` (`.claude/agents/coder.md`) | Sonnet 5.5 (`claude-sonnet-5-5`) | Writes and changes code, tests and docs from the lead's precise brief, and runs the checks. |
+| `reader` (`.claude/agents/reader.md`) | Haiku 5.5 (`claude-haiku-5-5`) | Reads files: finds where something lives, summarises files, answers questions about the code. Read-only. |
+
+The lead hands file reading to `reader` and code writing to `coder`, giving each the context it needs (files, the
+decided design, the rules of this file), and passes these rules on to any agent it starts.
+
 - `git-operator` (`.claude/agents/git-operator.md`) performs every git write operation and all pull request work.
   The main session does not commit, push, branch, merge or open PRs itself: it delegates, giving the intent (what
   changed and why), the branch/PR, and whether pushing or opening a PR is wanted.

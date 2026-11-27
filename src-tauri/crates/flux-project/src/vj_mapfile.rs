@@ -92,6 +92,9 @@ struct FileMapping {
     invert: bool,
     #[serde(default)]
     mode: ButtonMode,
+    /// The pad colours of this mapping; files written before them have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lights: Option<crate::vj_feedback::Lights>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -328,6 +331,7 @@ pub fn export(vj: &Vj) -> Result<String> {
                 max: m.max,
                 invert: m.invert,
                 mode: m.mode,
+                lights: m.lights,
             })
         })
         .collect();
@@ -454,6 +458,12 @@ pub fn import(
             let id = new_id();
             add_mapping(vj, incoming.source.clone(), target, id.clone()).is_ok()
                 && keep_follow(vj, &id, incoming)
+                && {
+                    if let Some(m) = vj.mappings.iter_mut().find(|m| m.id == id) {
+                        m.lights = incoming.lights;
+                    }
+                    true
+                }
                 && (set_mapping(
                     vj,
                     &id,
@@ -1061,5 +1071,40 @@ mod tests {
             found.target, by_id,
             "the layer by id, though it is no longer at its position"
         );
+    }
+
+    #[test]
+    fn pad_colours_should_travel_in_the_file_and_an_old_file_should_have_none() {
+        let mut from = mapped();
+        let id = from.vj.mappings[0].id.clone();
+        let lights = crate::vj_feedback::Lights {
+            off: 0,
+            loaded: 5,
+            on: 1,
+        };
+        apply(
+            &mut from,
+            VjOp::SetMappingLights {
+                mapping: id,
+                lights: Some(lights),
+            },
+        );
+        let source = from.vj.mappings[0].source.clone();
+        let text = export(&from.vj).unwrap();
+
+        let mut into = show("b");
+        import(&mut into.vj, &parse(&text).unwrap(), &wipe(), ids());
+        let got = into
+            .vj
+            .mappings
+            .iter()
+            .find(|m| m.source == source)
+            .unwrap();
+        assert_eq!(got.lights, Some(lights));
+
+        let old = text.replace("\"lights\"", "\"unknown\"");
+        let mut into = show("c");
+        import(&mut into.vj, &parse(&old).unwrap(), &wipe(), ids());
+        assert!(into.vj.mappings.iter().all(|m| m.lights.is_none()));
     }
 }

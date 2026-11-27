@@ -151,6 +151,7 @@ pub fn run() {
             commands::vj_effect_catalog,
             commands::vj_fonts,
             vj_commands::vj_launch,
+            vj_commands::vj_lights_preset,
             vj_commands::vj_launch_column,
             vj_commands::vj_scrub,
             vj_commands::vj_cue,
