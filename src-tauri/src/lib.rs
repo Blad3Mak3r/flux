@@ -28,6 +28,7 @@ mod video_output;
 mod vj_audio;
 mod vj_commands;
 mod vj_control;
+mod vj_layout_commands;
 mod vj_presets_commands;
 mod voice_commands;
 mod voice_jobs;
@@ -156,6 +157,19 @@ pub fn run() {
             commands::vj_preview,
             commands::vj_effect_catalog,
             commands::vj_fonts,
+            vj_layout_commands::vj_layout_get,
+            vj_layout_commands::vj_layout_move,
+            vj_layout_commands::vj_layout_reorder,
+            vj_layout_commands::vj_layout_activate,
+            vj_layout_commands::vj_layout_close,
+            vj_layout_commands::vj_layout_open,
+            vj_layout_commands::vj_layout_resize,
+            vj_layout_commands::vj_layout_set_monitor,
+            vj_layout_commands::vj_layout_apply,
+            vj_layout_commands::vj_layout_save,
+            vj_layout_commands::vj_layout_rename,
+            vj_layout_commands::vj_layout_delete,
+            vj_layout_commands::vj_layout_reset,
             vj_presets_commands::vj_presets_list,
             vj_presets_commands::vj_preset_save,
             vj_presets_commands::vj_preset_rename,
