@@ -39,7 +39,7 @@ pub fn map_screen(
     (width, height): (usize, usize),
 ) -> Vec<u8> {
     let mut out = vec![0u8; width * height * 4];
-    for pixel in out.chunks_exact_mut(4) {
+    for pixel in out.as_chunks_mut::<4>().0 {
         pixel[3] = 255;
     }
     if src.len() < sw * sh * 4 || sw == 0 || sh == 0 || width == 0 || height == 0 {
