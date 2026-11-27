@@ -564,6 +564,21 @@ pub async fn vj_fonts() -> Vec<serde_json::Value> {
     .unwrap_or_default()
 }
 
+/// The cameras and capture cards a Live input clip can show, each as `{ name, label }`: `name` is
+/// what the clip stores, `label` what to show. Empty when there are none. Listing asks the system,
+/// which can take a moment, so it is off the UI thread.
+#[tauri::command]
+pub async fn vj_capture_devices() -> Vec<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(|| {
+        flux_capture::devices()
+            .into_iter()
+            .map(|d| serde_json::json!({ "name": d.name, "label": d.label }))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
 #[tauri::command]
 pub async fn project_save(
     app: AppHandle,

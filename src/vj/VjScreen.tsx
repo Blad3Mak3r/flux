@@ -80,6 +80,7 @@ import { loadEffectCatalog, useEffectCatalog } from "./effects";
 import { AnalysisMeter, Tempo, TimecodeClock } from "./CompositionBar";
 import { GeneratorModPanel, GeneratorScrub, ModPanel, ModScrub, fieldRange, inspectorModulated } from "./Modulation";
 import { TextFields } from "./TextFields";
+import { LiveInputFields } from "./LiveInputFields";
 import { Transport } from "./Transport";
 import "./vj.css";
 
@@ -869,6 +870,8 @@ function GeneratorFields({ clip, generator, modulation }: { clip: string; genera
       );
     case "text":
       return <TextFields clip={clip} generator={generator} modulation={modulation} />;
+    case "liveInput":
+      return <LiveInputFields clip={clip} generator={generator} />;
     case "bars":
       return null;
   }
@@ -901,6 +904,8 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
   if (tab === "clip" && found) {
     const { clip } = found;
     const { generator } = clip;
+    // A live input has no length: no transport, end action or countdown (the backend reports none).
+    const endless = generator?.kind === "liveInput";
     const video = videos.find((v) => v.id === clip.asset);
     const probe = clip.asset ? probes[clip.asset] : undefined;
     const deck = grid.decks.find((d) => d.id === grid.deck);
@@ -923,7 +928,7 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
     };
     body = (
       <div className="vj-insp">
-        <Transport clip={clip} layer={found.layer.id} strip={stripOf(thumbs, clip)} still={probe?.still} />
+        {!endless && <Transport clip={clip} layer={found.layer.id} strip={stripOf(thumbs, clip)} still={probe?.still} />}
         <Thumb className="vj-ithumb" strip={stripOf(thumbs, clip)} generator={generator} />
         <div className="vj-fields">
           <label className="vj-f"><span>{t("vj.clip.name")}</span>
@@ -935,10 +940,12 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
               onPick={(trigger) => void edit({ op: "clipTrigger", clip: clip.id, trigger })} />
           </div>
           {generator && <GeneratorFields clip={clip.id} generator={generator} modulation={clip.modulation} />}
-          <div className="vj-f"><span>{t("vj.clip.playback")}</span>
-            <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}
-              onPick={(playback) => void edit({ op: "clipPlayback", clip: clip.id, playback })} />
-          </div>
+          {!endless && (
+            <div className="vj-f"><span>{t("vj.clip.playback")}</span>
+              <Segments options={PLAYBACKS} value={clip.playback ?? "loop"} label={(o) => t(`vj.playback.${o}`)}
+                onPick={(playback) => void edit({ op: "clipPlayback", clip: clip.id, playback })} />
+            </div>
+          )}
           {!generator && (
             <div className="vj-f"><span>{t("vj.clip.fit")}</span>
               <Segments options={FITS} value={clip.fit ?? "fit"} label={(o) => t(`vj.fit.${o}`)}

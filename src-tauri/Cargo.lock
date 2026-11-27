@@ -1652,6 +1652,7 @@ version = "0.2.2"
 dependencies = [
  "ffmpeg-next",
  "flux-audio",
+ "flux-capture",
  "flux-core",
  "flux-project",
  "flux-text",

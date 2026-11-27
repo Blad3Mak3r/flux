@@ -59,10 +59,18 @@ fn every_effect_should_be_documented_in_vj_effects() {
 /// One of each generator. The match has no wildcard, so a new generator stops this from compiling
 /// until it is listed here (and then documented).
 fn generators() -> Vec<Generator> {
-    let all: Vec<Generator> = ["solid", "strobe", "gradient", "bars", "noise", "text"]
-        .iter()
-        .map(|kind| serde_json::from_value(serde_json::json!({ "kind": kind })).unwrap())
-        .collect();
+    let all: Vec<Generator> = [
+        "solid",
+        "strobe",
+        "gradient",
+        "bars",
+        "noise",
+        "text",
+        "liveInput",
+    ]
+    .iter()
+    .map(|kind| serde_json::from_value(serde_json::json!({ "kind": kind })).unwrap())
+    .collect();
     for generator in &all {
         match generator {
             Generator::Solid { .. }
@@ -70,7 +78,8 @@ fn generators() -> Vec<Generator> {
             | Generator::Gradient { .. }
             | Generator::Bars
             | Generator::Noise { .. }
-            | Generator::Text { .. } => {}
+            | Generator::Text { .. }
+            | Generator::LiveInput { .. } => {}
         }
     }
     all

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use std::time::Duration;
 
+use flux_capture::Capture;
 use flux_project::playhead::Tick;
 
 use flux_project::generator::Generator;
@@ -48,6 +49,15 @@ pub struct VideoDeck {
     /// than one, so that screens asking a moment apart for a modulated generator, and the monitor
     /// and the screens, find the picture another of them made instead of making it again.
     generated: HashMap<String, VecDeque<Arc<Frame>>>,
+    /// The open live inputs by device name, one for all the clips that show the same device. A
+    /// device is closed when no clip shown uses it.
+    lives: HashMap<String, Live>,
+}
+
+/// A live input and the newest of its pictures made into a [`Frame`].
+struct Live {
+    capture: Capture,
+    frame: Option<Arc<Frame>>,
 }
 
 impl VideoDeck {
@@ -58,6 +68,7 @@ impl VideoDeck {
             players: HashMap::new(),
             failed: HashMap::new(),
             generated: HashMap::new(),
+            lives: HashMap::new(),
         }
     }
 
@@ -98,10 +109,16 @@ impl VideoDeck {
     fn pictures(&mut self, shown: Vec<Layer>, size: (u32, u32)) -> Vec<Shown> {
         self.generated
             .retain(|clip, _| shown.iter().any(|layer| &layer.clip == clip));
+        self.lives.retain(|device, _| {
+            shown.iter().any(|layer| {
+                matches!(&layer.generator, Some(Generator::LiveInput { device: d }) if d == device)
+            })
+        });
         shown
             .into_iter()
             .map(|layer| {
                 let frame = match &layer.generator {
+                    Some(Generator::LiveInput { device }) => self.live(device),
                     Some(generator) => {
                         let moment = Moment {
                             elapsed: Duration::from_millis(layer.frame),
@@ -118,6 +135,43 @@ impl VideoDeck {
                 Shown { layer, frame }
             })
             .collect()
+    }
+
+    /// The newest picture of the live input `device`, opening it if no clip showed it yet; black
+    /// while it has none (no device chosen, not connected, or the first picture not here yet).
+    fn live(&mut self, device: &str) -> Option<Arc<Frame>> {
+        let none = Generator::LiveInput {
+            device: device.to_owned(),
+        };
+        let black = || {
+            let moment = Moment {
+                elapsed: Duration::ZERO,
+                beats: 0.0,
+                size: (0, 0),
+            };
+            Some(Arc::new(generate::picture(&none, 0, moment)))
+        };
+        if device.is_empty() {
+            return black();
+        }
+        let live = self.lives.entry(device.to_owned()).or_insert_with(|| Live {
+            capture: Capture::start(device),
+            frame: None,
+        });
+        if let Some(new) = live.capture.latest() {
+            // The index tells the screens a picture is new: the capture's own, which counts up.
+            let current = live.frame.as_ref().map(|f| f.index);
+            if current != Some(new.index) {
+                live.frame = Some(Arc::new(Frame {
+                    index: new.index,
+                    width: new.width,
+                    height: new.height,
+                    rgba: new.rgba.clone(),
+                    alpha: false,
+                }));
+            }
+        }
+        live.frame.clone().or_else(black)
     }
 
     /// The picture of `generator`, the clip `clip`, at `moment`.
@@ -218,5 +272,29 @@ impl VideoDeck {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_live_input_without_a_device_shows_black_and_opens_nothing() {
+        let mut deck = VideoDeck::new(|_| None);
+        let none = deck.live("").unwrap();
+        assert_eq!(none.rgba, [0, 0, 0, 255]);
+        assert!(deck.lives.is_empty());
+    }
+
+    #[test]
+    fn a_live_input_not_connected_shows_black_and_closes_with_its_clip() {
+        let mut deck = VideoDeck::new(|_| None);
+        let shown = deck.live("/dev/flux-no-such-camera").unwrap();
+        assert_eq!(shown.rgba, [0, 0, 0, 255]);
+        assert_eq!(deck.lives.len(), 1);
+        // No layer shows it any more.
+        deck.pictures(Vec::new(), (0, 0));
+        assert!(deck.lives.is_empty());
     }
 }

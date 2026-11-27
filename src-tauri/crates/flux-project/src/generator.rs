@@ -108,6 +108,12 @@ pub enum Generator {
         #[serde(default = "noise_rate")]
         rate: f32,
     },
+    /// The picture of a camera or capture card, by the name the system gives it; black while there
+    /// is none (no `device` yet, or it is not connected). It is stored by name, never by position.
+    LiveInput {
+        #[serde(default)]
+        device: String,
+    },
     /// A block of text over a transparent background, as Resolume's Text Block. `size` is the height
     /// of the font as a fraction of the composition's, `position_x` and `position_y` the centre of
     /// the block as fractions of its width and height, `rotation` degrees clockwise, `tracking` and
@@ -190,6 +196,12 @@ fn text_size() -> f32 {
 }
 
 impl Generator {
+    /// Whether it has no length: a live input shows its device for as long as the clip plays, so
+    /// no duration, end action, countdown or transport applies to it.
+    pub fn is_endless(&self) -> bool {
+        matches!(self, Self::LiveInput { .. })
+    }
+
     /// The names of its numbers a modulation can move.
     pub fn numbers(&self) -> &'static [&'static str] {
         match self {
@@ -205,7 +217,7 @@ impl Generator {
                 "tracking",
                 "leading",
             ],
-            Self::Solid { .. } | Self::Bars => &[],
+            Self::Solid { .. } | Self::Bars | Self::LiveInput { .. } => &[],
         }
     }
 
@@ -244,7 +256,7 @@ impl Generator {
             | Self::Noise { colour, .. }
             | Self::Text { colour, .. } => vec![colour],
             Self::Gradient { from, to, .. } => vec![from, to],
-            Self::Bars => Vec::new(),
+            Self::Bars | Self::LiveInput { .. } => Vec::new(),
         }
     }
 
@@ -296,7 +308,7 @@ impl Generator {
                     *advance = nearest;
                 }
             }
-            Self::Solid { .. } | Self::Bars => {}
+            Self::Solid { .. } | Self::Bars | Self::LiveInput { .. } => {}
         }
         self
     }
@@ -308,6 +320,13 @@ impl Generator {
             return Err(ProjectError::Invalid(format!(
                 "a generator colour must look like #rrggbb: {bad}"
             )));
+        }
+        if let Self::LiveInput { device } = self
+            && (device.chars().count() > MAX_NAME || device.chars().any(char::is_control))
+        {
+            return Err(ProjectError::Invalid(
+                "a live input's device name is too long or holds control characters".into(),
+            ));
         }
         if let Self::Text {
             text, font, style, ..
@@ -355,7 +374,7 @@ impl Generator {
                         .all(|s| (TEXT_SPACE.0..=TEXT_SPACE.1).contains(s))
                     && ADVANCES.contains(&advance)
             }
-            Self::Solid { .. } | Self::Bars => true,
+            Self::Solid { .. } | Self::Bars | Self::LiveInput { .. } => true,
         };
         if fine {
             Ok(())
@@ -462,6 +481,25 @@ pub fn rgb(colour: &str) -> Option<[u8; 3]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_input_is_stored_by_device_name() {
+        let live: Generator = serde_json::from_str(r#"{"kind":"liveInput"}"#).unwrap();
+        assert_eq!(
+            live,
+            Generator::LiveInput {
+                device: String::new()
+            }
+        );
+        let named: Generator =
+            serde_json::from_str(r#"{"kind":"liveInput","device":"/dev/video0"}"#).unwrap();
+        assert!(named.validate().is_ok());
+        assert!(named.numbers().is_empty());
+        let bad = Generator::LiveInput {
+            device: "a\nb".into(),
+        };
+        assert!(bad.validate().is_err());
+    }
 
     #[test]
     fn a_kind_alone_should_read_with_the_default_parameters() {

@@ -9,6 +9,7 @@ edition = "2024"
 flux-core = { path = "../flux-core" }
 flux-project = { path = "../flux-project" }
 flux-text = { path = "../flux-text" }
+flux-capture = { path = "../flux-capture" }
 thiserror = "2.0.21"
 jpeg-encoder = "0.7"
 ffmpeg-next = { version = "9.1.0", default-features = false, features = ["format", "codec", "software-scaling"] }

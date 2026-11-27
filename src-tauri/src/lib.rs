@@ -157,6 +157,7 @@ pub fn run() {
             commands::vj_preview,
             commands::vj_effect_catalog,
             commands::vj_fonts,
+            commands::vj_capture_devices,
             vj_layout_commands::vj_layout_get,
             vj_layout_commands::vj_layout_move,
             vj_layout_commands::vj_layout_reorder,
