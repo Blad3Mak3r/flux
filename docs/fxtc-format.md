@@ -1,4 +1,4 @@
-# `.flx` / `.fxtc` project format (v15)
+# `.flx` / `.fxtc` project format (v16)
 
 A `.flx` file is a zip archive. Legacy `.fxtc` files use exactly the same format. Implementation: `src-tauri/crates/flux-project/src/`.
 
@@ -6,10 +6,15 @@ New projects and Save as use `.flx` by default. Opening accepts either extension
 
 ```
 project.json          deflated
-audio/<file name>     stored (audio is large and usually compressed already)
+audio/<file name>     stored, only for audio kept inside the archive (see Linked media)
 peaks/<file name>.bin stored, optional: the waveform preview of that audio (see below)
-video/<file name>     stored, the video files of the video tracks
+video/<file name>     stored, only for videos and images kept inside the archive
 ```
+
+Media is **linked** by default: a new `.flx` holds `project.json` (and the previews) and the audio, videos and images stay
+where they are on disk, referred to by path (see [Linked media](#linked-media-version-16)). A project can weigh a few KB
+next to videos of several GB. The `audio/` and `video/` entries exist only for **embedded** media: projects written
+before version 16, generated speech, and what a project holds after it was opened from such a file.
 
 - The `audio/` and `video/` folders are flat: an asset file is `audio/<name>` (a video `video/<name>`) with no further
   separators, `.` or `..`.
@@ -32,8 +37,8 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `name` | string | |
 | `meta` | object | Identity and history of the project, see below. |
 | `autosave` | `{ enabled, intervalSeconds }` | Project-owned recovery preferences. Defaults to enabled, every 30 seconds; supported intervals are 15, 30 and 60 seconds. Also saves after 2 seconds without edits. Older projects receive these defaults on migration. |
-| `assets[]` | `{ id, name, file, bpm? }` | `file` is the archive path under `audio/`. Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
-| `videos[]` | `{ id, name, file }` | The video files the video tracks show. `file` is the archive path under `video/`. Ids share one namespace with `assets` (an audio clip cannot point at a video, nor a video clip at audio), and files are unique across both. A video no clip shows is dropped on save. Absent is an empty list. Added in version 13. |
+| `assets[]` | `{ id, name, file, link?, bpm? }` | `file` is the archive path under `audio/` (the key of the asset; the bytes are there only when `link` is absent). Shared by all timelines; an asset no clip plays is dropped when the last clip using it goes. `bpm` is the tempo found in the audio (or typed by the user), 20 to 400; absent when never detected. Added without a version bump. |
+| `videos[]` | `{ id, name, file, link? }` | The video files (and images) the video tracks and the grid show. `file` is the archive path under `video/`, the key of the asset. Ids share one namespace with `assets` (an audio clip cannot point at a video, nor a video clip at audio), and files are unique across both. A video no clip shows is dropped on save. Absent is an empty list. Added in version 13. |
 | `mode` | `timeline` \| `vj` | The kind of project, chosen when it is created and never changed: a timeline project plays its timelines, a VJ project its VJ grid. Absent is `timeline`. Added in version 14. |
 | `vj` | `{ layers, decks, deck }` | The VJ grid, see [VJ grid](#vj-grid-version-14). Present in a VJ project only; a timeline project with a grid is rejected. Added in version 14. |
 | `timelines[]` | `{ id, name, timecode, tempo, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
@@ -219,12 +224,48 @@ does not rewrite a file, including files without `meta`; their generated identit
 - **8**: added operator tracks, spoken orders and inherited voice selections. Older projects have no operator tracks or explicit voice selections.
 - **9**: added recording origins, pronunciation overrides and non-destructive operator trims; earlier recordings default to generated origin and zero trims.
 - **14**: added `mode` and the VJ grid `vj`. Nothing was reshaped, so there is no migration.
+- **16**: added `link` to audio and video assets. A file without it holds its media in the archive, as before, and opens and
+  saves that way; there is no migration. See [Linked media](#linked-media-version-16).
 
 ## Saving
 
 `save` writes the archive to `<target>.tmp` and renames it over the target, so a failed save leaves the existing file
-as it was. Each asset is taken from either a file on disk (newly imported) or an existing `.fxtc`, from which the entry
-(and its preview) is copied without recompressing.
+as it was. An embedded asset is taken from either a file on disk or an existing `.fxtc`, from which the entry (and its
+preview) is copied without recompressing. A linked asset writes **no media**: only its preview (the one made in this
+session, or the one in the file the project was opened or saved as), and its `link.relative` is worked out again
+against the folder of the file being written.
+
+## Linked media (version 16)
+
+`link` is `{ path, relative? }` on an audio asset or a video (or image) asset:
+
+| Field | Notes |
+| --- | --- |
+| `path` | Absolute, as the system gave it when the file was imported or relinked. |
+| `relative` | Relative to the folder of the project file, `/`-separated, written at every save; absent when it cannot be said (another drive). |
+
+- Every import (audio, video, VJ video, image) links the file where it is. Nothing is copied into the project. Generated
+  speech (the voice operator) stays embedded.
+- **Opening never fails for missing media.** For each linked asset: if `path` exists it is online; otherwise, if
+  `relative` resolves against the project file's folder to an existing file, `path` becomes that (the project is not
+  marked changed); otherwise the asset is **offline**. An offline asset is skipped alone: its clips draw as offline, play
+  nothing and show black, and the rest of the show, the open and the save are unaffected. Its waveform and preview
+  entries stay in the archive.
+- Offline media is found again with **Media** (File > Media…, or the offline count in the status bar): Relink on one
+  item (which also relinks every other offline item whose file name is in that same folder), Search folder (a recursive
+  search by file name, case-insensitive, down to 8 folders deep and 50 000 entries, skipping hidden folders), or by
+  hand. Each is one undo step. A relinked file must be the same kind of media (audio, video or image) by extension.
+- **Collect media** (needs a saved project) copies every linked file, and extracts every embedded one except generated
+  speech, into `<project name> Media/` beside the project file (a name that is taken gets ` (2)`, ` (3)`...), and links
+  them there with a relative path. Offline items are skipped. It changes the project; the next save leaves the
+  embedded entries out. A linked file already in that folder is not copied.
+- A preview of linked audio is stamped with the file's size and modification time instead of the CRC of an archive
+  entry, so it is regenerated when the file changes.
+- A HAP copy of a linked video is written beside it (`<name> (HAP).mov`) and linked; when that folder cannot be written
+  the conversion fails.
+- The commands are `media_list`, `media_relink`, `media_search_folder` and `media_collect` (`src-tauri/src/media_commands.rs`,
+  logic in `flux-project/src/media.rs`). `media_collect` copies without the session locked and reports
+  `media-collect-progress` `{ doneBytes, totalBytes }`.
 
 ## Autosave and crash recovery
 
@@ -243,7 +284,7 @@ restoring the same copy. A killed process releases the lock automatically. Welco
 dates and offers Restore, Discard (with confirmation), or Open original. Opening the original removes the recovery only
 after successfully opening the file and creating the editor. Pending file-association requests remain available there.
 
-Restoration keeps the unsaved baseline and reads bundled assets from their original archives, newly imported assets
+Restoration keeps the unsaved baseline and reads embedded assets from their original archives, newly imported assets
 from their original disk paths. Missing sources are reported by the audio-loading path without rejecting the restored
 document. Saving still requires the referenced audio to be available. Recovery is not an audio backup.
 
@@ -270,7 +311,11 @@ Defined in `src-tauri/src/commands.rs`, typed wrappers (with the file dialogs) i
 | `project_sync` | `project` | Keeps the latest state of the project being edited, for `project_document`. |
 | `project_new` | `name`, `frameRate`, `mode?` | A new `Project` of that kind (`timeline` when absent), which it keeps for good; forgets the previous project's assets. |
 | `project_open` | `path` | The `Project` read from that `.fxtc`. |
-| `project_import_audio` | `path` | An `AudioAsset` (generated id, file `audio/<id>_<name>`) to add to the project. |
+| `project_import_audio` | `path` | An `AudioAsset` (generated id, file `audio/<id>_<name>`, `link` to `path`) to add to the project. |
+| `media_list` | `project` | `{ items: [{ id, name, kind, state, path, uses }], missing }`: every media file, offline first (`kind` `audio`/`video`/`image`, `state` `online`/`offline`/`embedded`). |
+| `media_relink` | `project`, `id`, `path` | `{ state, found, missing }`: links the item and the other offline items found by name in that folder. |
+| `media_search_folder` | `project`, `folder` | `{ state, found, missing }`: searches the folder and those under it. |
+| `media_collect` | `project` | `{ state, copied, skipped }`: copies or extracts the media beside the project file (see Linked media). Emits `media-collect-progress`. |
 | `project_save` | `project`, `path` | Writes the archive; afterwards all assets are read from `path`. |
 | `project_set_autosave` | `project`, `enabled`, `intervalSeconds` (text) | Validates the interval in Rust and returns `ProjectState` for the undo history. |
 | `recovery_list` | | Recovery summaries, newest first; corrupt/incompatible records remain discardable. |
@@ -531,7 +576,7 @@ A VJ show and a cue show are two apps in one, and their `project.json` files hav
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `videos` | as above | The videos and images the grid plays, bundled under `video/`. |
+| `videos` | as above | The videos and images the grid plays, linked by path (`link`) or, in an older show, bundled under `video/`. |
 | `tempo` | `{ bpm, beatsPerBar, click }` | The show's tempo. |
 | `timecode` | `{ frameRate, start }` | The timecode of the show's internal clock. |
 | `screens`, `composition` | as `output.screens` / `output.composition` | Where the picture goes (Advanced Output). |
@@ -541,7 +586,7 @@ It has no `timelines`, `tracks`, `assets`, `setlists`, `voice` or LTC/MTC/OSC/au
 refuses a VJ show that would hold any. In memory the app still keeps the clock's tempo and timecode as one empty
 timeline (id `clock`), which the file does not store. A version 14 VJ show (with `timelines` and `vj`) still opens:
 whatever cue content an older build left in it (such as a video imported onto its timeline, which the clock then
-played) is dropped, and saving writes version 15. Builds supporting version 14 or earlier reject version 15.
+played) is dropped, and saving writes the current version. Builds supporting version 14 or earlier reject version 15.
 
 ## Mappings file (`.flxmap`)
 

@@ -27,7 +27,7 @@ New projects use the `.flx` extension; legacy `.fxtc` projects remain supported.
   preferences, OSC destinations). Tracks are audio, notes, **MIDI** (timed messages to a port) or **OSC** (timed
   messages to a destination). Only one timeline plays at a time. The backend owns the timeline operations (add, rename, remove,
   select the active one, set its timecode); the UI only shows the project it answers with.
-- The **audio files** used by the project's tracks, bundled in the archive so a project is self-contained and portable.
+- Media (audio, video, images) is **linked by path**, not bundled: a video can be several GB. Each asset has an optional `link` (absolute path plus a path relative to the `.flx`); missing media is *offline*, never an error. Projects from before format 16, and generated speech, keep their media embedded under `audio/` and `video/`. **File > Media…** lists, relinks, searches and collects it (`flux-project/src/media.rs`).
 
 The full spec (layout, fields, versioning, device-name hints) is in [docs/fxtc-format.md](docs/fxtc-format.md); the
 code is `src-tauri/crates/flux-project/`.
