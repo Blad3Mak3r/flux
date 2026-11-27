@@ -354,7 +354,7 @@ export function Timeline() {
             {dropY !== null && <div className="drop-line" style={{ top: RULER_H + CONTROL_RAIL_H + dropY }} />}
 
             {timeline.tracks.length === 0 && (
-              <div className="empty-state">
+              <div className="empty-state on-screen">
                 <p className="empty-title">{t("track.empty.title")}</p>
                 <p>{t("track.empty.body")}</p>
               </div>
