@@ -23,6 +23,8 @@ import { forwardKeyDown, forwardKeyUp, releaseKeys } from "./vj/keys";
 import { useVj } from "./vj/store";
 import { VjScreen } from "./vj/VjScreen";
 import { bindRemoteControl } from "./control/bind";
+import { MediaDialog } from "./media/MediaDialog";
+import { bindMedia, useMedia } from "./media/store";
 import { bindLive } from "./live/feed";
 import { useLive } from "./live/store";
 import { TimelineConfirm } from "./components/TimelineConfirm";
@@ -111,7 +113,7 @@ function Shell({ devices }: { devices: Devices }) {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
       const ui = useUi.getState();
-      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || useVj.getState().output || isTyping(event.target)) return;
+      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || useVj.getState().output || useMedia.getState().open || isTyping(event.target)) return;
       // A VJ show has keys of its own, and none of the timeline's.
       if (useDoc.getState().project.mode === "vj") {
         // A key a mapping waits for is the mapping's, not a shortcut's.
@@ -236,6 +238,7 @@ function Shell({ devices }: { devices: Devices }) {
       <StatusBar />
       <SetupDialog devices={devices} />
       <ShowCheckDialog />
+      <MediaDialog />
       {/* Outside the menu bar, whose button rules would strip the dialog's buttons. */}
       {about ? <AboutDialog onClose={closeAbout} /> : null}
       <MenuHost />
@@ -285,6 +288,7 @@ function Editor() {
   }, [native, t]);
   useEffect(bindTimelineAdvance, []);
   useEffect(bindRemoteControl, []);
+  useEffect(bindMedia, []);
   useEffect(() => {
     if (native) void startDocument(t, setPhase).then(() => setConnected(true));
   }, [native, t]);

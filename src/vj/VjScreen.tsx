@@ -5,6 +5,8 @@ import { Marquee } from "../components/Marquee";
 import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
+import { MediaFile } from "../media/MediaFile";
+import { useMedia } from "../media/store";
 import { useVideoErrors } from "../state/video";
 import type {
   VideoAsset,
@@ -80,21 +82,23 @@ import "./vj.css";
 const NO_VIDEOS: VideoAsset[] = [];
 const NO_EFFECTS: VjEffect[] = [];
 
-/** Whether a video can be shown yet: `failed` when the backend cannot read it, `processing` while it reads it. */
-function useVideoState(asset: string | undefined): "failed" | "processing" | null {
+/** Whether a video can be shown yet: `offline` when its file is gone, `failed` when the backend cannot read it, `processing` while it reads it. */
+function useVideoState(asset: string | undefined): "offline" | "failed" | "processing" | null {
   const error = useVideoErrors((errors) => (asset ? errors[asset] : undefined));
+  const offline = useMedia((media) => asset !== undefined && media.offline.has(asset));
   const ready = useDoc((doc) => !asset || (asset in doc.video && asset in doc.thumbs));
+  if (offline) return "offline";
   if (error) return "failed";
   return ready ? null : "processing";
 }
 
 /** The state of a clip's video over its picture: importing, processing or unreadable. */
-function VideoState({ state, asset }: { state: "importing" | "processing" | "failed"; asset?: string }) {
+function VideoState({ state, asset }: { state: "importing" | "processing" | "failed" | "offline"; asset?: string }) {
   const t = useT();
   const error = useVideoErrors((errors) => (asset === undefined ? undefined : errors[asset]));
   return (
     <span className={`vj-state ${state}`} title={error}>
-      {state !== "failed" && <i className="vj-spin" aria-hidden="true" />}
+      {state !== "failed" && state !== "offline" && <i className="vj-spin" aria-hidden="true" />}
       {t(`vj.state.${state}`)}
     </span>
   );
@@ -462,7 +466,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   const motion = transportBadge(clip);
   return (
     <div
-      className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${over ? " over" : ""}`}
+      className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${over ? " over" : ""}${state === "offline" ? " offline" : ""}`}
       {...mappable({ kind: "clipLaunch", clip: clip.id })}
       draggable
       onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ clip: clip.id } satisfies Dragged))}
@@ -1047,6 +1051,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
           ) : (
             <>
               <div><dt>{t("vj.clip.file")}</dt><dd><Marquee>{video?.name ?? ""}</Marquee></dd></div>
+              {video && <MediaFile id={video.id} />}
               <div><dt>{t("vj.clip.length")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? t("vj.media.still") : clock(probe.frames * probe.rateDen / probe.rateNum)}</dd></div>
               <div><dt>{t("vj.clip.video")}</dt><dd className="vj-mono">{!probe ? "—" : probe.still ? `${probe.codec} · ${probe.width}×${probe.height}` : `${probe.codec} · ${probe.width}×${probe.height} · ${Math.round((probe.rateNum / probe.rateDen) * 100) / 100}`}</dd></div>
             </>

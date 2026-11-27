@@ -1,0 +1,222 @@
+.dialog.media {
+  width: 860px;
+  max-width: 94vw;
+  height: 560px;
+  max-height: 88vh;
+  padding: 0;
+}
+
+.dialog.media[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.media-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 44px;
+  padding: 0 8px 0 20px;
+  background: var(--panel-lo);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.media-head h2 {
+  margin: 0;
+}
+
+.media-summary {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-measure);
+  font-size: 12px;
+}
+
+.media-summary[data-tone="fault"] {
+  color: var(--signal);
+  font-weight: 700;
+}
+
+.media-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.media-filter input {
+  accent-color: var(--phosphor);
+}
+
+.media-scroll {
+  overflow: auto;
+  background: var(--screen);
+}
+
+.media-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.media-table th {
+  position: sticky;
+  top: 0;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: var(--panel-lo);
+  border-bottom: 1px solid var(--rule);
+}
+
+.media-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 0;
+}
+
+.media-table td.name {
+  width: 22%;
+  font-weight: 600;
+}
+
+.media-table td.path {
+  width: 40%;
+  font-family: var(--font-measure);
+  color: var(--ink-dim);
+}
+
+.media-table .num {
+  width: 52px;
+  text-align: right;
+  font-family: var(--font-measure);
+}
+
+.media-table td.state {
+  width: 120px;
+}
+
+.media-table td.row-actions {
+  width: 150px;
+  max-width: none;
+  text-align: right;
+  overflow: visible;
+}
+
+.media-table td.row-actions > * + * {
+  margin-left: 6px;
+}
+
+.media-lamp {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  background: var(--lamp-off);
+}
+
+tr[data-state="online"] .media-lamp {
+  background: var(--phosphor);
+}
+
+tr[data-state="offline"] .media-lamp {
+  background: var(--signal);
+}
+
+tr[data-state="offline"] td.state {
+  color: var(--signal);
+  font-weight: 700;
+}
+
+.media-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: var(--panel-lo);
+  border-top: 1px solid var(--rule-strong);
+}
+
+.media-progress {
+  flex: 1;
+  height: 6px;
+  background: var(--ghost);
+  border: 1px solid var(--rule);
+}
+
+.media-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--phosphor);
+}
+
+.media-progress-note {
+  font-family: var(--font-measure);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+/* An offline clip on the timeline: its name stays, over a dim striped ground and a fault label. */
+.clip[data-offline] {
+  color: var(--ink-faint);
+  border-color: var(--signal);
+  background-image: repeating-linear-gradient(135deg, transparent 0 8px, oklch(0.7 0.2 32 / 0.16) 8px 16px);
+}
+
+.clip-offline {
+  margin-left: 8px;
+  color: var(--signal);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The status bar's count of missing files: a fault, so vermilion, and it opens the media page. */
+.media-offline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 22px;
+  color: var(--signal);
+  font-weight: 700;
+  background: transparent;
+  border: 1px solid var(--signal);
+  border-radius: 2px;
+}
+
+.media-offline i {
+  width: 8px;
+  height: 8px;
+  background: var(--signal);
+}
+
+.media-offline:hover {
+  background: var(--panel-hi);
+}
+
+.media-file {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.media-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-measure);
+  font-size: 11px;
+}
+
+.media-fault {
+  color: var(--signal);
+  font-weight: 700;
+}

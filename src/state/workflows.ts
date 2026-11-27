@@ -172,7 +172,7 @@ export async function saveDocument(asNew: boolean): Promise<boolean> {
     const { project, path: current } = useDoc.getState();
     const saved = await saveProject(project, asNew ? null : current);
     if (saved === null) return false;
-    dispatch({ type: "saved", path: saved.path, meta: saved.meta, snapshot: project });
+    dispatch({ type: "saved", path: saved.path, meta: saved.meta, links: saved.links, snapshot: project });
     say("status.saved", { name: basename(saved.path) });
     return !isDirty(useDoc.getState());
   } catch (err) {

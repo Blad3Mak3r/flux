@@ -1,3 +1,4 @@
+import { openMedia } from "../media/store";
 import { openShowCheck } from "../voice/ShowCheckDialog";
 import { addOperator, addOrder, selectedOperatorTrack, operatorEdit } from "../voice/store";
 // The items of every menu: the menu bar's and the ones a right click opens. They are built when the
@@ -132,6 +133,7 @@ function fileMenu(t: Translate): MenuItem[] {
         { label: t("menu.video"), run: () => void importVideoFiles() },
       ],
     },
+    { label: t("menu.media"), run: openMedia },
     {
       label: t("menu.export"),
       submenu: [

@@ -175,11 +175,12 @@ export const outputSignalEdit = (project: Project, op: SignalOp) =>
 export async function saveProject(
   project: Project,
   path: string | null,
-): Promise<{ path: string; meta: Project["meta"] } | null> {
+): Promise<{ path: string; meta: Project["meta"]; links: Pick<Project, "assets" | "videos"> } | null> {
   const target = path ?? (await save({ filters: [SAVE_FILTER], defaultPath: `${project.name}.flx` }));
   if (target === null) return null;
   const saved = await invoke<Project>("project_save", { project, path: target });
-  return { path: target, meta: saved.meta };
+  // The save worked out the relative path of each linked file, and left out the videos nothing shows.
+  return { path: target, meta: saved.meta, links: { assets: saved.assets, videos: saved.videos } };
 }
 
 /** Asks for video files to import. Resolves to none when the dialog is cancelled. */

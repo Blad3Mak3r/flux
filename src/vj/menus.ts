@@ -12,6 +12,7 @@ import { closeDocument, newDocument, openDocument, saveDocument } from "../state
 import { hasNativeWindow } from "../components/WindowControls";
 import { stop, toggle } from "../transport/playback";
 import { helpMenu } from "../components/menus";
+import { openMedia } from "../media/store";
 import { escapeMap, toggleMapMode, useMap } from "./mapping";
 import { acceleratorOf, shortcutOf } from "./shortcuts";
 import type { ShortcutAction } from "./shortcuts";
@@ -150,6 +151,7 @@ function fileMenu(t: Translate): MenuItem[] {
     { label: t("menu.close"), run: closeDocument },
     "-",
     { label: t("vj.menu.importMedia"), run: () => void importMedia() },
+    { label: t("menu.media"), run: openMedia },
     { label: t("vj.menu.saveTemplate"), run: () => saveTemplate(t) },
     "-",
     { label: t("menu.setup"), run: () => openSetup() },

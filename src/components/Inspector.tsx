@@ -1,3 +1,4 @@
+import { MediaFile } from "../media/MediaFile";
 import { useEffect } from "react";
 import { TrackRouteField } from "../audio/routing";
 import { editVideoClip } from "../state/clips";
@@ -136,6 +137,7 @@ function SelectionPanel({
             <dd>{project.videos?.find((v) => v.id === clip.asset)?.name ?? clip.asset}</dd>
             {codec ? <><dt>{t("videoClip.codec")}</dt><dd>{codec}</dd></> : null}
           </dl>
+          <MediaFile id={clip.asset} />
           <TrackNameField track={track} />
           <TimecodeField
             label={t("clip.start")}
@@ -184,6 +186,7 @@ function SelectionPanel({
           <dt>{t("clip.name")}</dt>
           <dd>{asset?.name ?? clip.asset}</dd>
         </dl>
+        <MediaFile id={clip.asset} />
         <TextField
           key={clip.id}
           label={t("clip.label")}

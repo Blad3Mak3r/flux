@@ -10,6 +10,7 @@ import type { ClipOp } from "../project/api";
 import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
+import { useMedia } from "../media/store";
 import { editClip, editVideoClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
@@ -318,6 +319,7 @@ function ClipBlock({
   const renaming = useUi((ui) => ui.renaming?.kind === "clip" && ui.renaming.id === clip.id);
   const labelRef = useRef<HTMLSpanElement>(null);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
+  const offline = useMedia((media) => media.offline.has(clip.asset));
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
   const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame);
@@ -340,6 +342,7 @@ function ClipBlock({
       tabIndex={0}
       aria-pressed={selected}
       data-selected={selected}
+      data-offline={offline || undefined}
       data-muted={muted}
       style={{ left: frameX(left, pxPerFrame), width, height }}
       onContextMenu={(event) => {
@@ -421,6 +424,7 @@ function ClipBlock({
       ) : (
         <span className="clip-label" ref={labelRef}>
           {name}
+          {offline && <span className="clip-offline">{t("media.state.offline")}</span>}
           {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
           {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
         </span>
@@ -460,6 +464,7 @@ function VideoBlock({
   const t = useT();
   const selected = useUi((ui) => ui.selection?.id === clip.id);
   const probe = useDoc((doc) => doc.video[clip.asset]);
+  const offline = useMedia((media) => media.offline.has(clip.asset));
   const name = useDoc((doc) => clip.name ?? doc.project.videos?.find((video) => video.id === clip.asset)?.name ?? clip.asset);
   const length = videoClipLength(clip, probe, fps, guessLength);
   const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame);
@@ -485,6 +490,7 @@ function VideoBlock({
       tabIndex={0}
       aria-pressed={selected}
       data-selected={selected}
+      data-offline={offline || undefined}
       style={{ left: frameX(left, pxPerFrame), width, height: rowHeight - 12 }}
       {...pointer}
     >
@@ -522,6 +528,7 @@ function VideoBlock({
       )}
       <span className="clip-label">
         {name}
+        {offline && <span className="clip-offline">{t("media.state.offline")}</span>}
         {sound?.bpm !== undefined && <span className="clip-bpm">{sound.bpm} BPM</span>}
         {probe && (
           <span className="clip-bpm">
