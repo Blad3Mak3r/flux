@@ -2,10 +2,13 @@
 // direction, speed and tempo, and its eight cues. The backend owns where the playhead is and how it moves; this draws
 // what the play state says and forwards what the hand does.
 
-import { useRef, useState } from "react";
-import type { CSSProperties, PointerEvent, ReactElement } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent, ReactElement, RefObject } from "react";
+import { ClipWave } from "../components/ClipWave";
 import { PauseIcon, PlayIcon } from "../components/icons";
 import { useT } from "../i18n";
+import { useDoc } from "../state/store";
+import { ensureSound } from "../state/video";
 import type { VjClip, VjDirection } from "../project/types";
 import type { VideoStrip } from "../video/api";
 import { Scrub, Segments } from "./controls";
@@ -27,6 +30,33 @@ const ReverseIcon = () => (
 
 const DIRECTION_ICON: Record<VjDirection, () => ReactElement> = { reverse: ReverseIcon, pause: PauseIcon, forward: PlayIcon };
 
+/**
+ * The waveform of a clip's video over its whole length, or `null` for a clip without sound (a generator, a still,
+ * a video with no audio stream). The backend decodes it (`video_sound`, shared with the timeline); asked once, on
+ * first selection.
+ */
+function useClipWave(clip: VjClip, bar: RefObject<HTMLDivElement | null>) {
+  const asset = clip.asset;
+  const video = useDoc((doc) => doc.project.videos?.find((v) => v.id === asset));
+  const probe = useDoc((doc) => (asset ? doc.video[asset] : undefined));
+  const sound = useDoc((doc) => (asset ? doc.audio[asset] : undefined));
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const hasAudio = video !== undefined && probe !== undefined && !probe.still;
+  useEffect(() => { if (hasAudio) ensureSound(video); }, [hasAudio, video]);
+  useEffect(() => {
+    const node = bar.current;
+    if (!node) return;
+    const measure = () => setSize({ width: node.clientWidth, height: node.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [bar]);
+  const seconds = probe ? (probe.frames * probe.rateDen) / probe.rateNum : sound?.seconds;
+  if (!hasAudio || !sound?.peaks || !seconds || size.width <= 0) return null;
+  return { ...size, peaks: sound.peaks, seconds };
+}
+
 /** The strip of the clip: its region with in and out handles, the cues and the playhead; a click or a drag on it moves the playhead. */
 function Strip({ clip, layer, strip }: { clip: VjClip; layer: string; strip: VideoStrip | undefined }) {
   const t = useT();
@@ -34,6 +64,7 @@ function Strip({ clip, layer, strip }: { clip: VjClip; layer: string; strip: Vid
   const playing = useVj((vj) => vj.play.playing.find((p) => p.clip === clip.id && !p.stopping));
   const [held, setHeld] = useState<{ which: "start" | "end"; start: number; end: number } | null>(null);
   const [scrubbing, setScrubbing] = useState(false);
+  const wave = useClipWave(clip, bar);
   const region = held ?? clip.region ?? { start: 0, end: 1 };
   const cues = clip.cues ?? [];
   const at = (event: { clientX: number }) => {
@@ -89,6 +120,12 @@ function Strip({ clip, layer, strip }: { clip: VjClip; layer: string; strip: Vid
       onPointerUp={() => setScrubbing(false)}
       onPointerCancel={() => setScrubbing(false)}
     >
+      {wave && (
+        <span className="vj-wave" aria-hidden="true">
+          <ClipWave seed={clip.asset ?? ""} width={wave.width} height={wave.height} origin={0} whole color="currentColor"
+            peaks={wave.peaks} pxPerSecond={wave.width / wave.seconds} startSeconds={0} />
+        </span>
+      )}
       <i className="vj-outside left" style={{ width: percent(region.start) }} />
       <i className="vj-outside right" style={{ width: percent(1 - region.end) }} />
       {cues.map((position, index) => position != null && (

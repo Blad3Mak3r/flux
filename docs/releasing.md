@@ -63,5 +63,7 @@ File names are the ones Tauri gives them, so the exact spelling can differ.
 
 The app refuses to install while the transport is playing, so an update cannot cut the timecode in the middle of a show.
 
-The Linux build runs on `ubuntu-latest`, like CI, so its binaries need that image's glibc or newer. To support older
-distributions, pin the runner to an older Ubuntu in `release.yml`, once the audio crates are checked to build there.
+The Linux build runs on `ubuntu-24.04` (pinned), so its binaries need glibc 2.39 or newer, and the deb/rpm FFmpeg
+dependency names in `tauri.conf.json` match that image. Moving to a newer image means updating those names (the
+workflow's check step stops otherwise). To support older distributions, pin an older Ubuntu in `release.yml`, once the
+audio crates are checked to build there.

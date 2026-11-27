@@ -60,6 +60,45 @@ body {
   scrollbar-color: var(--grat-major) var(--panel-lo);
 }
 
+/* A desktop app, not a page: chrome is not selectable and shows the arrow. Only fields and copyable content opt back in. */
+html {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.selectable,
+.error,
+.error-dialog p,
+.field-note[role="alert"],
+.show-run-notes,
+pre,
+code {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+input,
+textarea {
+  cursor: text;
+}
+
+input:is([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="button"], [type="file"]),
+input:disabled,
+textarea:disabled {
+  cursor: default;
+}
+
+img,
+svg,
+canvas {
+  -webkit-user-drag: none;
+}
+
 ::selection {
   background: var(--phosphor);
   color: var(--panel-lo);
@@ -91,10 +130,6 @@ input,
 select {
   font: inherit;
   color: inherit;
-}
-
-button {
-  cursor: pointer;
 }
 
 button:disabled,
@@ -228,7 +263,7 @@ input:disabled {
 .setlist-list-head h3 { font-size: 14px; font-weight: 600; margin: 0; }
 .setlist-entries { list-style: none; padding: 0 16px; margin: 0; }
 .setlist-entries li { border-bottom: 1px solid var(--rule); }
-.setlist-entry { display: flex; align-items: center; gap: 20px; width: 100%; min-height: 76px; padding: 16px 12px; color: var(--ink); background: transparent; border: 0; text-align: left; cursor: pointer; }
+.setlist-entry { display: flex; align-items: center; gap: 20px; width: 100%; min-height: 76px; padding: 16px 12px; color: var(--ink); background: transparent; border: 0; text-align: left; }
 .setlist-entry:hover { background: var(--panel); }
 .setlist-entry[aria-pressed="true"] { background: var(--panel-hi); box-shadow: inset 0 0 0 1px var(--rule-strong); }
 .setlist-number { width: 3ch; flex: none; font: 16px var(--font-measure); font-variant-numeric: tabular-nums; text-align: center; color: var(--ink-dim); }
@@ -270,7 +305,7 @@ input:disabled {
 .control-add-actions .button > .icon:first-child { width: 12px; }
 .control-context { margin: -8px 0 20px; }
 .control-list { padding: 0; margin: 0 0 24px; list-style: none; border-block: 1px solid var(--rule); }
-.control-list button { width: 100%; padding: 12px 8px; border: 0; background: transparent; color: var(--ink); display: flex; gap: 10px; align-items: center; text-align: left; cursor: pointer; }
+.control-list button { width: 100%; padding: 12px 8px; border: 0; background: transparent; color: var(--ink); display: flex; gap: 10px; align-items: center; text-align: left; }
 .control-list button:hover { background: var(--panel); }
 .control-list button[aria-pressed="true"] { background: var(--panel-hi); }
 .control-list button > .icon { color: var(--amber); flex: none; }
@@ -288,11 +323,11 @@ input:disabled {
 .show-control-marker[data-kind="loop"] button { width: 100%; max-width: none; background: transparent; height: 100%; }
 .show-control-marker[data-kind="loop"][data-selected="true"] { border-color: var(--amber); background: color-mix(in oklch, var(--amber) 24%, var(--panel-lo)); }
 .show-control-marker[data-kind="loop"]::after { content: ""; position: absolute; inset: 0 0 0 auto; width: 1px; background: var(--amber); pointer-events: none; }
-.show-control-marker button { display: flex; align-items: center; gap: 5px; width: max-content; max-width: 220px; height: 23px; padding: 2px 7px; color: var(--amber); border: 0; background: var(--panel-lo); font-size: 11px; cursor: pointer; }
+.show-control-marker button { display: flex; align-items: center; gap: 5px; width: max-content; max-width: 220px; height: 23px; padding: 2px 7px; color: var(--amber); border: 0; background: var(--panel-lo); font-size: 11px; }
 .show-control-marker button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .show-control-marker[data-selected="true"] button { background: var(--panel-hi); box-shadow: inset 0 0 0 1px var(--amber); }
 .show-control-marker .icon { width: 12px; height: 12px; flex: none; }
-.control-rail-empty { display: flex; align-items: center; gap: 6px; padding: 3px 10px; height: 26px; font-size: 11px; color: var(--ink-dim); background: transparent; border: 0; cursor: pointer; }
+.control-rail-empty { display: flex; align-items: center; gap: 6px; padding: 3px 10px; height: 26px; font-size: 11px; color: var(--ink-dim); background: transparent; border: 0; }
 .control-rail-empty:hover { color: var(--ink); }
 .show-prepare { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px; padding: 24px 28px; border-bottom: 1px solid var(--rule); }
 .show-prepare-copy h3 { margin: 0 0 8px; font-size: 18px; }
@@ -317,7 +352,7 @@ input:disabled {
 .show-entry-notes { display: grid; gap: 6px; padding: 12px 16px; border-top: 1px solid var(--rule); }
 .show-run-notes { margin: 0; max-height: 7.5em; overflow-y: auto; font-size: 15px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
 .show-run-options { padding: 12px 16px; border-top: 1px solid var(--rule); font-size: 12px; }
-.show-run-options summary { color: var(--ink-dim); cursor: pointer; width: fit-content; }
+.show-run-options summary { color: var(--ink-dim); width: fit-content; }
 .show-run-option-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; padding-block: 16px 4px; }
 .show-run-option-fields label { display: grid; gap: 8px; }
 .show-run-option-fields p { color: var(--ink-dim); }
@@ -327,7 +362,7 @@ input:disabled {
 .show-order-caption > span:first-child { font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
 .show-running-order ol { display: grid; gap: 2px; max-height: 192px; margin: 0; padding: 4px 12px 8px; list-style: none; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
 .show-running-order li { position: relative; min-width: 0; }
-.show-running-order button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 8px; color: var(--ink); background: transparent; border: 1px solid transparent; text-align: left; line-height: 1.25; cursor: pointer; }
+.show-running-order button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 8px; color: var(--ink); background: transparent; border: 1px solid transparent; text-align: left; line-height: 1.25; }
 .show-running-order button:hover { background: var(--panel); }
 .show-running-order button[aria-disabled="true"] { cursor: default; }
 .show-running-order li[data-status="current"] button { background: var(--panel-hi); border-color: var(--phosphor-dim); }
@@ -413,7 +448,6 @@ input:disabled {
   padding: 0;
   background: none;
   border: 0;
-  cursor: pointer;
 }
 
 /* The menu bar's own button rule gives every button 10px of padding: the symbol would sit that far
@@ -2366,7 +2400,6 @@ input:disabled {
   color: var(--ink-dim);
   font: inherit;
   font-size: 12px;
-  cursor: pointer;
 }
 
 .screen-tab:hover {
@@ -4181,7 +4214,6 @@ input:disabled {
   background: var(--panel-lo);
   border: 1px solid var(--rule);
   border-radius: 2px;
-  cursor: pointer;
   text-align: start;
   color: var(--ink-dim);
   font-size: 11px;
@@ -4209,7 +4241,7 @@ input:disabled {
 
 .zoom-corner:has(.controls-lane-label) { grid-template-rows: 34px 28px; padding-inline: 0; }
 .zoom-corner:has(.controls-lane-label) .zoom { padding-inline: 12px; }
-.controls-lane-label { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 3px 12px; border: 0; border-block: 1px solid var(--rule); background: var(--panel-lo); color: var(--ink-dim); font-size: 11px; cursor: pointer; text-align: left; }
+.controls-lane-label { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 3px 12px; border: 0; border-block: 1px solid var(--rule); background: var(--panel-lo); color: var(--ink-dim); font-size: 11px; text-align: left; }
 .controls-lane-label:hover { color: var(--ink); background: var(--panel-hi); }
 .controls-lane-label .icon { width: 13px; height: 13px; }
 

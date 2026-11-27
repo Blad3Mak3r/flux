@@ -15,6 +15,7 @@ mod preferences;
 mod recents;
 mod recovery;
 mod show_commands;
+mod snapshot;
 mod startup;
 mod timecode_in;
 mod transport_commands;
@@ -188,6 +189,10 @@ pub fn run() {
             video_commands::project_replace_video,
             video_commands::video_mask_edit,
             video_output::video_output_pattern,
+            video_output::video_output_state,
+            video_output::video_output_toggle,
+            video_output::video_output_fullscreen,
+            video_output::video_output_snapshot,
             video_output::video_output_status,
             video_output::video_output_choose,
             commands::project_save,

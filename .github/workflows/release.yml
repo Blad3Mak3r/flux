@@ -87,7 +87,8 @@ jobs:
             os: windows-latest
             bundles: nsis
           - name: Linux
-            os: ubuntu-latest
+            # The deb/rpm depend on Ubuntu 24.04's FFmpeg 6 libraries (tauri.conf.json) and glibc, so the packages install on 24.04 and newer; moving the image means updating those names.
+            os: ubuntu-24.04
             bundles: deb,rpm,appimage
     runs-on: ${{ matrix.os }}
     steps:

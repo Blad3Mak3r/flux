@@ -64,6 +64,7 @@ import { bindVjControl, useMap } from "./mapping";
 import { mappable } from "./mapModel";
 import { MappingsPanel } from "./Mappings";
 import { stepDeck } from "./menus";
+import { bindOutputState, toggleDisable, useOutput } from "./output";
 import { AdvancedOutput } from "./AdvancedOutput";
 import { ColourField, Scrub, Segments } from "./controls";
 import { CompositionFx, EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect, useCompositionDrop } from "./EffectStack";
@@ -792,6 +793,8 @@ function OutputPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
   const composition = useCompositionDrop();
   const live = useVj((vj) => vj.play.playing.some((p) => p.level > 0));
+  const disabled = useOutput((output) => output.disabled);
+  const testCard = useOutput((output) => output.testCard);
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => bindOutput((picture) => {
     const target = canvas.current;
@@ -809,10 +812,18 @@ function OutputPanel({ grid }: { grid: VjGrid }) {
     <section className={`vj-panel${composition.over ? " over" : ""}`} aria-label={t("vj.output")} {...composition.props}>
       <header className="vj-ph">
         <h2>{t("vj.output")}</h2>
-        <div className="vj-tools"><CompositionFx grid={grid} />{live && <span className="vj-pill"><i />{t("vj.onAir")}</span>}</div>
+        <div className="vj-tools">
+          <CompositionFx grid={grid} />
+          {disabled && <button type="button" className="vj-pill off" title={t("vj.output.reenable")} onClick={toggleDisable}><i />{t("vj.output.disabled")}</button>}
+          {testCard && !disabled && <span className="vj-pill card"><i />{t("vj.output.testCard")}</span>}
+          {live && <span className="vj-pill"><i />{t("vj.onAir")}</span>}
+        </div>
       </header>
       <div className="vj-pb vj-mon-wrap">
-        <div className="vj-mon"><canvas ref={canvas} className="vj-out" /></div>
+        <div className="vj-mon" data-disabled={disabled}>
+          <canvas ref={canvas} className="vj-out" />
+          {disabled && <p className="vj-mon-off" role="status">{t("vj.output.disabledNote")}</p>}
+        </div>
       </div>
     </section>
   );
@@ -1253,6 +1264,7 @@ export function VjScreen() {
   const grid = useDoc((doc) => doc.project.vj);
   useEffect(bindPlayState, []);
   useEffect(bindVjControl, []);
+  useEffect(bindOutputState, []);
   useEffect(() => { void loadEffectCatalog(); void loadPresets(); }, []);
   if (!grid) return null;
   return (
