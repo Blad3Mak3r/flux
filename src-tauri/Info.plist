@@ -3,4 +3,6 @@
 <plist version="1.0"><dict>
   <key>NSMicrophoneUsageDescription</key>
   <string>FLUX records microphone audio for voice orders when you start a take.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>FLUX shows a camera or capture card as a live input clip when you add one.</string>
 </dict></plist>
