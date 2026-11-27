@@ -137,6 +137,31 @@ struct MonitorFrames {
     /// The grid copied from the session, the revision it was copied at, and its modulated copy.
     grid: Option<(u64, String, Option<flux_project::vj::Vj>)>,
     drawn: Option<flux_project::vj::Vj>,
+    /// The last picture drawn per scope (see [`scope_key`]): when, from which revision, and it.
+    pictures: HashMap<String, (Instant, u64, Vec<u8>)>,
+    /// The size of the display each screen is set to, by screen id, and when it was looked up.
+    display_sizes: HashMap<String, (Instant, Option<(u32, u32)>)>,
+}
+
+/// How long a screen's chosen display size is kept before it is looked up again.
+const DISPLAY_SIZE_KEPT: Duration = Duration::from_secs(1);
+
+/// How long a drawn monitor picture is shared by the monitors asking for it. It is just under the
+/// monitors' ~33 ms poll (`OUTPUT_EVERY` in `src/vj/store.ts`): each monitor's timer has its own
+/// phase, so a shorter window would let two monitors both draw in one period.
+const FRESH: Duration = Duration::from_millis(30);
+
+/// Whether a picture drawn `age` ago at `drawn_at` is still the one to show at `revision`.
+fn picture_is_fresh(age: Duration, drawn_at: u64, revision: u64) -> bool {
+    age < FRESH && drawn_at == revision
+}
+
+fn scope_key(scope: Option<&Scope>) -> String {
+    match scope {
+        None => String::new(),
+        Some(Scope::Layer(id)) => format!("l:{id}"),
+        Some(Scope::Group(id)) => format!("g:{id}"),
+    }
 }
 
 /// What a monitor of one layer or one group of the grid shows, by id.
@@ -1275,7 +1300,16 @@ impl VideoOutputs {
             {
                 frames.grid = Some((revision, active.to_owned(), session.grid_copy()));
                 frames.drawn = None;
+                frames.pictures.clear();
             }
+        }
+        let revision = frames.grid.as_ref().map_or(0, |(r, _, _)| *r);
+        let key = scope_key(scope);
+        if width == Some(MONITOR_WIDTH)
+            && let Some((at, rev, picture)) = frames.pictures.get(&key)
+            && picture_is_fresh(at.elapsed(), *rev, revision)
+        {
+            return Ok(Some(picture.clone()));
         }
         let Some(vj) = frames.grid.as_ref().and_then(|(_, _, vj)| vj.as_ref()) else {
             return Ok(None);
@@ -1327,7 +1361,7 @@ impl VideoOutputs {
         } else {
             (&mut fresh, &mut scoped_last)
         };
-        Ok(Some(monitor_picture(
+        let picture = monitor_picture(
             &shown,
             &looks,
             drawn,
@@ -1337,7 +1371,13 @@ impl VideoOutputs {
             last,
             history,
             scope.is_none(),
-        )))
+        );
+        if width == Some(MONITOR_WIDTH) {
+            frames
+                .pictures
+                .insert(key, (Instant::now(), revision, picture.clone()));
+        }
+        Ok(Some(picture))
     }
 
     /// What `clip` alone looks like in the composition (see [`Self::composition`]), as that
@@ -1727,15 +1767,29 @@ impl VideoOutputs {
         else {
             return Ok(Vec::new());
         };
-        let chosen = preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
-            .ok()
-            .and_then(|p| p.video_display_for(id));
-        let (ow, oh) = chosen
-            .and_then(|id| displays(app).into_iter().find(|(d, _)| d.id == id))
-            .map_or_else(
-                || composition_size(&session),
-                |(d, _)| (d.width.max(1), d.height.max(1)),
-            );
+        let cached = self
+            .monitor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .display_sizes
+            .get(id)
+            .filter(|(at, _)| at.elapsed() < DISPLAY_SIZE_KEPT)
+            .map(|(_, size)| *size);
+        let chosen = cached.unwrap_or_else(|| {
+            let chosen =
+                preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
+                    .ok()
+                    .and_then(|p| p.video_display_for(id))
+                    .and_then(|id| displays(app).into_iter().find(|(d, _)| d.id == id))
+                    .map(|(d, _)| (d.width.max(1), d.height.max(1)));
+            self.monitor
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .display_sizes
+                .insert(id.to_owned(), (Instant::now(), chosen));
+            chosen
+        });
+        let (ow, oh) = chosen.unwrap_or_else(|| composition_size(&session));
         let off = !found.enabled || self.controls.disabled.load(Ordering::Relaxed);
         let width = MONITOR_WIDTH;
         let height = (u64::from(width) * u64::from(oh) / u64::from(ow)).max(1) as u32;
@@ -1893,6 +1947,13 @@ fn blend(blend: flux_project::vj::Blend) -> flux_render::Blend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picture_is_shared_only_while_young_and_of_the_same_revision() {
+        assert!(picture_is_fresh(FRESH / 2, 3, 3));
+        assert!(!picture_is_fresh(FRESH * 2, 3, 3));
+        assert!(!picture_is_fresh(FRESH / 2, 3, 4));
+    }
 
     fn display(id: &str) -> Display {
         Display {
