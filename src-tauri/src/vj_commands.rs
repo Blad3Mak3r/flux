@@ -472,6 +472,19 @@ pub fn vj_crossfader(
     })
 }
 
+/// Puts the crossfader back in the middle.
+#[tauri::command]
+pub fn vj_crossfader_reset(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    grid: State<'_, SharedGrid>,
+) -> Result<GridState> {
+    play(&app, &session, &grid, |play, _, _| {
+        play.set_crossfader(GridPlay::CROSSFADER_DEFAULT);
+        Ok(())
+    })
+}
+
 /// What the grid sends to the screens now, before their mapping, as a small picture for the
 /// editor's output monitor (see [`crate::video_output::VideoOutputs::composition`]); empty outside
 /// a VJ project. Sent as bytes, not as JSON, so it is cheap enough to ask for thirty times a second.

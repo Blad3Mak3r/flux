@@ -98,7 +98,7 @@ impl Default for GridPlay {
     fn default() -> Self {
         Self {
             playing: HashMap::new(),
-            crossfader: 0.5,
+            crossfader: Self::CROSSFADER_DEFAULT,
             column: None,
             rng: 0x9E37_79B9_7F4A_7C15,
         }
@@ -390,6 +390,9 @@ impl GridPlay {
             launched.clip.is_some() || launched.fade.is_some()
         });
     }
+
+    /// Where the crossfader starts and goes back to: the middle, where both sides show fully.
+    pub const CROSSFADER_DEFAULT: f32 = 0.5;
 
     /// Moves the crossfader, kept between 0 and 1.
     pub fn set_crossfader(&mut self, position: f32) {

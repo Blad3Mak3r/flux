@@ -690,6 +690,16 @@ impl Clip {
     }
 }
 
+/// A fader of a layer (a group has the first two only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Level {
+    Master,
+    Opacity,
+    Volume,
+    Transition,
+}
+
 /// What the user can do to the grid. Every id names something of the grid; a name that is empty
 /// after trimming goes back to the default one. A level out of its range is brought into it.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -724,6 +734,11 @@ pub enum VjOp {
     LayerVolume {
         layer: String,
         value: f32,
+    },
+    /// Brings one fader of the layer back to the value a new layer has.
+    LayerLevelReset {
+        layer: String,
+        level: Level,
     },
     LayerBlend {
         layer: String,
@@ -787,6 +802,11 @@ pub enum VjOp {
     GroupOpacity {
         group: String,
         value: f32,
+    },
+    /// Brings the group's master or video fader back to the value a new group has.
+    GroupLevelReset {
+        group: String,
+        level: Level,
     },
     GroupBlend {
         group: String,
@@ -1392,6 +1412,16 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::LayerMaster { layer, value } => vj.layer_mut(&layer)?.master = level(value)?,
         VjOp::LayerOpacity { layer, value } => vj.layer_mut(&layer)?.opacity = level(value)?,
         VjOp::LayerVolume { layer, value } => vj.layer_mut(&layer)?.volume = level(value)?,
+        VjOp::LayerLevelReset { layer, level } => {
+            let new = Layer::new(String::new(), false);
+            let layer = vj.layer_mut(&layer)?;
+            match level {
+                Level::Master => layer.master = new.master,
+                Level::Opacity => layer.opacity = new.opacity,
+                Level::Volume => layer.volume = new.volume,
+                Level::Transition => layer.transition = new.transition,
+            }
+        }
         VjOp::LayerBlend { layer, blend } => vj.layer_mut(&layer)?.blend = blend,
         VjOp::LayerTransition { layer, value } => {
             vj.layer_mut(&layer)?.transition = level(value / MAX_TRANSITION)? * MAX_TRANSITION;
@@ -1412,6 +1442,15 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::RenameGroup { group, name } => vj.group_mut(&group)?.name = typed_name(&name)?,
         VjOp::GroupMaster { group, value } => vj.group_mut(&group)?.master = level(value)?,
         VjOp::GroupOpacity { group, value } => vj.group_mut(&group)?.opacity = level(value)?,
+        VjOp::GroupLevelReset { group, level } => {
+            let new = crate::vj_groups::Group::new(String::new());
+            let group = vj.group_mut(&group)?;
+            match level {
+                Level::Master => group.master = new.master,
+                Level::Opacity => group.opacity = new.opacity,
+                _ => return Err(ProjectError::Invalid("a group has no such fader".into())),
+            }
+        }
         VjOp::GroupBlend { group, blend } => vj.group_mut(&group)?.blend = blend,
         VjOp::GroupBypass { group, on } => vj.group_mut(&group)?.bypass = on,
         VjOp::GroupSolo { group, on } => vj.group_mut(&group)?.solo = on,
@@ -2607,6 +2646,46 @@ mod tests {
         let op = VjOp::LayerVolume {
             layer: "g1".into(),
             value: f32::NAN,
+        };
+        assert!(apply(&mut project, op, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn a_reset_should_bring_a_fader_back_to_its_default() {
+        let (mut project, mut new_id) = vj_project();
+        let layer = project.vj.layers[0].id.clone();
+        for (op, value) in [
+            ("layerMaster", 0.2),
+            ("layerOpacity", 0.3),
+            ("layerVolume", 0.4),
+            ("layerTransition", 5.0),
+        ] {
+            let op = serde_json::from_value(
+                serde_json::json!({"op": op, "layer": layer, "value": value}),
+            )
+            .unwrap();
+            run(&mut project, op, &mut new_id);
+        }
+        for level in [
+            Level::Master,
+            Level::Opacity,
+            Level::Volume,
+            Level::Transition,
+        ] {
+            let op = VjOp::LayerLevelReset {
+                layer: layer.clone(),
+                level,
+            };
+            run(&mut project, op, &mut new_id);
+        }
+        let l = &project.vj.layers[0];
+        assert_eq!(
+            (l.master, l.opacity, l.volume, l.transition),
+            (1.0, 1.0, 1.0, 0.0)
+        );
+        let op = VjOp::GroupLevelReset {
+            group: "nope".into(),
+            level: Level::Master,
         };
         assert!(apply(&mut project, op, &mut new_id).is_err());
     }

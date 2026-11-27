@@ -9,6 +9,7 @@ import { probeVideos } from "../state/video";
 import {
   vjBeat,
   vjCrossfader,
+  vjCrossfaderReset,
   vjCue,
   vjEdit,
   vjLaunch,
@@ -185,6 +186,7 @@ export function scrub(layer: string, position: number): void {
 }
 let scrubbing: Promise<void> = Promise.resolve();
 export const moveCrossfader = (position: number) => played(() => vjCrossfader(position));
+export const resetCrossfader = () => played(() => vjCrossfaderReset());
 
 export const selectClip = (clip: string, layer: string) => {
   useVj.setState({ clip, slot: null, layer, tab: "clip" });

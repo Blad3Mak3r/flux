@@ -66,6 +66,7 @@ Each layer has a header with:
 | **V** | **Video**: the opacity of the layer over the layers below. |
 | **T** | **Transition** time, 0 to 10 s. 0 is a cut. |
 | Transition mode | How the new clip mixes with the old one while the transition runs: **Alpha** (the default, a crossfade: the new clip fades in over the old one) or any of the 29 [blend modes](vj-blend-modes.md#transitions-with-a-blend-mode), in the same grouped menu as the layer's blend. |
+| Any fader | **Right-click** a fader (M, A, V or T, on a layer or a group) to bring it back to its default: full for M, A and V, 0 (a cut) for T. It is one undo step. |
 | Side A / B | Which side of the crossfader the layer is on. |
 | Fold arrow | Folds the layer to a thin row. It keeps playing; the fold is saved with the show. |
 
@@ -131,7 +132,7 @@ with the show.
 
 The crossfader sits under the layer headers beside the deck tabs. Put layers on side **A** or side **B**; a layer on
 neither is not touched. A side shows fully from its end of the fader to the middle and fades out over the other half.
-Double click the fader to centre it. The Composition menu can set it all A, middle or all B.
+Double click the fader, or right-click it, to centre it. The Composition menu can set it all A, middle or all B.
 
 ## Output and Preview
 

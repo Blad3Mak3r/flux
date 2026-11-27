@@ -29,6 +29,9 @@ import type {
 
 // Mirrors `VjOp` in src-tauri/crates/flux-project/src/vj.rs and src-tauri/src/vj_commands.rs.
 
+/** A fader a layer has; the one `layerLevelReset` brings back to its default. */
+export type VjLevel = "master" | "opacity" | "volume" | "transition";
+
 /** An edit of the grid; the backend applies it and answers with the project. */
 export type VjOp =
   | { op: "addLayer"; global: boolean }
@@ -36,6 +39,7 @@ export type VjOp =
   | { op: "moveLayer"; layer: string; to: number }
   | { op: "renameLayer"; layer: string; name: string }
   | { op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition"; layer: string; value: number }
+  | { op: "layerLevelReset"; layer: string; level: VjLevel }
   | { op: "layerBlend"; layer: string; blend: VjBlend }
   | { op: "layerTransitionEffect"; layer: string; effect: VjBlend }
   | { op: "layerAutopilot"; layer: string; mode: VjAutopilot }
@@ -48,6 +52,7 @@ export type VjOp =
   | { op: "ungroup"; group: string }
   | { op: "renameGroup"; group: string; name: string }
   | { op: "groupMaster" | "groupOpacity"; group: string; value: number }
+  | { op: "groupLevelReset"; group: string; level: "master" | "opacity" }
   | { op: "groupBlend"; group: string; blend: VjBlend }
   | { op: "groupBypass" | "groupSolo" | "groupCollapse"; group: string; on: boolean }
   | { op: "addDeck" }
@@ -183,6 +188,8 @@ export const vjScrub = (layer: string, position: number) => invoke<GridState>("v
 export const vjCue = (clip: string, index: number) => invoke<GridState>("vj_cue", { clip, index });
 /** Stops a layer, or every layer with `null`. */
 export const vjStop = (layer: string | null) => invoke<GridState>("vj_stop", { layer });
+/** Puts the crossfader back where the backend starts it. */
+export const vjCrossfaderReset = () => invoke<GridState>("vj_crossfader_reset");
 export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfader", { position });
 export const vjPlayState = () => invoke<GridState>("vj_play_state");
 /** What the grid sends to the screens now, as a small picture (see `bindOutput`); empty outside a VJ project. */

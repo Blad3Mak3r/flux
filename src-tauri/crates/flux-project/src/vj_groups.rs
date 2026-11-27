@@ -53,7 +53,7 @@ pub struct Group {
 }
 
 impl Group {
-    fn new(id: String) -> Self {
+    pub(crate) fn new(id: String) -> Self {
         Self {
             id,
             name: None,

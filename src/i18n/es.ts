@@ -1136,6 +1136,7 @@ export const es: Record<MessageKey, string> = {
   "vj.fader.audio": "Audio",
   "vj.fader.video": "Vídeo",
   "vj.fader.transition": "Transición entre clips",
+  "vj.fader.reset": "Clic derecho: restablecer",
   "vj.blend.alpha": "Alpha",
   "vj.blend.add": "Add",
   "vj.blend.subtract": "Subtract",

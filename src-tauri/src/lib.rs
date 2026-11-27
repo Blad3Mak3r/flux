@@ -190,6 +190,7 @@ pub fn run() {
             vj_commands::vj_release,
             vj_commands::vj_stop,
             vj_commands::vj_crossfader,
+            vj_commands::vj_crossfader_reset,
             vj_commands::vj_play_state,
             vj_commands::vj_beat,
             vj_control::vj_learn,

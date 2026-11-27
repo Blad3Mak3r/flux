@@ -43,6 +43,7 @@ import {
   launchColumn,
   launchGroupColumn,
   moveCrossfader,
+  resetCrossfader,
   preview,
   release,
   selectClip,
@@ -138,6 +139,7 @@ const TRIGGERS: VjTrigger[] = ["normal", "piano"];
 const FITS: VideoFit[] = ["fit", "fill", "stretch", "none"];
 /** The longest transition, in seconds, as the backend keeps it. */
 const MAX_TRANSITION = 10;
+const RESET_LEVEL = { layerMaster: "master", layerOpacity: "opacity", layerVolume: "volume", layerTransition: "transition" } as const;
 const DRAG = "application/x-flux-vj";
 /** What a layer dragged by its name carries: its id, to drop in or out of a group or at another place. */
 const DRAG_LAYER = "application/x-flux-vj-layer";
@@ -181,7 +183,7 @@ function Thumb({ strip, generator, position = 0.3, children, className }: {
 }
 
 /** A vertical fader: its letter is the handle, its colour says what it moves. */
-function Fader({ letter, label, value, off, progress, modulated, map, onMove, onSet }: {
+function Fader({ letter, label, value, off, progress, modulated, map, onMove, onSet, onReset }: {
   letter: string;
   label: string;
   value: number;
@@ -194,6 +196,8 @@ function Fader({ letter, label, value, off, progress, modulated, map, onMove, on
   map?: VjTarget;
   onMove: (value: number) => void;
   onSet: (value: number) => void;
+  /** Right click: back to the default the backend holds. */
+  onReset: () => void;
 }) {
   const [held, setHeld] = useState<number | null>(null);
   const shown = held ?? value;
@@ -221,10 +225,17 @@ function Fader({ letter, label, value, off, progress, modulated, map, onMove, on
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(shown * 100)}
-      title={`${label} ${Math.round(shown * 100)}${modulated ? ` · ${t("vj.layer.modulated")}` : ""}`}
+      title={`${label} ${Math.round(shown * 100)}${modulated ? ` · ${t("vj.layer.modulated")}` : ""} · ${t("vj.fader.reset")}`}
       style={{ "--v": shown, ...(now === undefined ? {} : { "--mv": Math.min(1, Math.max(0, now)) }) } as CSSProperties}
       onKeyDown={onKeyDown}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setHeld(null);
+        onReset();
+      }}
       onPointerDown={(event) => {
+        if (event.button !== 0) return;
         event.currentTarget.setPointerCapture(event.pointerId);
         const v = at(event);
         setHeld(v);
@@ -283,6 +294,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   const level = (op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition", scale = 1) => ({
     onMove: (value: number) => preview({ op, layer: layer.id, value: value * scale }),
     onSet: (value: number) => void edit({ op, layer: layer.id, value: value * scale }),
+    onReset: () => void edit({ op: "layerLevelReset", layer: layer.id, level: RESET_LEVEL[op] }),
   });
   const side = (s: VjSide) => void edit({ op: "layerCrossfade", layer: layer.id, side: layer.crossfade === s ? null : s });
   const fold = () => void edit({ op: "layerCollapse", layer: layer.id, on: !layer.collapsed });
@@ -577,6 +589,7 @@ function DeckTab({ deck, at, shown, only }: { deck: VjDeck; at: number; shown: b
 }
 
 function Crossfader() {
+  const t = useT();
   const position = useVj((vj) => vj.play.crossfader);
   const [held, setHeld] = useState<number | null>(null);
   const shown = held ?? position;
@@ -595,14 +608,20 @@ function Crossfader() {
       role="slider"
       tabIndex={0}
       aria-label="Crossfader"
+      title={t("vj.fader.reset")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(shown * 100)}
-      onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); move(at(event)); }}
+      onContextMenu={(event) => { event.preventDefault(); setHeld(null); void resetCrossfader(); }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        move(at(event));
+      }}
       onPointerMove={(event) => { if (held !== null) move(at(event)); }}
       onPointerUp={() => setHeld(null)}
       onPointerCancel={() => setHeld(null)}
-      onDoubleClick={() => void moveCrossfader(0.5)}
+      onDoubleClick={() => void resetCrossfader()}
     >
       <span className="vj-tick" style={{ left: 0 }} />
       <span className="vj-tick mid" />
@@ -624,6 +643,7 @@ function GroupRow({ grid, group, deck }: { grid: VjGrid; group: VjGroup; deck: V
   const level = (op: "groupMaster" | "groupOpacity") => ({
     onMove: (value: number) => preview({ op, group: group.id, value }),
     onSet: (value: number) => void edit({ op, group: group.id, value }),
+    onReset: () => void edit({ op: "groupLevelReset", group: group.id, level: op === "groupMaster" ? "master" : "opacity" }),
   });
   const fold = () => void edit({ op: "groupCollapse", group: group.id, on: !group.collapsed });
   const ungroup = () => void edit({ op: "ungroup", group: group.id });
