@@ -6,6 +6,7 @@ mod commands;
 mod control;
 mod device_commands;
 mod diagnostics;
+mod drop_commands;
 mod export_commands;
 mod graphics;
 mod live_commands;
@@ -144,6 +145,8 @@ pub fn run() {
             commands::project_import_video,
             commands::project_import_vj_video,
             commands::project_import_image,
+            drop_commands::project_drop_timeline,
+            drop_commands::project_drop_vj,
             commands::vj_edit,
             commands::vj_mappings_export,
             commands::vj_mappings_import,

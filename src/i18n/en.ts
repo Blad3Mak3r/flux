@@ -697,6 +697,8 @@ export const en = {
   "status.restored": "Picked up {name} where you left it",
   "status.opened": "Opened {name}",
   "status.imported": "Imported {name}",
+  "status.dropSkipped": "Left out {count} dropped files that Flux cannot import",
+  "status.importedMany": "Imported {count} files",
   "status.convertedHap": "Converted {name} to HAP",
   "status.convertCancelled": "Conversion of {name} cancelled",
   "status.tempoFound": "{name}: {bpm} BPM",

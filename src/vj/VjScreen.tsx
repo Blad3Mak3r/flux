@@ -27,6 +27,7 @@ import type {
 } from "../project/types";
 import { useDoc } from "../state/store";
 import { startDrag, useDropTarget } from "../state/pointerDrag";
+import { useFileDrop } from "../state/fileDrop";
 import { openMenu, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import type { VideoStrip } from "../video/api";
@@ -433,11 +434,14 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
       } else void edit({ op: "placeVideo", asset: dragged.asset, layer: layer.id, column: column.id });
     },
   });
+  // A file from the file explorer is over this cell.
+  const filed = useFileDrop((drop) => drop.cell?.layer === layer.id && drop.cell.column === column.id);
+  const lit = over || filed;
 
   if (!clip) {
     // As on a media server, an empty cell stops its layer, over the layer's transition.
     return (
-      <div className={`vj-slot${over ? " over" : ""}`} title={t("vj.cell.empty")}
+      <div className={`vj-slot${lit ? " over" : ""}`} title={t("vj.cell.empty")} data-drop-layer={layer.id} data-drop-column={column.id}
         onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} ref={dropping} />
     );
   }
@@ -446,8 +450,9 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   const motion = transportBadge(clip);
   return (
     <div
-      className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${over ? " over" : ""}`}
+      className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${lit ? " over" : ""}`}
       {...mappable({ kind: "clipLaunch", clip: clip.id })}
+      data-drop-layer={layer.id} data-drop-column={column.id}
       ref={dropping}
       onPointerDown={(event) => {
         if (event.button !== 0) return;

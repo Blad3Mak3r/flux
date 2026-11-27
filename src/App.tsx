@@ -35,6 +35,7 @@ import { I18nProvider, useT } from "./i18n";
 import { deleteSelection, renameSelectedTrack } from "./state/actions";
 import { splitAtPlayhead } from "./state/clips";
 import { activeTimeline, isDirty } from "./state/doc";
+import { watchFileDrops } from "./state/fileDrop";
 import { bindDocumentSync, flushDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
 import { ask, closeAbout, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
@@ -85,6 +86,12 @@ function Shell({ devices }: { devices: Devices }) {
   useEffect(() => {
     if (clockUnpaced) sayError(t("output.clockFast"));
   }, [clockUnpaced, t]);
+
+  // Files dragged in from the file explorer.
+  useEffect(() => {
+    const stop = watchFileDrops();
+    return () => void stop.then((off) => off());
+  }, []);
 
   useEffect(() => {
     document.title = `${name}${dirty ? " ●" : ""} — ${t("app.title")}`;
