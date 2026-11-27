@@ -398,6 +398,16 @@ of all the layers, before the output mapping. Every effect works there, and Feed
 Drop an effect on the Output panel or the composition bar to add it. An **FX** badge and a switch in the composition
 bar bypass the whole stack at once. See [VJ effects](vj-effects.md#effect-stacks).
 
+## Panels and layouts
+
+The VJ screen is made of panels docked inside the main window, as in Resolume: there are no floating windows.
+
+- The **deck** (the clip grid with its crossfader) and the **BPM bar** are unique and fixed. They are never moved, closed or tabbed, but other panels can dock left, right, above or below the deck.
+- Every other panel can be dragged: dropped on the centre of a dock it becomes a tab, dropped on an edge of a dock or of the deck it splits that place in two. Splitters between docks resize them, down to the least size of what they hold. Each panel has a close button, and **View > Panels** opens a closed one again, in the dock it was last in.
+- The panels are Composition, Group, Layer, Clip, Mappings, Dashboard, Files, Generators, Effects and the monitors.
+- A **monitor** shows the composition, the preview of the selected clip, one layer or one group. A layer or group monitor follows the selection, or stays on the layer or group it was set to. Up to 8 monitors can be open, each with its own settings. A layer monitor draws that layer alone with its effects, opacity and blend; a group monitor draws the group's layers as the group mixes them.
+- The layout is kept **per machine**, not in the show. Three layouts come with Flux (Default, Performance, Monitors), you can save the current one under a name (the same name overwrites it), rename or delete your own, and reset to Default. A layout file that cannot be read, or that a newer Flux wrote, is replaced by the default one.
+
 ## Presets and templates
 
 Both are **yours**, not the show's: FLUX keeps them in its app data folder (like Resolume keeps its presets in the user's
