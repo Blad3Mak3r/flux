@@ -67,7 +67,7 @@ function MediaPage() {
             {shown.map((item) => (
               <tr key={item.id} data-state={item.state}>
                 <td className="name" title={item.name}>{item.name}</td>
-                <td>{t(`media.kind.${item.kind}`)}</td>
+                <td className="kind">{t(`media.kind.${item.kind}`)}</td>
                 <td className="state">
                   <i className="media-lamp" aria-hidden="true" />
                   {t(`media.state.${item.state}`)}

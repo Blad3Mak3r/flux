@@ -25,7 +25,7 @@
   margin: 0;
 }
 
-.media-summary {
+.media-head .media-summary {
   flex: 1;
   margin: 0;
   font-family: var(--font-measure);
@@ -110,8 +110,20 @@
   overflow: visible;
 }
 
+.media-table td.row-actions > * {
+  vertical-align: middle;
+}
+
 .media-table td.row-actions > * + * {
   margin-left: 6px;
+}
+
+.media-table td.row-actions .icon-button {
+  display: inline-grid;
+}
+
+.media-table td.kind {
+  width: 80px;
 }
 
 .media-lamp {
