@@ -41,6 +41,20 @@ pub struct Layer {
     /// The beats the grid's clock has counted, which a generator's text steps its lines on; 0 on a
     /// timeline.
     pub beats: f64,
+    /// The id of the group of the grid whose picture this is part of; none on a timeline.
+    pub group: Option<String>,
+}
+
+/// How a group of the grid is drawn: its layers' pictures are mixed together first, and the mix is
+/// drawn over what is below like a picture of its own.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupLook {
+    pub id: String,
+    /// The group's master times its opacity, 0 to 1.
+    pub opacity: f32,
+    pub blend: flux_project::vj::Blend,
+    /// The group's effects, without the bypassed ones, the first applied first.
+    pub effects: Vec<flux_project::vj::Effect>,
 }
 
 /// The rate and length of a video, which the mapping needs; `None` when it could not be read.
@@ -88,6 +102,7 @@ pub fn layers(timeline: &Timeline, cue: Cue, probe: Probe<'_>) -> Vec<Layer> {
                             effects: Vec::new(),
                             elapsed: Default::default(),
                             beats: 0.0,
+                            group: None,
                         },
                     ))
                 })
@@ -147,6 +162,7 @@ pub fn upcoming(timeline: &Timeline, position: u64, ahead: u64, probe: Probe<'_>
                 effects: Vec::new(),
                 elapsed: Default::default(),
                 beats: 0.0,
+                group: None,
             })
         })
         .collect()

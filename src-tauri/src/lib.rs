@@ -152,6 +152,7 @@ pub fn run() {
             vj_commands::vj_launch,
             vj_commands::vj_lights_preset,
             vj_commands::vj_launch_column,
+            vj_commands::vj_launch_group_column,
             vj_commands::vj_scrub,
             vj_commands::vj_cue,
             vj_commands::vj_release,

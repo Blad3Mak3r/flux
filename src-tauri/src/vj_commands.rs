@@ -424,6 +424,26 @@ pub fn vj_launch_column(
     })
 }
 
+/// Launches the clips of a column on the layers of a group only, as the group's own column trigger.
+#[tauri::command]
+pub fn vj_launch_group_column(
+    app: AppHandle,
+    session: State<'_, SharedSession>,
+    grid: State<'_, SharedGrid>,
+    group: String,
+    column: String,
+) -> Result<GridState> {
+    play(&app, &session, &grid, |play, vj, now| {
+        if play.launch_group_column(vj, &group, &column, now) {
+            Ok(())
+        } else {
+            Err(ProjectError::Invalid(format!(
+                "no group {group} or column {column}"
+            )))
+        }
+    })
+}
+
 /// Stops a layer, or every layer without one.
 #[tauri::command]
 pub fn vj_stop(

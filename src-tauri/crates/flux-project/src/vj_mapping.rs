@@ -121,8 +121,8 @@ fn app_shortcuts() -> &'static [AppShortcut] {
 impl Source {
     /// Whether this is a key the app uses itself, so a mapping would fight its shortcuts: one of
     /// the combinations in `vj_shortcuts.json` (the list the window reads too; Resolume's
-    /// defaults: Ctrl or Cmd with N, O, S, Z, Y, K, L, T, Ctrl or Cmd and Shift with S, C, K, M,
-    /// O, X, A, D, L, P, Shift+1 to 9 and Esc), or a modifier alone. Every other key is free.
+    /// defaults: Ctrl or Cmd with N, O, S, Z, Y, K, L, G, T, Ctrl or Cmd and Shift with S, C, K, M,
+    /// O, X, A, D, L, P, 1 to 9, and Esc), or a modifier alone. Every other key is free.
     pub fn is_app_shortcut(&self) -> bool {
         let Self::Key {
             code,
@@ -306,6 +306,12 @@ pub enum Target {
     LayerSolo {
         layer: String,
     },
+    GroupBypass {
+        group: String,
+    },
+    GroupSolo {
+        group: String,
+    },
     EffectBypass {
         effect: String,
     },
@@ -320,6 +326,12 @@ pub enum Target {
     },
     LayerOpacity {
         layer: String,
+    },
+    GroupMaster {
+        group: String,
+    },
+    GroupOpacity {
+        group: String,
     },
     /// The transition time, 0 to 10 s.
     LayerTransition {
@@ -359,11 +371,15 @@ impl Target {
         match self {
             Self::LayerBypass { .. }
             | Self::LayerSolo { .. }
+            | Self::GroupBypass { .. }
+            | Self::GroupSolo { .. }
             | Self::EffectBypass { .. }
             | Self::BpmPause => Class::Switch,
             Self::LayerMaster { .. }
             | Self::LayerVolume { .. }
             | Self::LayerOpacity { .. }
+            | Self::GroupMaster { .. }
+            | Self::GroupOpacity { .. }
             | Self::LayerTransition { .. }
             | Self::Crossfader
             | Self::Bpm
@@ -393,6 +409,10 @@ impl Target {
             | Self::LayerVolume { layer: id }
             | Self::LayerOpacity { layer: id }
             | Self::LayerTransition { layer: id } => layer(id),
+            Self::GroupBypass { group }
+            | Self::GroupSolo { group }
+            | Self::GroupMaster { group }
+            | Self::GroupOpacity { group } => vj.group(group).is_some(),
             Self::DeckSelect { deck } => vj.decks.iter().any(|d| &d.id == deck),
             Self::EffectBypass { effect } => vj.find_effect(effect).is_some(),
             Self::EffectParam { effect, param } => vj
@@ -413,6 +433,8 @@ impl Target {
             Self::LayerMaster { .. }
             | Self::LayerVolume { .. }
             | Self::LayerOpacity { .. }
+            | Self::GroupMaster { .. }
+            | Self::GroupOpacity { .. }
             | Self::Crossfader
             | Self::Dashboard { .. } => Some((0.0, 1.0)),
             Self::LayerTransition { .. } => Some((0.0, MAX_TRANSITION)),
@@ -850,6 +872,16 @@ pub(crate) fn drive(vj: &mut Vj, target: &Target, value: f32) {
                 l.opacity = unit;
             }
         }
+        Target::GroupMaster { group } => {
+            if let Ok(g) = vj.group_mut(group) {
+                g.master = unit;
+            }
+        }
+        Target::GroupOpacity { group } => {
+            if let Ok(g) = vj.group_mut(group) {
+                g.opacity = unit;
+            }
+        }
         Target::LayerTransition { layer } => {
             if let Ok(l) = vj.layer_mut(layer) {
                 l.transition = value.clamp(0.0, MAX_TRANSITION);
@@ -1173,6 +1205,14 @@ pub fn value_op(vj: &Vj, target: &Target, value: f32) -> Option<VjOp> {
             layer: layer.clone(),
             value,
         },
+        Target::GroupMaster { group } => VjOp::GroupMaster {
+            group: group.clone(),
+            value,
+        },
+        Target::GroupOpacity { group } => VjOp::GroupOpacity {
+            group: group.clone(),
+            value,
+        },
         Target::LayerTransition { layer } => VjOp::LayerTransition {
             layer: layer.clone(),
             value,
@@ -1271,6 +1311,26 @@ pub fn plan(vj: &Vj, target: &Target, command: Command) -> Option<Plan> {
                 on,
             })
         }
+        (Target::GroupBypass { group }, Switch(_) | Toggle) => {
+            let on = match command {
+                Switch(on) => on,
+                _ => !vj.group(group)?.bypass,
+            };
+            edit(VjOp::GroupBypass {
+                group: group.clone(),
+                on,
+            })
+        }
+        (Target::GroupSolo { group }, Switch(_) | Toggle) => {
+            let on = match command {
+                Switch(on) => on,
+                _ => !vj.group(group)?.solo,
+            };
+            edit(VjOp::GroupSolo {
+                group: group.clone(),
+                on,
+            })
+        }
         (Target::EffectBypass { effect }, Switch(_) | Toggle) => {
             let bypass = match command {
                 Switch(on) => on,
@@ -1335,6 +1395,9 @@ fn clip_at(vj: &Vj, layer: usize, column: usize) -> Option<String> {
 /// | `/composition/layers/{n}/transition/duration` | 0 to 1 | transition time (0 to 10 s) |
 /// | `/composition/layers/{n}/bypassed`, `/solo` | 0 or 1 | sets the switch |
 /// | `/composition/layers/{n}/clear` | 1 | stops the layer |
+/// | `/composition/groups/{g}/video/opacity` | 0 to 1 | the group's opacity |
+/// | `/composition/groups/{g}/master` | 0 to 1 | the group's master |
+/// | `/composition/groups/{g}/bypassed`, `/solo` | 0 or 1 | sets the group's switch |
 /// | `/composition/crossfader/phase` | 0 to 1 | the crossfader |
 /// | `/composition/tempocontroller/tempo` | beats a minute | the tempo |
 /// | `/composition/tempocontroller/{tempotap,resync,plus,minus,double,half}` | 1 | tempo buttons |
@@ -1368,6 +1431,7 @@ pub fn osc_command(vj: &Vj, address: &str, args: &[OscArg]) -> Option<(Target, C
         ))
     };
     let switch = |target: Target| Some((target, Command::Switch(level? >= 0.5)));
+    let group_id = |n: &str| Some(vj.groups.get(place(n)?)?.id.clone());
     let parts = match parts.as_slice() {
         ["composition", rest @ ..] => rest,
         ["tempocontroller", ..] => parts.as_slice(),
@@ -1402,6 +1466,18 @@ pub fn osc_command(vj: &Vj, address: &str, args: &[OscArg]) -> Option<(Target, C
         }),
         ["layers", n, "clear"] => button(Target::LayerStop {
             layer: layer_id(n)?,
+        }),
+        ["groups", n, "video", "opacity"] => fader(Target::GroupOpacity {
+            group: group_id(n)?,
+        }),
+        ["groups", n, "master"] => fader(Target::GroupMaster {
+            group: group_id(n)?,
+        }),
+        ["groups", n, "bypassed"] => switch(Target::GroupBypass {
+            group: group_id(n)?,
+        }),
+        ["groups", n, "solo"] => switch(Target::GroupSolo {
+            group: group_id(n)?,
         }),
         ["crossfader", "phase"] => fader(Target::Crossfader),
         ["tempocontroller", "tempo"] => Some((

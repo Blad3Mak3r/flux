@@ -614,7 +614,7 @@ impl Render {
             .last_frame
             .replace(at)
             .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
-        let (shown, beats, post) = match &self.vj {
+        let (shown, looks, time, post) = match &self.vj {
             Some(vj) => {
                 let (play, now) = {
                     let mut grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
@@ -636,9 +636,19 @@ impl Render {
                     .map(|deck| deck.show_grid(drawn, &play, now, self.card_size))
                     .unwrap_or_default();
                 let post = composition_post(drawn, clock, dt);
-                (shown, beats, post)
+                let looks = play.group_looks(drawn);
+                let time = flux_render::Time {
+                    seconds: clock.seconds,
+                    beats,
+                };
+                (shown, looks, time, post)
             }
-            None => (self.timeline_pictures(), 0.0, flux_render::Post::default()),
+            None => (
+                self.timeline_pictures(),
+                Vec::new(),
+                flux_render::Time::default(),
+                flux_render::Post::default(),
+            ),
         };
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
@@ -648,11 +658,11 @@ impl Render {
         let mut pictures = if disabled || forced {
             Vec::new()
         } else {
-            pictures(&shown, self.card_size, beats)
+            items(&shown, &looks, self.card_size, time)
         };
         let card = !disabled && (forced || pictures.is_empty()) && self.sweep_card(forced);
         if card {
-            pictures.push(Picture {
+            pictures.push(flux_render::Item::Picture(Picture {
                 id: self.card_id,
                 width: self.card_size.0,
                 height: self.card_size.1,
@@ -661,7 +671,7 @@ impl Render {
                 opacity: 1.0,
                 blend: flux_render::Blend::Alpha,
                 effects: Default::default(),
-            });
+            }));
         }
         let drawn = !pictures.is_empty();
         // The test card is what the slices are lined up with: nothing changes it.
@@ -826,9 +836,60 @@ fn composition_size(session: &SharedSession) -> (u32, u32) {
 }
 
 /// What to draw of `shown` (topmost first) in a composition of `composition` pixels, the bottom
-/// first: from the top down to the first picture that hides everything under it.
+/// first: from the top down to the first picture that hides everything under it. The pictures of
+/// a group are drawn as one item, with the group's look in `looks`; a group that has none (it is
+/// bypassed or left out by the solos) shows nothing.
+fn items<'a>(
+    shown: &'a [flux_video::Shown],
+    looks: &[flux_video::GroupLook],
+    composition: (u32, u32),
+    time: flux_render::Time,
+) -> Vec<flux_render::Item<'a>> {
+    use flux_render::{Group, Item};
+    let mut items = Vec::new();
+    for run in shown.chunk_by(|a, b| a.layer.group == b.layer.group) {
+        let (inner, mut hides) = run_pictures(run, composition, time.beats);
+        match &run[0].layer.group {
+            None => items.extend(inner.into_iter().rev().map(Item::Picture)),
+            Some(id) => {
+                let Some(look) = looks.iter().find(|look| &look.id == id) else {
+                    continue;
+                };
+                if inner.is_empty() {
+                    continue;
+                }
+                let effects = flux_render::Effects::new(&look.effects, time);
+                hides &= look.blend == flux_project::vj::Blend::Alpha
+                    && look.opacity >= 1.0
+                    && effects.is_identity();
+                items.push(Item::Group(Group {
+                    pictures: inner,
+                    opacity: look.opacity,
+                    blend: blend(look.blend),
+                    effects,
+                }));
+            }
+        }
+        if hides {
+            break;
+        }
+    }
+    items.reverse();
+    items
+}
+/// The pictures of `shown` (topmost first) without groups, the bottom first.
+#[cfg(test)]
 fn pictures(shown: &[flux_video::Shown], composition: (u32, u32), beats: f64) -> Vec<Picture<'_>> {
+    run_pictures(shown, composition, beats).0
+}
+
+fn run_pictures(
+    shown: &[flux_video::Shown],
+    composition: (u32, u32),
+    beats: f64,
+) -> (Vec<Picture<'_>>, bool) {
     let mut pictures = Vec::new();
+    let mut hides = false;
     for shown in shown {
         let Some(frame) = &shown.frame else { continue };
         let layer = &shown.layer;
@@ -858,11 +919,12 @@ fn pictures(shown: &[flux_video::Shown], composition: (u32, u32), beats: f64) ->
         // Effects can leave parts of the picture clear (a zoom out, a blur's soft edge), so a
         // picture with any hides nothing below it.
         if alpha && layer.opacity >= 1.0 && !frame.alpha && covers(place) && effects.is_identity() {
+            hides = true;
             break;
         }
     }
     pictures.reverse();
-    pictures
+    (pictures, hides)
 }
 
 /// What the composition's effects of `vj` come to at `clock`, `dt` seconds after the last frame;
@@ -910,8 +972,10 @@ fn ensure_deck(deck: &SharedDeck, app: &AppHandle) -> Result<(), String> {
 /// The monitor's picture of `shown` through the composition's effects: its width and height as
 /// two little-endian u16, then its RGBA pixels (no encoding to wait for on either side). The
 /// output and the preview monitors both come from here, so a clip looks the same in each.
+#[allow(clippy::too_many_arguments)]
 fn monitor_picture(
     shown: &[flux_video::Shown],
+    looks: &[flux_video::GroupLook],
     vj: &flux_project::vj::Vj,
     size: (u32, u32),
     width: u32,
@@ -928,8 +992,12 @@ fn monitor_picture(
         .replace(at)
         .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
     let post = composition_post(vj, clock, dt);
-    picture.extend(flux_render::composite_post(
-        &pictures(shown, size, clock.beats),
+    let time = flux_render::Time {
+        seconds: clock.seconds,
+        beats: clock.beats,
+    };
+    picture.extend(flux_render::composite_items(
+        &items(shown, looks, size, time),
         width,
         height,
         &post,
@@ -951,6 +1019,7 @@ fn preview_grid(vj: &flux_project::vj::Vj, clip: &str) -> Option<flux_project::v
     layer.crossfade = None;
     layer.bypass = false;
     layer.solo = false;
+    layer.group = None;
     layer.modulation.clear();
     let mut vj = vj.clone();
     vj.layers = vec![layer];
@@ -1075,6 +1144,7 @@ impl VideoOutputs {
         };
         Ok(Some(monitor_picture(
             &shown,
+            &play.group_looks(drawn),
             drawn,
             size,
             width.unwrap_or(size.0),
@@ -1146,6 +1216,7 @@ impl VideoOutputs {
             .unwrap_or_default();
         Ok(monitor_picture(
             &shown,
+            &preview.grid.play.group_looks(drawn),
             drawn,
             size,
             MONITOR_WIDTH,
@@ -1563,6 +1634,7 @@ mod tests {
             bypass: true,
             solo: false,
             collapsed: false,
+            group: None,
             effects: Vec::new(),
             modulation: Default::default(),
             clips,

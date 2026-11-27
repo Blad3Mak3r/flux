@@ -13,6 +13,7 @@ import {
   vjEdit,
   vjLaunch,
   vjLaunchColumn,
+  vjLaunchGroupColumn,
   vjOutputFrame,
   vjPreviewFrame,
   vjPreview,
@@ -42,7 +43,11 @@ interface VjState {
   clip: string | null;
   /** The layer the inspector shows. */
   layer: string | null;
-  tab: "clip" | "layer" | "composition" | "mappings";
+  /** The group the inspector shows. */
+  group: string | null;
+  /** The layers picked with Ctrl or Cmd held, which Group selected layers puts in a group; only the screen's. */
+  picked: string[];
+  tab: "clip" | "layer" | "group" | "composition" | "mappings";
   /** Which media the browser lists. */
   media: MediaKind;
   /** What the browser shows: the project's media, the generators or the effects. */
@@ -66,6 +71,8 @@ export const useVj = create<VjState>()(() => ({
   importing: [],
   clip: null,
   layer: null,
+  group: null,
+  picked: [],
   tab: "clip",
   media: "all",
   browser: "media",
@@ -148,6 +155,7 @@ export const launch = (clip: string, layer: string) => {
 };
 export const release = (clip: string) => played(() => vjRelease(clip));
 export const launchColumn = (column: string) => played(() => vjLaunchColumn(column));
+export const launchGroupColumn = (group: string, column: string) => played(() => vjLaunchGroupColumn(group, column));
 export const stopLayer = (layer: string | null) => played(() => vjStop(layer));
 export const beatClock = (op: VjBeatOp) => played(() => vjBeat(op));
 export const cue = (clip: string, index: number) => played(() => vjCue(clip, index));
@@ -171,7 +179,14 @@ let scrubbing: Promise<void> = Promise.resolve();
 export const moveCrossfader = (position: number) => played(() => vjCrossfader(position));
 
 export const selectClip = (clip: string, layer: string) => useVj.setState({ clip, layer, tab: "clip" });
-export const selectLayer = (layer: string) => useVj.setState({ layer, tab: "layer" });
+/** Shows the layer in the inspector; with `pick` it also joins (or leaves) the layers picked for a group. */
+export const selectLayer = (layer: string, pick = false) =>
+  useVj.setState((vj) => ({
+    layer,
+    tab: "layer",
+    picked: pick ? (vj.picked.includes(layer) ? vj.picked.filter((id) => id !== layer) : [...vj.picked, layer]) : [],
+  }));
+export const selectGroup = (group: string) => useVj.setState({ group, tab: "group", picked: [] });
 export const showTab = (tab: VjState["tab"]) => useVj.setState({ tab });
 export const showMedia = (media: MediaKind) => useVj.setState({ media });
 /** Folds an effect of the inspector shut, or opens it again. */

@@ -5,9 +5,9 @@ import type { VjSource, VjTarget } from "../project/types";
 
 export type TargetClass = "continuous" | "switch" | "action";
 
-const SWITCHES = new Set<VjTarget["kind"]>(["layerBypass", "layerSolo", "effectBypass", "bpmPause"]);
+const SWITCHES = new Set<VjTarget["kind"]>(["layerBypass", "layerSolo", "groupBypass", "groupSolo", "effectBypass", "bpmPause"]);
 const CONTINUOUS = new Set<VjTarget["kind"]>([
-  "layerMaster", "layerVolume", "layerOpacity", "layerTransition", "crossfader", "bpm",
+  "layerMaster", "layerVolume", "layerOpacity", "layerTransition", "groupMaster", "groupOpacity", "crossfader", "bpm",
   "clipSpeed", "effectParam", "generatorNumber", "dashboard",
 ]);
 
@@ -42,9 +42,9 @@ export type SourceKind = "midi" | "osc" | "dmx" | "key";
 
 export const sourceKind = (source: VjSource): SourceKind => (source.type === "artnet" ? "dmx" : source.type === "key" ? "key" : source.type);
 
-/** Whether a target is a clip, layer, column, deck or effect, which a mapping can follow by id or by slot. */
+/** Whether a target is a clip, layer, group, column, deck or effect, which a mapping can follow by id or by slot. */
 export const hasSlot = (target: VjTarget): boolean =>
-  /^(clip|column|layer|deck|effect|generator)/.test(target.kind);
+  /^(clip|column|layer|group|deck|effect|generator)/.test(target.kind);
 
 export function sourceLabel(source: VjSource): string {
   if (source.type === "osc") return source.address;

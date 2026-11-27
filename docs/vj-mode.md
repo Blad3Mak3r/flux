@@ -70,6 +70,44 @@ With a transition time above 0, a clip launched on an empty layer fades in, and 
 time. A layer's effects apply to both clips while a transition runs. Bypass, solo and eject are in the **Layer** menu and on the layer's buttons, with no key by default.
 Right-click a layer for the rest (move up and down, rename, Autopilot, remove).
 
+## Groups
+
+A **group** holds consecutive layers, as in Resolume Arena. The layers of a group are mixed together first, over a
+clear background, and the group's own blend, master and video then mix that picture with the layers below it, after the
+group's effects. Groups do not nest, and a group is never empty.
+
+A group has a header row above its first layer, with the same look as a layer's strip:
+
+| Control | Does |
+| --- | --- |
+| Ungroup button | Takes the layers out of the group and removes it. |
+| **B** | **Bypass**: the whole group shows and sounds nothing. |
+| **S** | **Solo**: the group's layers show while others are held back (see below). |
+| Blend menu | How the group mixes with the layers below, [blend modes](vj-blend-modes.md) as for a layer. Default **Alpha**. |
+| **M** | **Master**: scales the picture and the sound of the whole group. |
+| **V** | **Video**: the opacity of the group over the layers below. |
+| Fold arrow | Folds the group to its header: its layers hide but keep playing. The fold is saved with the show. |
+| Group cells | One button per column: launches that column on the layers of this group only. |
+
+Making and changing groups:
+
+- **Ctrl+G** (or **Layer > Group > New group**) puts the layers picked with **Ctrl-click** on their headers in a new group, or the layer the inspector shows when none is picked. The layers are gathered where the lowest of them is.
+- **Drag a layer** by its name onto a group's header to add it, or onto another layer to place it there (inside that layer's group, or out of any group when that layer has none). The layer menu has **Move to** and **Take out of the group** too.
+- **Ungroup** keeps the layers, in place. A group left with no layers (the last one dragged out, or removed) leaves a new empty layer in it, so it is never empty; an empty layer is added when there is room.
+- The **Group** tab of the inspector holds the name, the blend, Master and Video, and the group's [effect stack](vj-effects.md#where-an-effect-works).
+- Right-click a layer for its group items. A group can be renamed from its header.
+
+How a group plays:
+
+- **Solo**: a layer shows when nothing is soloed, or it is soloed, or its group is soloed.
+- **Bypass** of the group wins over what its layers do. **Master** scales the group's sound as well as its picture.
+- The group's blend, master and video act on the *mix* of its layers, so a layer's own blend is applied inside the group, against the layers of the group below it only. The first layer of a group blends against a clear background.
+- A **group at Alpha, 100% and without effects shows the same as the same layers outside any group.**
+- **Global layers** can be in groups. A global layer keeps its clips when the deck changes and the group keeps its place, since groups belong to the show, not to a deck. A group's column launch skips global layers, as the composition's column launch does.
+- Groups use the crossfader through their layers as before; a group has no crossfader side of its own.
+
+Not in Flux: groups do not nest, a group cannot be moved as a block (move its layers) and a group's fields cannot be modulated. Group column launch has no mapping target or OSC address; the cells launch it.
+
 ### Autopilot
 
 A layer's **Autopilot** (the Layer tab of the inspector, or the layer's right-click menu) makes it play its clips one
@@ -336,6 +374,7 @@ are in the menus. The backend refuses to learn exactly these keys (the list is `
 | Ctrl+S / Ctrl+Shift+S | Save / save as. |
 | Ctrl+Z / Ctrl+Y | Undo / redo. |
 | Ctrl+K / Ctrl+L / Ctrl+T | New deck / new layer / new column. |
+| Ctrl+G | New group from the picked layers. |
 | Ctrl+Shift+C | Composition settings (the inspector's Composition tab). |
 | Ctrl+Shift+M, Ctrl+Shift+K, Ctrl+Shift+O, Ctrl+Shift+X | Map mode (MIDI, keys, OSC, DMX: one mode learns all four); Esc stops it. |
 | Ctrl+Shift+A | Open the advanced output. |

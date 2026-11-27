@@ -42,6 +42,15 @@ export type VjOp =
   | { op: "layerAutopilot"; layer: string; mode: VjAutopilot }
   | { op: "layerCrossfade"; layer: string; side: VjSide | null }
   | { op: "layerBypass" | "layerSolo" | "layerCollapse"; layer: string; on: boolean }
+  /** Puts the layers in a new group, gathered where the lowest of them is. */
+  | { op: "groupLayers"; layers: string[] }
+  /** Puts the layer in a group (or none), on its top unless `to` places it in the drawing order. */
+  | { op: "layerGroup"; layer: string; group: string | null; to: number | null }
+  | { op: "ungroup"; group: string }
+  | { op: "renameGroup"; group: string; name: string }
+  | { op: "groupMaster" | "groupOpacity"; group: string; value: number }
+  | { op: "groupBlend"; group: string; blend: VjBlend }
+  | { op: "groupBypass" | "groupSolo" | "groupCollapse"; group: string; on: boolean }
   | { op: "addDeck" }
   | { op: "removeDeck"; deck: string }
   | { op: "moveDeck"; deck: string; to: number }
@@ -77,7 +86,7 @@ export type VjOp =
   | { op: "clipFit"; clip: string; fit: VideoFit }
   | { op: "clipScale"; clip: string; value: number }
   | { op: "clipPosition"; clip: string; x: number; y: number }
-  | { op: "addEffect"; target: { clip: string } | { layer: string } | "composition"; kind: VjEffectName }
+  | { op: "addEffect"; target: { clip: string } | { layer: string } | { group: string } | "composition"; kind: VjEffectName }
   | { op: "compositionBypass"; bypass: boolean }
   | { op: "removeEffect"; effect: string }
   | { op: "moveEffect"; effect: string; index: number }
@@ -167,6 +176,8 @@ export const vjBeat = (op: VjBeatOp) => invoke<GridState>("vj_beat", { op });
 export const vjLaunch = (clip: string) => invoke<GridState>("vj_launch", { clip });
 export const vjRelease = (clip: string) => invoke<GridState>("vj_release", { clip });
 export const vjLaunchColumn = (column: string) => invoke<GridState>("vj_launch_column", { column });
+/** Launches `column` on the layers of `group` only. */
+export const vjLaunchGroupColumn = (group: string, column: string) => invoke<GridState>("vj_launch_group_column", { group, column });
 /** Moves the playhead of the clip playing on `layer` to `position`, a fraction of the clip's length. */
 export const vjScrub = (layer: string, position: number) => invoke<GridState>("vj_scrub", { layer, position });
 /** Jumps to cue `index` (0 to 7) of a clip, launching the clip there if it is not playing. */

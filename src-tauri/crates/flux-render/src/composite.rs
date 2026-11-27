@@ -2,7 +2,7 @@
 //! same places, opacities and blends the GPU draws on the screens, before their mapping.
 
 use crate::post::{History, Post};
-use crate::{Blend, Picture};
+use crate::{Blend, Item, Picture};
 
 /// Where an output column or row samples a picture: between its pixels `a` and `b`, `t` of the
 /// way to `b`.
@@ -60,14 +60,112 @@ pub fn composite_post(
     post: &Post,
     history: &mut History,
 ) -> Vec<u8> {
-    let linear: Vec<f32> = (0..=255u8)
-        .map(|v| to_linear(f32::from(v) / 255.0))
-        .collect();
+    let items: Vec<Item> = pictures.iter().copied().map(Item::Picture).collect();
+    composite_items(&items, width, height, post, history)
+}
+
+/// [`composite_post`] of pictures and groups of them: a group's pictures are mixed together over
+/// a clear picture first, and the mix is drawn like a picture of the group's own, with its
+/// effects, blend and opacity.
+pub fn composite_items(
+    items: &[Item],
+    width: u32,
+    height: u32,
+    post: &Post,
+    history: &mut History,
+) -> Vec<u8> {
+    let tables = Tables {
+        linear: (0..=255u8)
+            .map(|v| to_linear(f32::from(v) / 255.0))
+            .collect(),
+        gamma: gamma_table(),
+    };
     let (w, h) = (width as usize, height as usize);
     // The layers' mix, in encoded values; it is turned into linear light only for the effects.
-    let mut light = vec![[0.0f32; 3]; w * h];
-    let gamma = gamma_table();
-    for picture in pictures {
+    let mut canvas = Canvas::new(w, h, 1.0);
+    for item in items {
+        match item {
+            Item::Picture(picture) => canvas.draw(picture, &tables),
+            Item::Group(group) => {
+                let mut inner = Canvas::new(w, h, 0.0);
+                for picture in &group.pictures {
+                    inner.draw(picture, &tables);
+                }
+                let rgba = inner.rgba();
+                canvas.draw(
+                    &Picture {
+                        id: 0,
+                        width,
+                        height,
+                        rgba: &rgba,
+                        place: [0.0, 0.0, 1.0, 1.0],
+                        opacity: group.opacity,
+                        blend: group.blend,
+                        effects: group.effects,
+                    },
+                    &tables,
+                );
+            }
+        }
+    }
+    let mut light = canvas.light;
+    if post.is_empty() {
+        history.clear();
+    } else {
+        for c in light.iter_mut().flatten() {
+            *c = to_linear(*c);
+        }
+        crate::post::apply(post, &mut light, w, h, history);
+        for c in light.iter_mut().flatten() {
+            *c = tables.gamma.of(*c);
+        }
+    }
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for [r, g, b] in light {
+        let byte = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        rgba.extend_from_slice(&[byte(r), byte(g), byte(b), 255]);
+    }
+    rgba
+}
+
+/// The tables the drawing reads: 8-bit encoded values to linear light, and back.
+struct Tables {
+    linear: Vec<f32>,
+    gamma: GammaTable,
+}
+
+/// The mix of the pictures drawn so far, in encoded values, and how much of each pixel they cover
+/// (whole for the composition, which starts black; clear for a group).
+struct Canvas {
+    w: usize,
+    h: usize,
+    light: Vec<[f32; 3]>,
+    alpha: Vec<f32>,
+}
+
+impl Canvas {
+    fn new(w: usize, h: usize, alpha: f32) -> Self {
+        Self {
+            w,
+            h,
+            light: vec![[0.0; 3]; w * h],
+            alpha: vec![alpha; w * h],
+        }
+    }
+
+    /// The canvas as 8-bit encoded straight RGBA, the picture a group's mix is.
+    fn rgba(&self) -> Vec<u8> {
+        let byte = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        let mut rgba = Vec::with_capacity(self.w * self.h * 4);
+        for (&[r, g, b], &a) in self.light.iter().zip(&self.alpha) {
+            rgba.extend_from_slice(&[byte(r), byte(g), byte(b), byte(a)]);
+        }
+        rgba
+    }
+
+    /// Draws `picture` over what is there.
+    fn draw(&mut self, picture: &Picture, tables: &Tables) {
+        let (w, h) = (self.w, self.h);
         let [px, py, pw, ph] = picture.place;
         let (sw, sh) = (picture.width as usize, picture.height as usize);
         if pw <= 0.0
@@ -77,11 +175,12 @@ pub fn composite_post(
             || picture.opacity <= 0.0
             || picture.rgba.len() < sw * sh * 4
         {
-            continue;
+            return;
         }
+        let (linear, gamma) = (&tables.linear, &tables.gamma);
         let columns = taps(w, px, pw, sw);
         // Displace reads the light as it was before this layer, not the pixels it has displaced.
-        let before = (picture.blend == Blend::Displace).then(|| light.clone());
+        let before = (picture.blend == Blend::Displace).then(|| self.light.clone());
         let opacity = picture.opacity.min(1.0);
         // One source pixel: its light times its cover (premultiplied), and its cover.
         let pixel = |row: usize, column: usize| {
@@ -98,6 +197,7 @@ pub fn composite_post(
         let lerp = |x: [f32; 4], y: [f32; 4], t: f32| {
             std::array::from_fn::<f32, 4, _>(|i| x[i] + (y[i] - x[i]) * t)
         };
+        let (light, alpha) = (&mut self.light, &mut self.alpha);
         let mut put = |at: usize, [r, g, b, cover]: [f32; 4]| {
             if cover <= 0.0 {
                 return;
@@ -109,14 +209,20 @@ pub fn composite_post(
                 let shift = displace_shift(colour, w);
                 before[at - x + (x as i32 + shift).clamp(0, w as i32 - 1) as usize]
             });
-            light[at] = blend_light(
-                picture.blend,
-                colour,
-                cover * opacity,
-                opacity,
-                below,
-                made.unwrap_or(below),
-            );
+            let made = made.unwrap_or(below);
+            if alpha[at] >= 1.0 {
+                light[at] =
+                    blend_light(picture.blend, colour, cover * opacity, opacity, below, made);
+            } else {
+                (light[at], alpha[at]) = blend_over(
+                    picture.blend,
+                    colour,
+                    cover * opacity,
+                    opacity,
+                    (below, alpha[at]),
+                    made,
+                );
+            }
         };
         let fx = &picture.effects;
         if fx.is_identity() {
@@ -129,7 +235,7 @@ pub fn composite_post(
                     put(y * w + x, lerp(top, bottom, row.t));
                 }
             }
-            continue;
+            return;
         }
         // With effects each pixel finds where the picture is read, reads it there and colours it.
         let sample = |uv: [f32; 2]| {
@@ -161,23 +267,6 @@ pub fn composite_post(
             }
         }
     }
-    if post.is_empty() {
-        history.clear();
-    } else {
-        for c in light.iter_mut().flatten() {
-            *c = to_linear(*c);
-        }
-        crate::post::apply(post, &mut light, w, h, history);
-        for c in light.iter_mut().flatten() {
-            *c = gamma.of(*c);
-        }
-    }
-    let mut rgba = Vec::with_capacity(w * h * 4);
-    for [r, g, b] in light {
-        let byte = |v: f32| (v * 255.0).round().clamp(0.0, 255.0) as u8;
-        rgba.extend_from_slice(&[byte(r), byte(g), byte(b), 255]);
-    }
-    rgba
 }
 
 /// Linear light to its encoded value through a table, finer in the dark where sRGB is.
@@ -236,6 +325,45 @@ pub(crate) fn blend_light(
     displaced: [f32; 3],
 ) -> [f32; 3] {
     let b = below.map(|v| v.clamp(0.0, 1.0));
+    let (mixed, cover) = blend_parts(blend, src, cover, opacity, below, displaced);
+    std::array::from_fn(|c| (b[c] + (mixed[c] - b[c]) * cover[c]).clamp(0.0, 1.0))
+}
+
+/// [`blend_light`] over a `below` that is only `alpha` there (inside a group), the picture's
+/// W3C compositing over a backdrop with an alpha of its own: the light and the alpha that result.
+/// Over a whole backdrop it is [`blend_light`] with an alpha of 1.
+pub(crate) fn blend_over(
+    blend: Blend,
+    src: [f32; 3],
+    cover: f32,
+    opacity: f32,
+    (below, alpha): ([f32; 3], f32),
+    displaced: [f32; 3],
+) -> ([f32; 3], f32) {
+    let b = below.map(|v| v.clamp(0.0, 1.0));
+    let s = src.map(|v| v.clamp(0.0, 1.0));
+    let (made, c) = blend_parts(blend, src, cover, opacity, below, displaced);
+    let a = (c[0] + c[1] + c[2]) / 3.0;
+    let out = alpha + a * (1.0 - alpha);
+    let light = std::array::from_fn(|i| {
+        let premultiplied =
+            (1.0 - c[i]) * alpha * b[i] + c[i] * ((1.0 - alpha) * s[i] + alpha * made[i]);
+        (premultiplied / out.max(1e-6)).clamp(0.0, 1.0)
+    });
+    (light, out)
+}
+
+/// What the blend makes of the light below and the picture, and how much of each channel of it
+/// shows (the cover, changed by the keys).
+fn blend_parts(
+    blend: Blend,
+    src: [f32; 3],
+    cover: f32,
+    opacity: f32,
+    below: [f32; 3],
+    displaced: [f32; 3],
+) -> ([f32; 3], [f32; 3]) {
+    let b = below.map(|v| v.clamp(0.0, 1.0));
     let s = src.map(|v| v.clamp(0.0, 1.0));
     let cover = key_cover(blend, cover, opacity, s);
     let mixed = match blend {
@@ -247,7 +375,7 @@ pub(crate) fn blend_light(
         Blend::Luminosity => set_lum(b, lum(s)),
         _ => std::array::from_fn(|c| separable(blend, b[c], s[c])),
     };
-    std::array::from_fn(|c| (b[c] + (mixed[c] - b[c]) * cover[c]).clamp(0.0, 1.0))
+    (mixed, cover)
 }
 
 /// The W3C Compositing and Blending formula of a separable blend, of the light below `b` and the
@@ -1084,5 +1212,132 @@ mod tests {
             none == 100 && none < half && half < full,
             "{none} {half} {full}"
         );
+    }
+
+    fn group<'a>(pictures: &[Picture<'a>], opacity: f32, blend: Blend) -> Item<'a> {
+        Item::Group(crate::Group {
+            pictures: pictures.to_vec(),
+            opacity,
+            blend,
+            effects: Default::default(),
+        })
+    }
+
+    fn mix(items: &[Item], width: u32) -> Vec<u8> {
+        composite_items(items, width, 1, &Post::default(), &mut History::default())
+    }
+
+    #[test]
+    fn a_group_at_full_alpha_with_no_effects_should_draw_as_its_layers_flat() {
+        let (back, mid, top) = ([90, 120, 200, 255], [200, 50, 50, 128], [20, 240, 90, 255]);
+        let (whole, right) = ([0.0, 0.0, 1.0, 1.0], [0.5, 0.0, 0.5, 1.0]);
+        let layers = [
+            picture(&mid, whole, 1.0, Blend::Alpha),
+            picture(&top, right, 0.6, Blend::Alpha),
+        ];
+        let below = picture(&back, whole, 1.0, Blend::Alpha);
+        let flat = composite(&[below, layers[0], layers[1]], 4, 1);
+        let grouped = mix(
+            &[Item::Picture(below), group(&layers, 1.0, Blend::Alpha)],
+            4,
+        );
+        for (a, b) in flat.iter().zip(&grouped) {
+            assert!(a.abs_diff(*b) <= 2, "{flat:?} {grouped:?}");
+        }
+    }
+
+    #[test]
+    fn the_first_layer_of_a_group_should_be_drawn_over_clear_not_over_what_is_below() {
+        let (back, grey) = ([255, 255, 255, 255], [128, 128, 128, 255]);
+        let whole = [0.0, 0.0, 1.0, 1.0];
+        let below = picture(&back, whole, 1.0, Blend::Alpha);
+        let multiplied = picture(&grey, whole, 1.0, Blend::Multiply);
+        let flat = composite(&[below, multiplied], 1, 1);
+        let grouped = mix(
+            &[
+                Item::Picture(below),
+                group(&[multiplied], 1.0, Blend::Alpha),
+            ],
+            1,
+        );
+        assert!(
+            flat[0].abs_diff(128) <= 1,
+            "multiplying white keeps the grey"
+        );
+        assert!(grouped[0].abs_diff(128) <= 1, "{}", grouped[0]);
+        // Over a dark picture the flat multiply darkens, and the group's does not.
+        let dark = [40, 40, 40, 255];
+        let below = picture(&dark, whole, 1.0, Blend::Alpha);
+        let flat = composite(&[below, multiplied], 1, 1);
+        let grouped = mix(
+            &[
+                Item::Picture(below),
+                group(&[multiplied], 1.0, Blend::Alpha),
+            ],
+            1,
+        );
+        assert!(
+            flat[0] < 30 && grouped[0].abs_diff(128) <= 1,
+            "{flat:?} {grouped:?}"
+        );
+    }
+
+    #[test]
+    fn a_group_should_mix_with_the_layers_below_by_its_opacity_and_blend() {
+        let (back, white, grey) = ([0, 0, 0, 255], [255, 255, 255, 255], [100, 100, 100, 255]);
+        let whole = [0.0, 0.0, 1.0, 1.0];
+        let below = picture(&back, whole, 1.0, Blend::Alpha);
+        let half = mix(
+            &[
+                Item::Picture(below),
+                group(
+                    &[picture(&white, whole, 1.0, Blend::Alpha)],
+                    0.5,
+                    Blend::Alpha,
+                ),
+            ],
+            1,
+        );
+        assert!(half[0].abs_diff(128) <= 1, "{}", half[0]);
+        let below = picture(&grey, whole, 1.0, Blend::Alpha);
+        let added = mix(
+            &[
+                Item::Picture(below),
+                group(&[picture(&grey, whole, 1.0, Blend::Alpha)], 1.0, Blend::Add),
+            ],
+            1,
+        );
+        assert!(added[0].abs_diff(200) <= 1, "{}", added[0]);
+    }
+
+    #[test]
+    fn a_group_should_draw_its_effects_on_the_mix_of_its_layers() {
+        let (red, blue) = ([255, 0, 0, 255], [0, 0, 255, 255]);
+        let layers = [
+            picture(&red, [0.0, 0.0, 0.5, 1.0], 1.0, Blend::Alpha),
+            picture(&blue, [0.5, 0.0, 0.5, 1.0], 1.0, Blend::Alpha),
+        ];
+        let effects = Effects::new(
+            &[Effect {
+                id: "m".into(),
+                bypass: false,
+                modulation: Default::default(),
+                kind: EffectKind::Mirror {
+                    axis: MirrorAxis::Horizontal,
+                },
+            }],
+            Time::default(),
+        );
+        let mirrored = Item::Group(crate::Group {
+            pictures: layers.to_vec(),
+            opacity: 1.0,
+            blend: Blend::Alpha,
+            effects,
+        });
+        let plain = mix(&[group(&layers, 1.0, Blend::Alpha)], 4);
+        let out = mix(&[mirrored], 4);
+        assert_ne!(plain, out, "the effect changed the mix");
+        assert_eq!(pixel(&plain, 4, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel(&plain, 4, 3, 0), [0, 0, 255, 255]);
     }
 }

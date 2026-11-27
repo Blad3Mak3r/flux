@@ -31,6 +31,8 @@ export type ProjectMode = "timeline" | "vj";
  */
 export interface VjGrid {
   layers: VjLayer[];
+  /** The groups of consecutive layers, bottom first; absent is none. */
+  groups?: VjGroup[];
   decks: VjDeck[];
   /** Id of the deck shown. */
   deck: string;
@@ -74,6 +76,7 @@ export type VjTarget =
   | { kind: "clipLaunch"; clip: string }
   | { kind: "columnLaunch"; column: string }
   | { kind: "layerStop" | "layerAutopilot" | "layerBypass" | "layerSolo" | "layerMaster" | "layerVolume" | "layerOpacity" | "layerTransition"; layer: string }
+  | { kind: "groupBypass" | "groupSolo" | "groupMaster" | "groupOpacity"; group: string }
   | { kind: "deckSelect"; deck: string }
   | { kind: "effectBypass"; effect: string }
   | { kind: "effectParam"; effect: string; param: string }
@@ -168,12 +171,33 @@ export interface VjLayer {
   solo?: boolean;
   /** Folded to a thin row on the grid. */
   collapsed?: boolean;
+  /** The id of the group the layer is in. */
+  group?: string;
   /** Drawn on each of its clips' pictures after the clip's own effects; the first is applied first. */
   effects?: VjEffect[];
   /** What drives `master`, `opacity` or `volume` by itself. */
   modulation?: VjModulations;
   /** At most one per column of each deck, or per slot on a global layer. */
   clips?: VjClip[];
+}
+
+/** Layers mixed together first and then blended like a layer (Resolume's layer groups). */
+export interface VjGroup {
+  id: string;
+  /** Absent is the group's number. */
+  name?: string;
+  /** 0 to 1; absent is 1. */
+  master?: number;
+  /** 0 to 1; absent is 1. */
+  opacity?: number;
+  /** Absent is `alpha`. */
+  blend?: VjBlend;
+  bypass?: boolean;
+  solo?: boolean;
+  /** Folded to its header on the grid. */
+  collapsed?: boolean;
+  /** Drawn on the mix of the group's layers, the first applied first. */
+  effects?: VjEffect[];
 }
 
 export type VjMirrorAxis = "horizontal" | "vertical" | "both";

@@ -35,8 +35,8 @@ const DRAG_COMPOSITION = "application/x-flux-vj-effect-composition";
 /** What an effect row dragged within a stack carries: its id. */
 const DRAG_ROW = "application/x-flux-vj-fx";
 
-/** What an effect is added to: a clip, a layer or the composition. */
-export type EffectTarget = { clip: string } | { layer: string } | "composition";
+/** What an effect is added to: a clip, a layer, a group or the composition. */
+export type EffectTarget = { clip: string } | { layer: string } | { group: string } | "composition";
 
 /** Whether a drag carries an effect from the browser that `target` takes: one for the composition only is not for a clip or a layer. */
 export const carriesEffect = (event: DragEvent, target: EffectTarget) =>

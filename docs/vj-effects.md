@@ -27,7 +27,7 @@ project file.
 
 | Where | Which effects |
 | --- | --- |
-| Clip, layer or composition | Every effect except Feedback, Trails and Bloom. |
+| Clip, layer, group or composition | Every effect except Feedback, Trails and Bloom. A group's stack applies to the mix of its layers, before the group's blend. |
 | Composition only | Feedback, Trails and Bloom. They need the frames before the current one, or the pixels around each pixel. A clip or a layer refuses them. |
 
 The composition's stack applies to the final mix of all the layers, before the output mapping.
