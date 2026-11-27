@@ -110,14 +110,23 @@ export interface VideoScreen {
   name: string;
   slices?: Slice[];
   masks?: Mask[];
+  /** Absent is on; off, the window stays open and black. */
+  enabled?: boolean;
 }
 
 export const MAIN_SCREEN = "main";
 
+/** The screens of an output as the backend lists them: the main one first, named as it names it while unlisted. */
+export function listedScreens(screens: VideoScreen[] | undefined): VideoScreen[] {
+  const list = screens ?? [];
+  return list.some((s) => s.id === MAIN_SCREEN) ? list : [{ id: MAIN_SCREEN, name: "Screen 1" }, ...list];
+}
+
 export type ScreenOp =
   | { op: "add" }
   | { op: "remove"; id: string }
-  | { op: "rename"; id: string; name: string };
+  | { op: "rename"; id: string; name: string }
+  | { op: "enable"; id: string; enabled: boolean };
 
 export type MappingOp =
   | { op: "add" }

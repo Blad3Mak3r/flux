@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
@@ -35,8 +35,6 @@ import { openMenu, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import type { VideoStrip } from "../video/api";
 import {
-  bindOutput,
-  bindPreview,
   bindPlayState,
   edit,
   importVideos,
@@ -45,18 +43,22 @@ import {
   launchColumn,
   launchGroupColumn,
   moveCrossfader,
+  resetCrossfader,
   preview,
   release,
   selectClip,
+  selectSlot,
   selectGroup,
   selectLayer,
-  showBrowser,
   showMedia,
-  showTab,
+  loadLayout,
   stopLayer,
   useVj,
 } from "./store";
 import type { MediaKind } from "./store";
+import type { MonitorKind } from "./api";
+import { Dock } from "./Dock";
+import { Monitor } from "./Monitor";
 import { GENERATORS, swatch } from "./generators";
 import { clipName, groupName, layerName } from "./names";
 import { groupItems } from "./menus";
@@ -69,7 +71,7 @@ import { bindVjControl, useMap } from "./mapping";
 import { mappable } from "./mapModel";
 import { MappingsPanel } from "./Mappings";
 import { stepDeck } from "./menus";
-import { bindOutputState, toggleDisable, useOutput } from "./output";
+import { bindOutputState } from "./output";
 import { AdvancedOutput } from "./AdvancedOutput";
 import { ColourField, Scrub, Segments } from "./controls";
 import { CompositionFx, EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect, useCompositionDrop } from "./EffectStack";
@@ -137,6 +139,7 @@ const TRIGGERS: VjTrigger[] = ["normal", "piano"];
 const FITS: VideoFit[] = ["fit", "fill", "stretch", "none"];
 /** The longest transition, in seconds, as the backend keeps it. */
 const MAX_TRANSITION = 10;
+const RESET_LEVEL = { layerMaster: "master", layerOpacity: "opacity", layerVolume: "volume", layerTransition: "transition" } as const;
 const DRAG = "application/x-flux-vj";
 /** What a layer dragged by its name carries: its id, to drop in or out of a group or at another place. */
 const DRAG_LAYER = "application/x-flux-vj-layer";
@@ -180,7 +183,7 @@ function Thumb({ strip, generator, position = 0.3, children, className }: {
 }
 
 /** A vertical fader: its letter is the handle, its colour says what it moves. */
-function Fader({ letter, label, value, off, progress, modulated, map, onMove, onSet }: {
+function Fader({ letter, label, value, off, progress, modulated, map, onMove, onSet, onReset }: {
   letter: string;
   label: string;
   value: number;
@@ -193,6 +196,8 @@ function Fader({ letter, label, value, off, progress, modulated, map, onMove, on
   map?: VjTarget;
   onMove: (value: number) => void;
   onSet: (value: number) => void;
+  /** Right click: back to the default the backend holds. */
+  onReset: () => void;
 }) {
   const [held, setHeld] = useState<number | null>(null);
   const shown = held ?? value;
@@ -220,10 +225,17 @@ function Fader({ letter, label, value, off, progress, modulated, map, onMove, on
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(shown * 100)}
-      title={`${label} ${Math.round(shown * 100)}${modulated ? ` · ${t("vj.layer.modulated")}` : ""}`}
+      title={`${label} ${Math.round(shown * 100)}${modulated ? ` · ${t("vj.layer.modulated")}` : ""} · ${t("vj.fader.reset")}`}
       style={{ "--v": shown, ...(now === undefined ? {} : { "--mv": Math.min(1, Math.max(0, now)) }) } as CSSProperties}
       onKeyDown={onKeyDown}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setHeld(null);
+        onReset();
+      }}
       onPointerDown={(event) => {
+        if (event.button !== 0) return;
         event.currentTarget.setPointerCapture(event.pointerId);
         const v = at(event);
         setHeld(v);
@@ -282,6 +294,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   const level = (op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition", scale = 1) => ({
     onMove: (value: number) => preview({ op, layer: layer.id, value: value * scale }),
     onSet: (value: number) => void edit({ op, layer: layer.id, value: value * scale }),
+    onReset: () => void edit({ op: "layerLevelReset", layer: layer.id, level: RESET_LEVEL[op] }),
   });
   const side = (s: VjSide) => void edit({ op: "layerCrossfade", layer: layer.id, side: layer.crossfade === s ? null : s });
   const fold = () => void edit({ op: "layerCollapse", layer: layer.id, on: !layer.collapsed });
@@ -423,6 +436,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   const selected = useVj((vj) => clip !== undefined && vj.clip === clip.id);
   const live = useVj((vj) => clip !== undefined && vj.play.playing.some((p) => p.layer === layer.id && p.clip === clip.id));
   const state = useVideoState(clip?.asset);
+  const slotSelected = useVj((vj) => vj.slot === `${layer.id}/${column.id}`);
 
   const dropping = useDropTarget({
     accepts: (data) => DRAG in data || (clip !== undefined && carriesEffect(data, { clip: clip.id })),
@@ -446,8 +460,10 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   if (!clip) {
     // As on a media server, an empty cell stops its layer, over the layer's transition.
     return (
-      <div className={`vj-slot${lit ? " over" : ""}`} title={t("vj.cell.empty")} data-drop-layer={layer.id} data-drop-column={column.id}
-        onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} ref={dropping} />
+      <div className={`vj-slot${lit ? " over" : ""}${slotSelected ? " sel" : ""}`} data-drop-layer={layer.id} data-drop-column={column.id} ref={dropping}>
+        <div className="vj-slot-pic" title={t("vj.cell.empty")} onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} />
+        <div className="vj-pick" title={t("vj.cell.select")} onPointerDown={(event) => { if (event.button === 0) selectSlot(layer.id, column.id); }} />
+      </div>
     );
   }
   const name = clipName(t, clip, videos);
@@ -476,19 +492,21 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
         ] });
       }}
     >
-      <Thumb strip={stripOf(thumbs, clip)} generator={clip.generator} />
-      <span className="vj-shade" />
-      <EffectBadge count={clip.effects?.length ?? 0} />
-      {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
-      {state && <VideoState state={state} asset={clip.asset} />}
-      {clip.asset && <MediaProgressBar asset={clip.asset} />}
-      {/* A folded row has no room to click the cell: its square launches the clip, as the cell does (the pointer reaches the cell). */}
-      {layer.collapsed && (
-        <button type="button" className={`vj-go${live ? " on" : ""}`} aria-pressed={live}
-          title={t("vj.clip.launchNamed", { clip: name })} aria-label={t("vj.clip.launchNamed", { clip: name })}
-          onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !event.repeat) { event.preventDefault(); void launch(clip.id, layer.id); } }}
-          onKeyUp={(event) => { if (piano && (event.key === "Enter" || event.key === " ")) void release(clip.id); }} />
-      )}
+      <div className="vj-pic">
+        <Thumb strip={stripOf(thumbs, clip)} generator={clip.generator} />
+        <span className="vj-shade" />
+        <EffectBadge count={clip.effects?.length ?? 0} />
+        {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
+        {state && <VideoState state={state} asset={clip.asset} />}
+        {clip.asset && <MediaProgressBar asset={clip.asset} />}
+        {/* A folded row has no room to click the cell: its square launches the clip, as the cell does (the pointer reaches the cell). */}
+        {layer.collapsed && (
+          <button type="button" className={`vj-go${live ? " on" : ""}`} aria-pressed={live}
+            title={t("vj.clip.launchNamed", { clip: name })} aria-label={t("vj.clip.launchNamed", { clip: name })}
+            onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && !event.repeat) { event.preventDefault(); void launch(clip.id, layer.id); } }}
+            onKeyUp={(event) => { if (piano && (event.key === "Enter" || event.key === " ")) void release(clip.id); }} />
+        )}
+      </div>
       {/* The name strip selects the clip without launching it. */}
       <div className="vj-pick" aria-label={t("vj.clip.select")}
         onPointerDown={(event) => { event.stopPropagation(); if (event.button === 0) selectClip(clip.id, layer.id); }}
@@ -571,6 +589,7 @@ function DeckTab({ deck, at, shown, only }: { deck: VjDeck; at: number; shown: b
 }
 
 function Crossfader() {
+  const t = useT();
   const position = useVj((vj) => vj.play.crossfader);
   const [held, setHeld] = useState<number | null>(null);
   const shown = held ?? position;
@@ -589,14 +608,20 @@ function Crossfader() {
       role="slider"
       tabIndex={0}
       aria-label="Crossfader"
+      title={t("vj.fader.reset")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(shown * 100)}
-      onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); move(at(event)); }}
+      onContextMenu={(event) => { event.preventDefault(); setHeld(null); void resetCrossfader(); }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        move(at(event));
+      }}
       onPointerMove={(event) => { if (held !== null) move(at(event)); }}
       onPointerUp={() => setHeld(null)}
       onPointerCancel={() => setHeld(null)}
-      onDoubleClick={() => void moveCrossfader(0.5)}
+      onDoubleClick={() => void resetCrossfader()}
     >
       <span className="vj-tick" style={{ left: 0 }} />
       <span className="vj-tick mid" />
@@ -618,6 +643,7 @@ function GroupRow({ grid, group, deck }: { grid: VjGrid; group: VjGroup; deck: V
   const level = (op: "groupMaster" | "groupOpacity") => ({
     onMove: (value: number) => preview({ op, group: group.id, value }),
     onSet: (value: number) => void edit({ op, group: group.id, value }),
+    onReset: () => void edit({ op: "groupLevelReset", group: group.id, level: op === "groupMaster" ? "master" : "opacity" }),
   });
   const fold = () => void edit({ op: "groupCollapse", group: group.id, on: !group.collapsed });
   const ungroup = () => void edit({ op: "ungroup", group: group.id });
@@ -764,96 +790,12 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
               onClick={() => void edit({ op: "addDeck" })}><PlusIcon /></button>
           </div>
         </div>
-        <div className={`vj-comp${composition.over ? " over" : ""}`} ref={composition.ref}>
-          <div className="vj-cl"><strong>{t("vj.composition")}</strong><AnalysisMeter /><CompositionFx grid={grid} /></div>
-          <Tempo />
-          <TimecodeClock grid={grid} />
-          <button type="button" className="button" {...mappable({ kind: "stopAll" })} onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
-        </div>
       </div>
-    </section>
-  );
-}
-
-/** What the screens show, as the backend draws it (see `bindOutput`). */
-function OutputPanel({ grid }: { grid: VjGrid }) {
-  const t = useT();
-  const composition = useCompositionDrop();
-  const live = useVj((vj) => vj.play.playing.some((p) => p.level > 0));
-  const disabled = useOutput((output) => output.disabled);
-  const testCard = useOutput((output) => output.testCard);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => bindOutput((picture) => {
-    const target = canvas.current;
-    const context = target?.getContext("2d");
-    if (target && context) {
-      if (picture && (target.width !== picture.width || target.height !== picture.height)) {
-        target.width = picture.width;
-        target.height = picture.height;
-      }
-      if (picture) context.putImageData(picture, 0, 0);
-      else context.clearRect(0, 0, target.width, target.height);
-    }
-  }), []);
-  return (
-    <section className={`vj-panel${composition.over ? " over" : ""}`} aria-label={t("vj.output")} ref={composition.ref}>
-      <header className="vj-ph">
-        <h2>{t("vj.output")}</h2>
-        <div className="vj-tools">
-          <CompositionFx grid={grid} />
-          {disabled && <button type="button" className="vj-pill off" title={t("vj.output.reenable")} onClick={toggleDisable}><i />{t("vj.output.disabled")}</button>}
-          {testCard && !disabled && <span className="vj-pill card"><i />{t("vj.output.testCard")}</span>}
-          {live && <span className="vj-pill"><i />{t("vj.onAir")}</span>}
-        </div>
-      </header>
-      <div className="vj-pb vj-mon-wrap">
-        <div className="vj-mon" data-disabled={disabled}>
-          <canvas ref={canvas} className="vj-out" />
-          {disabled && <p className="vj-mon-off" role="status">{t("vj.output.disabledNote")}</p>}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function PreviewPanel({ grid }: { grid: VjGrid }) {
-  const t = useT();
-  const selected = useVj((vj) => vj.clip);
-  const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
-  const found = grid.layers.flatMap((layer) => (layer.clips ?? []).map((clip) => ({ layer, clip }))).find((x) => x.clip.id === selected);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const id = found?.clip.id;
-  useEffect(() => {
-    if (!id) return;
-    return bindPreview(id, (picture) => {
-      const target = canvas.current;
-      const context = target?.getContext("2d");
-      if (!target || !context) return;
-      if (picture && (target.width !== picture.width || target.height !== picture.height)) {
-        target.width = picture.width;
-        target.height = picture.height;
-      }
-      if (picture) context.putImageData(picture, 0, 0);
-      else context.clearRect(0, 0, target.width, target.height);
-    });
-  }, [id]);
-  return (
-    <section className="vj-panel" aria-label={t("vj.preview")}>
-      <header className="vj-ph">
-        <h2>{t("vj.preview")}</h2>
-        <div className="vj-tools">{found && <Marquee className="vj-dim">{clipName(t, found.clip, videos)}</Marquee>}</div>
-      </header>
-      <div className="vj-pb vj-mon-wrap">
-        <div className="vj-mon">
-          {found ? <canvas ref={canvas} className="vj-out" /> : <p className="vj-empty">{t("vj.previewEmpty")}</p>}
-        </div>
-        {found && (
-          <div className="vj-acts">
-            <button type="button" className="button primary" onClick={() => void launch(found.clip.id, found.layer.id)}>
-              <PlayIcon />{t("vj.launchOn", { layer: layerName(t, grid, found.layer) })}
-            </button>
-          </div>
-        )}
+      <div className={`vj-comp${composition.over ? " over" : ""}`} ref={composition.ref}>
+        <div className="vj-cl"><strong>{t("vj.composition")}</strong><AnalysisMeter /><CompositionFx grid={grid} /></div>
+        <Tempo />
+        <TimecodeClock grid={grid} />
+        <button type="button" className="button" {...mappable({ kind: "stopAll" })} onClick={() => void stopLayer(null)}><StopIcon />{t("vj.stopAll")}</button>
       </div>
     </section>
   );
@@ -939,13 +881,15 @@ const LEVELS = [
   { field: "opacity", op: "layerOpacity", label: "vj.fader.video", tag: "V" },
 ] as const;
 
-function Inspector({ grid }: { grid: VjGrid }) {
+/** The panels that show what is selected, and the dashboard and the mappings. */
+type InspectorTab = "clip" | "layer" | "group" | "composition" | "dashboard" | "mappings";
+
+function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
   const t = useT();
   // One value each, so the play state polled twenty times a second does not draw the inspector again.
   const clipId = useVj((vj) => vj.clip);
   const layerId = useVj((vj) => vj.layer);
   const groupId = useVj((vj) => vj.group);
-  const tab = useVj((vj) => vj.tab);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const probes = useDoc((doc) => doc.video);
   const thumbs = useDoc((doc) => doc.thumbs);
@@ -953,19 +897,6 @@ function Inspector({ grid }: { grid: VjGrid }) {
   const layer = grid.layers.find((l) => l.id === layerId) ?? found?.layer;
   const group = grid.groups?.find((g) => g.id === groupId);
   const modCatalog = useEffectCatalog((state) => state.catalog?.modulation);
-  // The modulated values are asked for only while the inspector or a layer's faders show something modulated.
-  const modulated =
-    inspectorModulated(layer, found?.clip, grid.compositionEffects) || grid.layers.some((l) => inspectorModulated(l, undefined)) || (grid.dashboard ?? []).some((knob) => knob.modulation);
-  useEffect(() => (modulated ? bindModulation() : undefined), [modulated]);
-  const tabs = (
-    <nav className="vj-tabs" role="tablist">
-      {(["clip", "layer", "group", "composition", "mappings"] as const).map((key) => (
-        <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""} onClick={() => showTab(key)}>
-          {t(`vj.inspector.${key}`)}
-        </button>
-      ))}
-    </nav>
-  );
   let body: ReactNode = <p className="vj-empty">{t(tab === "clip" ? "vj.inspector.noClip" : tab === "group" ? "vj.inspector.noGroup" : "vj.inspector.noLayer")}</p>;
   if (tab === "clip" && found) {
     const { clip } = found;
@@ -1131,18 +1062,30 @@ function Inspector({ grid }: { grid: VjGrid }) {
       <div className="vj-insp single">
         <p className="vj-dim vj-fx-empty">{t("vj.composition.note")}</p>
         <EffectStack target="composition" effects={grid.compositionEffects ?? NO_EFFECTS} />
+      </div>
+    );
+  } else if (tab === "dashboard") {
+    body = (
+      <div className="vj-insp single">
         <Dashboard grid={grid} />
       </div>
     );
   } else if (tab === "mappings") {
     body = <MappingsPanel grid={grid} />;
   }
-  return (
-    <section className="vj-panel vj-insp-panel">
-      <header className="vj-ph">{tabs}</header>
-      <div className="vj-pb">{body}</div>
-    </section>
-  );
+  return <div className="vj-pb">{body}</div>;
+}
+
+/** Asks for the modulated values while anything on the screen is modulated: the selection, a layer's faders or a knob. */
+function ModulationBinding({ grid }: { grid: VjGrid }) {
+  const clipId = useVj((vj) => vj.clip);
+  const layerId = useVj((vj) => vj.layer);
+  const clip = grid.layers.flatMap((layer) => layer.clips ?? []).find((c) => c.id === clipId);
+  const layer = grid.layers.find((l) => l.id === layerId) ?? grid.layers.find((l) => l.clips?.some((c) => c.id === clipId));
+  const modulated =
+    inspectorModulated(layer, clip, grid.compositionEffects) || grid.layers.some((l) => inspectorModulated(l, undefined)) || (grid.dashboard ?? []).some((knob) => knob.modulation);
+  useEffect(() => (modulated ? bindModulation() : undefined), [modulated]);
+  return null;
 }
 
 function MediaState({ asset }: { asset: string }) {
@@ -1150,28 +1093,24 @@ function MediaState({ asset }: { asset: string }) {
   return state && <VideoState state={state} asset={asset} />;
 }
 
-function MediaPanel({ grid }: { grid: VjGrid }) {
+/** The layer a double click or an import goes to: the selected one, else the first of the deck. */
+function useBrowserLayer(grid: VjGrid): VjLayer {
+  const layerId = useVj((vj) => vj.layer);
+  return grid.layers.find((l) => l.id === layerId) ?? grid.layers.find((l) => !l.global) ?? grid.layers[0];
+}
+
+function FilesPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const probes = useDoc((doc) => doc.video);
   const thumbs = useDoc((doc) => doc.thumbs);
-  const layerId = useVj((vj) => vj.layer);
+  const target = useBrowserLayer(grid);
   // The clips playing as one string, so the panel draws again only when they change, not on every poll.
   const playingClips = useVj((vj) => vj.play.playing.map((p) => p.clip).join(" "));
-  const target = grid.layers.find((l) => l.id === layerId) ?? grid.layers.find((l) => !l.global) ?? grid.layers[0];
   const onAir = new Set(grid.layers.flatMap((l) =>
     (l.clips ?? []).filter((c) => playingClips.split(" ").includes(c.id)).map((c) => c.asset)));
   const importing = useVj((vj) => vj.importing);
   const kind = useVj((vj) => vj.media);
-  const browser = useVj((vj) => vj.browser);
-  const selectedClip = useVj((vj) => vj.clip);
-  const tab = useVj((vj) => vj.tab);
-  // What a double click on an effect adds it to: the composition while its tab is shown, else the clip selected, or else the layer.
-  const effectTarget: EffectTarget = tab === "composition"
-    ? "composition"
-    : grid.layers.some((l) => l.clips?.some((c) => c.id === selectedClip))
-      ? { clip: selectedClip as string }
-      : { layer: target.id };
   // A video still being read is listed under "All" only, until the backend says what it is.
   const shown = kind === "all" ? videos : videos.filter((video) => {
     const still = probes[video.id]?.still;
@@ -1185,38 +1124,16 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
     }
   };
   return (
-    <section className="vj-panel vj-media" aria-label={t("vj.media")}>
+    <>
       <header className="vj-ph">
-        <nav className="vj-tabs" role="tablist">
-          {(["media", "generators", "effects"] as const).map((key) => (
-            <button key={key} type="button" role="tab" aria-selected={browser === key} className={browser === key ? "on" : ""}
-              onClick={() => showBrowser(key)}>{t(key === "media" ? "vj.media" : key === "generators" ? "vj.browser.generators" : "vj.effects")}</button>
-          ))}
-        </nav>
-        {browser === "media" && (
-          <div className="vj-tools">
-            <Segments options={MEDIA_KINDS} value={kind} label={(o) => t(`vj.media.kind.${o}`)} onPick={showMedia} />
-            <button type="button" className="vj-tb" title={t("vj.media.importNote", { layer: layerName(t, grid, target) })}
-              onClick={() => void importFiles()}><ImportIcon />{t("vj.media.import")}</button>
-          </div>
-        )}
-        {browser === "generators" && <div className="vj-tools"><span className="vj-dim">{t("vj.generators.note")}</span></div>}
-        {browser === "effects" && <div className="vj-tools"><span className="vj-dim">{t("vj.effects.note")}</span></div>}
+        <div className="vj-tools">
+          <Segments options={MEDIA_KINDS} value={kind} label={(o) => t(`vj.media.kind.${o}`)} onPick={showMedia} />
+          <button type="button" className="vj-tb" title={t("vj.media.importNote", { layer: layerName(t, grid, target) })}
+            onClick={() => void importFiles()}><ImportIcon />{t("vj.media.import")}</button>
+        </div>
       </header>
       <div className="vj-pb">
-        {browser === "effects" ? (
-          <EffectBrowser target={effectTarget} />
-        ) : browser === "generators" ? (
-          <div className="vj-mg">
-            {GENERATORS.map((kind) => (
-              <figure key={kind} className="vj-m" title={t("vj.generators.note")}
-                onPointerDown={(event) => startDrag(event, { [DRAG]: JSON.stringify({ generator: kind } satisfies Dragged) }, t(`vj.generator.${kind}`))}>
-                <Thumb strip={undefined} generator={{ kind }} />
-                <figcaption><Marquee>{t(`vj.generator.${kind}`)}</Marquee></figcaption>
-              </figure>
-            ))}
-          </div>
-        ) : videos.length === 0 && importing.length === 0 ? (
+        {videos.length === 0 && importing.length === 0 ? (
           <p className="vj-empty">{t("vj.media.empty")}</p>
         ) : (
           <div className="vj-mg">
@@ -1243,27 +1160,77 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
           </div>
         )}
       </div>
-    </section>
+    </>
   );
 }
 
-/** The screen of a VJ project: the grid of clips, the output and preview, the inspector and the media. */
+function GeneratorsPanel() {
+  const t = useT();
+  return (
+    <>
+      <header className="vj-ph"><span className="vj-dim">{t("vj.generators.note")}</span></header>
+      <div className="vj-pb">
+        <div className="vj-mg">
+          {GENERATORS.map((kind) => (
+            <figure key={kind} className="vj-m" title={t("vj.generators.note")}
+              onPointerDown={(event) => startDrag(event, { [DRAG]: JSON.stringify({ generator: kind } satisfies Dragged) }, t(`vj.generator.${kind}`))}>
+              <Thumb strip={undefined} generator={{ kind }} />
+              <figcaption><Marquee>{t(`vj.generator.${kind}`)}</Marquee></figcaption>
+            </figure>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function EffectsPanel({ grid }: { grid: VjGrid }) {
+  const t = useT();
+  const target = useBrowserLayer(grid);
+  const selectedClip = useVj((vj) => vj.clip);
+  const tab = useVj((vj) => vj.tab);
+  // What a double click on an effect adds it to: the composition while its tab is shown, else the clip selected, or else the layer.
+  const effectTarget: EffectTarget = tab === "composition"
+    ? "composition"
+    : grid.layers.some((l) => l.clips?.some((c) => c.id === selectedClip))
+      ? { clip: selectedClip as string }
+      : { layer: target.id };
+  return (
+    <>
+      <header className="vj-ph"><span className="vj-dim">{t("vj.effects.note")}</span></header>
+      <div className="vj-pb"><EffectBrowser target={effectTarget} /></div>
+    </>
+  );
+}
+
+/** The panel with id `id`; a monitor is `monitor:<uuid>`. */
+function panelOf(grid: VjGrid, id: string, monitors: { id: string; kind: MonitorKind }[]): ReactNode {
+  switch (id) {
+    case "clip": case "layer": case "group": case "composition": case "dashboard": case "mappings":
+      return <Inspector grid={grid} tab={id} />;
+    case "files": return <FilesPanel grid={grid} />;
+    case "generators": return <GeneratorsPanel />;
+    case "effects": return <EffectsPanel grid={grid} />;
+    default: {
+      const monitor = monitors.find((m) => m.id === id);
+      return monitor && <Monitor key={id} grid={grid} id={id} kind={monitor.kind} />;
+    }
+  }
+}
+
+/** The screen of a VJ project: the deck, fixed, and the panels docked around it where the layout puts them. */
 export function VjScreen() {
   const grid = useDoc((doc) => doc.project.vj);
+  const monitors = useVj((vj) => vj.layout?.current.monitors);
   useEffect(bindPlayState, []);
   useEffect(bindVjControl, []);
   useEffect(bindOutputState, []);
-  useEffect(() => { void loadEffectCatalog(); void loadPresets(); }, []);
+  useEffect(() => { void loadEffectCatalog(); void loadPresets(); void loadLayout(); }, []);
   if (!grid) return null;
   return (
     <div className="vj-app">
-      <DeckPanel grid={grid} />
-      <div className="vj-right">
-        <OutputPanel grid={grid} />
-        <PreviewPanel grid={grid} />
-      </div>
-      <Inspector grid={grid} />
-      <MediaPanel grid={grid} />
+      <Dock deck={<DeckPanel grid={grid} />} renderPanel={(id) => panelOf(grid, id, monitors ?? [])} />
+      <ModulationBinding grid={grid} />
       <AdvancedOutput />
       <MapLayer grid={grid} />
       <MapImportDialog />

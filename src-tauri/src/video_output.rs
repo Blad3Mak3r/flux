@@ -139,6 +139,12 @@ struct MonitorFrames {
     drawn: Option<flux_project::vj::Vj>,
 }
 
+/// What a monitor of one layer or one group of the grid shows, by id.
+pub enum Scope {
+    Layer(String),
+    Group(String),
+}
+
 pub type SharedVideoOutput = Arc<VideoOutputs>;
 
 fn display_id(monitor: &Monitor) -> String {
@@ -346,6 +352,7 @@ impl VideoOutput {
             pattern,
             controls,
             screen_name: String::new(),
+            enabled: true,
             timeline: None,
             quads: Vec::new(),
             masks: Vec::new(),
@@ -637,6 +644,8 @@ struct Render {
     controls: Arc<Controls>,
     /// The screen's name, for the test card.
     screen_name: String,
+    /// Off, the window stays open and black.
+    enabled: bool,
     /// The timeline and the slices last copied from the session, and the revision they were
     /// copied at.
     timeline: Option<Timeline>,
@@ -735,7 +744,7 @@ impl Render {
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
         }
-        let disabled = self.controls.disabled.load(Ordering::Relaxed);
+        let disabled = self.controls.disabled.load(Ordering::Relaxed) || !self.enabled;
         let forced = self.controls.card.load(Ordering::Relaxed);
         let mut pictures = if disabled || forced {
             Vec::new()
@@ -905,34 +914,13 @@ impl Render {
         let screens = session.video_screens();
         let this = screens.iter().find(|screen| screen.id == self.screen_id);
         let slices = this.map_or(&[][..], |screen| &screen.slices);
-        self.masks = this
-            .map_or(&[][..], |screen| &screen.masks)
-            .iter()
-            .filter(|mask| !mask.hidden)
-            .map(|mask| Mask {
-                points: mask.points.iter().map(|p| [p.x, p.y]).collect(),
-                invert: mask.invert,
-            })
-            .collect();
+        self.masks = this.map_or_else(Vec::new, |screen| masks_of(&screen.masks));
         if let Some(screen) = this {
             self.screen_name.clone_from(&screen.name);
+            self.enabled = screen.enabled;
         }
         let shown = slices.iter().filter(|slice| !slice.hidden);
-        let rect = |r: &flux_project::mapping::Rect| [r.x, r.y, r.width, r.height];
-        self.quads = shown
-            .clone()
-            .map(|slice| Quad {
-                input: rect(&slice.input),
-                corners: slice.corners.map(|p| [p.x, p.y]),
-                soft: [
-                    slice.soft_edge.left,
-                    slice.soft_edge.right,
-                    slice.soft_edge.top,
-                    slice.soft_edge.bottom,
-                ],
-                gamma: slice.soft_edge.gamma,
-            })
-            .collect();
+        self.quads = shown.clone().map(quad_of).collect();
         let mut card_slices: Vec<CardSlice> = shown.map(card_slice).collect();
         if card_slices.is_empty() {
             // No slices: the card is of the whole picture, under the screen's name.
@@ -951,6 +939,32 @@ impl Render {
             self.card_slices = card_slices;
             self.cards = None;
         }
+    }
+}
+
+fn masks_of(masks: &[flux_project::mapping::Mask]) -> Vec<Mask> {
+    masks
+        .iter()
+        .filter(|mask| !mask.hidden)
+        .map(|mask| Mask {
+            points: mask.points.iter().map(|p| [p.x, p.y]).collect(),
+            invert: mask.invert,
+        })
+        .collect()
+}
+
+fn quad_of(slice: &flux_project::mapping::Slice) -> Quad {
+    let r = &slice.input;
+    Quad {
+        input: [r.x, r.y, r.width, r.height],
+        corners: slice.corners.map(|p| [p.x, p.y]),
+        soft: [
+            slice.soft_edge.left,
+            slice.soft_edge.right,
+            slice.soft_edge.top,
+            slice.soft_edge.bottom,
+        ],
+        gamma: slice.soft_edge.gamma,
     }
 }
 
@@ -1123,6 +1137,7 @@ fn monitor_picture(
     clock: flux_project::vj_modulation::Clock,
     last: &mut Option<Instant>,
     history: &mut flux_render::History,
+    with_post: bool,
 ) -> Vec<u8> {
     let height = (u64::from(width) * u64::from(size.1) / u64::from(size.0.max(1))).max(1) as u32;
     let mut picture = Vec::with_capacity(4 + (width * height * 4) as usize);
@@ -1132,7 +1147,11 @@ fn monitor_picture(
     let dt = last
         .replace(at)
         .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
-    let post = composition_post(vj, clock, dt);
+    let post = if with_post {
+        composition_post(vj, clock, dt)
+    } else {
+        flux_render::Post::default()
+    };
     let time = flux_render::Time {
         seconds: clock.seconds,
         beats: clock.beats,
@@ -1221,7 +1240,17 @@ impl VideoOutputs {
     /// project that is not VJ. It decodes the playing clips itself,
     /// so it shows them with no screen open too.
     pub fn composition(&self, app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
-        self.draw_composition(app, Some(MONITOR_WIDTH))
+        self.draw_composition(app, Some(MONITOR_WIDTH), None)
+    }
+
+    /// What `scope` alone contributes to the composition, as the picture of [`Self::composition`]
+    /// but without the composition's effects and feedback: a layer with its own effects, opacity
+    /// and blend, or the layers of a group mixed as the group is. Empty when the layer or group
+    /// is unknown. It reads the pictures the shared deck decodes for the grid, so it opens nothing.
+    pub fn scoped(&self, app: &AppHandle, scope: &Scope) -> Result<Vec<u8>, String> {
+        Ok(self
+            .draw_composition(app, Some(MONITOR_WIDTH), Some(scope))?
+            .unwrap_or_default())
     }
 
     /// The composition as [`Self::composition`] draws it, `width` pixels across (its own width
@@ -1230,6 +1259,7 @@ impl VideoOutputs {
         &self,
         app: &AppHandle,
         width: Option<u32>,
+        scope: Option<&Scope>,
     ) -> Result<Option<Vec<u8>>, String> {
         let session = Arc::clone(&app.state::<SharedSession>());
         // The grid is copied again only when the session moved.
@@ -1270,28 +1300,43 @@ impl VideoOutputs {
         let modulation = Arc::clone(&app.state::<crate::modulation::SharedModulation>());
         let drawn = modulation.draw(vj, &mut frames.drawn, clock);
         let size = composition_size(&session);
-        let shown = self
+        let mut shown = self
             .deck
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_mut()
             .map(|deck| deck.show_grid(drawn, &play, now, size))
             .unwrap_or_default();
+        let mut looks = looks_of(&play, drawn, now);
+        match scope {
+            Some(Scope::Layer(id)) => {
+                shown.retain(|s| &s.layer.track == id);
+                shown.iter_mut().for_each(|s| s.layer.group = None);
+                looks.clear();
+            }
+            Some(Scope::Group(id)) => {
+                shown.retain(|s| s.layer.group.as_ref() == Some(id));
+                looks.retain(|look| &look.id == id);
+            }
+            None => {}
+        }
         let mut fresh = flux_render::History::default();
-        let history = if width.is_some() {
-            &mut frames.history
+        let mut scoped_last = None;
+        let (history, last) = if width.is_some() && scope.is_none() {
+            (&mut frames.history, &mut frames.last)
         } else {
-            &mut fresh
+            (&mut fresh, &mut scoped_last)
         };
         Ok(Some(monitor_picture(
             &shown,
-            &looks_of(&play, drawn, now),
+            &looks,
             drawn,
             size,
             width.unwrap_or(size.0),
             clock,
-            &mut frames.last,
+            last,
             history,
+            scope.is_none(),
         )))
     }
 
@@ -1364,6 +1409,7 @@ impl VideoOutputs {
             clock,
             &mut preview.last,
             &mut preview.history,
+            true,
         ))
     }
 }
@@ -1566,7 +1612,7 @@ impl VideoOutputs {
     /// Saves the composition's picture as a PNG in `dir`.
     fn snapshot(&self, app: &AppHandle, dir: &std::path::Path) -> Result<Snapshot, String> {
         let picture = self
-            .draw_composition(app, None)?
+            .draw_composition(app, None, None)?
             .ok_or("a snapshot needs a VJ show")?;
         let size = |at: usize| u32::from(u16::from_le_bytes([picture[at], picture[at + 1]]));
         let (width, height) = (size(0), size(2));
@@ -1650,6 +1696,84 @@ pub async fn video_output_snapshot(
     })
     .await
     .map_err(|err| err.to_string())?
+}
+
+/// What screen `screen` outputs, small, as the picture of [`vj_output_frame`]: the composition cut
+/// by its visible slices and masks at the shape of its display (the composition's when it has
+/// none), black while the screen or the whole output is off. Empty for an unknown screen or a
+/// project that is not VJ.
+#[tauri::command]
+pub async fn vj_screen_frame(
+    app: AppHandle,
+    output: State<'_, SharedVideoOutput>,
+    screen: String,
+) -> Result<tauri::ipc::Response, String> {
+    let output = Arc::clone(&output);
+    let bytes = tauri::async_runtime::spawn_blocking(move || output.screen_frame(&app, &screen))
+        .await
+        .map_err(|err| err.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+impl VideoOutputs {
+    fn screen_frame(&self, app: &AppHandle, id: &str) -> Result<Vec<u8>, String> {
+        let session = Arc::clone(&app.state::<SharedSession>());
+        let Some(found) = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .video_screens()
+            .into_iter()
+            .find(|s| s.id == id)
+        else {
+            return Ok(Vec::new());
+        };
+        let chosen = preferences::preferences_get(app.clone(), app.state::<preferences::Store>())
+            .ok()
+            .and_then(|p| p.video_display_for(id));
+        let (ow, oh) = chosen
+            .and_then(|id| displays(app).into_iter().find(|(d, _)| d.id == id))
+            .map_or_else(
+                || composition_size(&session),
+                |(d, _)| (d.width.max(1), d.height.max(1)),
+            );
+        let off = !found.enabled || self.controls.disabled.load(Ordering::Relaxed);
+        let width = MONITOR_WIDTH;
+        let height = (u64::from(width) * u64::from(oh) / u64::from(ow)).max(1) as u32;
+        let rgba = if off {
+            [0, 0, 0, 255].repeat((width * height) as usize)
+        } else {
+            let Some(frame) = self.composition(app)? else {
+                return Ok(Vec::new());
+            };
+            let size = composition_size(&session);
+            let (cw, ch) = (
+                usize::from(u16::from_le_bytes([frame[0], frame[1]])),
+                usize::from(u16::from_le_bytes([frame[2], frame[3]])),
+            );
+            let quads: Vec<Quad> = if found.slices.is_empty() {
+                vec![flux_render::fitted_quad(size, (ow, oh))]
+            } else {
+                found
+                    .slices
+                    .iter()
+                    .filter(|slice| !slice.hidden)
+                    .map(quad_of)
+                    .collect()
+            };
+            flux_render::map_screen(
+                &frame[4..],
+                (cw, ch),
+                &quads,
+                &masks_of(&found.masks),
+                (width as usize, height as usize),
+            )
+        };
+        let mut out = Vec::with_capacity(rgba.len() + 4);
+        out.extend_from_slice(&(width as u16).to_le_bytes());
+        out.extend_from_slice(&(height as u16).to_le_bytes());
+        out.extend_from_slice(&rgba);
+        Ok(out)
+    }
 }
 
 /// The test cards of a screen's slices laid out on the composition, small, as the Advanced Output

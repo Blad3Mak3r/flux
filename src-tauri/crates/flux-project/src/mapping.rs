@@ -474,6 +474,17 @@ pub struct VideoScreen {
     /// Drawn over the slices, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub masks: Vec<Mask>,
+    /// Off: the window stays open and shows black.
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
+    pub enabled: bool,
+}
+
+fn enabled() -> bool {
+    true
+}
+
+fn is_enabled(on: &bool) -> bool {
+    *on
 }
 
 impl VideoScreen {
@@ -483,6 +494,7 @@ impl VideoScreen {
             name: "Screen 1".into(),
             slices: Vec::new(),
             masks: Vec::new(),
+            enabled: true,
         }
     }
 }
@@ -499,6 +511,11 @@ pub enum ScreenOp {
     Rename {
         id: String,
         name: String,
+    },
+    /// Off: the screen's window outputs black. The main screen too.
+    Enable {
+        id: String,
+        enabled: bool,
     },
 }
 
@@ -545,6 +562,7 @@ pub fn edit_screens(
                 name: format!("Screen {number}"),
                 slices: Vec::new(),
                 masks: Vec::new(),
+                enabled: true,
             });
         }
         ScreenOp::Remove { id } => {
@@ -560,6 +578,7 @@ pub fn edit_screens(
         ScreenOp::Rename { id, name } => {
             screen_mut(screens, &id)?.name = name.trim().to_owned();
         }
+        ScreenOp::Enable { id, enabled } => screen_mut(screens, &id)?.enabled = enabled,
     }
     Ok(())
 }
@@ -1145,6 +1164,32 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(screens(&[])[0].id, MAIN_SCREEN);
         assert!(screen_mut(&mut list, "gone").is_err());
+    }
+
+    #[test]
+    fn screens_should_switch_off_and_default_on() {
+        let mut list = Vec::new();
+        let off = ScreenOp::Enable {
+            id: MAIN_SCREEN.into(),
+            enabled: false,
+        };
+        edit_screens(&mut list, off, String::new).unwrap();
+        assert!(!list[0].enabled);
+        let json = serde_json::to_string(&list[0]).unwrap();
+        assert!(json.contains("\"enabled\":false"));
+        let on = ScreenOp::Enable {
+            id: MAIN_SCREEN.into(),
+            enabled: true,
+        };
+        edit_screens(&mut list, on, String::new).unwrap();
+        assert!(!serde_json::to_string(&list[0]).unwrap().contains("enabled"));
+        let old: VideoScreen = serde_json::from_str(r#"{"id":"a","name":"A"}"#).unwrap();
+        assert!(old.enabled);
+        let gone = ScreenOp::Enable {
+            id: "gone".into(),
+            enabled: false,
+        };
+        assert!(edit_screens(&mut list, gone, String::new).is_err());
     }
 
     #[test]

@@ -6,6 +6,7 @@ import { SelectField, TextField } from "../components/fields";
 import { errorMessage } from "../project/api";
 import { sayError } from "../state/ui";
 import { useDoc } from "../state/store";
+import { ScreenSwitch } from "../video/ScreenSwitch";
 import { MAIN_SCREEN, compositionSet, screenEdit, useComposition } from "../video/mapping";
 import { MappingEditor } from "./MappingEditor";
 
@@ -170,6 +171,10 @@ export function VideoPage() {
             void screenEdit({ op: "rename", id: current.id, name })
           }
         />
+        <div className="field">
+          <label htmlFor="screen-output">{t("vj.ao.screenOutput")}</label>
+          <ScreenSwitch id={current.id} switchId="screen-output" />
+        </div>
         <SelectField
           label={t("setup.video.display")}
           value={chosen}

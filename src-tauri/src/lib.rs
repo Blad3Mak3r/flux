@@ -28,6 +28,7 @@ mod video_output;
 mod vj_audio;
 mod vj_commands;
 mod vj_control;
+mod vj_layout_commands;
 mod vj_presets_commands;
 mod voice_commands;
 mod voice_jobs;
@@ -156,6 +157,21 @@ pub fn run() {
             commands::vj_preview,
             commands::vj_effect_catalog,
             commands::vj_fonts,
+            vj_layout_commands::vj_layout_get,
+            vj_layout_commands::vj_layout_move,
+            vj_layout_commands::vj_layout_reorder,
+            vj_layout_commands::vj_layout_activate,
+            vj_layout_commands::vj_layout_close,
+            vj_layout_commands::vj_layout_open,
+            vj_layout_commands::vj_layout_resize,
+            vj_layout_commands::vj_layout_equalize,
+            vj_layout_commands::vj_layout_set_monitor,
+            vj_layout_commands::vj_layout_apply,
+            vj_layout_commands::vj_layout_save,
+            vj_layout_commands::vj_layout_rename,
+            vj_layout_commands::vj_layout_delete,
+            vj_layout_commands::vj_layout_reset,
+            vj_commands::vj_monitor_frame,
             vj_presets_commands::vj_presets_list,
             vj_presets_commands::vj_preset_save,
             vj_presets_commands::vj_preset_rename,
@@ -175,10 +191,12 @@ pub fn run() {
             vj_commands::vj_release,
             vj_commands::vj_stop,
             vj_commands::vj_crossfader,
+            vj_commands::vj_crossfader_reset,
             vj_commands::vj_play_state,
             vj_commands::vj_beat,
             vj_control::vj_learn,
             vj_commands::vj_output_frame,
+            video_output::vj_screen_frame,
             vj_commands::vj_preview_frame,
             modulation::vj_modulation_values,
             analysis::vj_analysis_levels,

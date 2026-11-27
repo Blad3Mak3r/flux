@@ -66,6 +66,7 @@ Each layer has a header with:
 | **V** | **Video**: the opacity of the layer over the layers below. |
 | **T** | **Transition** time, 0 to 10 s. 0 is a cut. |
 | Transition mode | How the new clip mixes with the old one while the transition runs: **Alpha** (the default, a crossfade: the new clip fades in over the old one) or any of the 29 [blend modes](vj-blend-modes.md#transitions-with-a-blend-mode), in the same grouped menu as the layer's blend. |
+| Any fader | **Right-click** a fader (M, A, V or T, on a layer or a group) to bring it back to its default: full for M, A and V, 0 (a cut) for T. It is one undo step. |
 | Side A / B | Which side of the crossfader the layer is on. |
 | Fold arrow | Folds the layer to a thin row. It keeps playing; the fold is saved with the show. |
 
@@ -131,7 +132,7 @@ with the show.
 
 The crossfader sits under the layer headers beside the deck tabs. Put layers on side **A** or side **B**; a layer on
 neither is not touched. A side shows fully from its end of the fader to the middle and fades out over the other half.
-Double click the fader to centre it. The Composition menu can set it all A, middle or all B.
+Double click the fader, or right-click it, to centre it. The Composition menu can set it all A, middle or all B.
 
 ## Output and Preview
 
@@ -398,6 +399,17 @@ of all the layers, before the output mapping. Every effect works there, and Feed
 Drop an effect on the Output panel or the composition bar to add it. An **FX** badge and a switch in the composition
 bar bypass the whole stack at once. See [VJ effects](vj-effects.md#effect-stacks).
 
+## Panels and layouts
+
+The VJ screen is made of panels docked inside the main window, as in Resolume: there are no floating windows.
+
+- The **deck** (the clip grid with its crossfader) and the **BPM bar** are unique and fixed. They are never moved, closed or tabbed, but other panels can dock left, right, above or below the deck.
+- Every other panel can be dragged: dropped on the centre of a dock it becomes a tab, dropped on an edge of a dock or of the deck it splits that place in two. Splitters between docks resize them (they light up when you point at or drag them, and are easy to catch: the grabbable area is wider than the gap), down to the least size of what they hold. Each panel has a close button, and **View > Panels** opens a closed one again, in the dock it was last in.
+- **Double-click a splitter** to give all the docks it separates the same size. When monitors sit side by side in a row, the gear of each one offers **Equal widths in this row**, which does the same for that row.
+- The panels are Composition, Group, Layer, Clip, Mappings, Dashboard, Files, Generators, Effects and the monitors.
+- A **monitor** shows the composition, the preview of the selected clip, one layer, one group or one **screen**. A layer or group monitor follows the selection, or stays on the layer or group it was set to. Up to 8 monitors can be open, each with its own settings. A layer monitor draws that layer alone with its effects, opacity and blend; a group monitor draws the group's layers as the group mixes them. A **screen monitor** (gear > Screens, then the screen's name) draws what that screen outputs: the composition through the screen's visible slices and masks (soft edges included), at the shape of the display the screen is on, or of the composition when it has none. Its footer reads like `Screen 1 · 1920×1080`, a **Disabled** tag shows when the screen is turned off (the monitor is then black), and a screen that was removed shows **Screen not found**. Only the VJ shows draw it.
+- The layout is kept **per machine**, not in the show. Three layouts come with Flux (Default, Performance, Monitors), you can save the current one under a name (the same name overwrites it), rename or delete your own, and reset to Default. A layout file that cannot be read, or that a newer Flux wrote, is replaced by the default one.
+
 ## Presets and templates
 
 Both are **yours**, not the show's: FLUX keeps them in its app data folder (like Resolume keeps its presets in the user's
@@ -422,6 +434,10 @@ show; the show never refers back to it, and deleting a preset or a template chan
 screens with their slices and masks on the left, the composition with each slice's rectangle in the middle, and the
 properties of the selected item on the right. It is the same mapping described in
 [Video and projection mapping](video-output.md).
+
+The switch in front of each screen turns the output to it on or off, as in Resolume: a screen that is off keeps its window
+open (it does not jump around) but shows black, and its row is dimmed. The main screen can be turned off too. It is also in
+the screen's properties, and it is part of the show, so it is undone like any other edit.
 
 ## Keys
 

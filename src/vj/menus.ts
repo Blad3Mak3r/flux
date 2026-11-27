@@ -17,11 +17,17 @@ import { escapeMap, toggleMapMode, useMap } from "./mapping";
 import { acceleratorOf, shortcutOf } from "./shortcuts";
 import type { ShortcutAction } from "./shortcuts";
 import { exportMappings, importMappings } from "./mapFile";
-import { managePresets, saveTemplate } from "./presets";
+import { askName, managePresets, saveTemplate } from "./presets";
 import { fullscreenOn, saveSnapshot, toggleDisable, toggleTestCard, useOutput } from "./output";
 import { usePreferences } from "../preferences/store";
 import { say } from "../state/ui";
-import { edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
+import {
+  edit, importVideos, launch, launchColumn, layoutApply, layoutClose, layoutDelete, layoutOpen, layoutReset, layoutSave, moveCrossfader,
+  openPanels, showTab, stopLayer, useVj,
+} from "./store";
+import { FIXED_PANELS, kindTitle, panelTitle } from "./Dock";
+import { MAX_MONITORS } from "./api";
+import type { MonitorKind } from "./api";
 import { groupName } from "./names";
 
 const fail = (err: unknown) => sayError(errorMessage(err));
@@ -169,7 +175,7 @@ function editMenu(t: Translate): MenuItem[] {
     { label: t("menu.redo"), shortcut: acceleratorOf("redo"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
     "-",
     { label: t("vj.clip.remove"), disabled: !clip, run: removeSelected },
-    { label: t("menu.deselect"), disabled: !clip, run: () => useVj.setState({ clip: null }) },
+    { label: t("menu.deselect"), disabled: !clip, run: () => useVj.setState({ clip: null, slot: null }) },
   ];
 }
 
@@ -309,23 +315,59 @@ function outputMenu(t: Translate): MenuItem[] {
   ];
 }
 
-function viewMenu(t: Translate): MenuItem[] {
-  const { tab, browser } = useVj.getState();
+/** The View menu's dock entries: which panels are open, new monitors and the layouts. */
+function dockItems(t: Translate): MenuItem[] {
+  const { layout } = useVj.getState();
+  if (!layout) return [];
+  const open = new Set(openPanels(layout.current.root));
+  const monitors: MonitorKind[] = [{ type: "composition" }, { type: "preview" }, { type: "layer", layer: null }, { type: "group", group: null }];
+  const saved = (run: (id: string) => void): MenuItem[] => layout.saved.map((item) => ({ label: item.name, run: () => run(item.id) }));
   return [
-    { heading: t("vj.menu.inspector") },
-    { label: t("vj.inspector.clip"), checked: tab === "clip", run: () => showTab("clip") },
-    { label: t("vj.inspector.layer"), checked: tab === "layer", run: () => showTab("layer") },
-    { label: t("vj.inspector.composition"), shortcut: acceleratorOf("composition"), checked: tab === "composition", run: () => showTab("composition") },
-    { label: t("vj.inspector.mappings"), checked: tab === "mappings", run: () => showTab("mappings") },
+    {
+      label: t("vj.menu.panels"),
+      submenu: FIXED_PANELS.map((id): MenuItem => ({
+        label: panelTitle(t, id, layout),
+        shortcut: id === "composition" ? acceleratorOf("composition") : undefined,
+        checked: open.has(id),
+        run: () => void (open.has(id) ? layoutClose(id) : layoutOpen(id)),
+      })),
+    },
+    {
+      label: t("vj.menu.newMonitor"),
+      disabled: layout.current.monitors.length >= MAX_MONITORS,
+      submenu: monitors.map((kind): MenuItem => ({ label: kindTitle(t, kind), run: () => void layoutOpen("monitor", kind) })),
+    },
+    {
+      label: t("vj.menu.layouts"),
+      submenu: [
+        ...layout.factory.map((item): MenuItem => ({ label: t(`vj.layout.${item.id}`), run: () => void layoutApply(item.id) })),
+        ...(layout.saved.length > 0 ? ["-" as const, ...saved((id) => void layoutApply(id))] : []),
+        "-",
+        {
+          label: t("vj.layout.save"),
+          run: () => askName({
+            title: t("vj.layout.saveTitle"), value: "", confirm: t("dialog.save"),
+            run: async (name) => {
+              await layoutSave(name);
+              say("vj.layout.saved", { name });
+            },
+          }),
+        },
+        { label: t("vj.layout.delete"), disabled: layout.saved.length === 0, submenu: saved((id) => void layoutDelete(id)) },
+        { label: t("vj.layout.reset"), run: () => void layoutReset() },
+      ],
+    },
+  ];
+}
+
+function viewMenu(t: Translate): MenuItem[] {
+  return [
+    ...dockItems(t),
     "-",
     { heading: t("vj.menu.control") },
     { label: t("vj.map.mode"), shortcut: acceleratorOf("mapMidi"), checked: useMap.getState().on, run: toggleMapMode },
     { label: t("vj.mapfile.import"), run: () => void importMappings() },
     { label: t("vj.mapfile.export"), run: () => void exportMappings() },
-    "-",
-    { heading: t("vj.menu.browser") },
-    { label: t("vj.media"), checked: browser === "media", run: () => showBrowser("media") },
-    { label: t("vj.browser.generators"), checked: browser === "generators", run: () => showBrowser("generators") },
   ];
 }
 

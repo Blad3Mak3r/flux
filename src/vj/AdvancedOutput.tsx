@@ -21,6 +21,7 @@ import {
   showTestPattern,
   useComposition,
 } from "../video/mapping";
+import { ScreenSwitch } from "../video/ScreenSwitch";
 import type { Mask, Point, Size, Slice, VideoScreen } from "../video/mapping";
 import { TestCardFields } from "./TestCardFields";
 import { closeOutput } from "./menus";
@@ -226,18 +227,21 @@ function OutputDialog() {
               const own = screens.find((x) => x.id === s.id);
               const on = s.id === current?.id;
               return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    className="vj-ao-row vj-ao-screen"
-                    aria-current={on && item.kind === "screen" ? "true" : undefined}
-                    data-open={s.open}
-                    onClick={() => select(s.id, { kind: "screen" })}
-                  >
-                    <ScreenIcon />
-                    <span className="vj-ao-name">{s.name}</span>
-                    <span className="screen-dot" title={screenNote(t, s)} />
-                  </button>
+                <li key={s.id} data-off={own?.enabled === false}>
+                  <div className="vj-ao-item vj-ao-head">
+                    <ScreenSwitch id={s.id} />
+                    <button
+                      type="button"
+                      className="vj-ao-row vj-ao-screen"
+                      aria-current={on && item.kind === "screen" ? "true" : undefined}
+                      data-open={s.open}
+                      onClick={() => select(s.id, { kind: "screen" })}
+                    >
+                      <ScreenIcon />
+                      <span className="vj-ao-name">{s.name}</span>
+                      <span className="screen-dot" title={screenNote(t, s)} />
+                    </button>
+                  </div>
                   <ul>
                     {(own?.slices ?? NO_SLICES).map((x) => (
                       <TreeRow
@@ -316,6 +320,10 @@ function OutputDialog() {
           {current && !slice && !mask && (
             <div className="mapping-slice">
               <TextField label={t("setup.video.screenName")} value={current.name} onCommit={(name) => void screenEdit({ op: "rename", id: current.id, name })} />
+              <div className="field">
+                <label htmlFor="screen-output">{t("vj.ao.screenOutput")}</label>
+                <ScreenSwitch id={current.id} switchId="screen-output" />
+              </div>
               <SelectField label={t("setup.video.display")} value={chosen} hint={t("setup.video.mainNote")} onChange={(id) => void choose(current.id, id)}>
                 <option value={OFF}>{t("setup.video.off")}</option>
                 {status?.displays.map((d, index) => (

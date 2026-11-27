@@ -29,7 +29,7 @@ pub const MAX_TEMPLATES: usize = 100;
 /// The longest name of a preset or a template, in characters.
 pub const MAX_NAME: usize = 64;
 
-fn name_of(name: &str) -> Result<String> {
+pub(crate) fn name_of(name: &str) -> Result<String> {
     let name = name.trim();
     if name.is_empty() || name.chars().count() > MAX_NAME {
         return Err(ProjectError::Invalid(format!(
@@ -315,7 +315,7 @@ impl Library {
     }
 }
 
-fn invalid(err: serde_json::Error) -> ProjectError {
+pub(crate) fn invalid(err: serde_json::Error) -> ProjectError {
     ProjectError::Invalid(err.to_string())
 }
 
@@ -329,7 +329,7 @@ fn check_version(version: u32, what: &str) -> Result<()> {
 }
 
 /// Written to a temporary file and renamed, so a crash cannot leave half a file.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }

@@ -10,12 +10,14 @@
 mod compose;
 mod composite;
 pub mod effects;
+pub mod mapped;
 pub mod palette;
 pub mod pattern;
 pub mod post;
 
 pub use composite::{composite, composite_items, composite_post};
 pub use effects::{Effects, Time};
+pub use mapped::map_screen;
 pub use post::{History, Post};
 
 use thiserror::Error;
