@@ -720,6 +720,23 @@ pub struct State {
     pub current: Layout,
     pub saved: Vec<SavedInfo>,
     pub factory: Vec<FactoryInfo>,
+    /// The least `(width, height)` in px of every split, tab group and `"deck"`, so the UI clamps
+    /// a splitter drag without knowing the rules.
+    pub mins: BTreeMap<String, (u32, u32)>,
+    /// The gap a splitter takes between two children, in px.
+    pub gap: u32,
+}
+
+fn collect_mins(node: &Node, out: &mut BTreeMap<String, (u32, u32)>) {
+    let id = match node {
+        Node::Deck => DECK,
+        Node::Tabs { id, .. } => id,
+        Node::Split { id, children, .. } => {
+            children.iter().for_each(|c| collect_mins(c, out));
+            id
+        }
+    };
+    out.insert(id.to_owned(), min_size(node));
 }
 
 /// The file `vj-layout.json`: the current layout and the user's named ones.
@@ -768,7 +785,11 @@ impl Store {
     }
 
     pub fn state(&self) -> State {
+        let mut mins = BTreeMap::new();
+        collect_mins(&self.current.root, &mut mins);
         State {
+            mins,
+            gap: SPLITTER_GAP,
             current: self.current.clone(),
             saved: self
                 .saved
@@ -1062,6 +1083,17 @@ mod tests {
         assert_eq!(min_size(&row), (480 + 4 + 240, 260));
         let col = split(Dir::Column, vec![(row, 0.5), (tabs(&["clip"]), 0.5)]);
         assert_eq!(min_size(&col), (724, 260 + 4 + 180));
+    }
+
+    #[test]
+    fn state_lists_the_min_of_every_node() {
+        let state = Store::default().state();
+        assert_eq!(state.gap, SPLITTER_GAP);
+        assert_eq!(state.mins["deck"], DECK_MIN_SIZE);
+        let Node::Split { id, .. } = &state.current.root else {
+            panic!("the default layout starts with a split");
+        };
+        assert_eq!(state.mins[id], min_size(&state.current.root));
     }
 
     #[test]
