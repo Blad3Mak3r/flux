@@ -1,7 +1,7 @@
 # VJ generators
 
 A generator is a clip whose picture FLUX makes itself, with no video file: a solid colour, a strobe, a gradient, colour
-bars, noise or a block of text. Generators fill the composition, take part in the grid like any clip (launch, layer
+bars, noise, a block of text or a live camera. Generators fill the composition, take part in the grid like any clip (launch, layer
 blend, [effects](vj-effects.md), transport) and are stored with the project. See the [VJ mode guide](vj-mode.md) for the
 grid and [VJ blend modes](vj-blend-modes.md) for how layers mix.
 
@@ -17,6 +17,7 @@ backticks, `like this`.
 | [Color Bars](#color-bars-bars) | The bars of a video test card. |
 | [Noise](#noise-noise) | Random snow. |
 | [Text Block](#text-block-text) | Lines of text over a clear background. |
+| [Live input](#live-input-liveinput) | A camera or capture card. |
 
 All colours are `#rrggbb`.
 
@@ -121,6 +122,30 @@ With **Lines** on **One** a text block shows a single line of its text.
   clip is not playing it shows the line you have set.
 
 A text block with no text (or only blanks) draws nothing.
+
+## Live input · `liveInput`
+
+The picture of a camera or a capture card, like a source in Resolume. The clip stores the device by **name**, so the
+project finds it again on the same machine, and the picture is stretched to the composition like any generator.
+
+| Setting | Range | Default | Does |
+| --- | --- | --- | --- |
+| Device | a camera or capture card the system lists | none | The device shown. The **↻** button looks for devices again, for one plugged in after FLUX started. |
+
+- A device that is missing is a normal state, never an error: with no device chosen, or one that is not connected, the
+  clip draws **black** and the inspector says "Not connected". FLUX keeps trying to open it, so the picture appears by
+  itself when the device is plugged in.
+- FLUX opens the device when a clip that uses it plays and closes it when no clip showing it is left. Clips that show the
+  same device share it.
+- Pictures wider than 1280 pixels are scaled down to 1280. The picture follows the device, not the grid's clock, so it is
+  live and the clip has no length: it plays until something replaces it, shows no countdown, and has no Duration,
+  At the end, region, speed, direction, tempo or cues (the inspector leaves them out).
+- The first time, macOS asks to let FLUX use the camera; allow it in System Settings > Privacy & Security > Camera if it
+  was refused. Windows lists DirectShow devices, macOS AVFoundation ones and Linux Video4Linux ones (`/dev/video*`).
+- It has no numbers to modulate.
+
+It is stored as `{ "kind": "liveInput", "device": "<name>" }` (see the
+[project format](fxtc-format.md)).
 
 ## Duration of generators and stills
 

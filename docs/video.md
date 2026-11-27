@@ -25,6 +25,12 @@ decide which decoders the shipped FFmpeg contains.
 The Rust bindings are [`ffmpeg-next`](https://crates.io/crates/ffmpeg-next), with only the `format`, `codec` and
 `software-scaling` features (demuxing, decoding and the conversion to RGBA).
 
+Live cameras and capture cards are read by their own crate, `flux-capture` (`src-tauri/crates/flux-capture/`), through
+FFmpeg's **libavdevice** (`dshow` on Windows, `avfoundation` on macOS, `v4l2` on Linux). Building needs the libavdevice
+headers (`libavdevice-dev` on Linux), and the Linux packages depend on `libavdevice60` and the Windows installer ships the
+`avdevice` and `avfilter` DLLs. The deck (`VideoDeck`) opens a capture for each device a playing Live input clip names and
+closes it when none does. See [Live input](vj-generators.md#live-input-liveinput).
+
 ## What the crate does
 
 - **`source_frame`**: which frame of a video a clip shows at a timeline position. It is a pure function of the

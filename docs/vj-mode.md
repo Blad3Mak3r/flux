@@ -5,7 +5,7 @@ layers mixed into one composition, and that composition sent to your screens. Th
 are in three reference pages:
 
 - [VJ effects](vj-effects.md): all 39 effects, their settings and the effect stacks.
-- [VJ generators](vj-generators.md): the six clips FLUX draws itself, with the Text Block in depth.
+- [VJ generators](vj-generators.md): the clips FLUX draws itself, with the Text Block in depth, and the Live input for a camera or capture card.
 - [VJ blend modes](vj-blend-modes.md): all 29 ways a layer mixes with what is below.
 
 For mapping the composition onto projectors and screens see [Video and projection mapping](video-output.md). For driving the show from a MIDI controller or OSC see [Map mode](#map-mode-midi-osc-dmx-and-keys) and [Remote control](remote-control.md#vj-shows).
@@ -33,6 +33,13 @@ in that cell, in place of its clip, and each next one in the next cell to the ri
 pointer lights up. Files that are not videos or images, that FFmpeg cannot read, or that find no cell are left out, and
 the status bar says how many (`project_drop_vj`). Generators are in the **Generators** tab of the browser, and effects in the
 **Effects** tab.
+
+### Live input
+
+A camera or capture card is a clip too: drag **Live input** from the **Generators** tab onto a cell and choose the device
+in the Clip inspector (**↻** looks for devices again). It shows the device's picture live, and black, with "Not connected"
+in the inspector, while the device is missing, so a show never stops for a cable. See
+[Live input](vj-generators.md#live-input-liveinput).
 
 ## Launching clips
 
