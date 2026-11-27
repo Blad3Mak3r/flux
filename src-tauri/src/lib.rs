@@ -30,6 +30,7 @@ mod vj_commands;
 mod vj_control;
 mod vj_layout_commands;
 mod vj_presets_commands;
+mod vj_record;
 mod voice_commands;
 mod voice_jobs;
 mod windows;
@@ -65,6 +66,7 @@ pub fn run() {
         .manage(flux_audio::SharedAudio::default())
         .manage(transport_commands::SharedOutput::default())
         .manage(video_output::SharedVideoOutput::default())
+        .manage(vj_record::SharedRecording::default())
         .manage(vj_commands::SharedGrid::default())
         .manage(Arc::clone(&analysis))
         .manage(Arc::new(modulation::Modulation::new(analysis)))
@@ -193,6 +195,9 @@ pub fn run() {
             vj_commands::vj_crossfader,
             vj_commands::vj_crossfader_reset,
             vj_commands::vj_play_state,
+            vj_record::vj_record_start,
+            vj_record::vj_record_stop,
+            vj_record::vj_record_state,
             vj_commands::vj_beat,
             vj_control::vj_learn,
             vj_commands::vj_output_frame,
@@ -278,6 +283,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            // A recording is finished before the app goes, or its file has no trailer.
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                vj_record::shutdown(app);
+            }
             if let tauri::RunEvent::WindowEvent {
                 label,
                 event: tauri::WindowEvent::Destroyed,

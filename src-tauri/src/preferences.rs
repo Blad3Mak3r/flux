@@ -43,6 +43,8 @@ pub struct Preferences {
     pub snapshot_dir: Option<String>,
     /// A snapshot is also added to the project's media as an image clip.
     pub snapshot_media: bool,
+    /// The folder the VJ recording saves into; absent is `Videos/FLUX`.
+    pub recordings_dir: Option<String>,
     #[serde(skip_deserializing)]
     pub revision: u64,
     #[serde(skip_deserializing)]
@@ -121,6 +123,9 @@ pub enum Change {
     },
     SnapshotMedia {
         on: bool,
+    },
+    RecordingsDir {
+        dir: Option<String>,
     },
     Locale {
         locale: Locale,
@@ -293,6 +298,9 @@ impl Preferences {
                 self.snapshot_dir = dir.filter(|dir| !dir.trim().is_empty());
             }
             Change::SnapshotMedia { on } => self.snapshot_media = on,
+            Change::RecordingsDir { dir } => {
+                self.recordings_dir = dir.filter(|dir| !dir.trim().is_empty());
+            }
             Change::VideoDisplay { screen, display } => {
                 if screen == flux_project::mapping::MAIN_SCREEN {
                     self.video_display = None;

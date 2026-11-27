@@ -1,6 +1,7 @@
 import { VoicePage } from "../voice/VoicePanel";
 import { VideoPage } from "./VideoPage";
 import { SnapshotPage } from "./SnapshotPage";
+import { RecordingsPage } from "./RecordingsPage";
 import { usePreferences } from "../preferences/store";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
@@ -43,6 +44,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <VideoPage />;
     case "snapshots":
       return <SnapshotPage />;
+    case "recordings":
+      return <RecordingsPage />;
     case "timecodeIn":
       return <TimecodeInPage />;
     case "analysis":

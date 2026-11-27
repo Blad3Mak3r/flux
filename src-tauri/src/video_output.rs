@@ -109,7 +109,7 @@ struct Controls {
 
 /// The one deck every screen's window draws from, so a clip is decoded once however many screens
 /// show it. Made when the first window opens.
-type SharedDeck = Arc<Mutex<Option<VideoDeck>>>;
+pub(crate) type SharedDeck = Arc<Mutex<Option<VideoDeck>>>;
 
 /// The windows of every screen, by screen id.
 #[derive(Default)]
@@ -503,6 +503,11 @@ fn title(name: &str) -> String {
 }
 
 impl VideoOutputs {
+    /// The deck every screen draws from, which the recorder shares.
+    pub(crate) fn deck(&self) -> &SharedDeck {
+        &self.deck
+    }
+
     /// Media was relinked: clips and logos that could not be opened are tried again.
     pub fn retry_media(&self) {
         retry_logos();
@@ -706,33 +711,19 @@ impl Render {
             .map_or(1.0 / 60.0, |last| at.duration_since(last).as_secs_f32());
         let (shown, looks, time, post) = match &self.vj {
             Some(vj) => {
-                let (play, now) = {
-                    let mut grid = self.grid.lock().unwrap_or_else(PoisonError::into_inner);
-                    let now = grid.tick(vj, bpm);
-                    (grid.play.clone(), now)
-                };
-                let beats = now.beats;
-                // What is drawn is the grid with its modulated values; the stored one is not changed.
-                let clock = flux_project::vj_modulation::Clock {
-                    seconds: now.time.as_secs_f64(),
-                    beats,
-                };
-                let drawn = self.modulation.draw(vj, &mut self.drawn, clock);
-                let shown = self
-                    .deck
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .as_mut()
-                    .map(|deck| deck.show_grid(drawn, &play, now, self.card_size))
-                    .unwrap_or_default();
-                let post = composition_post(drawn, clock, dt);
-                let mut looks = play.group_looks(drawn);
-                looks.extend(play.transition_looks(drawn, now));
-                let time = flux_render::Time {
-                    seconds: clock.seconds,
-                    beats,
-                };
-                (shown, looks, time, post)
+                let frame = grid_frame(
+                    vj,
+                    bpm,
+                    &GridSources {
+                        grid: &self.grid,
+                        modulation: &self.modulation,
+                        deck: &self.deck,
+                    },
+                    &mut self.drawn,
+                    self.card_size,
+                    dt,
+                );
+                (frame.shown, frame.looks, frame.time, frame.post)
             }
             None => (
                 self.timeline_pictures(),
@@ -942,6 +933,66 @@ impl Render {
     }
 }
 
+/// What a frame of the VJ grid is drawn from.
+pub(crate) struct GridSources<'a> {
+    pub grid: &'a crate::vj_commands::SharedGrid,
+    pub modulation: &'a crate::modulation::SharedModulation,
+    pub deck: &'a SharedDeck,
+}
+
+/// The grid at one frame: the pictures the deck shows, how the groups look, the clock and the
+/// composition's effects. The output windows and the recorder both draw from it.
+pub(crate) struct GridFrame {
+    pub shown: Vec<flux_video::Shown>,
+    pub looks: Vec<flux_video::GroupLook>,
+    pub time: flux_render::Time,
+    pub post: flux_render::Post,
+}
+
+/// Moves the grid's clock on and gathers what `vj` shows at `bpm` beats a minute, `dt` seconds after
+/// the frame before, in a composition of `size`. `drawn` is the grid with its modulated values,
+/// kept between frames and patched; it is reset when `vj` changes.
+pub(crate) fn grid_frame(
+    vj: &flux_project::vj::Vj,
+    bpm: f64,
+    sources: &GridSources<'_>,
+    drawn: &mut Option<flux_project::vj::Vj>,
+    size: (u32, u32),
+    dt: f32,
+) -> GridFrame {
+    let (play, now) = {
+        let mut grid = sources.grid.lock().unwrap_or_else(PoisonError::into_inner);
+        let now = grid.tick(vj, bpm);
+        (grid.play.clone(), now)
+    };
+    let beats = now.beats;
+    // What is drawn is the grid with its modulated values; the stored one is not changed.
+    let clock = flux_project::vj_modulation::Clock {
+        seconds: now.time.as_secs_f64(),
+        beats,
+    };
+    let drawn = sources.modulation.draw(vj, drawn, clock);
+    let shown = sources
+        .deck
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_mut()
+        .map(|deck| deck.show_grid(drawn, &play, now, size))
+        .unwrap_or_default();
+    let post = composition_post(drawn, clock, dt);
+    let mut looks = play.group_looks(drawn);
+    looks.extend(play.transition_looks(drawn, now));
+    GridFrame {
+        shown,
+        looks,
+        time: flux_render::Time {
+            seconds: clock.seconds,
+            beats,
+        },
+        post,
+    }
+}
+
 fn masks_of(masks: &[flux_project::mapping::Mask]) -> Vec<Mask> {
     masks
         .iter()
@@ -980,7 +1031,7 @@ fn looks_of(
 }
 
 /// The composition: the size the clips are sized into, the slices cut and the card drawn.
-fn composition_size(session: &SharedSession) -> (u32, u32) {
+pub(crate) fn composition_size(session: &SharedSession) -> (u32, u32) {
     crate::video_commands::picture_size(session)
         .filter(|&(w, h)| {
             let sides = flux_project::mapping::COMPOSITION_SIDES;
@@ -993,7 +1044,7 @@ fn composition_size(session: &SharedSession) -> (u32, u32) {
 /// first: from the top down to the first picture that hides everything under it. The pictures of
 /// a group are drawn as one item, with the group's look in `looks`; a group that has none (it is
 /// bypassed or left out by the solos) shows nothing.
-fn items<'a>(
+pub(crate) fn items<'a>(
     shown: &'a [flux_video::Shown],
     looks: &[flux_video::GroupLook],
     composition: (u32, u32),
@@ -1116,7 +1167,7 @@ fn new_deck(app: &AppHandle) -> Result<VideoDeck, String> {
 }
 
 /// Makes the deck every screen draws from, when no window has yet.
-fn ensure_deck(deck: &SharedDeck, app: &AppHandle) -> Result<(), String> {
+pub(crate) fn ensure_deck(deck: &SharedDeck, app: &AppHandle) -> Result<(), String> {
     let mut deck = deck.lock().unwrap_or_else(PoisonError::into_inner);
     if deck.is_none() {
         *deck = Some(new_deck(app)?);

@@ -72,6 +72,7 @@ import { mappable } from "./mapModel";
 import { MappingsPanel } from "./Mappings";
 import { stepDeck } from "./menus";
 import { bindOutputState } from "./output";
+import { bindRecordState } from "./record";
 import { AdvancedOutput } from "./AdvancedOutput";
 import { ColourField, Scrub, Segments } from "./controls";
 import { CompositionFx, EffectBadge, EffectBrowser, EffectStack, carriesEffect, dropEffect, useCompositionDrop } from "./EffectStack";
@@ -1225,6 +1226,7 @@ export function VjScreen() {
   useEffect(bindPlayState, []);
   useEffect(bindVjControl, []);
   useEffect(bindOutputState, []);
+  useEffect(bindRecordState, []);
   useEffect(() => { void loadEffectCatalog(); void loadPresets(); void loadLayout(); }, []);
   if (!grid) return null;
   return (

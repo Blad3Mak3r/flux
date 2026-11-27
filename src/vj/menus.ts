@@ -20,6 +20,8 @@ import { exportMappings, importMappings } from "./mapFile";
 import { askName, managePresets, saveTemplate } from "./presets";
 import { fullscreenOn, saveSnapshot, toggleDisable, toggleTestCard, useOutput } from "./output";
 import { usePreferences } from "../preferences/store";
+import { startRecording, stopRecording, useRecord } from "./record";
+import { useConvert } from "../state/video";
 import { say } from "../state/ui";
 import {
   edit, importVideos, launch, launchColumn, layoutApply, layoutClose, layoutDelete, layoutOpen, layoutReset, layoutSave, moveCrossfader,
@@ -182,11 +184,20 @@ function editMenu(t: Translate): MenuItem[] {
 /** The timecode runs from here only on the internal clock. */
 const internalClock = () => (grid()?.clock ?? "internal") === "internal";
 
+/** Start or stop recording the composition; HAP, which the file uses, may be missing from this FFmpeg. */
+function recordingItem(t: Translate): MenuItem {
+  if (useRecord.getState().recording) return { label: t("vj.menu.recordStop"), run: () => void stopRecording() };
+  const noHap = useConvert.getState().available === false;
+  return { label: t(noHap ? "vj.menu.recordNoHap" : "vj.menu.recordStart"), disabled: noHap, run: startRecording };
+}
+
 function compositionMenu(t: Translate): MenuItem[] {
   const crossfader = useVj.getState().play.crossfader;
   const external = !internalClock();
   return [
     { label: t("vj.menu.stopAll"), run: stopAll },
+    "-",
+    recordingItem(t),
     "-",
     { heading: t("vj.menu.timecode") },
     { label: t("vj.menu.playPause"), disabled: external, run: () => void toggle() },
