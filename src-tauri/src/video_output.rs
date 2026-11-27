@@ -352,6 +352,7 @@ impl VideoOutput {
             pattern,
             controls,
             screen_name: String::new(),
+            enabled: true,
             timeline: None,
             quads: Vec::new(),
             masks: Vec::new(),
@@ -643,6 +644,8 @@ struct Render {
     controls: Arc<Controls>,
     /// The screen's name, for the test card.
     screen_name: String,
+    /// Off, the window stays open and black.
+    enabled: bool,
     /// The timeline and the slices last copied from the session, and the revision they were
     /// copied at.
     timeline: Option<Timeline>,
@@ -741,7 +744,7 @@ impl Render {
         if self.screen_id == flux_project::mapping::MAIN_SCREEN {
             self.note_decoding();
         }
-        let disabled = self.controls.disabled.load(Ordering::Relaxed);
+        let disabled = self.controls.disabled.load(Ordering::Relaxed) || !self.enabled;
         let forced = self.controls.card.load(Ordering::Relaxed);
         let mut pictures = if disabled || forced {
             Vec::new()
@@ -911,34 +914,13 @@ impl Render {
         let screens = session.video_screens();
         let this = screens.iter().find(|screen| screen.id == self.screen_id);
         let slices = this.map_or(&[][..], |screen| &screen.slices);
-        self.masks = this
-            .map_or(&[][..], |screen| &screen.masks)
-            .iter()
-            .filter(|mask| !mask.hidden)
-            .map(|mask| Mask {
-                points: mask.points.iter().map(|p| [p.x, p.y]).collect(),
-                invert: mask.invert,
-            })
-            .collect();
+        self.masks = this.map_or_else(Vec::new, |screen| masks_of(&screen.masks));
         if let Some(screen) = this {
             self.screen_name.clone_from(&screen.name);
+            self.enabled = screen.enabled;
         }
         let shown = slices.iter().filter(|slice| !slice.hidden);
-        let rect = |r: &flux_project::mapping::Rect| [r.x, r.y, r.width, r.height];
-        self.quads = shown
-            .clone()
-            .map(|slice| Quad {
-                input: rect(&slice.input),
-                corners: slice.corners.map(|p| [p.x, p.y]),
-                soft: [
-                    slice.soft_edge.left,
-                    slice.soft_edge.right,
-                    slice.soft_edge.top,
-                    slice.soft_edge.bottom,
-                ],
-                gamma: slice.soft_edge.gamma,
-            })
-            .collect();
+        self.quads = shown.clone().map(quad_of).collect();
         let mut card_slices: Vec<CardSlice> = shown.map(card_slice).collect();
         if card_slices.is_empty() {
             // No slices: the card is of the whole picture, under the screen's name.
@@ -957,6 +939,32 @@ impl Render {
             self.card_slices = card_slices;
             self.cards = None;
         }
+    }
+}
+
+fn masks_of(masks: &[flux_project::mapping::Mask]) -> Vec<Mask> {
+    masks
+        .iter()
+        .filter(|mask| !mask.hidden)
+        .map(|mask| Mask {
+            points: mask.points.iter().map(|p| [p.x, p.y]).collect(),
+            invert: mask.invert,
+        })
+        .collect()
+}
+
+fn quad_of(slice: &flux_project::mapping::Slice) -> Quad {
+    let r = &slice.input;
+    Quad {
+        input: [r.x, r.y, r.width, r.height],
+        corners: slice.corners.map(|p| [p.x, p.y]),
+        soft: [
+            slice.soft_edge.left,
+            slice.soft_edge.right,
+            slice.soft_edge.top,
+            slice.soft_edge.bottom,
+        ],
+        gamma: slice.soft_edge.gamma,
     }
 }
 

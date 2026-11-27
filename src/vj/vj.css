@@ -1341,3 +1341,8 @@ output.vj-tc-v { color: var(--ink-faint); }
 .vj-lib-list li:last-child { border-bottom: 0; }
 .vj-lib-list strong { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .vj-lib-empty { margin: 8px 0 16px; }
+
+/* The switch in front of a screen: off, the screen's row and its slices are dimmed. */
+.vj-ao-head { padding-left: 6px; gap: 6px; }
+.vj-ao-screens > li[data-off="true"] .vj-ao-row,
+.vj-ao-screens > li[data-off="true"] > ul { opacity: 0.45; }

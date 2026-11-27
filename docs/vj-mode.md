@@ -433,6 +433,10 @@ screens with their slices and masks on the left, the composition with each slice
 properties of the selected item on the right. It is the same mapping described in
 [Video and projection mapping](video-output.md).
 
+The switch in front of each screen turns the output to it on or off, as in Resolume: a screen that is off keeps its window
+open (it does not jump around) but shows black, and its row is dimmed. The main screen can be turned off too. It is also in
+the screen's properties, and it is part of the show, so it is undone like any other edit.
+
 ## Keys
 
 A VJ show binds only the keys Resolume has by default, with the same function ([Resolume's shortcuts](https://resolume.com/support/en/shortcuts)).

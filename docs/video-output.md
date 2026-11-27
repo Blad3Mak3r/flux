@@ -52,7 +52,7 @@ for two 1920 × 1080 projectors side by side: each clip is then fitted, filled o
 Video outputs are set up in **Preferences > Outputs > Video**. Each **screen** is one output: a window on a display of
 its own, with its own slices and masks. Every project has one screen; **Add screen** adds more, up to eight, for example
 one per projector. The tabs at the top choose the screen being edited, and the dot on a tab is lit while its window is
-open. A screen can be renamed (its window title follows) and removed, except the first one.
+open. The **Output to this screen** switch turns a screen off without closing it: its window stays where it is and shows black, until the switch is turned back on. A screen can be renamed (its window title follows) and removed, except the first one.
 
 **Display** chooses where the screen opens. On a display that already has a FLUX window, the screen opens as a window you
 can move aside, so it never covers the editor; on any other display it fills the screen. **Off** closes it.
