@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
 import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
@@ -26,6 +26,7 @@ import type {
   VjTrigger,
 } from "../project/types";
 import { useDoc } from "../state/store";
+import { startDrag, useDropTarget } from "../state/pointerDrag";
 import { openMenu, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import type { VideoStrip } from "../video/api";
@@ -302,7 +303,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
     </div>
   );
   const nameRow = (
-      <div className="vj-lname" draggable onDragStart={(event) => { event.dataTransfer.setData(DRAG_LAYER, layer.id); event.dataTransfer.effectAllowed = "move"; }}>
+      <div className="vj-lname" onPointerDown={(event) => startDrag(event, { [DRAG_LAYER]: layer.id }, name)}>
         <button type="button" className="vj-fold" aria-expanded={!layer.collapsed}
           title={t(layer.collapsed ? "vj.layer.expand" : "vj.layer.collapse")} aria-label={t(layer.collapsed ? "vj.layer.expand" : "vj.layer.collapse")}
           onClick={(event) => { event.stopPropagation(); fold(); }}>
@@ -333,24 +334,15 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   );
   const className = `vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}${over ? " over" : ""}${picked ? " picked" : ""}`;
   // An effect dropped on the header goes to the layer's stack; a layer dropped on it takes its place and its group.
-  const dropping = {
-    onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes(DRAG_LAYER) && !carriesEffect(event, { layer: layer.id })) return;
-      event.preventDefault();
-      setOver(true);
+  const dropping = useDropTarget({
+    accepts: (data) => DRAG_LAYER in data || carriesEffect(data, { layer: layer.id }),
+    over: setOver,
+    drop: (data) => {
+      const dragged = data[DRAG_LAYER];
+      if (!dragged) dropEffect(data, { layer: layer.id });
+      else if (dragged !== layer.id) void edit({ op: "layerGroup", layer: dragged, group: layer.group ?? null, to: at });
     },
-    onDragLeave: () => setOver(false),
-    onDrop: (event: DragEvent<HTMLDivElement>) => {
-      setOver(false);
-      const dragged = event.dataTransfer.getData(DRAG_LAYER);
-      if (!dragged) {
-        dropEffect(event, { layer: layer.id });
-        return;
-      }
-      event.preventDefault();
-      if (dragged !== layer.id) void edit({ op: "layerGroup", layer: dragged, group: layer.group ?? null, to: at });
-    },
-  };
+  });
   const onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
     if (!useVj.getState().picked.includes(layer.id)) selectLayer(layer.id);
@@ -361,7 +353,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   if (layer.collapsed) {
     // Folded as in Resolume: one thin row with the name, the clip on air, bypass, solo and the side.
     return (
-      <div className={`${className} folded`} onClick={select} onContextMenu={onContextMenu} {...dropping}>
+      <div className={`${className} folded`} onClick={select} onContextMenu={onContextMenu} ref={dropping}>
         <button type="button" className="vj-eject" {...mappable({ kind: "layerStop", layer: layer.id })} title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
           onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
           <CloseIcon />
@@ -376,7 +368,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
       className={className}
       onClick={select}
       onContextMenu={onContextMenu}
-      {...dropping}
+      ref={dropping}
     >
       <button type="button" className="vj-eject" {...mappable({ kind: "layerStop", layer: layer.id })} title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
         onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
@@ -426,35 +418,27 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
   const live = useVj((vj) => clip !== undefined && vj.play.playing.some((p) => p.layer === layer.id && p.clip === clip.id));
   const state = useVideoState(clip?.asset);
 
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setOver(false);
-    // An effect lands on the clip of the cell, and on nothing in an empty one.
-    if (clip && dropEffect(event, { clip: clip.id })) return;
-    const raw = event.dataTransfer.getData(DRAG);
-    if (!raw) return;
-    const dragged = JSON.parse(raw) as Dragged;
-    if ("clip" in dragged) {
-      if (dragged.clip !== clip?.id) void edit({ op: "moveClip", clip: dragged.clip, layer: layer.id, column: column.id });
-    } else if ("generator" in dragged) {
-      void edit({ op: "placeGenerator", generator: { kind: dragged.generator }, layer: layer.id, column: column.id });
-    } else void edit({ op: "placeVideo", asset: dragged.asset, layer: layer.id, column: column.id });
-  };
-  const dropping = {
-    onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes(DRAG) && !(clip && carriesEffect(event, { clip: clip.id }))) return;
-      event.preventDefault();
-      setOver(true);
+  const dropping = useDropTarget({
+    accepts: (data) => DRAG in data || (clip !== undefined && carriesEffect(data, { clip: clip.id })),
+    over: setOver,
+    drop: (data) => {
+      // An effect lands on the clip of the cell, and on nothing in an empty one.
+      if (clip && dropEffect(data, { clip: clip.id })) return;
+      if (!(DRAG in data)) return;
+      const dragged = JSON.parse(data[DRAG]) as Dragged;
+      if ("clip" in dragged) {
+        if (dragged.clip !== clip?.id) void edit({ op: "moveClip", clip: dragged.clip, layer: layer.id, column: column.id });
+      } else if ("generator" in dragged) {
+        void edit({ op: "placeGenerator", generator: { kind: dragged.generator }, layer: layer.id, column: column.id });
+      } else void edit({ op: "placeVideo", asset: dragged.asset, layer: layer.id, column: column.id });
     },
-    onDragLeave: () => setOver(false),
-    onDrop,
-  };
+  });
 
   if (!clip) {
     // As on a media server, an empty cell stops its layer, over the layer's transition.
     return (
       <div className={`vj-slot${over ? " over" : ""}`} title={t("vj.cell.empty")}
-        onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} {...dropping} />
+        onPointerDown={(event) => { if (event.button === 0) void stopLayer(layer.id); }} ref={dropping} />
     );
   }
   const name = clipName(t, clip, videos);
@@ -464,10 +448,10 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
     <div
       className={`vj-clip${live ? " on-air" : ""}${selected ? " sel" : ""}${over ? " over" : ""}`}
       {...mappable({ kind: "clipLaunch", clip: clip.id })}
-      draggable
-      onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ clip: clip.id } satisfies Dragged))}
+      ref={dropping}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
+        startDrag(event, { [DRAG]: JSON.stringify({ clip: clip.id } satisfies Dragged) }, name);
         void launch(clip.id, layer.id);
       }}
       onPointerUp={() => { if (piano) void release(clip.id); }}
@@ -479,7 +463,6 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
           { label: t("vj.clip.remove"), run: () => void edit({ op: "removeClip", clip: clip.id }) },
         ] });
       }}
-      {...dropping}
     >
       <Thumb strip={stripOf(thumbs, clip)} generator={clip.generator} />
       <span className="vj-shade" />
@@ -632,24 +615,15 @@ function GroupRow({ grid, group, deck }: { grid: VjGrid; group: VjGroup; deck: V
     "-",
     { label: t("vj.group.ungroup"), run: ungroup },
   ];
-  const dropping = {
-    onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes(DRAG_LAYER) && !carriesEffect(event, { group: group.id })) return;
-      event.preventDefault();
-      setOver(true);
+  const dropping = useDropTarget({
+    accepts: (data) => DRAG_LAYER in data || carriesEffect(data, { group: group.id }),
+    over: setOver,
+    drop: (data) => {
+      const dragged = data[DRAG_LAYER];
+      if (!dragged) dropEffect(data, { group: group.id });
+      else void edit({ op: "layerGroup", layer: dragged, group: group.id, to: null });
     },
-    onDragLeave: () => setOver(false),
-    onDrop: (event: DragEvent<HTMLDivElement>) => {
-      setOver(false);
-      const dragged = event.dataTransfer.getData(DRAG_LAYER);
-      if (!dragged) {
-        dropEffect(event, { group: group.id });
-        return;
-      }
-      event.preventDefault();
-      void edit({ op: "layerGroup", layer: dragged, group: group.id, to: null });
-    },
-  };
+  });
   const bs = (
     <div className="vj-bs">
       <button type="button" className={group.bypass ? "on bypass" : ""} {...mappable({ kind: "groupBypass", group: group.id })} aria-pressed={!!group.bypass} title={t("vj.group.bypass")}
@@ -683,12 +657,12 @@ function GroupRow({ grid, group, deck }: { grid: VjGrid; group: VjGroup; deck: V
   return (
     <div className={`vj-row group${group.collapsed ? " folded" : ""}`}>
       {group.collapsed ? (
-        <div className={className} onClick={() => selectGroup(group.id)} onContextMenu={onContextMenu} {...dropping}>
+        <div className={className} onClick={() => selectGroup(group.id)} onContextMenu={onContextMenu} ref={dropping}>
           {bs}
           {nameRow}
         </div>
       ) : (
-        <div className={className} onClick={() => selectGroup(group.id)} onContextMenu={onContextMenu} {...dropping}>
+        <div className={className} onClick={() => selectGroup(group.id)} onContextMenu={onContextMenu} ref={dropping}>
           <button type="button" className="vj-eject" title={t("vj.group.ungroup")} aria-label={t("vj.group.ungroup")}
             onClick={(event) => { event.stopPropagation(); ungroup(); }}>
             <CloseIcon />
@@ -777,7 +751,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
               onClick={() => void edit({ op: "addDeck" })}><PlusIcon /></button>
           </div>
         </div>
-        <div className={`vj-comp${composition.over ? " over" : ""}`} {...composition.props}>
+        <div className={`vj-comp${composition.over ? " over" : ""}`} ref={composition.ref}>
           <div className="vj-cl"><strong>{t("vj.composition")}</strong><AnalysisMeter /><CompositionFx grid={grid} /></div>
           <Tempo />
           <TimecodeClock grid={grid} />
@@ -809,7 +783,7 @@ function OutputPanel({ grid }: { grid: VjGrid }) {
     }
   }), []);
   return (
-    <section className={`vj-panel${composition.over ? " over" : ""}`} aria-label={t("vj.output")} {...composition.props}>
+    <section className={`vj-panel${composition.over ? " over" : ""}`} aria-label={t("vj.output")} ref={composition.ref}>
       <header className="vj-ph">
         <h2>{t("vj.output")}</h2>
         <div className="vj-tools">
@@ -1221,8 +1195,8 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
         ) : browser === "generators" ? (
           <div className="vj-mg">
             {GENERATORS.map((kind) => (
-              <figure key={kind} className="vj-m" draggable title={t("vj.generators.note")}
-                onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ generator: kind } satisfies Dragged))}>
+              <figure key={kind} className="vj-m" title={t("vj.generators.note")}
+                onPointerDown={(event) => startDrag(event, { [DRAG]: JSON.stringify({ generator: kind } satisfies Dragged) }, t(`vj.generator.${kind}`))}>
                 <Thumb strip={undefined} generator={{ kind }} />
                 <figcaption><Marquee>{t(`vj.generator.${kind}`)}</Marquee></figcaption>
               </figure>
@@ -1236,8 +1210,8 @@ function MediaPanel({ grid }: { grid: VjGrid }) {
             {shown.map((video) => {
               const probe = probes[video.id];
               return (
-                <figure key={video.id} className={`vj-m${onAir.has(video.id) ? " using" : ""}`} draggable
-                  onDragStart={(event) => event.dataTransfer.setData(DRAG, JSON.stringify({ asset: video.id } satisfies Dragged))}>
+                <figure key={video.id} className={`vj-m${onAir.has(video.id) ? " using" : ""}`}
+                  onPointerDown={(event) => startDrag(event, { [DRAG]: JSON.stringify({ asset: video.id } satisfies Dragged) }, video.name)}>
                   <Thumb strip={thumbs[video.id]}>
                     {probe && <span className="vj-d">{probe.still ? t("vj.media.still") : clock(probe.frames * probe.rateDen / probe.rateNum)}</span>}
                     <MediaState asset={video.id} />
