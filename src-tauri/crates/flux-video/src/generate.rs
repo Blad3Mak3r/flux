@@ -98,6 +98,8 @@ pub fn picture(generator: &Generator, index: u64, moment: Moment) -> Frame {
             let (w, h) = NOISE;
             (w, h, noise(colour(c), index, (w, h)))
         }
+        // The picture of no signal; the deck swaps in the device's own when it has one.
+        Generator::LiveInput { .. } => (1, 1, vec![0, 0, 0]),
         Generator::Text { .. } => unreachable!("drawn above"),
     };
     let rgba = rgb

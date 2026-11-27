@@ -1,0 +1,9 @@
+[package]
+name = "flux-capture"
+version = "0.2.2"
+license = "GPL-3.0-or-later"
+description = "Live video inputs (cameras, capture cards) through FFmpeg's libavdevice"
+edition = "2024"
+
+[dependencies]
+ffmpeg-next = { version = "9.1.0", default-features = false, features = ["format", "codec", "software-scaling", "device"] }

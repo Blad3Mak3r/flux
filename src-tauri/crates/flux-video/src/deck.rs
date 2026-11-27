@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use std::time::Duration;
 
+use flux_capture::{Capture, Request};
 use flux_project::playhead::Tick;
 
-use flux_project::generator::Generator;
+use flux_project::generator::{Generator, LiveRate, LiveSize};
 use flux_project::vj::Vj;
 use flux_project::{Timeline, TrackKind};
 
@@ -48,6 +49,25 @@ pub struct VideoDeck {
     /// than one, so that screens asking a moment apart for a modulated generator, and the monitor
     /// and the screens, find the picture another of them made instead of making it again.
     generated: HashMap<String, VecDeque<Arc<Frame>>>,
+    /// The open live inputs by device name, one for all the clips that show the same device. A
+    /// device is closed when no clip shown uses it.
+    lives: HashMap<String, Live>,
+}
+
+/// A live input and the newest of its pictures made into a [`Frame`].
+struct Live {
+    capture: Capture,
+    /// The format asked, to open it again when a clip asks another.
+    request: Request,
+    frame: Option<Arc<Frame>>,
+}
+
+/// The format a live input clip asks of its device.
+fn request(size: LiveSize, rate: LiveRate) -> Request {
+    Request {
+        size: size.pixels(),
+        rate: rate.option(),
+    }
 }
 
 impl VideoDeck {
@@ -58,6 +78,7 @@ impl VideoDeck {
             players: HashMap::new(),
             failed: HashMap::new(),
             generated: HashMap::new(),
+            lives: HashMap::new(),
         }
     }
 
@@ -98,10 +119,25 @@ impl VideoDeck {
     fn pictures(&mut self, shown: Vec<Layer>, size: (u32, u32)) -> Vec<Shown> {
         self.generated
             .retain(|clip, _| shown.iter().any(|layer| &layer.clip == clip));
+        self.lives.retain(|device, live| {
+            shown.iter().any(|layer| match &layer.generator {
+                Some(Generator::LiveInput {
+                    device: d,
+                    size: asked,
+                    rate,
+                }) => d == device && request(*asked, *rate) == live.request,
+                _ => false,
+            })
+        });
         shown
             .into_iter()
             .map(|layer| {
                 let frame = match &layer.generator {
+                    Some(Generator::LiveInput {
+                        device,
+                        size: asked,
+                        rate,
+                    }) => self.live(device, request(*asked, *rate), size),
                     Some(generator) => {
                         let moment = Moment {
                             elapsed: Duration::from_millis(layer.frame),
@@ -118,6 +154,49 @@ impl VideoDeck {
                 Shown { layer, frame }
             })
             .collect()
+    }
+
+    /// The newest picture of the live input `device`, opening it if no clip showed it yet; black
+    /// while it has none (no device chosen, not connected, or the first picture not here yet).
+    fn live(&mut self, device: &str, request: Request, fit: (u32, u32)) -> Option<Arc<Frame>> {
+        let none = Generator::LiveInput {
+            device: device.to_owned(),
+            size: Default::default(),
+            rate: Default::default(),
+        };
+        let black = || {
+            let moment = Moment {
+                elapsed: Duration::ZERO,
+                beats: 0.0,
+                size: (0, 0),
+            };
+            Some(Arc::new(generate::picture(&none, 0, moment)))
+        };
+        if device.is_empty() {
+            return black();
+        }
+        // Without a composition (a timeline's cue) a picture is kept to full HD.
+        let fit = if fit == (0, 0) { (1920, 1080) } else { fit };
+        let live = self.lives.entry(device.to_owned()).or_insert_with(|| Live {
+            capture: Capture::start(device, request, fit),
+            request,
+            frame: None,
+        });
+        live.capture.fit(fit);
+        if let Some(new) = live.capture.latest() {
+            // The index tells the screens a picture is new: the capture's own, which counts up.
+            let current = live.frame.as_ref().map(|f| f.index);
+            if current != Some(new.index) {
+                live.frame = Some(Arc::new(Frame {
+                    index: new.index,
+                    width: new.width,
+                    height: new.height,
+                    rgba: new.rgba.clone(),
+                    alpha: false,
+                }));
+            }
+        }
+        live.frame.clone().or_else(black)
     }
 
     /// The picture of `generator`, the clip `clip`, at `moment`.
@@ -218,5 +297,31 @@ impl VideoDeck {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_live_input_without_a_device_shows_black_and_opens_nothing() {
+        let mut deck = VideoDeck::new(|_| None);
+        let none = deck.live("", Request::default(), (0, 0)).unwrap();
+        assert_eq!(none.rgba, [0, 0, 0, 255]);
+        assert!(deck.lives.is_empty());
+    }
+
+    #[test]
+    fn a_live_input_not_connected_shows_black_and_closes_with_its_clip() {
+        let mut deck = VideoDeck::new(|_| None);
+        let shown = deck
+            .live("/dev/flux-no-such-camera", Request::default(), (0, 0))
+            .unwrap();
+        assert_eq!(shown.rgba, [0, 0, 0, 255]);
+        assert_eq!(deck.lives.len(), 1);
+        // No layer shows it any more.
+        deck.pictures(Vec::new(), (0, 0));
+        assert!(deck.lives.is_empty());
     }
 }

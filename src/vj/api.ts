@@ -12,6 +12,8 @@ import type {
   VjModSource,
   VjFont,
   VjGenerator,
+  VjCaptureDevice,
+  VjCaptureStatus,
   VjModulation,
   VjDirection,
   VjPlayback,
@@ -124,6 +126,12 @@ export type ModTarget = { effect: string; param: string } | { layer: string; fie
 
 /** The font families a text block can use. */
 export const vjFonts = () => invoke<VjFont[]>("vj_fonts");
+
+/** The cameras and capture cards a Live input can show; empty when there are none. */
+export const vjCaptureDevices = () => invoke<VjCaptureDevice[]>("vj_capture_devices");
+
+/** What the open capture of a device says: connected, busy (held by another program), and whether it refused the format asked. */
+export const vjCaptureStatus = (device: string) => invoke<VjCaptureStatus>("vj_capture_status", { device });
 
 export const vjEdit = (project: Project, op: VjOp) => invoke<ProjectState>("vj_edit", { project, op });
 /** Moves a level or a clip's transform in the backend while the hand moves it, without the project going back and forth. */

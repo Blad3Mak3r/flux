@@ -259,6 +259,8 @@ export type VjGenerator =
   /** `angle` in degrees: 0 is left to right, 90 top to bottom. */
   | { kind: "gradient"; from?: string; to?: string; angle?: number }
   | { kind: "bars" }
+  /** A camera or capture card, by the name the system gives it; black while there is none or it is not connected. */
+  | { kind: "liveInput"; device?: string; size?: LiveSize; rate?: LiveRate }
   /** New snow `rate` times a second. */
   | { kind: "noise"; colour?: string; rate?: number }
   /** A block of text over a clear background. `size` is a fraction of the composition's height, the position the
@@ -289,7 +291,20 @@ export interface VjFont {
   name: string;
   styles: string[];
 }
-export type VjGeneratorKind = VjGenerator["kind"];
+/** The picture size and frame rate a live input asks of its device. */
+export type LiveSize = "auto" | "1280x720" | "1920x1080" | "3840x2160";
+export type LiveRate = "auto" | "25" | "30" | "50" | "59.94" | "60";
+/** What the backend says of a live input's device: `idle` while no clip shows it, `busy` when another program holds it. */
+export interface VjCaptureStatus {
+  state: "idle" | "notConnected" | "connected" | "busy";
+  refused: boolean;
+}
+/** A camera or capture card: `name` is what a live input clip stores, `label` what to show. */
+export interface VjCaptureDevice {
+  name: string;
+  label: string;
+}
+export type VjGeneratorKind =VjGenerator["kind"];
 
 export interface VjClip {
   id: string;

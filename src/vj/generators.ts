@@ -2,13 +2,18 @@ import type { CSSProperties } from "react";
 import type { VjGenerator, VjGeneratorKind } from "../project/types";
 
 /** The generators the browser offers, in its order. */
-export const GENERATORS: VjGeneratorKind[] = ["solid", "strobe", "gradient", "bars", "noise", "text"];
+export const GENERATORS: VjGeneratorKind[] = ["solid", "strobe", "gradient", "bars", "noise", "text", "liveInput"];
 
 /** The colours of the bars, left to right, as the backend draws them. */
 const BARS = ["#ffffff", "#ffff00", "#00ffff", "#00ff00", "#ff00ff", "#ff0000", "#0000ff"];
 
 const NOISE = `url("data:image/svg+xml,${encodeURIComponent(
   "<svg xmlns='http://www.w3.org/2000/svg' width='160' height='90'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>",
+)}")`;
+
+/** A live input's sketch: a camera's body and lens on the dark of an empty composition. */
+const CAMERA = `url("data:image/svg+xml,${encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' width='160' height='90'><rect x='46' y='28' width='68' height='40' rx='5' fill='none' stroke='#8a929a' stroke-width='4'/><circle cx='80' cy='48' r='11' fill='none' stroke='#8a929a' stroke-width='4'/></svg>",
 )}")`;
 
 /** A text block's sketch: its letters in its colour on the dark of an empty composition. */
@@ -41,6 +46,8 @@ export function swatch(generator: VjGenerator): CSSProperties {
     }
     case "text":
       return { backgroundColor: "#050607", backgroundImage: sketch(generator.colour ?? "#ffffff"), backgroundSize: "cover" };
+    case "liveInput":
+      return { backgroundColor: "#050607", backgroundImage: CAMERA, backgroundSize: "cover" };
     case "noise":
       return {
         backgroundColor: generator.colour ?? "#ffffff",

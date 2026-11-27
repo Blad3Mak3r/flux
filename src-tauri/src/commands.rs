@@ -564,6 +564,40 @@ pub async fn vj_fonts() -> Vec<serde_json::Value> {
     .unwrap_or_default()
 }
 
+/// The cameras and capture cards a Live input clip can show, each as `{ name, label }`: `name` is
+/// what the clip stores, `label` what to show. Empty when there are none. Listing asks the system,
+/// which can take a moment, so it is off the UI thread.
+#[tauri::command]
+pub async fn vj_capture_devices() -> Vec<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(|| {
+        flux_capture::devices()
+            .into_iter()
+            .map(|d| serde_json::json!({ "name": d.name, "label": d.label }))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// What the open capture of `device` says, as `{ state, refused }`: `state` is `idle` (no clip
+/// shows it now), `notConnected`, `connected` or `busy` (another program holds it); `refused` is
+/// true when it does not offer the format the clip asked and is open as Auto.
+#[tauri::command]
+pub fn vj_capture_status(device: String) -> serde_json::Value {
+    use flux_capture::State;
+    match flux_capture::status(&device) {
+        None => serde_json::json!({ "state": "idle", "refused": false }),
+        Some(status) => {
+            let state = match status.state {
+                State::NotConnected => "notConnected",
+                State::Connected => "connected",
+                State::Busy => "busy",
+            };
+            serde_json::json!({ "state": state, "refused": status.refused })
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn project_save(
     app: AppHandle,

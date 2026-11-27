@@ -111,7 +111,8 @@ fn clip_seconds(
     clip: &flux_project::vj::Clip,
     length: &dyn Fn(&str) -> Option<(f64, bool)>,
 ) -> Option<f64> {
-    match clip.generator {
+    match &clip.generator {
+        Some(generator) if generator.is_endless() => None,
         Some(_) => Some(f64::from(clip.duration)),
         None => length(&clip.asset)
             .map(|(seconds, still)| {
@@ -481,6 +482,8 @@ impl GridPlay {
                 // it, in milliseconds, so a loop starts its strobe and noise over.
                 let length = f64::from(clip.duration);
                 let (frame, fit) = match &clip.generator {
+                    // A live input has no length and never ends: its picture is the device's.
+                    Some(generator) if generator.is_endless() => (0, VideoFit::Stretch),
                     Some(_) => {
                         let place = head.at(tick, length)?;
                         ((place * length * 1000.0) as u64, VideoFit::Stretch)
@@ -859,6 +862,25 @@ mod tests {
         play.follow(&vj, secs(3.5).into(), &|_| None);
         let frame = play.layers(&vj, secs(3.5), &probe)[0].frame;
         assert!((499..=500).contains(&frame), "a loop starts over: {frame}");
+    }
+
+    #[test]
+    fn a_live_input_should_have_no_length_and_never_end() {
+        let mut vj = grid();
+        let live = &mut vj.layers[0].clips[1];
+        live.generator = Some(flux_project::generator::Generator::LiveInput {
+            device: "cam".into(),
+            size: Default::default(),
+            rate: Default::default(),
+        });
+        live.asset = String::new();
+        live.duration = 3.0;
+        live.playback = Playback::Once;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "b", secs(0.0));
+        assert_eq!(clip_seconds(&vj.layers[0].clips[1], &|_| None), None);
+        // Past its duration, a clip that plays once would have ended.
+        assert_eq!(play.layers(&vj, secs(100.0), &probe).len(), 1);
     }
 
     #[test]

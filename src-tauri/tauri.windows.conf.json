@@ -4,6 +4,8 @@
     "resources": {
       "ffmpeg/bin/avcodec-*.dll": "./",
       "ffmpeg/bin/avformat-*.dll": "./",
+      "ffmpeg/bin/avdevice-*.dll": "./",
+      "ffmpeg/bin/avfilter-*.dll": "./",
       "ffmpeg/bin/avutil-*.dll": "./",
       "ffmpeg/bin/swresample-*.dll": "./",
       "ffmpeg/bin/swscale-*.dll": "./",

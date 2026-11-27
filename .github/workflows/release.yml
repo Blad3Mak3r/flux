@@ -103,7 +103,7 @@ jobs:
       # major versions of the runner's FFmpeg, which the binary is linked against. Stop if they moved.
       - name: Check the FFmpeg versions the Linux packages name
         if: runner.os == 'Linux'
-        run: dpkg -s libavformat60 libavcodec60 libavutil58 libswscale7 > /dev/null
+        run: dpkg -s libavformat60 libavcodec60 libavutil58 libswscale7 libavdevice60 > /dev/null
 
       - uses: actions/setup-node@v7
         with:

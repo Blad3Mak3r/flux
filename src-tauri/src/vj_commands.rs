@@ -277,8 +277,9 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid, tick: Tick, bpm: f64) ->
             // Only the videos playing are copied, not the whole list on every poll. A generator
             // and a still image last the clip's duration.
             let duration = f64::from(clip.duration);
-            let length = if clip.generator.is_some() {
-                Some(duration)
+            let length = if let Some(generator) = &clip.generator {
+                // A live input has no length: no position, progress or countdown.
+                (!generator.is_endless()).then_some(duration)
             } else {
                 let asset = session
                     .lock()
