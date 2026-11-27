@@ -61,9 +61,14 @@
 .vj-split.row { flex-direction: row; }
 .vj-split.column { flex-direction: column; }
 .vj-sash { position: relative; background: transparent; touch-action: none; }
+/* The gap is 4px; the hit area reaches 4px past it on each side so the splitter is easy to catch. */
+.vj-sash::before { content: ""; position: absolute; inset: 0; z-index: 2; }
+.vj-split.row > .vj-sash::before { inset: 0 -4px; }
+.vj-split.column > .vj-sash::before { inset: -4px 0; }
 .vj-split.row > .vj-sash { cursor: col-resize; }
 .vj-split.column > .vj-sash { cursor: row-resize; }
-.vj-sash:hover, .vj-sash:active { background: var(--rule-strong); }
+.vj-sash:hover { background: var(--phosphor-dim); }
+.vj-sash:active, .vj-sash:focus-visible { background: var(--phosphor); outline: 0; }
 .vj-deck-slot, .vj-group { position: relative; display: flex; flex-direction: column; }
 .vj-deck-slot > .vj-panel { flex: 1; }
 .vj-dbody { display: flex; flex: 1; flex-direction: column; min-height: 0; }
