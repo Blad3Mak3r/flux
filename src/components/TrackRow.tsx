@@ -11,6 +11,7 @@ import type { ClipOp } from "../project/api";
 import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
+import { MediaProgressBar } from "../media/progress";
 import { focusMedia, useMedia } from "../media/store";
 import { editClip, editVideoClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
@@ -431,6 +432,7 @@ function ClipBlock({
           {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
         </span>
       )}
+      <MediaProgressBar asset={clip.asset} />
       <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
       <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
       <ClipHandle
@@ -538,6 +540,7 @@ function VideoBlock({
           </span>
         )}
       </span>
+      <MediaProgressBar asset={clip.asset} />
       <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
       <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
       <ClipHandle

@@ -6,6 +6,7 @@ import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, Pl
 import { useT } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
 import { MediaFile } from "../media/MediaFile";
+import { MediaProgressBar } from "../media/progress";
 import { focusMedia, useMedia } from "../media/store";
 import { useVideoErrors } from "../state/video";
 import type {
@@ -480,6 +481,7 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
       <EffectBadge count={clip.effects?.length ?? 0} />
       {live && <PlayTime layer={layer.id} clip={clip.id} countdown="cell" />}
       {state && <VideoState state={state} asset={clip.asset} />}
+      {clip.asset && <MediaProgressBar asset={clip.asset} />}
       {/* A folded row has no room to click the cell: its square launches the clip, as the cell does (the pointer reaches the cell). */}
       {layer.collapsed && (
         <button type="button" className={`vj-go${live ? " on" : ""}`} aria-pressed={live}
