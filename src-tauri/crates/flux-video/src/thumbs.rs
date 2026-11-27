@@ -29,15 +29,25 @@ pub struct Thumbs {
 /// Decodes the thumbnails of the video at `path`. It seeks to each one, so it reads a fraction of a
 /// long video; it still takes a moment, so call it off the UI thread.
 pub fn thumbnails(path: &Path) -> Result<Thumbs, VideoError> {
-    strip(path, THUMB_HEIGHT, MAX_THUMBS)
+    thumbnails_with(path, &mut |_| ())
+}
+
+/// Like [`thumbnails`], telling `progress` how far it is (0 to 1) after each picture.
+pub fn thumbnails_with(path: &Path, progress: &mut dyn FnMut(f32)) -> Result<Thumbs, VideoError> {
+    strip(path, THUMB_HEIGHT, MAX_THUMBS, progress)
 }
 
 /// Decodes only the first frame of the video at `path`, as a strip of one: what a VJ clip shows.
 pub fn poster(path: &Path) -> Result<Thumbs, VideoError> {
-    strip(path, POSTER_HEIGHT, 1)
+    strip(path, POSTER_HEIGHT, 1, &mut |_| ())
 }
 
-fn strip(path: &Path, height: u32, max: u64) -> Result<Thumbs, VideoError> {
+fn strip(
+    path: &Path,
+    height: u32,
+    max: u64,
+    progress: &mut dyn FnMut(f32),
+) -> Result<Thumbs, VideoError> {
     let mut file = VideoFile::open(path)?;
     let info = file.info().clone();
     let width = (u64::from(info.width) * u64::from(height))
@@ -52,6 +62,7 @@ fn strip(path: &Path, height: u32, max: u64) -> Result<Thumbs, VideoError> {
     let strip_row = row * count as usize;
     let mut strip = vec![0u8; strip_row * height as usize];
     for i in 0..count {
+        progress(i as f32 / count as f32);
         // A frame that cannot be decoded leaves its place black.
         let Ok(frame) = file.frame((i * every).min(info.frames.saturating_sub(1))) else {
             continue;

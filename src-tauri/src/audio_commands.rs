@@ -4,10 +4,13 @@ use std::io;
 use std::path::Path;
 use std::sync::{Arc, PoisonError};
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::commands::SharedSession;
-use flux_audio::{AudioError, Decoded, PEAKS_PER_SECOND, SharedAudio, decode, detect_bpm, peaks};
+use crate::media_progress::Stage;
+use flux_audio::{
+    AudioError, Decoded, PEAKS_PER_SECOND, SharedAudio, decode_with, detect_bpm, peaks,
+};
 use flux_project::{AudioAsset, AudioStamp, Preview};
 
 /// The decoded audio of `asset`, decoding it the first time and remembering it afterwards.
@@ -19,7 +22,7 @@ pub fn load(
     if let Some(decoded) = cache.get(&asset.id) {
         return Ok(decoded);
     }
-    let (_, decoded) = decode_asset(session, asset)?;
+    let (_, decoded) = decode_asset(session, asset, &mut |_| ())?;
     let decoded = Arc::new(decoded);
     cache.insert(&asset.id, Arc::clone(&decoded));
     Ok(decoded)
@@ -29,6 +32,7 @@ pub fn load(
 fn decode_asset(
     session: &SharedSession,
     asset: &AudioAsset,
+    progress: &mut dyn FnMut(f32),
 ) -> Result<(AudioStamp, Decoded), AudioError> {
     // The lock is held only to read the bytes, never while decoding.
     let (bytes, stamp) = {
@@ -42,7 +46,7 @@ fn decode_asset(
     let extension = Path::new(&asset.file)
         .extension()
         .and_then(|extension| extension.to_str());
-    Ok((stamp, decode(bytes, extension)?))
+    Ok((stamp, decode_with(bytes, extension, progress)?))
 }
 
 /// The length and waveform of `asset`: the stored preview if there is a valid one, otherwise decoded
@@ -51,12 +55,13 @@ fn analyze(
     session: &SharedSession,
     cache: &SharedAudio,
     asset: &AudioAsset,
+    progress: &mut dyn FnMut(f32),
 ) -> Result<Preview, AudioError> {
     let lock = || session.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(preview) = lock().preview(asset)? {
         return Ok(preview);
     }
-    let (stamp, decoded) = decode_asset(session, asset)?;
+    let (stamp, decoded) = decode_asset(session, asset, progress)?;
     let preview = Preview {
         duration_seconds: decoded.duration_seconds(),
         source_rate: decoded.source_rate,
@@ -73,14 +78,18 @@ fn analyze(
 /// opened; it decodes only an asset that has no stored preview yet.
 #[tauri::command]
 pub async fn audio_analyze(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     cache: State<'_, SharedAudio>,
     asset: AudioAsset,
 ) -> Result<Preview, AudioError> {
     let (session, cache) = (Arc::clone(&session), Arc::clone(&cache));
-    tauri::async_runtime::spawn_blocking(move || analyze(&session, &cache, &asset))
-        .await
-        .map_err(|err| AudioError::Worker(io::Error::other(err).to_string()))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut stage = Stage::start(&app, &asset.id, "decode");
+        analyze(&session, &cache, &asset, &mut |f| stage.report(f))
+    })
+    .await
+    .map_err(|err| AudioError::Worker(io::Error::other(err).to_string()))?
 }
 
 /// The tempo of an asset in BPM, or `null` when it shows no steady pulse. It uses the decoded audio
@@ -89,16 +98,20 @@ pub async fn audio_analyze(
 /// the way playing them does. A project stores the answer with the asset.
 #[tauri::command]
 pub async fn audio_detect_bpm(
+    app: AppHandle,
     session: State<'_, SharedSession>,
     cache: State<'_, SharedAudio>,
     asset: AudioAsset,
 ) -> Result<Option<f64>, AudioError> {
     let (session, cache) = (Arc::clone(&session), Arc::clone(&cache));
     tauri::async_runtime::spawn_blocking(move || {
+        let mut stage = Stage::start(&app, &asset.id, "decode");
         let decoded = match cache.get(&asset.id) {
             Some(decoded) => decoded,
-            None => Arc::new(decode_asset(&session, &asset)?.1),
+            None => Arc::new(decode_asset(&session, &asset, &mut |f| stage.report(f))?.1),
         };
+        drop(stage);
+        let _tempo = Stage::start(&app, &asset.id, "tempo");
         Ok(detect_bpm(&decoded))
     })
     .await
@@ -149,7 +162,7 @@ mod tests {
         let path = dir.path().join("show.fxtc");
         let session = Arc::new(Mutex::new(session));
         if analysed {
-            analyze(&session, &SharedAudio::default(), &asset).unwrap();
+            analyze(&session, &SharedAudio::default(), &asset, &mut |_| ()).unwrap();
         }
         session.lock().unwrap().save(&project, &path).unwrap();
         (asset, path)
@@ -165,10 +178,16 @@ mod tests {
     fn analyze_should_not_decode_a_project_saved_with_its_preview() {
         let dir = TempDir::new().unwrap();
         let (asset, path) = saved(&dir, true);
-        let expected = analyze(&reopened(&path), &SharedAudio::default(), &asset).unwrap();
+        let expected = analyze(
+            &reopened(&path),
+            &SharedAudio::default(),
+            &asset,
+            &mut |_| (),
+        )
+        .unwrap();
 
         let cache = SharedAudio::default();
-        let preview = analyze(&reopened(&path), &cache, &asset).unwrap();
+        let preview = analyze(&reopened(&path), &cache, &asset, &mut |_| ()).unwrap();
 
         assert_eq!(preview, expected);
         assert_eq!(preview.peaks.len(), 2 * 100 * 2);
@@ -183,13 +202,13 @@ mod tests {
         let session = reopened(&path);
         let cache = SharedAudio::default();
 
-        let preview = analyze(&session, &cache, &asset).unwrap();
+        let preview = analyze(&session, &cache, &asset, &mut |_| ()).unwrap();
         assert!(cache.get(&asset.id).is_some(), "the audio was not decoded");
 
         let project = Session::default().open(&path).unwrap();
         session.lock().unwrap().save(&project, &path).unwrap();
         let cache = SharedAudio::default();
-        let again = analyze(&reopened(&path), &cache, &asset).unwrap();
+        let again = analyze(&reopened(&path), &cache, &asset, &mut |_| ()).unwrap();
         assert_eq!(again, preview);
         assert!(cache.get(&asset.id).is_none(), "the audio was decoded");
     }

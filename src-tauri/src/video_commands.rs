@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::SharedSession;
+use crate::media_progress::Stage;
 use flux_audio::{AudioError, Decoded, SharedAudio};
 use flux_project::{Project, ProjectError, ProjectState, Result, VideoAsset, VideoClipOp};
 
@@ -242,9 +243,12 @@ pub async fn video_probe(
 ) -> Result<VideoProbe> {
     let cache = video_cache(&app)?;
     let (session, probes) = (Arc::clone(&session), Arc::clone(&probes));
-    tauri::async_runtime::spawn_blocking(move || probe(&session, &probes, &asset, &cache))
-        .await
-        .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let _stage = Stage::start(&app, &asset.id, "probe");
+        probe(&session, &probes, &asset, &cache)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
 
 /// Moves, trims, splits or removes a video clip of the active timeline at `frame` of it (see
@@ -303,6 +307,7 @@ fn thumbs(
     session: &SharedSession,
     asset: &VideoAsset,
     cache: &std::path::Path,
+    progress: &mut dyn FnMut(f32),
 ) -> Result<VideoThumbs> {
     // A VJ clip shows only the first frame, which is much quicker to decode than a strip.
     let vj = session
@@ -334,7 +339,7 @@ fn thumbs(
             let made = if vj {
                 flux_video::poster(&path)
             } else {
-                flux_video::thumbnails(&path)
+                flux_video::thumbnails_with(&path, progress)
             }
             .map_err(|err| ProjectError::Invalid(format!("{}: {err}", asset.name)))?;
             let meta = VideoThumbs {
@@ -366,9 +371,12 @@ pub async fn video_thumbnails(
 ) -> Result<VideoThumbs> {
     let cache = video_cache(&app)?;
     let session = Arc::clone(&session);
-    tauri::async_runtime::spawn_blocking(move || thumbs(&session, &asset, &cache))
-        .await
-        .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut stage = Stage::start(&app, &asset.id, "thumbs");
+        thumbs(&session, &asset, &cache, &mut |f| stage.report(f))
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
 
 /// What the timeline draws of a video's sound: its waveform, as for an audio file, and its tempo.
@@ -395,14 +403,18 @@ pub async fn video_sound(
     video_cache(&app)?;
     let (session, audio) = (Arc::clone(&session), Arc::clone(&audio));
     tauri::async_runtime::spawn_blocking(move || {
-        Ok(
-            load_audio(&session, &audio, &asset)?.map(|decoded| VideoSound {
-                duration_seconds: decoded.duration_seconds(),
-                peaks_per_second: flux_audio::PEAKS_PER_SECOND,
-                peaks: flux_audio::peaks(&decoded),
-                bpm: flux_audio::detect_bpm(&decoded),
-            }),
-        )
+        let sound = Stage::start(&app, &asset.id, "sound");
+        let Some(decoded) = load_audio(&session, &audio, &asset)? else {
+            return Ok(None);
+        };
+        drop(sound);
+        let _tempo = Stage::start(&app, &asset.id, "tempo");
+        Ok(Some(VideoSound {
+            duration_seconds: decoded.duration_seconds(),
+            peaks_per_second: flux_audio::PEAKS_PER_SECOND,
+            peaks: flux_audio::peaks(&decoded),
+            bpm: flux_audio::detect_bpm(&decoded),
+        }))
     })
     .await
     .map_err(|err| AudioError::Worker(err.to_string()))?

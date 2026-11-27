@@ -11,6 +11,7 @@ mod export_commands;
 mod graphics;
 mod live_commands;
 mod media_commands;
+mod media_progress;
 mod modulation;
 mod osc_api;
 mod preferences;
