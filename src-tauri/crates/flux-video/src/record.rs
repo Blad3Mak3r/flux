@@ -210,8 +210,8 @@ impl Writer {
         // The pixels around the frame, which it never covers, are opaque black.
         let stride = picture.stride(0);
         for row in picture.data_mut(0).chunks_mut(stride) {
-            for pixel in row.chunks_exact_mut(4) {
-                pixel.copy_from_slice(&[0, 0, 0, 255]);
+            for pixel in row.as_chunks_mut::<4>().0 {
+                *pixel = [0, 0, 0, 255];
             }
         }
         Ok(Self {
