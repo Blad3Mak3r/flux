@@ -170,6 +170,7 @@ pub fn run() {
             vj_layout_commands::vj_layout_rename,
             vj_layout_commands::vj_layout_delete,
             vj_layout_commands::vj_layout_reset,
+            vj_commands::vj_monitor_frame,
             vj_presets_commands::vj_presets_list,
             vj_presets_commands::vj_preset_save,
             vj_presets_commands::vj_preset_rename,
