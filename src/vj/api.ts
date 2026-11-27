@@ -189,6 +189,42 @@ export const vjPlayState = () => invoke<GridState>("vj_play_state");
 export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");
 /** What `clip` alone looks like in the composition, as a small picture (see `bindPreview`); it plays on its own, whatever is on air. */
 export const vjPreviewFrame = (clip: string) => invoke<ArrayBuffer>("vj_preview_frame", { clip });
+/** What one layer or group contributes to the composition, as a small picture (see `bindMonitor`). */
+export const vjMonitorFrame = (kind: "layer" | "group", id: string) => invoke<ArrayBuffer>("vj_monitor_frame", { kind, id });
+
+// ---- The dock layout ----
+// Mirrors `vj_layout` in src-tauri/crates/flux-project/src/vj_layout.rs. The backend owns every rule of it.
+
+/** The most monitors the backend lets be open (`MAX_MONITORS`); it refuses more. */
+export const MAX_MONITORS = 8;
+export type DockDir = "row" | "column";
+export type DockNode =
+  | { type: "split"; id: string; dir: DockDir; children: DockNode[]; sizes: number[] }
+  | { type: "tabs"; id: string; panels: string[]; active: number }
+  | { type: "deck" };
+export type MonitorKind = { type: "composition" } | { type: "preview" } | { type: "layer"; layer: string | null } | { type: "group"; group: string | null };
+export type DockZone = "center" | "left" | "right" | "top" | "bottom";
+/** Where a panel is dropped: a tab group id or `"deck"`, and the zone of it. */
+export interface DockTarget {
+  node: string;
+  zone: DockZone;
+}
+export interface DockLayout {
+  version: number;
+  root: DockNode;
+  monitors: { id: string; kind: MonitorKind }[];
+}
+export interface LayoutState {
+  current: DockLayout;
+  saved: { id: string; name: string }[];
+  factory: { id: "default" | "performance" | "monitors" }[];
+  /** The least `[width, height]` in px of every split, tab group and `"deck"`. */
+  mins: Record<string, [number, number]>;
+  /** The gap a splitter takes, in px. */
+  gap: number;
+}
+/** One command of the layout (`vj_layout_<op>`); each answers with the whole state. */
+export const vjLayout = (op: string, args?: Record<string, unknown>) => invoke<LayoutState>(`vj_layout_${op}`, args);
 
 /** A setting of an effect, with what it takes; the backend owns the ranges and the defaults. */
 export type VjParamSpec =

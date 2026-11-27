@@ -30,12 +30,11 @@
   --vj-group: oklch(0.255 0.034 175);
   --vj-group-ink: oklch(0.8 0.09 175);
 
-  display: grid;
-  grid-template-columns: minmax(520px, 0.42fr) minmax(0, 1fr) minmax(320px, 420px);
-  grid-template-rows: minmax(0, 1.6fr) minmax(220px, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-direction: column;
   padding: 4px;
   min-height: 0;
+  min-width: 0;
   background: var(--vj-ground);
 }
 
@@ -50,10 +49,87 @@
   box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.035);
 }
 
-.vj-deck-panel { grid-column: 1 / 3; grid-row: 1; }
-.vj-right { grid-column: 3; grid-row: 1; display: grid; grid-template-rows: 1fr 1fr; gap: 4px; min-height: 0; }
-.vj-insp-panel { grid-column: 1; grid-row: 2; }
-.vj-media { grid-column: 2 / 4; grid-row: 2; }
+/* ---- The dock: splits, tab groups and the deck ---- */
+
+/* A window too small for every panel's minimum scrolls here instead of crushing them. */
+.vj-dock { flex: 1; min-height: 0; overflow: auto; }
+.vj-dock-in { display: flex; width: 100%; height: 100%; }
+.vj-dock-in > * { flex: 1; min-width: 0; min-height: 0; }
+.vj-dn { display: flex; min-width: 0; min-height: 0; }
+.vj-dn > * { flex: 1; min-width: 0; min-height: 0; }
+.vj-split { display: flex; }
+.vj-split.row { flex-direction: row; }
+.vj-split.column { flex-direction: column; }
+.vj-sash { position: relative; background: transparent; touch-action: none; }
+.vj-split.row > .vj-sash { cursor: col-resize; }
+.vj-split.column > .vj-sash { cursor: row-resize; }
+.vj-sash:hover, .vj-sash:active { background: var(--rule-strong); }
+.vj-deck-slot, .vj-group { position: relative; display: flex; flex-direction: column; }
+.vj-deck-slot > .vj-panel { flex: 1; }
+.vj-dbody { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+
+/* The strip of tabs is the group's title and the handle to move it. */
+.vj-dtabs {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  height: 28px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  user-select: none;
+  background: var(--vj-head);
+  border-bottom: 1px solid var(--vj-ground);
+}
+
+.vj-dtabs::-webkit-scrollbar { display: none; }
+
+.vj-dtab {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 0 4px 0 12px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  cursor: grab;
+}
+
+.vj-dtab:hover { color: var(--ink-dim); background: var(--vj-ctl); }
+.vj-dtab.on { color: var(--ink); font-weight: 600; background: var(--vj-panel); }
+.vj-dtab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--phosphor); }
+.vj-dtab-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.vj-dtab-x {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+.vj-dtab-x .icon { width: 10px; height: 10px; }
+.vj-dtab:hover .vj-dtab-x, .vj-dtab:focus-within .vj-dtab-x, .vj-dtab.on .vj-dtab-x:focus-visible { opacity: 1; }
+.vj-dtab-x:hover { color: var(--ink); background: var(--vj-ctl-hi); }
+
+/* Where a dragged tab would land: the half of the target it takes, or all of it for a tab group's centre. */
+.vj-drop { position: absolute; z-index: 5; pointer-events: none; background: oklch(0.87 0.17 128 / 0.14); outline: 2px solid var(--phosphor); outline-offset: -2px; }
+.vj-drop.center { inset: 0; }
+.vj-drop.left { inset: 0 50% 0 0; }
+.vj-drop.right { inset: 0 0 0 50%; }
+.vj-drop.top { inset: 0 0 50% 0; }
+.vj-drop.bottom { inset: 50% 0 0 0; }
+.vj-drop-mark { position: absolute; z-index: 5; width: 2px; margin-left: -1px; pointer-events: none; background: var(--phosphor); }
+
+/* A monitor's footer: what it shows, then its gear. */
+.vj-mfoot { display: flex; flex: none; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; color: var(--ink-dim); font-size: 12px; background: var(--vj-head); border-top: 1px solid var(--vj-ground); }
+.vj-mlabel { flex: 1; min-width: 0; }
+.vj-gear { padding: 0 4px; }
 
 .vj-ph {
   display: flex;
@@ -485,21 +561,6 @@
 .vj-acts .button { flex: 1; justify-content: center; }
 
 /* Inspector */
-.vj-tabs { display: flex; gap: 2px; height: 100%; margin-left: -4px; }
-
-.vj-tabs button {
-  position: relative;
-  height: 100%;
-  padding: 0 8px;
-  color: var(--ink-faint);
-  font: 500 12.5px var(--font-ui);
-  background: none;
-  border: 0;
-}
-
-.vj-tabs button.on { color: var(--ink); font-weight: 600; }
-.vj-tabs button.on::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--ink); }
-
 .vj-insp { display: grid; grid-template-columns: 200px minmax(0, 1fr); align-content: start; gap: 14px 18px; height: 100%; padding: 14px 24px 14px 14px; overflow: auto; }
 .vj-insp.single { grid-template-columns: minmax(0, 1fr); }
 .vj-ithumb { width: 200px; aspect-ratio: 16 / 9; border-radius: 1px; box-shadow: 0 0 0 2px var(--phosphor); }

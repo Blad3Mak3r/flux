@@ -14,6 +14,8 @@ import {
   vjLaunch,
   vjLaunchColumn,
   vjLaunchGroupColumn,
+  vjLayout,
+  vjMonitorFrame,
   vjOutputFrame,
   vjPreviewFrame,
   vjPreview,
@@ -24,7 +26,7 @@ import {
   vjModulationValues,
   vjStop,
 } from "./api";
-import type { GridState, ModValues, VjBeatOp, VjOp } from "./api";
+import type { DockNode, DockTarget, GridState, LayoutState, ModValues, MonitorKind, VjBeatOp, VjOp } from "./api";
 
 /** A video file being copied into the project, shown where it will land until it is there. */
 export interface Importing {
@@ -47,11 +49,12 @@ interface VjState {
   group: string | null;
   /** The layers picked with Ctrl or Cmd held, which Group selected layers puts in a group; only the screen's. */
   picked: string[];
+  /** What was selected last, which the browser and the group rows follow; its panel is brought forward. */
   tab: "clip" | "layer" | "group" | "composition" | "mappings";
+  /** The dock layout of the screen and the names it can switch to; `null` until the backend answers. */
+  layout: LayoutState | null;
   /** Which media the browser lists. */
   media: MediaKind;
-  /** What the browser shows: the project's media, the generators or the effects. */
-  browser: "media" | "generators" | "effects";
   /** The effects of the inspector folded shut; only the screen's, never the file's. */
   folded: Record<string, true>;
   /** The modulation sub-rows of the inspector that are open, by the setting's key; only the screen's. */
@@ -75,7 +78,7 @@ export const useVj = create<VjState>()(() => ({
   picked: [],
   tab: "clip",
   media: "all",
-  browser: "media",
+  layout: null,
   folded: {},
   modOpen: {},
   mod: NO_MOD,
@@ -151,6 +154,7 @@ const played = (run: () => Promise<GridState>) =>
 
 export const launch = (clip: string, layer: string) => {
   useVj.setState({ clip, layer, tab: "clip" });
+  reveal("clip");
   return played(() => vjLaunch(clip));
 };
 export const release = (clip: string) => played(() => vjRelease(clip));
@@ -178,16 +182,73 @@ export function scrub(layer: string, position: number): void {
 let scrubbing: Promise<void> = Promise.resolve();
 export const moveCrossfader = (position: number) => played(() => vjCrossfader(position));
 
-export const selectClip = (clip: string, layer: string) => useVj.setState({ clip, layer, tab: "clip" });
+export const selectClip = (clip: string, layer: string) => {
+  useVj.setState({ clip, layer, tab: "clip" });
+  reveal("clip");
+};
 /** Shows the layer in the inspector; with `pick` it also joins (or leaves) the layers picked for a group. */
-export const selectLayer = (layer: string, pick = false) =>
+export const selectLayer = (layer: string, pick = false) => {
   useVj.setState((vj) => ({
     layer,
     tab: "layer",
     picked: pick ? (vj.picked.includes(layer) ? vj.picked.filter((id) => id !== layer) : [...vj.picked, layer]) : [],
   }));
-export const selectGroup = (group: string) => useVj.setState({ group, tab: "group", picked: [] });
-export const showTab = (tab: VjState["tab"]) => useVj.setState({ tab });
+  reveal("layer");
+};
+export const selectGroup = (group: string) => {
+  useVj.setState({ group, tab: "group", picked: [] });
+  reveal("group");
+};
+/** Brings a panel forward, opening it when it is closed (the View menu and the Composition key). */
+export const showTab = (tab: VjState["tab"]) => {
+  useVj.setState({ tab });
+  reveal(tab, true);
+};
+
+// ---- The dock layout ----
+
+/** Where the panel `panel` is in the tree: its tab group and its place there. */
+function seat(node: DockNode, panel: string): { group: string; index: number; active: boolean } | null {
+  if (node.type === "tabs") {
+    const index = node.panels.indexOf(panel);
+    return index < 0 ? null : { group: node.id, index, active: node.active === index };
+  }
+  if (node.type === "split") return node.children.reduce<ReturnType<typeof seat>>((found, child) => found ?? seat(child, panel), null);
+  return null;
+}
+
+/** The ids of the panels that are open, in the tree's order. */
+export function openPanels(node: DockNode): string[] {
+  if (node.type === "tabs") return node.panels;
+  return node.type === "split" ? node.children.flatMap(openPanels) : [];
+}
+
+const laid = (run: () => Promise<LayoutState>) =>
+  run()
+    .then((layout) => useVj.setState({ layout }))
+    .catch(fail);
+
+export const loadLayout = () => laid(() => vjLayout("get"));
+export const layoutMove = (panel: string, target: DockTarget) => laid(() => vjLayout("move", { panel, target }));
+export const layoutReorder = (group: string, from: number, to: number) => laid(() => vjLayout("reorder", { group, from, to }));
+export const layoutActivate = (group: string, index: number) => laid(() => vjLayout("activate", { group, index }));
+export const layoutClose = (panel: string) => laid(() => vjLayout("close", { panel }));
+export const layoutOpen = (panel: string, monitor?: MonitorKind) => laid(() => vjLayout("open", { panel, monitor }));
+export const layoutResize = (split: string, sizes: number[]) => laid(() => vjLayout("resize", { split, sizes }));
+export const layoutSetMonitor = (id: string, kind: MonitorKind) => laid(() => vjLayout("set_monitor", { id, kind }));
+export const layoutApply = (id: string) => laid(() => vjLayout("apply", { id }));
+export const layoutSave = (name: string) => laid(() => vjLayout("save", { name }));
+export const layoutDelete = (id: string) => laid(() => vjLayout("delete", { id }));
+export const layoutReset = () => laid(() => vjLayout("reset"));
+
+/** Brings the tab of `panel` forward when it is open and hidden behind another; a closed one opens only with `open`. */
+function reveal(panel: string, open = false): void {
+  const layout = useVj.getState().layout;
+  if (!layout) return;
+  const at = seat(layout.current.root, panel);
+  if (at && !at.active) void layoutActivate(at.group, at.index);
+  else if (!at && open) void layoutOpen(panel);
+}
 export const showMedia = (media: MediaKind) => useVj.setState({ media });
 /** Folds an effect of the inspector shut, or opens it again. */
 export const foldEffect = (effect: string) =>
@@ -205,7 +266,6 @@ export const showModulation = (key: string, open?: boolean) =>
     else delete modOpen[key];
     return { modOpen };
   });
-export const showBrowser = (browser: VjState["browser"]) => useVj.setState({ browser });
 
 /** Asks the backend what plays, twenty times a second, while the VJ screen is open and in sight. */
 export function bindPlayState(): () => void {
@@ -282,6 +342,11 @@ const OUTPUT_EVERY = 1000 / 30;
  */
 export function bindOutput(draw: (picture: ImageData | null) => void): () => void {
   return bindFrames(vjOutputFrame, draw);
+}
+
+/** Like {@link bindOutput}, for what one layer or group alone contributes to the composition. */
+export function bindMonitor(kind: "layer" | "group", id: string, draw: (picture: ImageData | null) => void): () => void {
+  return bindFrames(() => vjMonitorFrame(kind, id), draw);
 }
 
 /** Like {@link bindOutput}, for the picture of one clip alone as the composition would show it. */

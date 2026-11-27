@@ -265,3 +265,10 @@ export const ModulationIcon = () => (
 
 /** A bookmark: the presets of an effect or a stack. */
 export const PresetIcon = () => <Icon><path d="M4.5 2.5h7v11L8 10.5l-3.5 3z" /></Icon>;
+
+export const GearIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="2.25" />
+    <path d="M8 1.5v2.5M8 12v2.5M1.5 8H4M12 8h2.5M3.4 3.4l1.8 1.8M10.8 10.8l1.8 1.8M3.4 12.6l1.8-1.8M10.8 5.2l1.8-1.8" />
+  </Icon>
+);
