@@ -16,6 +16,8 @@ interface MediaStore {
   offline: ReadonlySet<string>;
   /** The media page is open. */
   open: boolean;
+  /** The asset the page was opened for: its row is selected and scrolled into view. */
+  focus: string | null;
   /** Something is running on the backend (a search, a relink or a copy). */
   busy: boolean;
   /** The copy of a collect, while it runs. */
@@ -27,12 +29,15 @@ export const useMedia = create<MediaStore>(() => ({
   missing: 0,
   offline: NONE,
   open: false,
+  focus: null,
   busy: false,
   progress: null,
 }));
 
-export const openMedia = () => useMedia.setState({ open: true });
-export const closeMedia = () => useMedia.setState({ open: false });
+export const openMedia = () => useMedia.setState({ open: true, focus: null });
+/** Opens the page with one asset's row selected, so Relink… acts on it. */
+export const focusMedia = (asset: string) => useMedia.setState({ open: true, focus: asset });
+export const closeMedia = () => useMedia.setState({ open: false, focus: null });
 
 let asked = 0;
 

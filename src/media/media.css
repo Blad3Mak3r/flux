@@ -232,3 +232,10 @@ tr[data-state="offline"] td.state {
   color: var(--signal);
   font-weight: 700;
 }
+
+/* The row the page was opened for: a 2px ink outline, and its lamp and state word already say the rest. */
+.media-table tr[aria-selected="true"] {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
+  background: var(--panel-lo);
+}

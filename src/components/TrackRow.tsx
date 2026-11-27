@@ -11,7 +11,7 @@ import type { ClipOp } from "../project/api";
 import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
-import { useMedia } from "../media/store";
+import { focusMedia, useMedia } from "../media/store";
 import { editClip, editVideoClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
@@ -157,7 +157,7 @@ export const TrackHeader = memo(function TrackHeader({
  * Drag an item sideways in whole frames; commit once on release so undo takes one step. `length` is
  * how many frames it lasts, so that its end can land on something as well as its start.
  */
-function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number) {
+function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number, onClick?: () => void) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
   const move =
     kind === "operator"
@@ -187,6 +187,7 @@ function useDrag(id: string, kind: Selected["kind"], position: number, length: n
     },
     onPointerUp() {
       if (origin.current && delta !== 0) void move(id, origin.current.position + delta);
+      else if (origin.current) onClick?.(); // A press that never moved: a click.
       origin.current = null;
       setSnapGuide(null);
       setDelta(0);
@@ -323,7 +324,7 @@ function ClipBlock({
   const offline = useMedia((media) => media.offline.has(clip.asset));
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
-  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame, offline ? () => focusMedia(clip.asset) : undefined);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame);
@@ -468,7 +469,7 @@ function VideoBlock({
   const offline = useMedia((media) => media.offline.has(clip.asset));
   const name = useDoc((doc) => clip.name ?? doc.project.videos?.find((video) => video.id === clip.asset)?.name ?? clip.asset);
   const length = videoClipLength(clip, probe, fps, guessLength);
-  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame, offline ? () => focusMedia(clip.asset) : undefined);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame, true);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame, true);

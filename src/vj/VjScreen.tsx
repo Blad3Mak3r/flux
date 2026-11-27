@@ -6,7 +6,7 @@ import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, Pl
 import { useT } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
 import { MediaFile } from "../media/MediaFile";
-import { useMedia } from "../media/store";
+import { focusMedia, useMedia } from "../media/store";
 import { useVideoErrors } from "../state/video";
 import type {
   VideoAsset,
@@ -461,8 +461,10 @@ function Cell({ layer, column, at }: { layer: VjLayer; column: VjColumn; at: num
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         startDrag(event, { [DRAG]: JSON.stringify({ clip: clip.id } satisfies Dragged) }, name);
-        void launch(clip.id, layer.id);
+        // An offline clip has nothing to play: its click opens the media page on it (a drag swallows the click).
+        if (state !== "offline") void launch(clip.id, layer.id);
       }}
+      onClick={() => { if (state === "offline" && clip.asset) focusMedia(clip.asset); }}
       onPointerUp={() => { if (piano) void release(clip.id); }}
       onPointerLeave={(event) => { if (piano && event.buttons === 1) void release(clip.id); }}
       onContextMenu={(event) => {

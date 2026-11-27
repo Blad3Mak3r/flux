@@ -22,12 +22,16 @@ function MediaPage() {
   const missing = useMedia((media) => media.missing);
   const busy = useMedia((media) => media.busy);
   const progress = useMedia((media) => media.progress);
+  const focus = useMedia((media) => media.focus);
   const saved = useDoc((doc) => doc.path !== null);
   const [onlyMissing, setOnlyMissing] = useState(false);
 
   useEffect(() => {
     ref.current?.showModal();
   }, []);
+  useEffect(() => {
+    ref.current?.querySelector("tr[aria-selected=true]")?.scrollIntoView({ block: "nearest" });
+  }, [focus, items]);
 
   const shown = onlyMissing ? items.filter((item) => item.state === "offline") : items;
   const percent = progress && progress.totalBytes > 0 ? Math.min(100, Math.floor((progress.doneBytes * 100) / progress.totalBytes)) : 0;
@@ -65,7 +69,7 @@ function MediaPage() {
           </thead>
           <tbody>
             {shown.map((item) => (
-              <tr key={item.id} data-state={item.state}>
+              <tr key={item.id} data-state={item.state} aria-selected={item.id === focus}>
                 <td className="name" title={item.name}>{item.name}</td>
                 <td className="kind">{t(`media.kind.${item.kind}`)}</td>
                 <td className="state">
