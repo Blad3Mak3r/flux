@@ -16,6 +16,66 @@ const TEXT_POSITION: (f32, f32) = (-1.0, 2.0);
 /// The tracking and leading of a text block, in ems.
 const TEXT_SPACE: (f32, f32) = (-0.5, 2.0);
 
+/// The size asked of a live input's device.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LiveSize {
+    /// Whatever the device opens with.
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "1280x720")]
+    P720,
+    #[serde(rename = "1920x1080")]
+    P1080,
+    #[serde(rename = "3840x2160")]
+    P2160,
+}
+
+impl LiveSize {
+    /// Width and height in pixels, `None` for `auto`.
+    pub fn pixels(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Auto => None,
+            Self::P720 => Some((1280, 720)),
+            Self::P1080 => Some((1920, 1080)),
+            Self::P2160 => Some((3840, 2160)),
+        }
+    }
+}
+
+/// The frame rate asked of a live input's device.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LiveRate {
+    /// Whatever the device opens with.
+    #[default]
+    #[serde(rename = "auto")]
+    Auto,
+    #[serde(rename = "25")]
+    F25,
+    #[serde(rename = "30")]
+    F30,
+    #[serde(rename = "50")]
+    F50,
+    #[serde(rename = "59.94")]
+    F59_94,
+    #[serde(rename = "60")]
+    F60,
+}
+
+impl LiveRate {
+    /// The rate as FFmpeg's `framerate` option writes it, `None` for `auto`.
+    pub fn option(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            Self::F25 => Some("25"),
+            Self::F30 => Some("30"),
+            Self::F50 => Some("50"),
+            Self::F59_94 => Some("59.94"),
+            Self::F60 => Some("60"),
+        }
+    }
+}
+
 /// The numbers of a generator that a modulation can move: its name, its range and the step a
 /// modulated value is rounded to. Rounding keeps a text block's picture the same while the value
 /// moves less than a step, which saves drawing it again; a step is about a pixel of the picture.
@@ -113,6 +173,12 @@ pub enum Generator {
     LiveInput {
         #[serde(default)]
         device: String,
+        /// The picture size asked of the device; a device that lacks it is opened as `auto`.
+        #[serde(default)]
+        size: LiveSize,
+        /// The frame rate asked of the device; a device that lacks it is opened as `auto`.
+        #[serde(default)]
+        rate: LiveRate,
     },
     /// A block of text over a transparent background, as Resolume's Text Block. `size` is the height
     /// of the font as a fraction of the composition's, `position_x` and `position_y` the centre of
@@ -321,7 +387,7 @@ impl Generator {
                 "a generator colour must look like #rrggbb: {bad}"
             )));
         }
-        if let Self::LiveInput { device } = self
+        if let Self::LiveInput { device, .. } = self
             && (device.chars().count() > MAX_NAME || device.chars().any(char::is_control))
         {
             return Err(ProjectError::Invalid(
@@ -488,15 +554,36 @@ mod tests {
         assert_eq!(
             live,
             Generator::LiveInput {
-                device: String::new()
+                device: String::new(),
+                size: LiveSize::Auto,
+                rate: LiveRate::Auto
             }
         );
+        let asked: Generator = serde_json::from_str(
+            r#"{"kind":"liveInput","device":"x","size":"1920x1080","rate":"59.94"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            asked,
+            Generator::LiveInput {
+                device: "x".into(),
+                size: LiveSize::P1080,
+                rate: LiveRate::F59_94
+            }
+        );
+        assert_eq!(serde_json::to_value(&asked).unwrap()["rate"], "59.94");
+        for bad in [r#""size":"640x480""#, r#""rate":"24""#] {
+            let text = format!(r#"{{"kind":"liveInput",{bad}}}"#);
+            assert!(serde_json::from_str::<Generator>(&text).is_err(), "{bad}");
+        }
         let named: Generator =
             serde_json::from_str(r#"{"kind":"liveInput","device":"/dev/video0"}"#).unwrap();
         assert!(named.validate().is_ok());
         assert!(named.numbers().is_empty());
         let bad = Generator::LiveInput {
             device: "a\nb".into(),
+            size: LiveSize::Auto,
+            rate: LiveRate::Auto,
         };
         assert!(bad.validate().is_err());
     }

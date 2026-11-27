@@ -870,6 +870,8 @@ mod tests {
         let live = &mut vj.layers[0].clips[1];
         live.generator = Some(flux_project::generator::Generator::LiveInput {
             device: "cam".into(),
+            size: Default::default(),
+            rate: Default::default(),
         });
         live.asset = String::new();
         live.duration = 3.0;
