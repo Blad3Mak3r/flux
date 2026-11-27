@@ -1547,6 +1547,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "flux-capture"
+version = "0.2.2"
+dependencies = [
+ "ffmpeg-next",
+]
+
+[[package]]
 name = "flux-core"
 version = "0.2.2"
 dependencies = [
@@ -1615,6 +1622,7 @@ dependencies = [
  "chrono",
  "dirs",
  "flux-audio",
+ "flux-capture",
  "flux-core",
  "flux-engine",
  "flux-project",

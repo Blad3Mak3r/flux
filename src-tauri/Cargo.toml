@@ -30,6 +30,7 @@ flux-project = { path = "crates/flux-project" }
 flux-audio = { path = "crates/flux-audio" }
 flux-engine = { path = "crates/flux-engine" }
 flux-video = { path = "crates/flux-video" }
+flux-capture = { path = "crates/flux-capture" }
 flux-render = { path = "crates/flux-render" }
 flux-text = { path = "crates/flux-text" }
 tauri = { version = "2", features = ["unstable"] }
