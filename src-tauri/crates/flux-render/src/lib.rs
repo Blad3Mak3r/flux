@@ -7,6 +7,7 @@
 //! [`Blend`]. A quad can fade out towards its edges (a soft edge, to blend
 //! two projectors where their pictures overlap), and [`Mask`]s black out parts of the window.
 
+mod capture;
 mod compose;
 mod composite;
 pub mod effects;
@@ -15,6 +16,7 @@ pub mod palette;
 pub mod pattern;
 pub mod post;
 
+pub use capture::Captured;
 pub use composite::{composite, composite_items, composite_post};
 pub use effects::{Effects, Time};
 pub use mapped::map_screen;
@@ -319,6 +321,14 @@ enum Step {
     Group(Vec<(usize, std::ops::Range<u32>)>, std::ops::Range<u32>),
 }
 
+/// What [`Screen::stage`] leaves for the passes: the first pass's steps and the vertices of the
+/// program's picture and of the composition on the target.
+struct Staged {
+    steps: Vec<Step>,
+    program: std::ops::Range<u32>,
+    result: std::ops::Range<u32>,
+}
+
 /// A window's GPU surface, made before the device that draws on it.
 pub struct Target {
     instance: wgpu::Instance,
@@ -327,7 +337,8 @@ pub struct Target {
 
 /// A window the pictures are drawn on.
 pub struct Screen {
-    surface: wgpu::Surface<'static>,
+    /// `None` for a screen that draws offscreen (see [`Screen::offscreen`]).
+    surface: Option<wgpu::Surface<'static>>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -350,6 +361,8 @@ pub struct Screen {
     composition_format: wgpu::TextureFormat,
     /// What draws a composition with effects, made when the first one is drawn.
     compose: Option<compose::Compose>,
+    /// What reads the composition back, made by the first [`Screen::capture`].
+    capture: Option<capture::Capture>,
 }
 
 /// The last error the GPU reported while drawing, shared with whoever reports it. A GPU error never
@@ -503,6 +516,25 @@ impl Screen {
             compatible_surface: Some(&surface),
             ..Default::default()
         }))?;
+        Self::start(&adapter, Some(surface), width, height)
+    }
+
+    /// Starts the GPU with no window, to draw the composition with [`Screen::capture`].
+    pub fn offscreen() -> Result<Self, RenderError> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            ..Default::default()
+        }))?;
+        Self::start(&adapter, None, 1, 1)
+    }
+
+    fn start(
+        adapter: &wgpu::Adapter,
+        surface: Option<wgpu::Surface<'static>>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, RenderError> {
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
                 label: Some("flux-render"),
@@ -519,27 +551,44 @@ impl Screen {
                 .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.to_string());
         }));
 
-        let caps = surface.get_capabilities(&adapter);
-        // The pictures are sRGB, so an sRGB surface keeps their colours as they are.
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(wgpu::TextureFormat::is_srgb)
-            .unwrap_or(caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: width.max(1),
-            height: height.max(1),
-            // Waits for the display: one picture per refresh, never torn.
-            present_mode: wgpu::PresentMode::Fifo,
-            desired_maximum_frame_latency: 1,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-            color_space: wgpu::SurfaceColorSpace::Auto,
+        let config = match &surface {
+            Some(surface) => {
+                let caps = surface.get_capabilities(adapter);
+                // The pictures are sRGB, so an sRGB surface keeps their colours as they are.
+                let format = caps
+                    .formats
+                    .iter()
+                    .copied()
+                    .find(wgpu::TextureFormat::is_srgb)
+                    .unwrap_or(caps.formats[0]);
+                let config = wgpu::SurfaceConfiguration {
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    format,
+                    width: width.max(1),
+                    height: height.max(1),
+                    // Waits for the display: one picture per refresh, never torn.
+                    present_mode: wgpu::PresentMode::Fifo,
+                    desired_maximum_frame_latency: 1,
+                    alpha_mode: caps.alpha_modes[0],
+                    view_formats: vec![],
+                    color_space: wgpu::SurfaceColorSpace::Auto,
+                };
+                surface.configure(&device, &config);
+                config
+            }
+            None => wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: capture::FORMAT,
+                width: 1,
+                height: 1,
+                present_mode: wgpu::PresentMode::Fifo,
+                desired_maximum_frame_latency: 1,
+                alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                view_formats: vec![],
+                color_space: wgpu::SurfaceColorSpace::Auto,
+            },
         };
-        surface.configure(&device, &config);
+        let format = config.format;
 
         let layout = picture_group_layout(&device);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -596,6 +645,7 @@ impl Screen {
             masks_layout,
             composition_format,
             compose: None,
+            capture: None,
         })
     }
 
@@ -609,7 +659,9 @@ impl Screen {
         if (width, height) != (self.config.width, self.config.height) && width > 0 && height > 0 {
             self.config.width = width;
             self.config.height = height;
-            self.surface.configure(&self.device, &self.config);
+            if let Some(surface) = &self.surface {
+                surface.configure(&self.device, &self.config);
+            }
         }
     }
 
@@ -630,6 +682,50 @@ impl Screen {
         masks: &[Mask],
         post: &Post,
     ) -> Result<(), RenderError> {
+        if self.surface.is_none() {
+            return Ok(());
+        }
+        let staged = self.stage(items, composition, quads, masks, post);
+        let Some(surface) = &self.surface else {
+            return Ok(());
+        };
+        let frame = match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Validation => {
+                surface.configure(&self.device, &self.config);
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Lost => return Err(RenderError::Lost),
+        };
+        let view = frame.texture.create_view(&Default::default());
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        self.draw_composition(
+            &mut encoder,
+            &staged.steps,
+            staged.program.clone(),
+            post,
+            composition,
+        );
+        self.present_pass(&mut encoder, &view, items, staged.result);
+        self.queue.submit([encoder.finish()]);
+        self.queue.present(frame);
+        Ok(())
+    }
+
+    /// Uploads the pictures and writes the vertices, masks and effects of a frame: what the
+    /// passes of [`Self::draw_composition`] and [`Self::present_pass`] read.
+    fn stage(
+        &mut self,
+        items: &[Item<'_>],
+        composition: (u32, u32),
+        quads: &[Quad],
+        masks: &[Mask],
+        post: &Post,
+    ) -> Staged {
         self.queue.write_buffer(
             &self.masks,
             0,
@@ -726,48 +822,43 @@ impl Screen {
             self.queue
                 .write_buffer(&self.vertices, 0, &vertex_bytes(&data));
         }
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Validation => {
-                self.surface.configure(&self.device, &self.config);
-                return Ok(());
-            }
-            wgpu::CurrentSurfaceTexture::Lost => return Err(RenderError::Lost),
-        };
-        let view = frame.texture.create_view(&Default::default());
-        let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.draw_composition(&mut encoder, &steps, program, post, composition);
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("picture"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-            pass.set_vertex_buffer(0, self.vertices.slice(..));
-            if let Some(compose) = &self.compose
-                && let Some(group) = compose.result(items.iter().any(Item::nearest))
-            {
-                pass.set_bind_group(1, &compose.window_group, &[]);
-                pass.set_pipeline(&self.present);
-                pass.set_bind_group(0, group, &[]);
-                pass.draw(result, 0..1);
-            }
+        Staged {
+            steps,
+            program,
+            result,
         }
-        self.queue.submit([encoder.finish()]);
-        self.queue.present(frame);
-        Ok(())
+    }
+
+    /// Records the pass that draws the composition's result onto `view` through the quads.
+    fn present_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        items: &[Item<'_>],
+        result: std::ops::Range<u32>,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("picture"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        if let Some(compose) = &self.compose
+            && let Some(group) = compose.result(items.iter().any(Item::nearest))
+        {
+            pass.set_bind_group(1, &compose.window_group, &[]);
+            pass.set_pipeline(&self.present);
+            pass.set_bind_group(0, group, &[]);
+            pass.draw(result, 0..1);
+        }
     }
 
     /// Records the passes that draw the pictures into the composition and apply `post` to it.
