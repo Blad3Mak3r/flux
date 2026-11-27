@@ -9,6 +9,7 @@ use uuid::Uuid;
 use super::archive::{self, AssetSource};
 use super::clips::{self, ClipOp};
 use super::cue_ops::{self, CueEdited, CueOp};
+use super::dropped::{self, Dropped, MediaKind, Staged};
 use super::error::{ProjectError, Result};
 use super::item_ops::{self, ItemOp};
 use super::model::{
@@ -738,6 +739,75 @@ impl Session {
         })?;
         self.sources.insert(asset.id, source);
         Ok(state)
+    }
+
+    /// Registers a file dragged in from the file explorer, to be placed by [`Session::drop_on_timeline`].
+    pub fn stage_drop(&mut self, file: &Path, kind: MediaKind) -> Result<Dropped> {
+        match kind {
+            MediaKind::Audio => self.import_audio(file).map(Dropped::Audio),
+            MediaKind::Video | MediaKind::Image => {
+                let (asset, source) = video_asset(file)?;
+                self.sources.insert(asset.id.clone(), source);
+                Ok(Dropped::Video(asset))
+            }
+        }
+    }
+
+    /// Puts staged files on the active timeline one after another from frame `at` (see
+    /// [`crate::dropped`]): on the track `track` when it takes them, else on a new track.
+    pub fn drop_on_timeline(
+        &mut self,
+        files: Vec<Staged>,
+        track: Option<&str>,
+        at: u64,
+    ) -> Result<ProjectState> {
+        self.change(|project, active| {
+            for file in &files {
+                match &file.media {
+                    Dropped::Audio(asset) => project.assets.push(asset.clone()),
+                    Dropped::Video(asset) => project.videos.push(asset.clone()),
+                }
+            }
+            let timeline = timeline_mut(project, active)?;
+            dropped::place(timeline, files, track, at, || Uuid::new_v4().to_string())
+        })
+    }
+
+    /// Puts video files in the cells of `layer` from `column` to the right in its deck, each in
+    /// place of the clip there; the files that find no cell are left out. The answer is the project
+    /// and how many were placed. The caller has checked that they are videos.
+    pub fn drop_on_grid(
+        &mut self,
+        files: &[PathBuf],
+        layer: &str,
+        column: &str,
+    ) -> Result<(ProjectState, usize)> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let columns: Vec<String> = document
+            .project
+            .vj
+            .decks
+            .iter()
+            .find(|deck| deck.columns.iter().any(|c| c.id == column))
+            .map(|deck| {
+                deck.columns
+                    .iter()
+                    .skip_while(|c| c.id != column)
+                    .map(|c| c.id.clone())
+                    .collect()
+            })
+            .ok_or_else(|| ProjectError::Invalid(format!("unknown column {column}")))?;
+        let mut placed = 0;
+        let mut state = None;
+        for (file, column) in files.iter().zip(&columns) {
+            state = Some(self.import_vj_video(file, layer, Some(column))?);
+            placed += 1;
+        }
+        let state = match state {
+            Some(state) => state,
+            None => self.change(|_, _| Ok(()))?,
+        };
+        Ok((state, placed))
     }
 
     /// Adds an image file from disk to the project's media, placed nowhere: the test card's logo
@@ -1656,6 +1726,71 @@ mod tests {
             position: Some(0.5),
         };
         assert!(session.preview_vj(cue).is_err());
+    }
+
+    #[test]
+    fn drop_on_grid_should_fill_the_columns_from_the_target_and_leave_out_the_overflow() {
+        let dir = TempDir::new().unwrap();
+        let files: Vec<PathBuf> = (0..3)
+            .map(|n| {
+                let file = dir.path().join(format!("{n}.mp4"));
+                fs::write(&file, b"v").unwrap();
+                file
+            })
+            .collect();
+        let mut session = Session::default();
+        let grid = session
+            .new_project_of("Show", FrameRate::Fps25, crate::ProjectMode::Vj)
+            .vj;
+        let columns = &grid.decks[0].columns;
+        let last = columns.len() - 2;
+
+        let (state, placed) = session
+            .drop_on_grid(&files, &grid.layers[0].id, &columns[last].id)
+            .unwrap();
+
+        let cells: Vec<_> = state.project.vj.layers[0]
+            .clips
+            .iter()
+            .map(|clip| clip.column.clone())
+            .collect();
+        assert_eq!(
+            (placed, cells),
+            (
+                2,
+                vec![
+                    Some(columns[last].id.clone()),
+                    Some(columns[last + 1].id.clone())
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn drop_on_timeline_should_add_the_staged_assets_and_clips() {
+        let dir = TempDir::new().unwrap();
+        let wav = dir.path().join("kick.wav");
+        fs::write(&wav, b"riff").unwrap();
+        let mut session = Session::default();
+        session.new_project("Show", FrameRate::Fps25);
+
+        let staged = session.stage_drop(&wav, MediaKind::Audio).unwrap();
+        let state = session
+            .drop_on_timeline(
+                vec![Staged {
+                    media: staged,
+                    frames: 25,
+                }],
+                None,
+                50,
+            )
+            .unwrap();
+
+        let timeline = &state.project.timelines[0];
+        let TrackKind::Audio { clips } = &timeline.tracks[0].kind else {
+            panic!("audio track");
+        };
+        assert_eq!((state.project.assets.len(), clips[0].start), (1, 50));
     }
 
     #[test]
