@@ -131,20 +131,40 @@ project finds it again on the same machine, and the picture is stretched to the 
 | Setting | Range | Default | Does |
 | --- | --- | --- | --- |
 | Device | a camera or capture card the system lists | none | The device shown. The **↻** button looks for devices again, for one plugged in after FLUX started. |
+| Resolution | Auto, 1280 × 720, 1920 × 1080, 3840 × 2160 | Auto | The picture size asked of the device. |
+| Frame rate | Auto, 25, 30, 50, 59.94, 60 | Auto | The frame rate asked of the device. |
 
 - A device that is missing is a normal state, never an error: with no device chosen, or one that is not connected, the
   clip draws **black** and the inspector says "Not connected". FLUX keeps trying to open it, so the picture appears by
   itself when the device is plugged in.
 - FLUX opens the device when a clip that uses it plays and closes it when no clip showing it is left. Clips that show the
   same device share it.
-- Pictures wider than 1280 pixels are scaled down to 1280. The picture follows the device, not the grid's clock, so it is
+- A device that does not offer the Resolution or Frame rate asked is opened as Auto and the inspector says "This device
+  doesn't offer that format, using Auto".
+- A device another app holds (OBS or the Elgato utility, for example) is **in use**, not missing: the inspector says so, the
+  clip stays black, and FLUX keeps trying, so the picture appears once the other app lets go.
+- The picture keeps the device's size, scaled down only to fit inside the composition (a 4K card on a 1080p composition is
+  shown at 1080p; a 1080p card is never enlarged). The picture follows the device, not the grid's clock, so it is
   live and the clip has no length: it plays until something replaces it, shows no countdown, and has no Duration,
   At the end, region, speed, direction, tempo or cues (the inspector leaves them out).
 - The first time, macOS asks to let FLUX use the camera; allow it in System Settings > Privacy & Security > Camera if it
   was refused. Windows lists DirectShow devices, macOS AVFoundation ones and Linux Video4Linux ones (`/dev/video*`).
 - It has no numbers to modulate.
 
-It is stored as `{ "kind": "liveInput", "device": "<name>" }` (see the
+### Capture cards
+
+Cards such as the Elgato HD60 S+ / HD60 X and the Cam Link 4K appear as cameras.
+
+- One app at a time: a card can be open in a single program, so close OBS, the Elgato utility or a browser tab that uses it.
+- A source with HDCP on (a console, for example) shows black: turn HDCP off at the source.
+- Older Elgato models (HD60 without S, HD60 Pro) need Elgato's driver to appear as a DirectShow device on Windows.
+- The card's HDMI audio is not captured yet.
+- On Windows FLUX raises DirectShow's real-time buffer to stop dropped frames at 1080p60, and every system opens with low
+  latency, keeping only the newest picture.
+
+It is stored as `{ "kind": "liveInput", "device": "<name>", "size": "auto", "rate": "auto" }`, where `size` is `auto`,
+`1280x720`, `1920x1080` or `3840x2160` and `rate` is `auto`, `25`, `30`, `50`, `59.94` or `60`; a file without them
+reads as `auto` (see the
 [project format](fxtc-format.md)).
 
 ## Duration of generators and stills
