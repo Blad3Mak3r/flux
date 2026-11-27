@@ -479,11 +479,9 @@ shape moves it whole. Below the stages, the selected slice's rectangle and corne
 measured in the size of the composition and the corners in the chosen display's
 size, and the backend turns the pixels into fractions (`setInputValue`, `setCornerValue`). A slice can be renamed, hidden without losing its place, or have its corners put back where its
 rectangle is. **Test pattern** shows a test card wherever there is no picture, to line the slices up on the real
-screen: a grid of tinted cells, the diagonals and two circles that show how a slice leans, colour bars and a grey ramp,
-coloured corners (red top left, green top right, blue bottom right, yellow bottom left), the picture's size and
-the time of day, each slice outlined in a colour of its own with its name, size and position in pixels, and a white bar that sweeps
-across every three seconds, so each slice shows which way its part of the picture runs
-(`flux-render/src/pattern.rs`). No slices is the plain
+screen: one card for each slice, in the slice's own pixels, with a cabinet grid sized to the LED cabinets behind it, ids,
+a circle and diagonals, the slice's name and resolution, colour bars, a clock with a frame counter and a slim strip with a moving 2 pixel line, and an optional logo in a disc
+(`flux-render/src/pattern.rs`, settings in the slice's `testCard`; the logo is an image of the project's media, decoded once by FFmpeg and kept by its id). A card's picture has `nearest: true`, which reads it, and the composition while it is on, with a nearest sampler (`flux_render::Picture`). No slices is the plain
 output: the whole picture fitted to the screen.
 
 **Soft edge** fades a slice to black over a percentage of its width or height from each side, so two projectors

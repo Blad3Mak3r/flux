@@ -393,6 +393,23 @@ pub async fn project_import_vj_video(
     .await
 }
 
+/// Adds an image to the project's media without putting it on the grid or the timeline, for the
+/// test card's logo. FFmpeg reads it first, like [`project_import_video`].
+#[tauri::command]
+pub async fn project_import_image(
+    session: State<'_, SharedSession>,
+    project: Project,
+    path: PathBuf,
+) -> Result<ProjectState> {
+    log::info!("importing image {}", path.display());
+    run(&session, move |s| {
+        check_video(&path)?;
+        s.update(project);
+        s.import_media(&path)
+    })
+    .await
+}
+
 /// Opens a video with FFmpeg and logs what it is; a file it cannot decode is refused with the reason.
 fn check_video(path: &Path) -> Result<()> {
     let video = flux_video::VideoFile::open(path)

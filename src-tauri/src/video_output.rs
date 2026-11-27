@@ -9,10 +9,11 @@
 //! top one; the decoding runs on the deck's own threads. Nothing here logs from the render loop: failures are counted and
 //! the status command reports them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -25,7 +26,7 @@ use crate::transport_commands::SharedOutput;
 use flux_engine::output::PositionReader;
 use flux_engine::transport::TransportState;
 use flux_project::Timeline;
-use flux_render::pattern::CardSlice;
+use flux_render::pattern::{CardSlice, Logo};
 use flux_render::{Mask, Picture, Quad, Screen};
 use flux_video::{Cue, VideoDeck};
 
@@ -321,6 +322,7 @@ impl VideoOutput {
         };
 
         let session = Arc::clone(&app.state::<SharedSession>());
+        let cache = crate::video_commands::video_cache(app).map_err(|err| err.to_string())?;
         ensure_deck(&self.deck, app)?;
         let deck = Arc::clone(&self.deck);
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
@@ -337,6 +339,7 @@ impl VideoOutput {
             screen_id,
             deck,
             session,
+            cache,
             transport,
             size,
             stop: render_stop,
@@ -348,12 +351,13 @@ impl VideoOutput {
             masks: Vec::new(),
             seen: (u64::MAX, String::new()),
             reader: None,
-            card: None,
+            cards: None,
             card_size: CARD_SIZE,
             card_slices: Vec::new(),
             card_caption: String::new(),
-            card_frame: Vec::new(),
-            card_id: 0,
+            card_frames: Vec::new(),
+            card_ids: Vec::new(),
+            card_seq: 0,
             decoding: None,
             grid,
             modulation,
@@ -419,6 +423,56 @@ impl VideoOutput {
             .clone()
             .or(gpu_error);
         (open, error)
+    }
+}
+
+/// How a slice is marked on the test card.
+fn card_slice(slice: &flux_project::mapping::Slice) -> CardSlice {
+    let r = slice.input;
+    CardSlice {
+        name: slice.name.clone(),
+        input: [r.x, r.y, r.width, r.height],
+        card: slice.test_card.clone(),
+        logo: None,
+    }
+}
+
+/// The logos read so far, by the id of the project's image; `None` for one that could not be.
+static LOGOS: OnceLock<Mutex<HashMap<String, Option<Logo>>>> = OnceLock::new();
+
+/// Reads the image `id` of the project, once: FFmpeg decodes its first picture.
+fn logo_for(session: &SharedSession, cache: &Path, id: &str) -> Option<Logo> {
+    let known = LOGOS.get_or_init(Default::default);
+    if let Some(found) = known.lock().unwrap_or_else(PoisonError::into_inner).get(id) {
+        return found.clone();
+    }
+    let path = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .video_file(id, cache)
+        .ok();
+    let logo = path.and_then(|path| {
+        let frame = flux_video::VideoFile::open(&path).ok()?.frame(0).ok()?;
+        Some(Logo {
+            id: id.to_owned(),
+            width: frame.width,
+            height: frame.height,
+            rgba: frame.rgba.into(),
+        })
+    });
+    known
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(id.to_owned(), logo.clone());
+    logo
+}
+
+/// Gives each slice that shows a logo its picture.
+fn with_logos(slices: &mut [CardSlice], session: &SharedSession, cache: &Path) {
+    for slice in slices {
+        if slice.card.show_logo && !slice.card.logo.is_empty() {
+            slice.logo = logo_for(session, cache, &slice.card.logo);
+        }
     }
 }
 
@@ -551,6 +605,8 @@ struct Render {
     screen_id: String,
     deck: SharedDeck,
     session: SharedSession,
+    /// Where the project's media is unpacked to be read.
+    cache: PathBuf,
     transport: SharedOutput,
     size: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
@@ -565,15 +621,17 @@ struct Render {
     masks: Vec<Mask>,
     seen: (u64, String),
     reader: Option<PositionReader>,
-    /// The test card, made when it is shown and again when the slices change, the frame with its
-    /// sweep and its id.
-    card: Option<Vec<u8>>,
+    /// The test card of each slice, made when one is shown and again when the slices or their
+    /// settings change; each one's frame with its moving part and the id its picture goes by.
+    cards: Option<Vec<flux_render::pattern::SliceCard>>,
     card_size: (u32, u32),
     card_slices: Vec<CardSlice>,
     /// What the card says of the screen, made again when it changes.
     card_caption: String,
-    card_frame: Vec<u8>,
-    card_id: u64,
+    card_frames: Vec<Vec<u8>>,
+    card_ids: Vec<u64>,
+    /// Counts the pictures the cards made, for their ids.
+    card_seq: u64,
     /// Where the clips were decoded at the last refresh, written to the log when it changes.
     decoding: Option<flux_video::Decoding>,
     /// What the VJ grid plays, and the grid copied from the session for a VJ project, which
@@ -661,17 +719,38 @@ impl Render {
         } else {
             items(&shown, &looks, self.card_size, time)
         };
-        let card = !disabled && (forced || pictures.is_empty()) && self.sweep_card(forced);
-        if card {
+        // The whole card replaces the picture; a slice that asks for its own is laid over it.
+        let everywhere = forced || (pictures.is_empty() && self.pattern.load(Ordering::Relaxed));
+        let on = if disabled {
+            Vec::new()
+        } else {
+            self.prepare_cards(everywhere)
+        };
+        let card = !on.is_empty();
+        for &at in &on {
+            let [x, y, width, height] = self.cards.as_ref().map_or([0; 4], |cards| cards[at].rect);
+            let (cw, ch) = (self.card_size.0 as f32, self.card_size.1 as f32);
+            let fixed = self.cards.as_ref().map(|cards| &cards[at].fixed);
+            let moving = &self.card_frames[at];
             pictures.push(flux_render::Item::Picture(Picture {
-                id: self.card_id,
-                width: self.card_size.0,
-                height: self.card_size.1,
-                rgba: &self.card_frame,
-                place: [0.0, 0.0, 1.0, 1.0],
+                id: self.card_ids[at],
+                width,
+                height,
+                rgba: if moving.is_empty() {
+                    fixed.map_or(&[][..], |f| &f[..])
+                } else {
+                    moving
+                },
+                place: [
+                    x as f32 / cw,
+                    y as f32 / ch,
+                    width as f32 / cw,
+                    height as f32 / ch,
+                ],
                 opacity: 1.0,
                 blend: flux_render::Blend::Alpha,
                 effects: Default::default(),
+                nearest: true,
             }));
         }
         let drawn = !pictures.is_empty();
@@ -739,33 +818,54 @@ impl Render {
         }
     }
 
-    /// Draws the sweep on the test card where it is now; `false` while the pattern is off.
-    fn sweep_card(&mut self, forced: bool) -> bool {
-        if !forced && !self.pattern.load(Ordering::Relaxed) {
-            return false;
+    /// Makes the cards of the slices to show (all of them when `everywhere`, else those that ask
+    /// for it) and their moving part for now; the indexes of the cards to draw.
+    fn prepare_cards(&mut self, everywhere: bool) -> Vec<usize> {
+        let wanted: Vec<usize> = (0..self.card_slices.len())
+            .filter(|&at| everywhere || self.card_slices[at].card.show)
+            .collect();
+        if wanted.is_empty() {
+            return wanted;
         }
-        let (width, height) = self.card_size;
         let (window_width, window_height) = unpack(self.size.load(Ordering::Relaxed));
         let caption = card_caption(&self.screen_name, window_width, window_height);
         if caption != self.card_caption {
             self.card_caption = caption;
-            self.card = None;
+            self.cards = None;
         }
-        let (slices, caption) = (&self.card_slices, &self.card_caption);
-        let card = self
-            .card
-            .get_or_insert_with(|| flux_render::pattern::test_card(width, height, slices, caption));
-        // Timed by the system clock, so the sweep crosses every screen together, a minute being a
-        // whole number of sweeps.
+        if self.cards.is_none() {
+            let cards =
+                flux_render::pattern::layout(&self.card_slices, self.card_size, &self.card_caption);
+            self.card_frames = vec![Vec::new(); cards.len()];
+            self.card_ids = cards.iter().map(|_| self.next_card_id()).collect();
+            self.cards = Some(cards);
+        }
+        // Timed by the system clock, so the marker crosses every screen together, a minute being a
+        // whole number of crossings.
         let millis = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |since| since.as_millis() % 60_000);
         let seconds = millis as f32 / 1000.0;
         let clock = chrono::Local::now().format("%H:%M:%S").to_string();
-        flux_render::pattern::sweep(card, &mut self.card_frame, width, height, seconds, &clock);
-        // Each refresh is a new picture: high ids, apart from the hashes of video frames.
-        self.card_id = u64::MAX - (seconds * 1000.0) as u64;
-        true
+        for &at in &wanted {
+            let moved = self
+                .cards
+                .as_ref()
+                .is_some_and(|cards| cards[at].frame(&mut self.card_frames[at], seconds, &clock));
+            if moved {
+                // Each refresh is a new picture.
+                self.card_ids[at] = self.next_card_id();
+            } else {
+                self.card_frames[at].clear();
+            }
+        }
+        wanted
+    }
+
+    /// An id for a picture of a card: high, apart from the hashes of video frames.
+    fn next_card_id(&mut self) -> u64 {
+        self.card_seq += 1;
+        u64::MAX - self.card_seq
     }
 
     /// Copies the timeline being edited and the slices again when the document changed.
@@ -810,18 +910,23 @@ impl Render {
                 gamma: slice.soft_edge.gamma,
             })
             .collect();
-        let card_slices: Vec<CardSlice> = shown
-            .map(|slice| CardSlice {
-                name: slice.name.clone(),
-                input: rect(&slice.input),
-            })
-            .collect();
+        let mut card_slices: Vec<CardSlice> = shown.map(card_slice).collect();
+        if card_slices.is_empty() {
+            // No slices: the card is of the whole picture, under the screen's name.
+            card_slices.push(CardSlice {
+                name: self.screen_name.clone(),
+                input: [0.0, 0.0, 1.0, 1.0],
+                card: Default::default(),
+                logo: None,
+            });
+        }
         drop(session);
+        with_logos(&mut card_slices, &self.session, &self.cache);
         let size = composition_size(&self.session);
         if (size, &card_slices) != (self.card_size, &self.card_slices) {
             self.card_size = size;
             self.card_slices = card_slices;
-            self.card = None;
+            self.cards = None;
         }
     }
 }
@@ -926,6 +1031,7 @@ fn run_pictures(
             opacity: layer.opacity,
             blend: blend(layer.blend),
             effects,
+            nearest: false,
         });
         let alpha = layer.blend == flux_project::vj::Blend::Alpha;
         // Effects can leave parts of the picture clear (a zoom out, a blur's soft edge), so a
@@ -1521,6 +1627,78 @@ pub async fn video_output_snapshot(
     })
     .await
     .map_err(|err| err.to_string())?
+}
+
+/// The test cards of a screen's slices laid out on the composition, small, as the Advanced Output
+/// shows them over the picture: the width and height as two little-endian u16, then RGBA, clear
+/// where no card is shown. Empty while no card is.
+#[tauri::command]
+pub async fn video_card_preview(
+    app: AppHandle,
+    output: State<'_, SharedVideoOutput>,
+    screen: String,
+) -> Result<tauri::ipc::Response, String> {
+    let output = Arc::clone(&output);
+    let bytes = tauri::async_runtime::spawn_blocking(move || output.card_preview(&app, &screen))
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+impl VideoOutputs {
+    fn card_preview(&self, app: &AppHandle, screen: &str) -> Vec<u8> {
+        let session = Arc::clone(&app.state::<SharedSession>());
+        let size = composition_size(&session);
+        let screens = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .video_screens();
+        let Some(found) = screens.iter().find(|s| s.id == screen) else {
+            return Vec::new();
+        };
+        let everywhere =
+            self.controls.card.load(Ordering::Relaxed) || self.pattern.load(Ordering::Relaxed);
+        let mut slices: Vec<CardSlice> = found
+            .slices
+            .iter()
+            .filter(|slice| !slice.hidden)
+            .map(card_slice)
+            .collect();
+        if slices.is_empty() {
+            slices.push(CardSlice {
+                name: found.name.clone(),
+                input: [0.0, 0.0, 1.0, 1.0],
+                card: Default::default(),
+                logo: None,
+            });
+        }
+        if let Ok(cache) = crate::video_commands::video_cache(app) {
+            with_logos(&mut slices, &session, &cache);
+        }
+        let cards = flux_render::pattern::layout(&slices, size, &found.name);
+        let shown: Vec<_> = cards
+            .into_iter()
+            .zip(&slices)
+            .filter(|(_, slice)| everywhere || slice.card.show)
+            .map(|(card, _)| card)
+            .collect();
+        if shown.is_empty() {
+            return Vec::new();
+        }
+        let (width, height, rgba) = flux_render::pattern::preview(&shown, size, 640);
+        let mut out = Vec::with_capacity(rgba.len() + 4);
+        out.extend_from_slice(&(width as u16).to_le_bytes());
+        out.extend_from_slice(&(height as u16).to_le_bytes());
+        out.extend_from_slice(&rgba);
+        out
+    }
+}
+
+/// The colour (`#rrggbb`) the test card of the slice at `index` takes when it names none.
+#[tauri::command]
+pub fn video_card_base(index: usize) -> String {
+    let [r, g, b] = flux_render::palette::default_base(index);
+    format!("#{r:02x}{g:02x}{b:02x}")
 }
 
 /// Shows or hides the test pattern where there is no picture.

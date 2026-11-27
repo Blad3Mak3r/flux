@@ -3,6 +3,7 @@
 // and what is selected on the right. The backend keeps the mapping and every number in bounds; this
 // shows the live composition and a drag until it is let go.
 
+import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useT } from "../i18n";
@@ -21,6 +22,7 @@ import {
   useComposition,
 } from "../video/mapping";
 import type { Mask, Point, Size, Slice, VideoScreen } from "../video/mapping";
+import { TestCardFields } from "./TestCardFields";
 import { closeOutput } from "./menus";
 import { bindOutput, useVj } from "./store";
 
@@ -46,9 +48,15 @@ export function AdvancedOutput() {
  * The latest picture of the composition, kept in a canvas for the stages to draw from, and a way to
  * hear when it changes without the whole window drawing again.
  */
-function useLivePicture() {
+function useLivePicture(screenId: string) {
   const source = useMemo(() => document.createElement("canvas"), []);
+  // The test cards the backend lays over the picture, small and clear where there is none.
+  const card = useMemo(() => document.createElement("canvas"), []);
   const listeners = useRef(new Set<() => void>());
+  const paint = () => {
+    const context = source.getContext("2d");
+    if (context && card.width > 0 && source.width > 0) context.drawImage(card, 0, 0, source.width, source.height);
+  };
   useEffect(
     () =>
       bindOutput((picture) => {
@@ -61,10 +69,43 @@ function useLivePicture() {
           }
           context.putImageData(picture, 0, 0);
         } else context.clearRect(0, 0, source.width, source.height);
+        paint();
         listeners.current.forEach((draw) => draw());
       }),
-    [source],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [source, card],
   );
+  useEffect(() => {
+    let stopped = false;
+    const ask = () =>
+      void invoke<ArrayBuffer>("video_card_preview", { screen: screenId }).then(
+        (bytes) => {
+          if (stopped) return;
+          const view = new DataView(bytes);
+          if (bytes.byteLength < 4) card.width = 0;
+          else {
+            const [width, height] = [view.getUint16(0, true), view.getUint16(2, true)];
+            card.width = width;
+            card.height = height;
+            card.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(bytes, 4, width * height * 4), width, height), 0, 0);
+            if (source.width === 0) {
+              source.width = width;
+              source.height = height;
+            }
+          }
+          paint();
+          listeners.current.forEach((draw) => draw());
+        },
+        () => undefined,
+      );
+    ask();
+    const timer = window.setInterval(ask, 700);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screenId, card, source]);
   const subscribe = (draw: () => void) => {
     listeners.current.add(draw);
     return () => void listeners.current.delete(draw);
@@ -79,9 +120,9 @@ function OutputDialog() {
   const { status, choose } = useOutputStatus();
   const screens = useDoc((doc) => doc.project.output.screens ?? NO_SCREENS);
   const composition = useComposition();
-  const live = useLivePicture();
   const [stage, setStage] = useState<Stage>("input");
   const [screenId, setScreenId] = useState(MAIN_SCREEN);
+  const live = useLivePicture(screenId);
   const [item, setItem] = useState<Item>({ kind: "screen" });
   const [point, setPoint] = useState(0);
   const [pattern, setPattern] = useState(false);
@@ -263,7 +304,12 @@ function OutputDialog() {
           </p>
         </section>
         <aside className="vj-ao-props" aria-label={t("vj.ao.properties")}>
-          {current && slice && <SliceFields screenId={current.id} slice={slice} picture={picture} display={display} />}
+          {current && slice && (
+            <>
+              <SliceFields screenId={current.id} slice={slice} picture={picture} display={display} />
+              <TestCardFields screenId={current.id} slice={slice} index={Math.max(0, slices.filter((s) => !s.hidden).findIndex((s) => s.id === slice.id))} />
+            </>
+          )}
           {current && mask && (
             <MaskFields screenId={current.id} mask={mask} point={point} setPoint={setPoint} onRemoved={() => setItem({ kind: "screen" })} />
           )}

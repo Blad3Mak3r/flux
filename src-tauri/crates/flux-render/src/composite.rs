@@ -102,6 +102,7 @@ pub fn composite_items(
                         opacity: group.opacity,
                         blend: group.blend,
                         effects: group.effects,
+                        nearest: false,
                     },
                     &tables,
                 );
@@ -520,6 +521,7 @@ mod tests {
             opacity,
             blend,
             effects: Default::default(),
+            nearest: false,
         }
     }
 

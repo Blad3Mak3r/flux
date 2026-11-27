@@ -100,6 +100,8 @@ struct Targets {
     levels: Vec<Image>,
     /// A work texture as a picture (for the picture shader).
     as_picture: [wgpu::BindGroup; 2],
+    /// The same, sampled without smoothing, for a window that shows a test card.
+    as_picture_crisp: [wgpu::BindGroup; 2],
     /// The pair of textures a group's pictures are mixed in, and each as a picture.
     inner: [Image; 2],
     inner_picture: [wgpu::BindGroup; 2],
@@ -155,6 +157,8 @@ pub(crate) struct Compose {
     picture: wgpu::RenderPipeline,
     plain: wgpu::RenderPipeline,
     params: wgpu::Buffer,
+    /// Reads a texel as it is, with no blend between texels.
+    nearest: wgpu::Sampler,
     /// The groups of the picture shader's second binding group: the pictures' own effects with no
     /// masks, the program's with no masks, and the masks of the window with no effects.
     pub(crate) pictures_group: wgpu::BindGroup,
@@ -315,6 +319,10 @@ impl Compose {
             picture: make(format, true),
             plain: make(format, false),
             params,
+            nearest: device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("composition crisp"),
+                ..Default::default()
+            }),
             pictures_group: group("composition pictures", &no_masks, shared.effects),
             program_group: group("composition program", &no_masks, &program_effects),
             window_group: group("composition on the window", shared.masks, &no_effects),
@@ -332,8 +340,13 @@ impl Compose {
     }
 
     /// The group of the work texture the last draw ended in, drawn as a picture.
-    pub(crate) fn result(&self) -> Option<&wgpu::BindGroup> {
-        self.targets.as_ref().map(|t| &t.as_picture[self.current])
+    pub(crate) fn result(&self, crisp: bool) -> Option<&wgpu::BindGroup> {
+        let targets = self.targets.as_ref()?;
+        Some(if crisp {
+            &targets.as_picture_crisp[self.current]
+        } else {
+            &targets.as_picture[self.current]
+        })
     }
 
     fn make_targets(
@@ -399,7 +412,7 @@ impl Compose {
                 ],
             })
         };
-        let picture = |view: &wgpu::TextureView| {
+        let picture = |view: &wgpu::TextureView, sampler: &wgpu::Sampler| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("composition"),
                 layout: picture_layout,
@@ -427,8 +440,12 @@ impl Compose {
         let (w0, w1) = (&work[0].view, &work[1].view);
         Targets {
             size,
-            as_picture: [picture(w0), picture(w1)],
-            inner_picture: [picture(&inner[0].view), picture(&inner[1].view)],
+            as_picture: [picture(w0, sampler), picture(w1, sampler)],
+            as_picture_crisp: [picture(w0, &self.nearest), picture(w1, &self.nearest)],
+            inner_picture: [
+                picture(&inner[0].view, sampler),
+                picture(&inner[1].view, sampler),
+            ],
             inner,
             with_history: [pair(w0, &history.view), pair(w1, &history.view)],
             with_bloom: [pair(w0, &levels[0].view), pair(w1, &levels[0].view)],

@@ -740,6 +740,18 @@ impl Session {
         Ok(state)
     }
 
+    /// Adds an image file from disk to the project's media, placed nowhere: the test card's logo
+    /// uses it. The caller has checked that FFmpeg reads it.
+    pub fn import_media(&mut self, file: &Path) -> Result<ProjectState> {
+        let (asset, source) = video_asset(file)?;
+        let state = self.change(|project, _| {
+            project.videos.push(asset.clone());
+            Ok(())
+        })?;
+        self.sources.insert(asset.id, source);
+        Ok(state)
+    }
+
     /// Edits the VJ grid of a VJ project (see [`crate::vj`]).
     pub fn edit_vj(&mut self, op: crate::VjOp) -> Result<ProjectState> {
         self.change(|project, _| crate::vj::apply(project, op, || Uuid::new_v4().to_string()))
