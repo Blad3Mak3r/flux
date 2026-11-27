@@ -112,6 +112,32 @@ which brings the old file back. A save keeps only the asset in use.
 
 FFmpeg's HAP decoder still hands over RGBA, so the frames are uploaded to the graphics card as for any codec.
 
+## Recording the composition
+
+**Composition > Start recording** in a VJ show writes the composition to a HAP `.mov` (see
+[VJ mode](vj-mode.md#recording)). Three threads share the work, none of them tied to an output window:
+
+1. `flux-vj-record` (`src-tauri/src/vj_record.rs`) ticks at the project's frame rate. Each tick it builds the grid's frame
+   exactly as an output window does (`video_output::grid_frame`: the grid's clock, the modulated values, the deck's
+   pictures, the group looks and the composition's effects) and draws it with `flux_render::Screen::offscreen()`, a
+   device with no surface. `Screen::capture` runs the same passes as `Screen::draw` (`stage`, `draw_composition`,
+   `present_pass`) into an 8-bit sRGB texture of the composition's size, copies it to one of three `MAP_READ` buffers
+   (rows padded to 256 bytes, `COPY_BYTES_PER_ROW_ALIGNMENT`) and maps it with `map_async`; a later call polls without
+   waiting and returns the frames that arrived, with the tick each was asked for under. If all three buffers are busy the
+   frame is simply not drawn. A tick that is late is skipped.
+2. `flux-video-record` (`flux-video/src/record.rs`) is the encoder: the same HAP setup as the conversion (`hap::video_encoder`,
+   plus the `chunks` option set to the number of cores up to 8, so a frame is compressed in parallel), plain `hap` (DXT1,
+   no alpha), at the composition's size rounded up to a multiple of 4. Frames arrive with their tick number; a gap
+   is filled by repeating the frame before, and counted in `Counters::dropped`. At most four frames wait for the encoder,
+   a fifth is refused, which leaves a gap too.
+3. The audio callback copies the grid's own mix into a lock-free ring (`flux_engine::analysis::record_tap`, stereo
+   interleaved, silence included) only while `set_record_tap(true)`: no allocation, lock or log. The record thread drains
+   it into 16-bit PCM packets for the encoder, which stamps each with the number of samples written so far.
+
+Frames of another size than the recording started with (the composition was resized meanwhile) are left out and
+repeated as gaps. Nothing in `flux-render` or `flux-video` logs: the app writes the frame and dropped counts to the log
+when the recording stops.
+
 ## Editing clips
 
 A video clip is edited like an audio clip: drag it to move it, drag its edges to trim it, split it at
@@ -558,6 +584,11 @@ For the WebM one, replace the encoder options with
 `tests/hap.rs` converts the fixtures and reads the copies back: the same size, rate, frame count and grey levels,
 HAP Alpha for `alpha25.webm`, the sound of `tone.mp4` and `tone.webm` sample for sample, and nothing left behind when
 cancelled. It is skipped where FFmpeg has no HAP encoder.
+
+`tests/record.rs` writes synthetic frames through `Recorder` (a size that is not a multiple of 4, a tick that never arrives, a
+second of sound) and reads the file back: size, rate, frame count, the repeated frames and the sound stream. It is
+skipped where FFmpeg has no HAP encoder. `flux-render`'s `capture` tests cover the row padding and, where the machine
+has any graphics adapter (a software one counts), draw a picture offscreen and read it back.
 
 `alpha25.webm` (10 frames of 64x36, the left half opaque red and the right half transparent) checks that a WebM alpha
 track is kept:
