@@ -262,3 +262,6 @@ export const ModulationIcon = () => (
     <path d="M1.5 9 C4 2.5 6.5 2.5 8 8 C9.5 13.5 12 13.5 14.5 7" />
   </Icon>
 );
+
+/** A bookmark: the presets of an effect or a stack. */
+export const PresetIcon = () => <Icon><path d="M4.5 2.5h7v11L8 10.5l-3.5 3z" /></Icon>;

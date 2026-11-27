@@ -7,6 +7,7 @@
   { "code": "KeyY", "cmd": true, "shift": false, "action": "redo" },
   { "code": "KeyK", "cmd": true, "shift": false, "action": "newDeck" },
   { "code": "KeyL", "cmd": true, "shift": false, "action": "newLayer" },
+  { "code": "KeyG", "cmd": true, "shift": false, "action": "newGroup" },
   { "code": "KeyT", "cmd": true, "shift": false, "action": "newColumn" },
   { "code": "KeyC", "cmd": true, "shift": true, "action": "composition" },
   { "code": "KeyK", "cmd": true, "shift": true, "action": "mapKeys" },

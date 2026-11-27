@@ -26,9 +26,11 @@ pub mod vj;
 pub mod vj_effects;
 pub mod vj_feedback;
 mod vj_file;
+pub mod vj_groups;
 pub mod vj_mapfile;
 pub mod vj_mapping;
 pub mod vj_modulation;
+pub mod vj_presets;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};

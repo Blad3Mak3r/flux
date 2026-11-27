@@ -53,3 +53,9 @@ test("only a target with an id has a slot to follow", () => {
   assert.equal(hasSlot({ kind: "crossfader" }), false);
   assert.equal(hasSlot({ kind: "dashboard", knob: 1 }), false);
 });
+
+test("group targets are told apart by class and have a slot to follow", () => {
+  assert.equal(targetClass({ kind: "groupMaster", group: "g" }), "continuous");
+  assert.equal(targetClass({ kind: "groupSolo", group: "g" }), "switch");
+  assert.equal(hasSlot({ kind: "groupBypass", group: "g" }), true);
+});

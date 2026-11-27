@@ -78,6 +78,10 @@ their slot).
 | `/composition/layers/{n}/bypassed` | 0 or 1 | Sets the layer's bypass (1 and above 0.5 is on). |
 | `/composition/layers/{n}/solo` | 0 or 1 | Sets the layer's solo. |
 | `/composition/layers/{n}/clear` | 1 | Stops the layer. |
+| `/composition/groups/{g}/video/opacity` | 0 to 1 | The group's Video fader. Groups count from the bottom of the grid. |
+| `/composition/groups/{g}/master` | 0 to 1 | The group's Master. |
+| `/composition/groups/{g}/bypassed` | 0 or 1 | Sets the group's bypass. |
+| `/composition/groups/{g}/solo` | 0 or 1 | Sets the group's solo. |
 | `/composition/crossfader/phase` | 0 to 1 | The crossfader, 0 all side A, 1 all side B. |
 | `/composition/tempocontroller/tempo` | beats a minute | The tempo, held to 20 to 400. |
 | `/composition/tempocontroller/tempotap`, `resync`, `plus`, `minus`, `double`, `half` | 1 | The tempo buttons (tap, resync, +1, -1, ×2, ÷2). |

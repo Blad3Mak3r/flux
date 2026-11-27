@@ -36,7 +36,7 @@ pub(crate) struct VjFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     composition: Option<Composition>,
     #[serde(flatten)]
-    grid: Vj,
+    pub(crate) grid: Vj,
 }
 
 impl VjFile {

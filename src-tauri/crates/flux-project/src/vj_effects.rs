@@ -958,6 +958,23 @@ impl EffectKind {
         }
     }
 
+    /// Its name and settings as the map it is stored as.
+    pub(crate) fn settings(&self) -> Map<String, Value> {
+        self.to_map()
+    }
+
+    /// The kind with the settings of `settings` that are settings of this kind (the others are
+    /// ignored), each brought into range; the ones `settings` lacks keep their value.
+    pub(crate) fn with_settings(&self, settings: &Map<String, Value>) -> Result<Self> {
+        let mut map = self.to_map();
+        for param in &spec_of(&self.name())?.params {
+            if let Some(value) = settings.get(param.key()) {
+                map.insert(param.key().into(), value.clone());
+            }
+        }
+        Self::from_tidy_map(map)
+    }
+
     /// Whether it can only be on the composition's stack (see [`EffectSpec::composition_only`]).
     pub fn composition_only(&self) -> bool {
         spec_of(&self.name()).is_ok_and(|spec| spec.composition_only)
@@ -1056,6 +1073,8 @@ pub enum EffectTarget {
     Clip(String),
     /// The layer with this id.
     Layer(String),
+    /// The group with this id: its effects apply to the picture the group's layers make together.
+    Group(String),
     /// The composition: the final mix, before the output mapping.
     Composition,
 }

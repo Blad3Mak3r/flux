@@ -4,7 +4,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { MessageKey, Translate } from "../i18n/messages";
 import { errorMessage, pickMediaPaths } from "../project/api";
-import type { VjClip, VjGrid, VjLayer, VjSide } from "../project/types";
+import type { VjClip, VjGrid, VjGroup, VjLayer, VjSide } from "../project/types";
 import { dispatch, useDoc } from "../state/store";
 import { openSetup, sayError } from "../state/ui";
 import type { MenuItem } from "../state/ui";
@@ -16,10 +16,12 @@ import { escapeMap, toggleMapMode, useMap } from "./mapping";
 import { acceleratorOf, shortcutOf } from "./shortcuts";
 import type { ShortcutAction } from "./shortcuts";
 import { exportMappings, importMappings } from "./mapFile";
+import { managePresets, saveTemplate } from "./presets";
 import { fullscreenOn, saveSnapshot, toggleDisable, toggleTestCard, useOutput } from "./output";
 import { usePreferences } from "../preferences/store";
 import { say } from "../state/ui";
 import { edit, importVideos, launch, launchColumn, moveCrossfader, showBrowser, showTab, stopLayer, useVj } from "./store";
+import { groupName } from "./names";
 
 const fail = (err: unknown) => sayError(errorMessage(err));
 
@@ -29,6 +31,38 @@ const grid = (): VjGrid | undefined => useDoc.getState().project.vj;
 function selectedLayer(): VjLayer | undefined {
   const id = useVj.getState().layer;
   return grid()?.layers.find((layer) => layer.id === id);
+}
+
+/**
+ * Puts the layers picked with Ctrl held in a new group, or the one the inspector shows when none is picked
+ * (Resolume's New Group, Ctrl+G).
+ */
+export function groupSelected(): void {
+  const { picked, layer } = useVj.getState();
+  const layers = picked.length > 0 ? picked : layer ? [layer] : [];
+  if (layers.length === 0) return;
+  useVj.setState({ picked: [] });
+  void edit({ op: "groupLayers", layers });
+}
+
+/** The group of the selected layer, or none. */
+const groupOfLayer = (vj: VjGrid | undefined, layer: VjLayer | undefined): VjGroup | undefined =>
+  vj?.groups?.find((group) => group.id === layer?.group);
+
+/** The items of a layer's menu for its group: group it, move it to another, take it out. */
+export function groupItems(t: Translate, vj: VjGrid | undefined, layer: VjLayer | undefined): MenuItem[] {
+  if (!vj || !layer) return [];
+  const move = (group: string | null) => void edit({ op: "layerGroup", layer: layer.id, group, to: null });
+  const picked = useVj.getState().picked.length;
+  return [
+    { label: t("vj.group.new"), shortcut: acceleratorOf("newGroup"), run: groupSelected },
+    ...(picked > 1 ? [{ label: t("vj.group.selected", { n: picked }), run: groupSelected }] : []),
+    ...(vj.groups ?? []).filter((group) => group.id !== layer.group).map((group) => ({
+      label: t("vj.group.moveTo", { name: groupName(t, vj, group) }),
+      run: () => move(group.id),
+    })),
+    { label: t("vj.group.remove"), disabled: !layer.group, run: () => move(null) },
+  ];
 }
 
 /** The clip the inspector shows and its layer, or none. */
@@ -108,6 +142,7 @@ function fileMenu(t: Translate): MenuItem[] {
   return [
     { label: t("vj.menu.newVj"), shortcut: acceleratorOf("new"), run: () => newDocument(t, "vj") },
     { label: t("vj.menu.newCue"), run: () => newDocument(t, "timeline") },
+    { label: t("vj.menu.newFromTemplate"), run: () => managePresets("templates") },
     { label: t("menu.open"), shortcut: acceleratorOf("open"), run: openDocument },
     "-",
     { label: t("menu.save"), shortcut: acceleratorOf("save"), run: () => void saveDocument(false) },
@@ -115,6 +150,7 @@ function fileMenu(t: Translate): MenuItem[] {
     { label: t("menu.close"), run: closeDocument },
     "-",
     { label: t("vj.menu.importMedia"), run: () => void importMedia() },
+    { label: t("vj.menu.saveTemplate"), run: () => saveTemplate(t) },
     "-",
     { label: t("menu.setup"), run: () => openSetup() },
     ...(hasNativeWindow()
@@ -204,6 +240,15 @@ function layerMenu(t: Translate): MenuItem[] {
   return [
     { label: t("vj.menu.addLayer"), shortcut: acceleratorOf("newLayer"), run: () => void edit({ op: "addLayer", global: false }) },
     { label: t("vj.menu.addGlobalLayer"), run: () => void edit({ op: "addLayer", global: true }) },
+    { label: t("vj.group.menu"), disabled: !layer, submenu: groupItems(t, vj, layer) },
+    {
+      label: t("vj.group.ungroup"),
+      disabled: !groupOfLayer(vj, layer),
+      run: () => {
+        const group = groupOfLayer(vj, layer);
+        if (group) void edit({ op: "ungroup", group: group.id });
+      },
+    },
     "-",
     { heading: layer ? layer.name ?? t("vj.layer.default", { n: index + 1 }) : t("vj.menu.noLayer") },
     { label: t("vj.menu.bypass"), checked: !!layer?.bypass, disabled: !layer, run: () => toggleLayer("layerBypass") },
@@ -306,6 +351,7 @@ const KEYS: Record<ShortcutAction, (t: Translate) => void> = {
   redo: () => dispatch({ type: "redo" }),
   newDeck: () => void edit({ op: "addDeck" }),
   newLayer: () => void edit({ op: "addLayer", global: false }),
+  newGroup: groupSelected,
   newColumn: () => void edit({ op: "addColumn" }),
   composition: () => showTab("composition"),
   mapKeys: toggleMapMode,

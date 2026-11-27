@@ -23,6 +23,7 @@ use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit}
 pub use crate::vj_effects::{
     Effect, EffectKind, EffectSpec, EffectTarget, MAX_EFFECTS, MirrorAxis, ParamSpec, Sync,
 };
+pub use crate::vj_groups::{Group, MAX_GROUPS};
 pub use crate::vj_mapping::{ButtonMode, Knob, Mapping, Source, Target};
 pub use crate::vj_modulation::{ModTarget, Modulation};
 use crate::{ProjectError, Result};
@@ -61,6 +62,9 @@ impl ProjectMode {
 pub struct Vj {
     /// Bottom first.
     pub layers: Vec<Layer>,
+    /// The groups of consecutive layers, bottom first (see [`crate::vj_groups`]); absent is none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<Group>,
     /// In the order of their tabs.
     pub decks: Vec<Deck>,
     /// Id of the deck the grid shows.
@@ -192,9 +196,10 @@ pub struct Layer {
     /// [`MAX_TRANSITION`]; absent is 0, a cut.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub transition: f32,
-    /// How the two clips mix during a transition; absent is [`Transition::Alpha`].
-    #[serde(default, skip_serializing_if = "Transition::is_alpha")]
-    pub transition_effect: Transition,
+    /// How the clip arriving mixes with the one leaving during a transition, any blend (Resolume's
+    /// transition mode); absent is [`Blend::Alpha`], a crossfade.
+    #[serde(default, skip_serializing_if = "Blend::is_alpha")]
+    pub transition_effect: Blend,
     /// What the layer launches when the clip playing on it ends a pass; absent is [`Autopilot::Off`].
     #[serde(default, skip_serializing_if = "Autopilot::is_off")]
     pub autopilot: Autopilot,
@@ -210,6 +215,9 @@ pub struct Layer {
     /// Folded to a thin row on the grid, as in Resolume; it plays as before.
     #[serde(default, skip_serializing_if = "is_false")]
     pub collapsed: bool,
+    /// The id of the group the layer is in; the layers of a group are next to each other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// The layer's effects, drawn on each of its clips' pictures after the clip's own; the first
     /// is applied first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -223,11 +231,11 @@ pub struct Layer {
     pub clips: Vec<Clip>,
 }
 
-fn full() -> f32 {
+pub(crate) fn full() -> f32 {
     1.0
 }
 
-fn is_full(value: &f32) -> bool {
+pub(crate) fn is_full(value: &f32) -> bool {
     *value == 1.0
 }
 
@@ -235,12 +243,12 @@ fn is_zero(value: &f32) -> bool {
     *value == 0.0
 }
 
-fn is_false(value: &bool) -> bool {
+pub(crate) fn is_false(value: &bool) -> bool {
     !*value
 }
 
 impl Layer {
-    fn new(id: String, global: bool) -> Self {
+    pub(crate) fn new(id: String, global: bool) -> Self {
         Self {
             id,
             name: None,
@@ -250,12 +258,13 @@ impl Layer {
             volume: 1.0,
             blend: Blend::Alpha,
             transition: 0.0,
-            transition_effect: Transition::Alpha,
+            transition_effect: Blend::Alpha,
             autopilot: Autopilot::Off,
             crossfade: None,
             bypass: false,
             solo: false,
             collapsed: false,
+            group: None,
             effects: Vec::new(),
             modulation: BTreeMap::new(),
             clips: Vec::new(),
@@ -336,24 +345,7 @@ pub enum Blend {
 }
 
 impl Blend {
-    fn is_alpha(&self) -> bool {
-        *self == Self::Alpha
-    }
-}
-
-/// How the clip leaving a layer and the one arriving mix while the layer's transition runs.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Transition {
-    /// The new clip appears over the old one, which stays whole until it is covered.
-    #[default]
-    Alpha,
-    /// The old clip fades out while the new one fades in, their light added.
-    Add,
-}
-
-impl Transition {
-    fn is_alpha(&self) -> bool {
+    pub(crate) fn is_alpha(&self) -> bool {
         *self == Self::Alpha
     }
 }
@@ -744,7 +736,7 @@ pub enum VjOp {
     },
     LayerTransitionEffect {
         layer: String,
-        effect: Transition,
+        effect: Blend,
     },
     LayerCrossfade {
         layer: String,
@@ -766,6 +758,51 @@ pub enum VjOp {
     /// Folds the layer's row on the grid, or unfolds it.
     LayerCollapse {
         layer: String,
+        on: bool,
+    },
+    /// Puts the layers in a new group (Resolume's New Group): they gather where the lowest of
+    /// them is, in their order, and leave the groups they were in.
+    GroupLayers {
+        layers: Vec<String>,
+    },
+    /// Puts the layer in `group`, on its top unless `to` says where in the drawing order, or in
+    /// none. A group never stays empty: the layer that was its last leaves a new empty one behind.
+    LayerGroup {
+        layer: String,
+        group: Option<String>,
+        to: Option<usize>,
+    },
+    /// Takes the group away; its layers stay as they are, outside any group.
+    Ungroup {
+        group: String,
+    },
+    RenameGroup {
+        group: String,
+        name: String,
+    },
+    GroupMaster {
+        group: String,
+        value: f32,
+    },
+    GroupOpacity {
+        group: String,
+        value: f32,
+    },
+    GroupBlend {
+        group: String,
+        blend: Blend,
+    },
+    GroupBypass {
+        group: String,
+        on: bool,
+    },
+    GroupSolo {
+        group: String,
+        on: bool,
+    },
+    /// Folds the group's header and layers on the grid, or unfolds them.
+    GroupCollapse {
+        group: String,
         on: bool,
     },
     /// The tempo of the show, in beats a minute.
@@ -936,6 +973,17 @@ pub enum VjOp {
         effect: String,
         index: usize,
     },
+    /// Gives the effect the settings of a preset of its kind (see [`crate::vj_presets`]); what the
+    /// preset lacks keeps its value.
+    ApplyEffectPreset {
+        effect: String,
+        preset: crate::vj_presets::EffectPreset,
+    },
+    /// Puts the effects of a preset, with new ids, at the end of a stack.
+    AddEffectPreset {
+        target: EffectTarget,
+        preset: crate::vj_presets::EffectPreset,
+    },
     /// Sets the effect's settings; `kind` is the kind it already is.
     EffectParams {
         effect: String,
@@ -1038,6 +1086,8 @@ impl VjOp {
             self,
             Self::LayerMaster { .. }
                 | Self::LayerOpacity { .. }
+                | Self::GroupMaster { .. }
+                | Self::GroupOpacity { .. }
                 | Self::LayerVolume { .. }
                 | Self::LayerTransition { .. }
                 | Self::ClipScale { .. }
@@ -1056,6 +1106,9 @@ impl VjOp {
         matches!(
             self,
             Self::RemoveLayer { .. }
+                | Self::GroupLayers { .. }
+                | Self::LayerGroup { .. }
+                | Self::Ungroup { .. }
                 | Self::RemoveDeck { .. }
                 | Self::RemoveColumn { .. }
                 | Self::RemoveClip { .. }
@@ -1087,6 +1140,7 @@ impl Vj {
         let deck = new_deck(&mut new_id);
         Self {
             layers,
+            groups: Vec::new(),
             deck: deck.id.clone(),
             decks: vec![deck],
             clock: ClockSource::Internal,
@@ -1190,8 +1244,10 @@ impl Vj {
                 .iter()
                 .chain(layer.clips.iter().flat_map(|clip| &clip.effects))
         });
+        let groups = self.groups.iter().flat_map(|group| &group.effects);
         self.composition_effects
             .iter()
+            .chain(groups)
             .chain(layers)
             .find(|effect| effect.id == id)
     }
@@ -1227,6 +1283,7 @@ impl Vj {
                 .chain(layer.clips.iter_mut().map(|clip| &mut clip.effects))
         });
         std::iter::once(&mut self.composition_effects)
+            .chain(self.groups.iter_mut().map(|group| &mut group.effects))
             .chain(layers)
             .find_map(|stack| {
                 let at = stack.iter().position(|effect| effect.id == id)?;
@@ -1329,6 +1386,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             let index = layer_index(vj, &layer)?;
             let moved = vj.layers.remove(index);
             vj.layers.insert(to.min(vj.layers.len()), moved);
+            crate::vj_groups::settle_moved(vj, &layer);
         }
         VjOp::RenameLayer { layer, name } => vj.layer_mut(&layer)?.name = typed_name(&name)?,
         VjOp::LayerMaster { layer, value } => vj.layer_mut(&layer)?.master = level(value)?,
@@ -1346,6 +1404,18 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::LayerBypass { layer, on } => vj.layer_mut(&layer)?.bypass = on,
         VjOp::LayerSolo { layer, on } => vj.layer_mut(&layer)?.solo = on,
         VjOp::LayerCollapse { layer, on } => vj.layer_mut(&layer)?.collapsed = on,
+        VjOp::GroupLayers { layers } => crate::vj_groups::group_layers(vj, &layers, new_id())?,
+        VjOp::LayerGroup { layer, group, to } => {
+            crate::vj_groups::layer_group(vj, &layer, group, to, new_id())?;
+        }
+        VjOp::Ungroup { group } => crate::vj_groups::ungroup(vj, &group)?,
+        VjOp::RenameGroup { group, name } => vj.group_mut(&group)?.name = typed_name(&name)?,
+        VjOp::GroupMaster { group, value } => vj.group_mut(&group)?.master = level(value)?,
+        VjOp::GroupOpacity { group, value } => vj.group_mut(&group)?.opacity = level(value)?,
+        VjOp::GroupBlend { group, blend } => vj.group_mut(&group)?.blend = blend,
+        VjOp::GroupBypass { group, on } => vj.group_mut(&group)?.bypass = on,
+        VjOp::GroupSolo { group, on } => vj.group_mut(&group)?.solo = on,
+        VjOp::GroupCollapse { group, on } => vj.group_mut(&group)?.collapsed = on,
         VjOp::SetClock { source } => vj.clock = source,
         VjOp::SetBpm { bpm } => set_bpm(&mut project.timelines, |_| bpm)?,
         VjOp::NudgeBpm { by } => set_bpm(&mut project.timelines, |now| now + by)?,
@@ -1557,6 +1627,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             let stack = match target {
                 EffectTarget::Clip(clip) => &mut vj.clip_mut(&clip)?.effects,
                 EffectTarget::Layer(layer) => &mut vj.layer_mut(&layer)?.effects,
+                EffectTarget::Group(group) => &mut vj.group_mut(&group)?.effects,
                 EffectTarget::Composition => &mut vj.composition_effects,
             };
             if stack.len() >= MAX_EFFECTS {
@@ -1570,6 +1641,12 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                 modulation: BTreeMap::new(),
                 kind,
             });
+        }
+        VjOp::ApplyEffectPreset { effect, preset } => {
+            crate::vj_presets::apply_to_effect(vj, &effect, &preset)?;
+        }
+        VjOp::AddEffectPreset { target, preset } => {
+            crate::vj_presets::add_to_stack(vj, &target, &preset, new_id)?;
         }
         VjOp::CompositionBypass { bypass } => vj.composition_bypass = bypass,
         VjOp::RemoveEffect { effect } => {
@@ -1659,6 +1736,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
             crate::vj_mapping::rename_knob(vj, knob, name)?;
         }
     }
+    project.vj.tidy_groups();
     // Position mappings follow their slot, after whatever moved things.
     crate::vj_mapping::rebind(&mut project.vj);
     if prune {
@@ -1833,6 +1911,7 @@ pub(crate) fn validate<'a>(
         }
     }
     crate::vj_effects::validate_stack(&vj.composition_effects, true, item_ids)?;
+    crate::vj_groups::validate(vj, &mut ids, item_ids)?;
     for layer in &vj.layers {
         unique(&mut ids, &layer.id)?;
         check_name(layer.name.as_deref())?;
@@ -2530,6 +2609,30 @@ mod tests {
             value: f32::NAN,
         };
         assert!(apply(&mut project, op, &mut new_id).is_err());
+    }
+
+    #[test]
+    fn a_layer_transition_should_take_any_blend_and_default_to_alpha() {
+        let (mut project, mut new_id) = vj_project();
+        assert_eq!(project.vj.layers[0].transition_effect, Blend::Alpha);
+        let op = VjOp::LayerTransitionEffect {
+            layer: "g1".into(),
+            effect: Blend::Multiply,
+        };
+        run(&mut project, op, &mut new_id);
+        let json = serde_json::to_value(&project.vj.layers[0]).unwrap();
+        assert_eq!(json["transitionEffect"], "multiply");
+        let back: Layer = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(back.transition_effect, Blend::Multiply);
+        // Older files have `alpha` or `add`, and none at all for the default.
+        let mut older = json;
+        older["transitionEffect"] = "add".into();
+        let older: Layer = serde_json::from_value(older.clone()).unwrap();
+        assert_eq!(older.transition_effect, Blend::Add);
+        let mut none = serde_json::to_value(&older).unwrap();
+        none.as_object_mut().unwrap().remove("transitionEffect");
+        let none: Layer = serde_json::from_value(none).unwrap();
+        assert_eq!(none.transition_effect, Blend::Alpha);
     }
 
     #[test]

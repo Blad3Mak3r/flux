@@ -156,6 +156,8 @@ fn state(
         Target::DeckSelect { deck } => on(&vj.deck == deck),
         Target::LayerBypass { layer: id } => on(layer(id).is_some_and(|l| l.bypass)),
         Target::LayerSolo { layer: id } => on(layer(id).is_some_and(|l| l.solo)),
+        Target::GroupBypass { group } => on(vj.group(group).is_some_and(|g| g.bypass)),
+        Target::GroupSolo { group } => on(vj.group(group).is_some_and(|g| g.solo)),
         Target::EffectBypass { effect } => on(vj.find_effect(effect).is_some_and(|e| e.bypass)),
         Target::BpmPause => on(paused),
         _ => None,

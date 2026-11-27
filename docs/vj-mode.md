@@ -62,13 +62,52 @@ Each layer has a header with:
 | **A** | **Audio**: the level of the sound of the layer's clips. |
 | **V** | **Video**: the opacity of the layer over the layers below. |
 | **T** | **Transition** time, 0 to 10 s. 0 is a cut. |
-| Transition effect | **Alpha** (the new clip fades in over the old one) or **Add** (the old one fades out while the new one fades in). |
+| Transition mode | How the new clip mixes with the old one while the transition runs: **Alpha** (the default, a crossfade: the new clip fades in over the old one) or any of the 29 [blend modes](vj-blend-modes.md#transitions-with-a-blend-mode), in the same grouped menu as the layer's blend. |
 | Side A / B | Which side of the crossfader the layer is on. |
 | Fold arrow | Folds the layer to a thin row. It keeps playing; the fold is saved with the show. |
 
 With a transition time above 0, a clip launched on an empty layer fades in, and a stopped layer fades out over the same
-time. A layer's effects apply to both clips while a transition runs. Bypass, solo and eject are in the **Layer** menu and on the layer's buttons, with no key by default.
+time. A layer's effects apply to both clips while a transition runs. A transition with a blend mode mixes the two clips
+as the T fader moves, as Resolume's transition modes do; see [Transitions with a blend mode](vj-blend-modes.md#transitions-with-a-blend-mode). Bypass, solo and eject are in the **Layer** menu and on the layer's buttons, with no key by default.
 Right-click a layer for the rest (move up and down, rename, Autopilot, remove).
+
+## Groups
+
+A **group** holds consecutive layers, as in Resolume Arena. The layers of a group are mixed together first, over a
+clear background, and the group's own blend, master and video then mix that picture with the layers below it, after the
+group's effects. Groups do not nest, and a group is never empty.
+
+A group has a header row above its first layer, with the same look as a layer's strip:
+
+| Control | Does |
+| --- | --- |
+| Ungroup button | Takes the layers out of the group and removes it. |
+| **B** | **Bypass**: the whole group shows and sounds nothing. |
+| **S** | **Solo**: the group's layers show while others are held back (see below). |
+| Blend menu | How the group mixes with the layers below, [blend modes](vj-blend-modes.md) as for a layer. Default **Alpha**. |
+| **M** | **Master**: scales the picture and the sound of the whole group. |
+| **V** | **Video**: the opacity of the group over the layers below. |
+| Fold arrow | Folds the group to its header: its layers hide but keep playing. The fold is saved with the show. |
+| Group cells | One button per column: launches that column on the layers of this group only. |
+
+Making and changing groups:
+
+- **Ctrl+G** (or **Layer > Group > New group**) puts the layers picked with **Ctrl-click** on their headers in a new group, or the layer the inspector shows when none is picked. The layers are gathered where the lowest of them is.
+- **Drag a layer** by its name onto a group's header to add it, or onto another layer to place it there (inside that layer's group, or out of any group when that layer has none). The layer menu has **Move to** and **Take out of the group** too.
+- **Ungroup** keeps the layers, in place. A group left with no layers (the last one dragged out, or removed) leaves a new empty layer in it, so it is never empty; an empty layer is added when there is room.
+- The **Group** tab of the inspector holds the name, the blend, Master and Video, and the group's [effect stack](vj-effects.md#where-an-effect-works).
+- Right-click a layer for its group items. A group can be renamed from its header.
+
+How a group plays:
+
+- **Solo**: a layer shows when nothing is soloed, or it is soloed, or its group is soloed.
+- **Bypass** of the group wins over what its layers do. **Master** scales the group's sound as well as its picture.
+- The group's blend, master and video act on the *mix* of its layers, so a layer's own blend is applied inside the group, against the layers of the group below it only. The first layer of a group blends against a clear background.
+- A **group at Alpha, 100% and without effects shows the same as the same layers outside any group.**
+- **Global layers** can be in groups. A global layer keeps its clips when the deck changes and the group keeps its place, since groups belong to the show, not to a deck. A group's column launch skips global layers, as the composition's column launch does.
+- Groups use the crossfader through their layers as before; a group has no crossfader side of its own.
+
+Not in Flux: groups do not nest, a group cannot be moved as a block (move its layers) and a group's fields cannot be modulated. Group column launch has no mapping target or OSC address; the cells launch it.
 
 ### Autopilot
 
@@ -356,6 +395,24 @@ of all the layers, before the output mapping. Every effect works there, and Feed
 Drop an effect on the Output panel or the composition bar to add it. An **FX** badge and a switch in the composition
 bar bypass the whole stack at once. See [VJ effects](vj-effects.md#effect-stacks).
 
+## Presets and templates
+
+Both are **yours**, not the show's: FLUX keeps them in its app data folder (like Resolume keeps its presets in the user's
+Documents folder), so they are there in every show and the show files stay self-contained. Using one copies it into the
+show; the show never refers back to it, and deleting a preset or a template changes no show.
+
+- **Effect presets.** The bookmark button in an effect's header lists the presets of that kind of effect: pick one to
+  give the effect its settings. **Save as preset…** keeps the effect's settings (and its modulation) under a name. The
+  same button in the header of a stack saves the **whole stack** as a preset, and lists every preset to add to the
+  stack. In the **Effects** tab of the browser, each effect shows its presets under it: click one to add the effect with
+  those settings to the selected clip or layer. **Manage presets…** renames and deletes them. See
+  [VJ effects](vj-effects.md#effect-presets).
+- **Templates.** **File > Save as template…** keeps the structure of the show under a name: its layers (blends,
+  transitions, levels, effects), groups, decks and columns, the composition's effects, the mappings and dashboard, the pad
+  colours, the clock and the output (screens, slices and masks). It leaves out the **clips and the media files**, and the
+  mappings and knob links that pointed at a clip. **File > New from template…** (or a template on the welcome window)
+  opens a new, unsaved show with that structure, ready for clips.
+
 ## Advanced Output
 
 **Output > Advanced output** (Ctrl+Shift+A) opens the video output over the whole window, as on a media server: the
@@ -375,6 +432,7 @@ are in the menus. The backend refuses to learn exactly these keys (the list is `
 | Ctrl+S / Ctrl+Shift+S | Save / save as. |
 | Ctrl+Z / Ctrl+Y | Undo / redo. |
 | Ctrl+K / Ctrl+L / Ctrl+T | New deck / new layer / new column. |
+| Ctrl+G | New group from the picked layers. |
 | Ctrl+Shift+C | Composition settings (the inspector's Composition tab). |
 | Ctrl+Shift+M, Ctrl+Shift+K, Ctrl+Shift+O, Ctrl+Shift+X | Map mode (MIDI, keys, OSC, DMX: one mode learns all four); Esc stops it. |
 | Ctrl+Shift+A | Open the advanced output. |

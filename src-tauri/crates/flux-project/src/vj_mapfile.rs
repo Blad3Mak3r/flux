@@ -176,6 +176,14 @@ fn layer_at(vj: &Vj, key: &str) -> Option<String> {
     Some(vj.layers.get(key.parse::<usize>().ok()?)?.id.clone())
 }
 
+fn group_key(vj: &Vj, group: &str) -> Option<String> {
+    Some(vj.groups.iter().position(|g| g.id == group)?.to_string())
+}
+
+fn group_at(vj: &Vj, key: &str) -> Option<String> {
+    Some(vj.groups.get(key.parse::<usize>().ok()?)?.id.clone())
+}
+
 fn deck_key(vj: &Vj, deck: &str) -> Option<String> {
     Some(vj.decks.iter().position(|d| d.id == deck)?.to_string())
 }
@@ -188,6 +196,11 @@ fn effect_key(vj: &Vj, effect: &str) -> Option<String> {
     let slot = |stack: &[crate::vj_effects::Effect]| stack.iter().position(|e| e.id == effect);
     if let Some(at) = slot(&vj.composition_effects) {
         return Some(format!("c:{at}"));
+    }
+    for (i, group) in vj.groups.iter().enumerate() {
+        if let Some(at) = slot(&group.effects) {
+            return Some(format!("g{i}:{at}"));
+        }
     }
     for (i, layer) in vj.layers.iter().enumerate() {
         if let Some(at) = slot(&layer.effects) {
@@ -207,6 +220,8 @@ fn effect_at(vj: &Vj, key: &str) -> Option<String> {
     let at = at.parse::<usize>().ok()?;
     let stack = if owner == "c" {
         &vj.composition_effects
+    } else if let Some(group) = owner.strip_prefix('g') {
+        &vj.groups.get(group.parse::<usize>().ok()?)?.effects
     } else if let Some(layer) = owner.strip_prefix('l') {
         &vj.layers.get(layer.parse::<usize>().ok()?)?.effects
     } else {
@@ -220,6 +235,7 @@ fn effect_at(vj: &Vj, key: &str) -> Option<String> {
 fn rewrite(
     target: &Target,
     layer: impl Fn(&str) -> Option<String>,
+    group: impl Fn(&str) -> Option<String>,
     deck: impl Fn(&str) -> Option<String>,
     column: impl Fn(&str) -> Option<String>,
     clip: impl Fn(&str) -> Option<String>,
@@ -244,6 +260,10 @@ fn rewrite(
         T::LayerVolume { layer: id } => T::LayerVolume { layer: layer(id)? },
         T::LayerOpacity { layer: id } => T::LayerOpacity { layer: layer(id)? },
         T::LayerTransition { layer: id } => T::LayerTransition { layer: layer(id)? },
+        T::GroupBypass { group: id } => T::GroupBypass { group: group(id)? },
+        T::GroupSolo { group: id } => T::GroupSolo { group: group(id)? },
+        T::GroupMaster { group: id } => T::GroupMaster { group: group(id)? },
+        T::GroupOpacity { group: id } => T::GroupOpacity { group: group(id)? },
         T::DeckSelect { deck: id } => T::DeckSelect { deck: deck(id)? },
         T::EffectBypass { effect: id } => T::EffectBypass {
             effect: effect(id)?,
@@ -262,6 +282,7 @@ pub(crate) enum Kind {
     /// Nothing with an id: a global target or a dashboard knob.
     Plain,
     Layer,
+    Group,
     Deck,
     Column,
     Clip,
@@ -274,6 +295,10 @@ pub(crate) fn kind_of(target: &Target) -> Kind {
         T::ClipLaunch { .. } | T::ClipSpeed { .. } | T::GeneratorNumber { .. } => Kind::Clip,
         T::ColumnLaunch { .. } => Kind::Column,
         T::DeckSelect { .. } => Kind::Deck,
+        T::GroupBypass { .. }
+        | T::GroupSolo { .. }
+        | T::GroupMaster { .. }
+        | T::GroupOpacity { .. } => Kind::Group,
         T::EffectBypass { .. } | T::EffectParam { .. } => Kind::Effect,
         T::LayerStop { .. }
         | T::LayerAutopilot { .. }
@@ -291,6 +316,7 @@ pub(crate) fn to_places(vj: &Vj, target: &Target) -> Option<Target> {
     rewrite(
         target,
         |id| layer_key(vj, id),
+        |id| group_key(vj, id),
         |id| deck_key(vj, id),
         |id| column_key(vj, id),
         |id| clip_key(vj, id),
@@ -302,6 +328,7 @@ pub(crate) fn from_places(vj: &Vj, target: &Target) -> Option<Target> {
     rewrite(
         target,
         |key| layer_at(vj, key),
+        |key| group_at(vj, key),
         |key| deck_at(vj, key),
         |key| column_at(vj, key),
         |key| clip_at(vj, key),

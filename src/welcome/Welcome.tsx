@@ -7,6 +7,8 @@ import { FolderIcon, PlusIcon, TrashIcon } from "../components/icons";
 import { WindowControls, hasNativeWindow } from "../components/WindowControls";
 import { I18nProvider, useI18n } from "../i18n";
 import { errorMessage, pickProjectPath } from "../project/api";
+import { vjTemplatesList } from "../vj/api";
+import type { VjTemplate } from "../vj/api";
 import { openEditor, openPending, pendingPath, projectDelete, recentsForget, recentsList, recoveryDiscard, recoveryList, recoveryOriginal, recoveryRestore } from "./api";
 import { projectInitials } from "./initials";
 import type { RecentShow, RecoverySummary } from "./api";
@@ -57,6 +59,7 @@ function Welcome() {
   const [pending, setPending] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [kind, setKind] = useState<"all" | ProjectMode>("all");
+  const [templates, setTemplates] = useState<VjTemplate[]>([]);
 
   const reload = useCallback(
     async () => {
@@ -71,6 +74,8 @@ function Welcome() {
   );
   useEffect(() => {
     void reload();
+    // The templates are the user's, kept by the backend; none is as good as an empty list.
+    vjTemplatesList().then(setTemplates, () => undefined);
   }, [reload]);
 
   // Opening a window twice would fail on its label, so one action runs at a time.
@@ -164,6 +169,23 @@ function Welcome() {
               </button>
             ))}
           </div>
+          {templates.length > 0 && (
+            <div className="start-templates">
+              <h3 className="legend">{t("welcome.templates")}</h3>
+              <span className="start-templates-note">{t("welcome.templates.note")}</span>
+              <ul>
+                {templates.map((template) => (
+                  <li key={template.id}>
+                    <button type="button" className="button" disabled={busy}
+                      title={t("vj.template.summary", { layers: template.layers, columns: template.columns })}
+                      onClick={() => void guarded(() => openEditor(null, "vj", template.id))()}>
+                      <PlusIcon />{template.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
 
         <section aria-labelledby="recent-legend">

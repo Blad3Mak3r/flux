@@ -13,6 +13,7 @@ import type {
   VjClip,
   VjGenerator,
   VjGeneratorKind,
+  VjGroup,
   VjColumn,
   VjDeck,
   VjEffect,
@@ -22,7 +23,6 @@ import type {
   VjSide,
   VjTarget,
   VjAutopilot,
-  VjTransition,
   VjTrigger,
 } from "../project/types";
 import { useDoc } from "../state/store";
@@ -38,10 +38,12 @@ import {
   bindModulation,
   launch,
   launchColumn,
+  launchGroupColumn,
   moveCrossfader,
   preview,
   release,
   selectClip,
+  selectGroup,
   selectLayer,
   showBrowser,
   showMedia,
@@ -51,10 +53,13 @@ import {
 } from "./store";
 import type { MediaKind } from "./store";
 import { GENERATORS, swatch } from "./generators";
-import { clipName, layerName } from "./names";
+import { clipName, groupName, layerName } from "./names";
+import { groupItems } from "./menus";
 import { Dashboard } from "./Dashboard";
 import { MapBar, MapLayer } from "./MapLayer";
 import { MapImportDialog } from "./MapImportDialog";
+import { LibraryDialog, NameDialog } from "./PresetDialogs";
+import { loadPresets } from "./presets";
 import { bindVjControl, useMap } from "./mapping";
 import { mappable } from "./mapModel";
 import { MappingsPanel } from "./Mappings";
@@ -118,7 +123,6 @@ function BlendOptions() {
     </>
   );
 }
-const TRANSITIONS: VjTransition[] = ["alpha", "add"];
 const AUTOPILOTS: VjAutopilot[] = ["off", "next", "previous", "random"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
@@ -127,6 +131,8 @@ const FITS: VideoFit[] = ["fit", "fill", "stretch", "none"];
 /** The longest transition, in seconds, as the backend keeps it. */
 const MAX_TRANSITION = 10;
 const DRAG = "application/x-flux-vj";
+/** What a layer dragged by its name carries: its id, to drop in or out of a group or at another place. */
+const DRAG_LAYER = "application/x-flux-vj-layer";
 
 
 type Dragged = { clip: string } | { asset: string } | { generator: VjGeneratorKind };
@@ -263,6 +269,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   const thumbs = useDoc((doc) => doc.thumbs);
   const [renaming, setRenaming] = useState(false);
   const [over, setOver] = useState(false);
+  const picked = useVj((vj) => vj.picked.includes(layer.id));
   const name = layerName(t, grid, layer);
   const clip = playingClip === undefined ? undefined : layer.clips?.find((c) => c.id === playingClip);
   const level = (op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition", scale = 1) => ({
@@ -295,7 +302,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
     </div>
   );
   const nameRow = (
-      <div className="vj-lname">
+      <div className="vj-lname" draggable onDragStart={(event) => { event.dataTransfer.setData(DRAG_LAYER, layer.id); event.dataTransfer.effectAllowed = "move"; }}>
         <button type="button" className="vj-fold" aria-expanded={!layer.collapsed}
           title={t(layer.collapsed ? "vj.layer.expand" : "vj.layer.collapse")} aria-label={t(layer.collapsed ? "vj.layer.expand" : "vj.layer.collapse")}
           onClick={(event) => { event.stopPropagation(); fold(); }}>
@@ -324,28 +331,37 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
         </span>
       </div>
   );
-  const className = `vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}${over ? " over" : ""}`;
-  // An effect dropped on the header goes to the layer's stack.
+  const className = `vj-lh${playingClip !== undefined ? " playing" : ""}${layer.global ? " global" : ""}${over ? " over" : ""}${picked ? " picked" : ""}`;
+  // An effect dropped on the header goes to the layer's stack; a layer dropped on it takes its place and its group.
   const dropping = {
     onDragOver: (event: DragEvent<HTMLDivElement>) => {
-      if (!carriesEffect(event, { layer: layer.id })) return;
+      if (!event.dataTransfer.types.includes(DRAG_LAYER) && !carriesEffect(event, { layer: layer.id })) return;
       event.preventDefault();
       setOver(true);
     },
     onDragLeave: () => setOver(false),
     onDrop: (event: DragEvent<HTMLDivElement>) => {
       setOver(false);
-      dropEffect(event, { layer: layer.id });
+      const dragged = event.dataTransfer.getData(DRAG_LAYER);
+      if (!dragged) {
+        dropEffect(event, { layer: layer.id });
+        return;
+      }
+      event.preventDefault();
+      if (dragged !== layer.id) void edit({ op: "layerGroup", layer: dragged, group: layer.group ?? null, to: at });
     },
   };
   const onContextMenu = (event: MouseEvent) => {
     event.preventDefault();
-    openMenu({ x: event.clientX, y: event.clientY, items: menu });
+    if (!useVj.getState().picked.includes(layer.id)) selectLayer(layer.id);
+    const items = [...menu, "-" as const, { heading: t("vj.group.menu") }, ...groupItems(t, grid, layer)];
+    openMenu({ x: event.clientX, y: event.clientY, items });
   };
+  const select = (event: MouseEvent) => selectLayer(layer.id, event.ctrlKey || event.metaKey);
   if (layer.collapsed) {
     // Folded as in Resolume: one thin row with the name, the clip on air, bypass, solo and the side.
     return (
-      <div className={`${className} folded`} onClick={() => selectLayer(layer.id)} onContextMenu={onContextMenu} {...dropping}>
+      <div className={`${className} folded`} onClick={select} onContextMenu={onContextMenu} {...dropping}>
         <button type="button" className="vj-eject" {...mappable({ kind: "layerStop", layer: layer.id })} title={t("vj.layer.eject")} aria-label={t("vj.layer.eject")}
           onClick={(event) => { event.stopPropagation(); void stopLayer(layer.id); }}>
           <CloseIcon />
@@ -358,7 +374,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
   return (
     <div
       className={className}
-      onClick={() => selectLayer(layer.id)}
+      onClick={select}
       onContextMenu={onContextMenu}
       {...dropping}
     >
@@ -390,8 +406,8 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
           progress={transition} {...level("layerTransition", MAX_TRANSITION)} />
         <select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
-          onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjTransition })}>
-          {TRANSITIONS.map((effect) => <option key={effect} value={effect}>{t(`vj.transition.short.${effect}`)}</option>)}
+          onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjBlend })}>
+          <BlendOptions />
         </select>
       </div>
       {nameRow}
@@ -594,6 +610,114 @@ function Crossfader() {
   );
 }
 
+/** The header row of a group: its switches, blend and faders, and a trigger per column that launches it on the group's layers only. */
+function GroupRow({ grid, group, deck }: { grid: VjGrid; group: VjGroup; deck: VjDeck }) {
+  const t = useT();
+  const [renaming, setRenaming] = useState(false);
+  const [over, setOver] = useState(false);
+  const selected = useVj((vj) => vj.tab === "group" && vj.group === group.id);
+  const name = groupName(t, grid, group);
+  const count = grid.layers.filter((layer) => layer.group === group.id).length;
+  const at = (grid.groups ?? []).indexOf(group);
+  const level = (op: "groupMaster" | "groupOpacity") => ({
+    onMove: (value: number) => preview({ op, group: group.id, value }),
+    onSet: (value: number) => void edit({ op, group: group.id, value }),
+  });
+  const fold = () => void edit({ op: "groupCollapse", group: group.id, on: !group.collapsed });
+  const ungroup = () => void edit({ op: "ungroup", group: group.id });
+  const foldKey = group.collapsed ? "vj.group.expand" : "vj.group.collapse";
+  const menu: MenuItem[] = [
+    { label: t("vj.group.rename"), run: () => setRenaming(true) },
+    { label: t(foldKey), run: fold },
+    "-",
+    { label: t("vj.group.ungroup"), run: ungroup },
+  ];
+  const dropping = {
+    onDragOver: (event: DragEvent<HTMLDivElement>) => {
+      if (!event.dataTransfer.types.includes(DRAG_LAYER) && !carriesEffect(event, { group: group.id })) return;
+      event.preventDefault();
+      setOver(true);
+    },
+    onDragLeave: () => setOver(false),
+    onDrop: (event: DragEvent<HTMLDivElement>) => {
+      setOver(false);
+      const dragged = event.dataTransfer.getData(DRAG_LAYER);
+      if (!dragged) {
+        dropEffect(event, { group: group.id });
+        return;
+      }
+      event.preventDefault();
+      void edit({ op: "layerGroup", layer: dragged, group: group.id, to: null });
+    },
+  };
+  const bs = (
+    <div className="vj-bs">
+      <button type="button" className={group.bypass ? "on bypass" : ""} {...mappable({ kind: "groupBypass", group: group.id })} aria-pressed={!!group.bypass} title={t("vj.group.bypass")}
+        onClick={(event) => { event.stopPropagation(); void edit({ op: "groupBypass", group: group.id, on: !group.bypass }); }}>B</button>
+      <button type="button" className={group.solo ? "on solo" : ""} {...mappable({ kind: "groupSolo", group: group.id })} aria-pressed={!!group.solo} title={t("vj.group.solo")}
+        onClick={(event) => { event.stopPropagation(); void edit({ op: "groupSolo", group: group.id, on: !group.solo }); }}>S</button>
+    </div>
+  );
+  const nameRow = (
+    <div className="vj-lname">
+      <button type="button" className="vj-fold" aria-expanded={!group.collapsed} title={t(foldKey)} aria-label={t(foldKey)}
+        onClick={(event) => { event.stopPropagation(); fold(); }}>
+        {group.collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
+      </button>
+      <span className="vj-num">G{at + 1}</span>
+      {renaming ? (
+        <InlineName value={group.name ?? ""} label={t("vj.group.rename")} onDone={() => setRenaming(false)}
+          onCommit={(text) => void edit({ op: "renameGroup", group: group.id, name: text })} />
+      ) : (
+        <Marquee className="vj-nm" title={name} onDoubleClick={() => setRenaming(true)}>{name}</Marquee>
+      )}
+      <EffectBadge count={group.effects?.length ?? 0} />
+      <span className="vj-clipname idle">{t(count === 1 ? "vj.group.layer" : "vj.group.layers", { n: count })}</span>
+    </div>
+  );
+  const className = `vj-lh group${group.collapsed ? " folded" : ""}${over ? " over" : ""}${selected ? " selected" : ""}`;
+  const onContextMenu = (event: MouseEvent) => {
+    event.preventDefault();
+    openMenu({ x: event.clientX, y: event.clientY, items: menu });
+  };
+  return (
+    <div className={`vj-row group${group.collapsed ? " folded" : ""}`}>
+      {group.collapsed ? (
+        <div className={className} onClick={() => selectGroup(group.id)} onContextMenu={onContextMenu} {...dropping}>
+          {bs}
+          {nameRow}
+        </div>
+      ) : (
+        <div className={className} onClick={() => selectGroup(group.id)} onContextMenu={onContextMenu} {...dropping}>
+          <button type="button" className="vj-eject" title={t("vj.group.ungroup")} aria-label={t("vj.group.ungroup")}
+            onClick={(event) => { event.stopPropagation(); ungroup(); }}>
+            <CloseIcon />
+          </button>
+          <div className="vj-bsb">
+            {bs}
+            <select className="vj-select" value={group.blend ?? "alpha"} title={t("vj.group.blend")} aria-label={t("vj.group.blend")}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => void edit({ op: "groupBlend", group: group.id, blend: event.target.value as VjBlend })}>
+              <BlendOptions />
+            </select>
+          </div>
+          <div className="vj-faders two">
+            <Fader letter="M" map={{ kind: "groupMaster", group: group.id }} label={t("vj.fader.master")} value={group.master ?? 1} {...level("groupMaster")} />
+            <Fader letter="V" map={{ kind: "groupOpacity", group: group.id }} label={t("vj.fader.video")} value={group.opacity ?? 1} {...level("groupOpacity")} />
+          </div>
+          {nameRow}
+        </div>
+      )}
+      {deck.columns.map((column, place) => (
+        <button key={column.id} type="button" className="vj-gcell" title={t("vj.group.launch", { n: place + 1, name })} aria-label={t("vj.group.launch", { n: place + 1, name })}
+          onPointerDown={(event) => { if (event.button === 0) void launchGroupColumn(group.id, column.id); }}>
+          <PlayIcon />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function DeckPanel({ grid }: { grid: VjGrid }) {
   const t = useT();
   const deck = grid.decks.find((d) => d.id === grid.deck) ?? grid.decks[0];
@@ -622,14 +746,22 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
             <div className="vj-corner">{t("vj.summary", { layers: grid.layers.length, columns: deck.columns.length })}</div>
             {deck.columns.map((column, at) => <ColumnHead key={column.id} column={column} at={at} live={at === liveColumn} />)}
           </div>
-          {layers.map((layer, i) => (
-            <div key={layer.id} className={`vj-row${layer.global ? " global" : ""}${layer.collapsed ? " folded" : ""}${i > 0 && layers[i - 1].global && !layer.global ? " split" : ""}`}>
-              <LayerHeader grid={grid} layer={layer} />
-              {deck.columns.map((column, at) => (
-                <Cell key={column.id} layer={layer} column={column} at={at} />
-              ))}
-            </div>
-          ))}
+          {layers.flatMap((layer, i) => {
+            const group = grid.groups?.find((g) => g.id === layer.group);
+            const rows: ReactNode[] = [];
+            // A group's header row comes over its first layer; a folded group shows nothing else.
+            if (group && layers[i - 1]?.group !== layer.group) rows.push(<GroupRow key={`group-${group.id}`} grid={grid} group={group} deck={deck} />);
+            if (group?.collapsed) return rows;
+            rows.push(
+              <div key={layer.id} className={`vj-row${layer.global ? " global" : ""}${layer.collapsed ? " folded" : ""}${group ? " in-group" : ""}${i > 0 && layers[i - 1].global && !layer.global ? " split" : ""}`}>
+                <LayerHeader grid={grid} layer={layer} />
+                {deck.columns.map((column, at) => (
+                  <Cell key={column.id} layer={layer} column={column} at={at} />
+                ))}
+              </div>,
+            );
+            return rows;
+          })}
         </div>
         <div className="vj-decks">
           <div className="vj-xf" title={t("vj.crossfader.sides", { a: sideNames("a") || "—", b: sideNames("b") || "—" })}>
@@ -825,12 +957,14 @@ function Inspector({ grid }: { grid: VjGrid }) {
   // One value each, so the play state polled twenty times a second does not draw the inspector again.
   const clipId = useVj((vj) => vj.clip);
   const layerId = useVj((vj) => vj.layer);
+  const groupId = useVj((vj) => vj.group);
   const tab = useVj((vj) => vj.tab);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const probes = useDoc((doc) => doc.video);
   const thumbs = useDoc((doc) => doc.thumbs);
   const found = grid.layers.flatMap((layer) => (layer.clips ?? []).map((clip) => ({ layer, clip }))).find((x) => x.clip.id === clipId);
   const layer = grid.layers.find((l) => l.id === layerId) ?? found?.layer;
+  const group = grid.groups?.find((g) => g.id === groupId);
   const modCatalog = useEffectCatalog((state) => state.catalog?.modulation);
   // The modulated values are asked for only while the inspector or a layer's faders show something modulated.
   const modulated =
@@ -838,14 +972,14 @@ function Inspector({ grid }: { grid: VjGrid }) {
   useEffect(() => (modulated ? bindModulation() : undefined), [modulated]);
   const tabs = (
     <nav className="vj-tabs" role="tablist">
-      {(["clip", "layer", "composition", "mappings"] as const).map((key) => (
+      {(["clip", "layer", "group", "composition", "mappings"] as const).map((key) => (
         <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "on" : ""} onClick={() => showTab(key)}>
           {t(`vj.inspector.${key}`)}
         </button>
       ))}
     </nav>
   );
-  let body: ReactNode = <p className="vj-empty">{t(tab === "clip" ? "vj.inspector.noClip" : "vj.inspector.noLayer")}</p>;
+  let body: ReactNode = <p className="vj-empty">{t(tab === "clip" ? "vj.inspector.noClip" : tab === "group" ? "vj.inspector.noGroup" : "vj.inspector.noLayer")}</p>;
   if (tab === "clip" && found) {
     const { clip } = found;
     const { generator } = clip;
@@ -926,7 +1060,7 @@ function Inspector({ grid }: { grid: VjGrid }) {
       <div className="vj-insp single">
         <div className="vj-fields">
           <label className="vj-f"><span>{t("vj.layer.name")}</span>
-            <NameField value={layer.name ?? ""} placeholder={layerName(t, grid, { ...layer, name: undefined })} label={t("vj.layer.name")}
+            <NameField value={layer.name ?? ""} placeholder={t("vj.layer.default", { n: grid.layers.indexOf(layer) + 1 })} label={t("vj.layer.name")}
               onCommit={(name) => edit({ op: "renameLayer", layer: layer.id, name })} />
           </label>
           <label className="vj-f"><span>{t("vj.layer.blend")}</span>
@@ -935,10 +1069,12 @@ function Inspector({ grid }: { grid: VjGrid }) {
               <BlendOptions />
             </select>
           </label>
-          <div className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
-            <Segments options={TRANSITIONS} value={layer.transitionEffect ?? "alpha"} label={(o) => t(`vj.transition.${o}`)}
-              onPick={(effect) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect })} />
-          </div>
+          <label className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
+            <select className="vj-select wide" value={layer.transitionEffect ?? "alpha"}
+              onChange={(event) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: event.target.value as VjBlend })}>
+              <BlendOptions />
+            </select>
+          </label>
           <div className="vj-f" {...mappable({ kind: "layerAutopilot", layer: layer.id })}><span>{t("vj.layer.autopilot")}</span>
             <Segments options={AUTOPILOTS} value={layer.autopilot ?? "off"} label={(o) => t(`vj.autopilot.${o}`)}
               onPick={(mode) => void edit({ op: "layerAutopilot", layer: layer.id, mode })} />
@@ -972,6 +1108,34 @@ function Inspector({ grid }: { grid: VjGrid }) {
           })}
         </div>
         <EffectStack target={{ layer: layer.id }} effects={layer.effects ?? NO_EFFECTS} />
+      </div>
+    );
+  } else if (tab === "group" && group) {
+    body = (
+      <div className="vj-insp single">
+        <div className="vj-fields">
+          <label className="vj-f"><span>{t("vj.group.name")}</span>
+            <NameField value={group.name ?? ""} placeholder={t("vj.group.default", { n: (grid.groups ?? []).indexOf(group) + 1 })} label={t("vj.group.name")}
+              onCommit={(name) => edit({ op: "renameGroup", group: group.id, name })} />
+          </label>
+          <label className="vj-f"><span>{t("vj.layer.blend")}</span>
+            <select className="vj-select wide" value={group.blend ?? "alpha"}
+              onChange={(event) => void edit({ op: "groupBlend", group: group.id, blend: event.target.value as VjBlend })}>
+              <BlendOptions />
+            </select>
+          </label>
+          {([["master", "groupMaster", "vj.fader.master", "M"], ["opacity", "groupOpacity", "vj.fader.video", "V"]] as const).map(([field, op, label, tag]) => (
+            <div key={field} className="vj-f"><span>{t(label)}</span>
+              <div className="vj-scrubs one">
+                <Scrub label={tag} name={t(label)} value={group[field] ?? 1} shown={100} reset={1}
+                  onMove={(v: number) => preview({ op, group: group.id, value: v })}
+                  onSet={(v: number) => void edit({ op, group: group.id, value: v })} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="vj-dim vj-fx-empty">{t("vj.group.note")}</p>
+        <EffectStack target={{ group: group.id }} effects={group.effects ?? NO_EFFECTS} />
       </div>
     );
   } else if (tab === "composition") {
@@ -1101,7 +1265,7 @@ export function VjScreen() {
   useEffect(bindPlayState, []);
   useEffect(bindVjControl, []);
   useEffect(bindOutputState, []);
-  useEffect(() => { void loadEffectCatalog(); }, []);
+  useEffect(() => { void loadEffectCatalog(); void loadPresets(); }, []);
   if (!grid) return null;
   return (
     <div className="vj-app">
@@ -1115,6 +1279,8 @@ export function VjScreen() {
       <AdvancedOutput />
       <MapLayer grid={grid} />
       <MapImportDialog />
+      <NameDialog />
+      <LibraryDialog />
     </div>
   );
 }

@@ -630,6 +630,14 @@ fn fs_blend(in: Out) -> @location(0) vec4f {
         let x = clamp(i32(in.pos.x) + shift, 0, width - 1);
         made = to_gamma(textureLoad(backdrop, vec2i(x, i32(in.pos.y)), 0).rgb);
     }
-    let mixed = mix(b, made, key_cover(mode, l.cover, in.opacity, s) * l.shown);
-    return vec4f(from_gamma(mixed), below.a);
+    let c = key_cover(mode, l.cover, in.opacity, s) * l.shown;
+    if below.a >= 1.0 {
+        return vec4f(from_gamma(mix(b, made, c)), below.a);
+    }
+    // The light below is partly clear (inside a group): the W3C compositing of a picture over a
+    // backdrop with its own alpha, which is the line above when the backdrop is whole.
+    let a = (c.x + c.y + c.z) / 3.0;
+    let cover = below.a + a * (1.0 - below.a);
+    let light = (1.0 - c) * below.a * b + c * ((1.0 - below.a) * s + below.a * made);
+    return vec4f(from_gamma(light / max(cover, 0.000001)), cover);
 }

@@ -4,7 +4,9 @@
 //! A frame with composition effects is drawn in passes, all but the last into textures of the
 //! composition's size:
 //!
-//! 1. every picture, with its own effects, blend and opacity, into the first work texture;
+//! 1. every picture, with its own effects, blend and opacity, into the first work texture; the
+//!    pictures of a group are first mixed together over a clear texture of their own, and that
+//!    one is then drawn like a picture, with the group's effects, blend and opacity;
 //! 2. each history effect (feedback, trails) in turn, reading the work texture and the history
 //!    and drawing into the other work texture, which then is the current one;
 //! 3. the program of the other effects, as one picture the size of the composition;
@@ -16,7 +18,7 @@
 use std::ops::Range;
 
 use crate::post::{BLOOM_LEVELS, Post, Stage, bloom_gains};
-use crate::{Blend, EFFECTS_SIZE, MASKS_SIZE, MAX_LAYERS, effects};
+use crate::{EFFECTS_SIZE, MASKS_SIZE, MAX_LAYERS, effects};
 
 const SHADER: &str = include_str!("post.wgsl");
 /// What a pass's settings take in the uniform: the offsets of a dynamic binding are aligned to this.
@@ -100,6 +102,9 @@ struct Targets {
     as_picture: [wgpu::BindGroup; 2],
     /// The same, sampled without smoothing, for a window that shows a test card.
     as_picture_crisp: [wgpu::BindGroup; 2],
+    /// The pair of textures a group's pictures are mixed in, and each as a picture.
+    inner: [Image; 2],
+    inner_picture: [wgpu::BindGroup; 2],
     /// A work texture and the history, for the passes that combine them.
     with_history: [wgpu::BindGroup; 2],
     /// A work texture and the first level of a bloom's chain.
@@ -115,12 +120,27 @@ pub(crate) struct Inputs<'a> {
     pub queue: &'a wgpu::Queue,
     pub encoder: &'a mut wgpu::CommandEncoder,
     pub vertices: &'a wgpu::Buffer,
-    /// The pictures: their texture's group, blend and the vertices that draw them.
-    pub layers: &'a [(&'a wgpu::BindGroup, Blend, Range<u32>)],
+    /// The pictures and groups, the bottom one first.
+    pub layers: &'a [Drawn<'a>],
     /// The vertices of the program's picture.
     pub program: Range<u32>,
     pub post: &'a Post,
     pub composition: (u32, u32),
+}
+
+/// What one step of the first pass draws: a picture (its texture's group and the vertices that
+/// draw it), or a group of pictures (the same for each) with the vertices that draw their mix.
+pub(crate) enum Drawn<'a> {
+    Picture(&'a wgpu::BindGroup, Range<u32>),
+    Group(Vec<(&'a wgpu::BindGroup, Range<u32>)>, Range<u32>),
+}
+
+/// The textures a picture is drawn between: it is drawn into `to` over a copy of `from`, which the
+/// shader reads (as `backdrop`) for the light below.
+struct Pair<'a> {
+    from: &'a Image,
+    to: &'a Image,
+    backdrop: &'a wgpu::BindGroup,
 }
 
 pub(crate) struct Compose {
@@ -408,11 +428,25 @@ impl Compose {
                 ],
             })
         };
+        let inner = [0, 1].map(|n| {
+            image(
+                device,
+                self.format,
+                size,
+                U::RENDER_ATTACHMENT | U::TEXTURE_BINDING | U::COPY_SRC | U::COPY_DST,
+                &format!("group {n}"),
+            )
+        });
         let (w0, w1) = (&work[0].view, &work[1].view);
         Targets {
             size,
             as_picture: [picture(w0, sampler), picture(w1, sampler)],
             as_picture_crisp: [picture(w0, &self.nearest), picture(w1, &self.nearest)],
+            inner_picture: [
+                picture(&inner[0].view, sampler),
+                picture(&inner[1].view, sampler),
+            ],
+            inner,
             with_history: [pair(w0, &history.view), pair(w1, &history.view)],
             with_bloom: [pair(w0, &levels[0].view), pair(w1, &levels[0].view)],
             work_alone: [pair(w0, w0), pair(w1, w1)],
@@ -421,6 +455,47 @@ impl Compose {
             history,
             levels,
         }
+    }
+
+    /// Draws the picture whose texture `group` is, by the vertices `range`, into `pair.to` over the
+    /// light in `pair.from`.
+    fn over(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        vertices: &wgpu::Buffer,
+        size: (u32, u32),
+        pair: Pair<'_>,
+        group: &wgpu::BindGroup,
+        range: Range<u32>,
+    ) {
+        encoder.copy_texture_to_texture(
+            pair.from.texture.as_image_copy(),
+            pair.to.texture.as_image_copy(),
+            wgpu::Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+        );
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("composition pictures"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &pair.to.view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_bind_group(1, &self.pictures_group, &[]);
+        pass.set_vertex_buffer(0, vertices.slice(..));
+        pass.set_bind_group(2, pair.backdrop, &[]);
+        pass.set_pipeline(&self.picture);
+        pass.set_bind_group(0, group, &[]);
+        pass.draw(range, 0..1);
     }
 
     /// Draws the frame's passes up to the result, which [`Self::result`] then gives; the next frame
@@ -466,41 +541,35 @@ impl Compose {
 
         // 1. The pictures, one pass for each: what is drawn so far is copied into the other
         // texture, the picture is drawn there with the first as the light below, and the other
-        // texture is the current one from then on.
+        // texture is the current one from then on. A group's pictures are drawn so in the pair of
+        // its own, from clear; the mix is then one more picture of the composition's.
         let mut current = 0;
         clear(encoder, &targets.work[0].view);
-        for (group, _, range) in layers {
-            let target = 1 - current;
-            encoder.copy_texture_to_texture(
-                targets.work[current].texture.as_image_copy(),
-                targets.work[target].texture.as_image_copy(),
-                wgpu::Extent3d {
-                    width: size.0,
-                    height: size.1,
-                    depth_or_array_layers: 1,
-                },
-            );
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("composition pictures"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &targets.work[target].view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-            pass.set_bind_group(1, &self.pictures_group, &[]);
-            pass.set_vertex_buffer(0, vertices.slice(..));
-            pass.set_bind_group(2, &targets.as_picture[current], &[]);
-            pass.set_pipeline(&self.picture);
-            pass.set_bind_group(0, *group, &[]);
-            pass.draw(range.clone(), 0..1);
-            drop(pass);
-            current = target;
+        for step in layers {
+            let (group, range) = match step {
+                Drawn::Picture(group, range) => (*group, range),
+                Drawn::Group(pictures, range) => {
+                    let mut inner = 0;
+                    clear_to(encoder, &targets.inner[0].view, wgpu::Color::TRANSPARENT);
+                    for (group, range) in pictures {
+                        let pair = Pair {
+                            from: &targets.inner[inner],
+                            to: &targets.inner[1 - inner],
+                            backdrop: &targets.inner_picture[inner],
+                        };
+                        self.over(encoder, vertices, size, pair, group, range.clone());
+                        inner = 1 - inner;
+                    }
+                    (&targets.inner_picture[inner], range)
+                }
+            };
+            let pair = Pair {
+                from: &targets.work[current],
+                to: &targets.work[1 - current],
+                backdrop: &targets.as_picture[current],
+            };
+            self.over(encoder, vertices, size, pair, group, range.clone());
+            current = 1 - current;
         }
 
         // 2. The history effects.
@@ -666,6 +735,10 @@ impl Compose {
 }
 
 fn clear(encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+    clear_to(encoder, view, wgpu::Color::BLACK);
+}
+
+fn clear_to(encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, colour: wgpu::Color) {
     let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("clear history"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -673,7 +746,7 @@ fn clear(encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
             depth_slice: None,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                load: wgpu::LoadOp::Clear(colour),
                 store: wgpu::StoreOp::Store,
             },
         })],
@@ -712,6 +785,7 @@ fn fullscreen(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Blend;
     use wgpu::{TextureFormatFeatureFlags as F, TextureUsages as U};
 
     #[test]
@@ -787,6 +861,14 @@ mod tests {
             adapter.get_info().name
         );
         Some((device, queue, format))
+    }
+
+    /// The pictures of `layers`, each a step of the first pass.
+    fn drawn<'a>(layers: &[(&'a wgpu::BindGroup, Blend, Range<u32>)]) -> Vec<Drawn<'a>> {
+        layers
+            .iter()
+            .map(|(group, _, range)| Drawn::Picture(group, range.clone()))
+            .collect()
     }
 
     /// Half a float as a float.
@@ -937,7 +1019,7 @@ mod tests {
         let mut render = |post: &Post,
                           frames: usize,
                           vertex_buffer: &wgpu::Buffer,
-                          layers: &[(&wgpu::BindGroup, Blend, Range<u32>)]|
+                          steps: &[Drawn]|
          -> Vec<f32> {
             for _ in 0..frames {
                 let mut encoder = device.create_command_encoder(&Default::default());
@@ -947,7 +1029,7 @@ mod tests {
                         queue: &queue,
                         encoder: &mut encoder,
                         vertices: vertex_buffer,
-                        layers,
+                        layers: steps,
                         program: 6..12,
                         post,
                         composition: (size, size),
@@ -1006,7 +1088,7 @@ mod tests {
         };
         let at = |image: &[f32], x: usize, y: usize| image[y * size as usize + x];
         let alpha = [(&picture, Blend::Alpha, 0..6)];
-        let image = render(&post, 3, &vertex_buffer, &alpha);
+        let image = render(&post, 3, &vertex_buffer, &drawn(&alpha));
         // The picture is lit, the bloom lights beyond it and the far corner stays dark.
         assert!(at(&image, 32, 32) > 0.5, "{}", at(&image, 32, 32));
         assert!(at(&image, 22, 32) > 0.0, "{}", at(&image, 22, 32));
@@ -1019,7 +1101,7 @@ mod tests {
             kind: flux_project::vj_effects::EffectKind::Invert { amount: 1.0 },
         };
         let inverted = Post::new(&[invert], effects::Time::default(), 1.0 / 60.0);
-        let image = render(&inverted, 1, &vertex_buffer, &alpha);
+        let image = render(&inverted, 1, &vertex_buffer, &drawn(&alpha));
         assert!(at(&image, 32, 32) < 0.01, "{}", at(&image, 32, 32));
         assert!(at(&image, 0, 0) > 0.99, "{}", at(&image, 0, 0));
 
@@ -1052,11 +1134,11 @@ mod tests {
             (&picture, Blend::Alpha, 0..6),
             (&picture, Blend::Difference, 6..12),
         ];
-        let image = render(&none, 1, &blends, &stack);
+        let image = render(&none, 1, &blends, &drawn(&stack));
         assert!(at(&image, 30, 34) < 0.01, "{}", at(&image, 30, 34));
         assert!(at(&image, 2, 2) > 0.99, "{}", at(&image, 2, 2));
         let first = [(&picture, Blend::Difference, 6..12)];
-        let image = render(&none, 1, &blends, &first);
+        let image = render(&none, 1, &blends, &drawn(&first));
         assert!(
             at(&image, 30, 34) > 0.99 && at(&image, 2, 2) > 0.99,
             "{} {}",
@@ -1069,12 +1151,56 @@ mod tests {
             (&picture, Blend::Difference, 6..12),
             (&picture, Blend::Alpha, 12..18),
         ];
-        let image = render(&none, 1, &blends, &after);
+        let image = render(&none, 1, &blends, &drawn(&after));
         assert!(
             at(&image, 30, 34) > 0.99 && at(&image, 2, 2) > 0.99,
             "{} {}",
             at(&image, 30, 34),
             at(&image, 2, 2)
+        );
+
+        // A group is mixed over clear and then drawn like a picture: at full alpha it is the same
+        // as its pictures flat, and a blend that reads the light below does not read the light
+        // below the group while the group's pictures are mixed.
+        let quad = |place: [f32; 4], opacity: f32, shading: f32| -> Vec<Vertex> {
+            vertices(&whole_quad())
+                .into_iter()
+                .map(|v| Vertex {
+                    place,
+                    opacity,
+                    shading,
+                    ..v
+                })
+                .collect()
+        };
+        let mut data = quad(middle, 0.5, 0.0);
+        data.extend(quad([0.0, 0.0, 1.0, 1.0], 1.0, 0.0));
+        data.extend(quad([0.0, 0.0, 1.0, 1.0], 1.0, Blend::Multiply.shading()));
+        data.extend(quad([0.0, 0.0, 1.0, 1.0], 0.5, 0.0));
+        let grouped = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: vertex_bytes(&data).len() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&grouped, 0, &vertex_bytes(&data));
+        let flat = render(&none, 1, &grouped, &[Drawn::Picture(&picture, 0..6)]);
+        let group = [Drawn::Group(vec![(&picture, 0..6)], 6..12)];
+        let mixed = render(&none, 1, &grouped, &group);
+        for (x, y) in [(32, 32), (2, 2)] {
+            let (a, b) = (at(&flat, x, y), at(&mixed, x, y));
+            assert!((a - b).abs() < 0.01, "{x},{y}: {a} flat, {b} grouped");
+        }
+        // Multiplied by white, the grey below stays, even where the group has nothing.
+        let grey = [
+            Drawn::Picture(&picture, 18..24),
+            Drawn::Group(vec![(&picture, 0..6)], 12..18),
+        ];
+        let image = render(&none, 1, &grouped, &grey);
+        let (corner, centre) = (at(&image, 2, 2), at(&image, 32, 32));
+        assert!(
+            corner > 0.1 && (corner - centre).abs() < 0.02,
+            "{corner} {centre}"
         );
 
         // Every blend the shader does should come to what the monitor's CPU twin makes of it: a
@@ -1141,7 +1267,7 @@ mod tests {
                 (&below_group, Blend::Alpha, 0..6),
                 (&above_group, blend, 6..12),
             ];
-            let image = render(&none, 1, &buffer, &layers);
+            let image = render(&none, 1, &buffer, &drawn(&layers));
             let expected = crate::composite::to_linear(
                 crate::composite::blend_light(
                     blend,

@@ -14,7 +14,7 @@ pub mod palette;
 pub mod pattern;
 pub mod post;
 
-pub use composite::{composite, composite_post};
+pub use composite::{composite, composite_items, composite_post};
 pub use effects::{Effects, Time};
 pub use post::{History, Post};
 
@@ -53,6 +53,45 @@ pub struct Picture<'a> {
     /// Read texel by texel with no smoothing, so a one pixel line stays one pixel: a test card's.
     /// The window is then drawn without smoothing too, wherever any picture asks for it.
     pub nearest: bool,
+}
+
+/// A group of pictures, as Resolume's layer groups: the pictures are mixed together over a clear
+/// picture first, and that mix is drawn like a picture of its own, with the group's effects, blend
+/// and opacity.
+#[derive(Debug, Clone)]
+pub struct Group<'a> {
+    /// The pictures, the first at the bottom.
+    pub pictures: Vec<Picture<'a>>,
+    /// How much the mix covers what is below, 0 to 1.
+    pub opacity: f32,
+    pub blend: Blend,
+    /// What is done to the mix before it is drawn.
+    pub effects: Effects,
+}
+
+/// What is drawn in the composition: a picture, or a group of them.
+#[derive(Debug, Clone)]
+pub enum Item<'a> {
+    Picture(Picture<'a>),
+    Group(Group<'a>),
+}
+
+impl Item<'_> {
+    /// Whether a picture of it is read texel by texel (see [`Picture::nearest`]).
+    fn nearest(&self) -> bool {
+        match self {
+            Self::Picture(picture) => picture.nearest,
+            Self::Group(group) => group.pictures.iter().any(|picture| picture.nearest),
+        }
+    }
+
+    /// How many slots of the effects it takes: a picture, or its pictures and the group.
+    fn count(&self) -> usize {
+        match self {
+            Self::Picture(_) => 1,
+            Self::Group(group) => group.pictures.len() + 1,
+        }
+    }
 }
 
 /// How a picture mixes with what is drawn below it, as Resolume's layer blends do: the picture
@@ -236,7 +275,8 @@ pub const MAX_MASKS: usize = 8;
 pub const MAX_MASK_POINTS: usize = 32;
 /// The masks' uniform: a header, one line of 4 numbers per mask and two points per line.
 const MASKS_SIZE: u64 = 16 + 16 * MAX_MASKS as u64 + 8 * (MAX_MASKS * MAX_MASK_POINTS) as u64;
-/// The effects' uniform: [`effects::FX_FLOATS`] floats for each of [`MAX_LAYERS`] pictures.
+/// The effects' uniform: [`effects::FX_FLOATS`] floats for each of [`MAX_LAYERS`] pictures and
+/// groups.
 const EFFECTS_SIZE: u64 = (effects::FX_FLOATS * MAX_LAYERS * 4) as u64;
 
 /// A corner of a quad as the GPU reads it: its place in clip space and its texture coordinate,
@@ -268,6 +308,13 @@ struct Uploaded {
     nearest: bool,
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
+}
+
+/// What the first pass draws: a picture by the slot of its texture, or a group of them and the
+/// vertices of their mix.
+enum Step {
+    Picture(usize, std::ops::Range<u32>),
+    Group(Vec<(usize, std::ops::Range<u32>)>, std::ops::Range<u32>),
 }
 
 /// A window's GPU surface, made before the device that draws on it.
@@ -564,18 +611,18 @@ impl Screen {
         }
     }
 
-    /// Draws `pictures` one over another from the first (at most [`MAX_LAYERS`], the top ones
-    /// kept), each placed in a composition of `composition` pixels, through `quads` (at most
-    /// [`MAX_QUADS`]) or with the composition fitted to the window when there are none, with
-    /// `masks` hiding parts of it; black for no picture. Waits for the display's next refresh, so
-    /// a loop calling it runs at the display's rate.
+    /// Draws `items` one over another from the first (at most [`MAX_LAYERS`] pictures and groups
+    /// together, the top ones kept), each placed in a composition of `composition` pixels,
+    /// through `quads` (at most [`MAX_QUADS`]) or with the composition fitted to the window when
+    /// there are none, with `masks` hiding parts of it; black for no picture. Waits for the
+    /// display's next refresh, so a loop calling it runs at the display's rate.
     ///
     /// The pictures are drawn into a texture of the composition's size first, which the effects
     /// change (and remember, for the next frame) and which is then drawn onto the window through
     /// the quads and masks as if it were a picture.
     pub fn draw(
         &mut self,
-        pictures: &[Picture<'_>],
+        items: &[Item<'_>],
         composition: (u32, u32),
         quads: &[Quad],
         masks: &[Mask],
@@ -586,7 +633,6 @@ impl Screen {
             0,
             &mask_bytes(masks, (self.config.width, self.config.height)),
         );
-        let pictures = &pictures[pictures.len().saturating_sub(MAX_LAYERS)..];
         let fitted;
         let quads = if quads.is_empty() {
             fitted = [fitted_quad(
@@ -606,24 +652,63 @@ impl Screen {
         }
         let whole = [whole_quad()];
         let into = &whole[..];
-        // Each layer's vertices, and the range of them it draws.
+        // Each picture's vertices, and the range of them it draws.
         let mut data: Vec<Vertex> = Vec::new();
-        let mut layers = Vec::new();
+        let mut steps: Vec<Step> = Vec::new();
         let mut effects = [Effects::default().pack(); MAX_LAYERS];
-        for (slot, picture) in pictures.iter().enumerate() {
-            if picture.opacity <= 0.0 || !self.upload(slot, *picture) {
-                continue;
+        // The textures are per picture, from the bottom; the pictures of the bottom are the ones
+        // left out when there are too many.
+        let mut skip = items
+            .iter()
+            .map(Item::count)
+            .sum::<usize>()
+            .saturating_sub(MAX_LAYERS);
+        let mut slot = 0;
+        for item in items {
+            let (pictures, group) = match item {
+                Item::Picture(picture) => (std::slice::from_ref(picture), None),
+                Item::Group(group) => (&group.pictures[..], Some(group)),
+            };
+            let mut staged = Vec::new();
+            for picture in pictures {
+                if skip > 0 {
+                    skip -= 1;
+                    continue;
+                }
+                if slot < MAX_LAYERS && picture.opacity > 0.0 && self.upload(slot, *picture) {
+                    let first = data.len() as u32;
+                    data.extend(into.iter().flat_map(vertices).map(|vertex| Vertex {
+                        place: picture.place,
+                        opacity: picture.opacity.min(1.0),
+                        shading: picture.blend.shading(),
+                        fx: slot as f32,
+                        ..vertex
+                    }));
+                    effects[slot] = picture.effects.pack();
+                    staged.push((slot, first..data.len() as u32));
+                }
+                slot += 1;
             }
-            let first = data.len() as u32;
-            data.extend(into.iter().flat_map(vertices).map(|vertex| Vertex {
-                place: picture.place,
-                opacity: picture.opacity.min(1.0),
-                shading: picture.blend.shading(),
-                fx: slot as f32,
-                ..vertex
-            }));
-            effects[slot] = picture.effects.pack();
-            layers.push((slot, picture.blend, first..data.len() as u32));
+            match group {
+                None => steps.extend(staged.pop().map(|(slot, range)| Step::Picture(slot, range))),
+                Some(group) if !staged.is_empty() && slot < MAX_LAYERS && group.opacity > 0.0 => {
+                    // The group's mix is drawn whole, with its own effects in the slot after its
+                    // pictures'.
+                    let at = slot;
+                    slot += 1;
+                    let first = data.len() as u32;
+                    data.extend(into.iter().flat_map(vertices).map(|vertex| Vertex {
+                        place: [0.0, 0.0, 1.0, 1.0],
+                        opacity: group.opacity.min(1.0),
+                        shading: group.blend.shading(),
+                        fx: at as f32,
+                        ..vertex
+                    }));
+                    effects[at] = group.effects.pack();
+                    steps.push(Step::Group(staged, first..data.len() as u32));
+                }
+                Some(_) => {}
+            }
         }
         // The composition's program and the composition on the window: one picture the size of
         // the composition each.
@@ -653,7 +738,7 @@ impl Screen {
         };
         let view = frame.texture.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        self.draw_composition(&mut encoder, &layers, program, post, composition);
+        self.draw_composition(&mut encoder, &steps, program, post, composition);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("picture"),
@@ -670,7 +755,7 @@ impl Screen {
             });
             pass.set_vertex_buffer(0, self.vertices.slice(..));
             if let Some(compose) = &self.compose
-                && let Some(group) = compose.result(pictures.iter().any(|p| p.nearest))
+                && let Some(group) = compose.result(items.iter().any(Item::nearest))
             {
                 pass.set_bind_group(1, &compose.window_group, &[]);
                 pass.set_pipeline(&self.present);
@@ -687,7 +772,7 @@ impl Screen {
     fn draw_composition(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
-        layers: &[(usize, Blend, std::ops::Range<u32>)],
+        steps: &[Step],
         program: std::ops::Range<u32>,
         post: &Post,
         composition: (u32, u32),
@@ -709,11 +794,21 @@ impl Screen {
         let Some(compose) = self.compose.as_mut() else {
             return;
         };
-        let groups: Vec<_> = layers
+        let textures = &self.pictures;
+        let texture = |slot: &usize| Some(&textures[*slot].as_ref()?.bind_group);
+        let groups: Vec<_> = steps
             .iter()
-            .filter_map(|(slot, blend, range)| {
-                let uploaded = self.pictures[*slot].as_ref()?;
-                Some((&uploaded.bind_group, *blend, range.clone()))
+            .filter_map(|step| match step {
+                Step::Picture(slot, range) => {
+                    Some(compose::Drawn::Picture(texture(slot)?, range.clone()))
+                }
+                Step::Group(pictures, range) => Some(compose::Drawn::Group(
+                    pictures
+                        .iter()
+                        .filter_map(|(slot, range)| Some((texture(slot)?, range.clone())))
+                        .collect(),
+                    range.clone(),
+                )),
             })
             .collect();
         compose.run(
