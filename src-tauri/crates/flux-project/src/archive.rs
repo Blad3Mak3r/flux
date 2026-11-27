@@ -87,11 +87,19 @@ pub fn open(path: &Path) -> Result<(Project, ProjectArchive)> {
         serde_json::from_value(value)?
     };
     project.validate()?;
+    // Linked media is not in the archive, and missing media never stops a project from opening.
     for file in project
         .assets
         .iter()
+        .filter(|a| a.link.is_none())
         .map(|a| &a.file)
-        .chain(project.videos.iter().map(|v| &v.file))
+        .chain(
+            project
+                .videos
+                .iter()
+                .filter(|v| v.link.is_none())
+                .map(|v| &v.file),
+        )
     {
         by_name(&mut archive, file)?;
     }
@@ -202,17 +210,31 @@ pub fn read_meta(path: &Path) -> Result<ProjectMeta> {
     })
 }
 
-/// The preview stored for `asset`, if there is one made from the audio the archive holds now.
+/// The preview stored for `asset`, if there is one made from the audio the archive holds now (or,
+/// for linked audio that is not in the archive, from the audio with the `linked` stamp).
 ///
 /// A preview is only a cache, so one that is missing, unreadable or made from other audio is `None`.
 pub fn read_preview(path: &Path, asset: &AudioAsset) -> Result<Option<Preview>> {
+    read_preview_of(path, asset, None)
+}
+
+/// [`read_preview`] with the stamp of the audio when it lives outside the archive.
+pub fn read_preview_of(
+    path: &Path,
+    asset: &AudioAsset,
+    linked: Option<AudioStamp>,
+) -> Result<Option<Preview>> {
     let mut archive = open_archive(path)?;
-    let audio = by_name(&mut archive, &asset.file)?;
-    let stamp = AudioStamp {
-        size: audio.size(),
-        crc32: audio.crc32(),
+    let stamp = match linked {
+        Some(stamp) => stamp,
+        None => {
+            let audio = by_name(&mut archive, &asset.file)?;
+            AudioStamp {
+                size: audio.size(),
+                crc32: audio.crc32(),
+            }
+        }
     };
-    drop(audio);
 
     let mut bytes = Vec::new();
     match archive.by_name(&preview_path(&asset.file)) {
@@ -234,6 +256,9 @@ pub fn read_preview(path: &Path, asset: &AudioAsset) -> Result<Option<Preview>> 
 /// `previews` are the waveforms generated in this session; an asset without one keeps the preview
 /// of the archive it is copied from, if any.
 ///
+/// A linked asset writes no media, only its preview: the fresh one, else the one in the archive at
+/// `preview_from` (the file the project was opened or saved as).
+///
 /// The archive is written to a temporary file next to `path` and renamed over it, so a failed
 /// save leaves any existing file untouched.
 pub fn save(
@@ -242,11 +267,22 @@ pub fn save(
     sources: &HashMap<String, AssetSource>,
     previews: &HashMap<String, StoredPreview>,
 ) -> Result<()> {
+    save_from(path, project, sources, previews, None)
+}
+
+/// [`save`] for a project with linked assets, whose previews come from `preview_from`.
+pub fn save_from(
+    path: &Path,
+    project: &Project,
+    sources: &HashMap<String, AssetSource>,
+    previews: &HashMap<String, StoredPreview>,
+    preview_from: Option<&Path>,
+) -> Result<()> {
     project.validate()?;
 
     let tmp = tmp_path(path);
-    let written =
-        write_archive(&tmp, project, sources, previews).and_then(|()| Ok(fs::rename(&tmp, path)?));
+    let written = write_archive(&tmp, project, sources, previews, preview_from)
+        .and_then(|()| Ok(fs::rename(&tmp, path)?));
     if written.is_err() {
         let _ = fs::remove_file(&tmp);
     }
@@ -258,6 +294,7 @@ fn write_archive(
     project: &Project,
     sources: &HashMap<String, AssetSource>,
     previews: &HashMap<String, StoredPreview>,
+    preview_from: Option<&Path>,
 ) -> Result<()> {
     let mut zip = ZipWriter::new(File::create(path)?);
 
@@ -276,7 +313,21 @@ fn write_archive(
         .compression_method(CompressionMethod::Stored)
         .large_file(true);
     let mut open_sources: HashMap<&Path, FileArchive> = HashMap::new();
-    for asset in &project.assets {
+    for asset in project.assets.iter().filter(|a| a.link.is_some()) {
+        let preview_file = preview_path(&asset.file);
+        if let Some(fresh) = previews.get(&asset.id) {
+            zip.start_file(&preview_file, stored)?;
+            zip.write_all(&fresh.encode())?;
+        } else if let Some(from) = preview_from {
+            // The old file may be gone or damaged: a preview is only a cache.
+            if let Ok(mut old) = open_archive(from)
+                && let Ok(entry) = old.by_name(&preview_file)
+            {
+                zip.raw_copy_file(entry)?;
+            }
+        }
+    }
+    for asset in project.assets.iter().filter(|a| a.link.is_none()) {
         let source = sources
             .get(&asset.id)
             .ok_or_else(|| ProjectError::MissingAsset(asset.file.clone()))?;
@@ -308,7 +359,7 @@ fn write_archive(
         }
     }
 
-    for video in &project.videos {
+    for video in project.videos.iter().filter(|v| v.link.is_none()) {
         let source = sources
             .get(&video.id)
             .ok_or_else(|| ProjectError::MissingAsset(video.file.clone()))?;
@@ -331,6 +382,32 @@ fn write_archive(
     drop(open_sources);
     zip.finish()?;
     Ok(())
+}
+
+/// The size of the entry `file` of the archive at `path`.
+pub(crate) fn entry_size(path: &Path, file: &str) -> Result<u64> {
+    let mut archive = open_archive(path)?;
+    Ok(by_name(&mut archive, file)?.size())
+}
+
+/// Copies the entry `file` of the archive at `path` into `out`, telling `progress` the bytes of each chunk.
+pub(crate) fn copy_entry(
+    path: &Path,
+    file: &str,
+    out: &mut impl Write,
+    progress: &mut impl FnMut(u64),
+) -> Result<()> {
+    let mut archive = open_archive(path)?;
+    let mut entry = by_name(&mut archive, file)?;
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        let n = entry.read(&mut buffer)?;
+        if n == 0 {
+            return Ok(());
+        }
+        out.write_all(&buffer[..n])?;
+        progress(n as u64);
+    }
 }
 
 fn open_archive(path: &Path) -> Result<FileArchive> {

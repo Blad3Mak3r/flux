@@ -6,9 +6,12 @@ mod commands;
 mod control;
 mod device_commands;
 mod diagnostics;
+mod drop_commands;
 mod export_commands;
 mod graphics;
 mod live_commands;
+mod media_commands;
+mod media_progress;
 mod modulation;
 mod osc_api;
 mod preferences;
@@ -144,6 +147,8 @@ pub fn run() {
             commands::project_import_video,
             commands::project_import_vj_video,
             commands::project_import_image,
+            drop_commands::project_drop_timeline,
+            drop_commands::project_drop_vj,
             commands::vj_edit,
             commands::vj_mappings_export,
             commands::vj_mappings_import,
@@ -188,6 +193,10 @@ pub fn run() {
             video_commands::video_convert_hap,
             video_commands::video_convert_cancel,
             video_commands::project_replace_video,
+            media_commands::media_list,
+            media_commands::media_relink,
+            media_commands::media_search_folder,
+            media_commands::media_collect,
             video_commands::video_mask_edit,
             video_output::video_output_pattern,
             video_output::video_card_preview,

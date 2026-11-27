@@ -659,6 +659,7 @@ mod tests {
             id: "v1".into(),
             name: "Intro".into(),
             file: "video/intro.mp4".into(),
+            link: None,
         });
         project.timelines[0].tracks.push(Track {
             audio_output: Default::default(),
@@ -726,6 +727,7 @@ mod tests {
             id: "voice".into(),
             name: "Voice".into(),
             file: "audio/voice.mp3".into(),
+            link: None,
             bpm: None,
         });
         project.timelines[0].tracks.push(Track {
@@ -1164,6 +1166,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             file: format!("audio/{id}.wav"),
+            link: None,
             bpm: None,
         }
     }

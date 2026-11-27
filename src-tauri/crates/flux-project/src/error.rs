@@ -15,7 +15,7 @@ pub enum ProjectError {
     MissingProjectJson,
     #[error("project format version {found} is newer than the supported version {supported}")]
     UnsupportedVersion { found: u32, supported: u32 },
-    #[error("asset is missing from the archive: {0}")]
+    #[error("media file is missing: {0}")]
     MissingAsset(String),
     #[error("invalid asset path: {0}")]
     InvalidAssetPath(String),
@@ -29,7 +29,7 @@ pub enum ProjectError {
 impl Serialize for ProjectError {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         if let Self::Invalid(code) = self
-            && code.starts_with("show.error.")
+            && (code.starts_with("show.error.") || code.starts_with("media.error."))
         {
             return serializer.serialize_str(code);
         }

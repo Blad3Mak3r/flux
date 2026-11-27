@@ -1,4 +1,6 @@
 import { useT } from "../i18n";
+import { openMedia, useMedia } from "../media/store";
+import "../media/media.css";
 import { activeTimeline } from "../state/doc";
 import { useDoc } from "../state/store";
 import { useUi } from "../state/ui";
@@ -13,12 +15,19 @@ export function StatusBar() {
   const hover = useReadout((readout) => readout.hover);
   const span = useReadout(selectSpan);
   const vj = useDoc((doc) => doc.project.mode === "vj");
+  const offline = useMedia((media) => media.missing);
   return (
     <footer className="statusbar">
       <p className="message" data-tone={message.tone} role={message.tone === "error" ? "alert" : "status"}>
         {"key" in message ? t(message.key, message.values) : message.text}
       </p>
       <p className="measure">
+        {offline > 0 && (
+          <button type="button" className="media-offline" title={t("media.offlineOpen")} onClick={openMedia}>
+            <i aria-hidden="true" />
+            {t("media.offlineCount", { count: offline })}
+          </button>
+        )}
         {vj && <VjTips />}
         {span !== null && span > 0 && (
           <span>

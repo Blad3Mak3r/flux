@@ -23,6 +23,8 @@ import { forwardKeyDown, forwardKeyUp, releaseKeys } from "./vj/keys";
 import { useVj } from "./vj/store";
 import { VjScreen } from "./vj/VjScreen";
 import { bindRemoteControl } from "./control/bind";
+import { MediaDialog } from "./media/MediaDialog";
+import { bindMedia, useMedia } from "./media/store";
 import { bindLive } from "./live/feed";
 import { useLive } from "./live/store";
 import { TimelineConfirm } from "./components/TimelineConfirm";
@@ -35,6 +37,8 @@ import { I18nProvider, useT } from "./i18n";
 import { deleteSelection, renameSelectedTrack } from "./state/actions";
 import { splitAtPlayhead } from "./state/clips";
 import { activeTimeline, isDirty } from "./state/doc";
+import { watchMediaProgress } from "./media/progress";
+import { watchFileDrops } from "./state/fileDrop";
 import { bindDocumentSync, flushDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
 import { ask, closeAbout, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
@@ -86,6 +90,17 @@ function Shell({ devices }: { devices: Devices }) {
     if (clockUnpaced) sayError(t("output.clockFast"));
   }, [clockUnpaced, t]);
 
+  // Files dragged in from the file explorer.
+  useEffect(() => {
+    const stop = watchFileDrops();
+    return () => void stop.then((off) => off());
+  }, []);
+
+  useEffect(() => {
+    const stop = watchMediaProgress();
+    return () => void stop.then((off) => off());
+  }, []);
+
   useEffect(() => {
     document.title = `${name}${dirty ? " ●" : ""} — ${t("app.title")}`;
   }, [name, dirty, t]);
@@ -111,7 +126,7 @@ function Shell({ devices }: { devices: Devices }) {
     const onKeyDown = (event: KeyboardEvent) => {
       // A dialog that is open owns the keyboard; the transport keys must not fire behind it.
       const ui = useUi.getState();
-      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || useVj.getState().output || isTyping(event.target)) return;
+      if (ui.errors.length || ui.pending || ui.setup || ui.showCheck || ui.about || ui.removing !== null || useVj.getState().output || useMedia.getState().open || isTyping(event.target)) return;
       // A VJ show has keys of its own, and none of the timeline's.
       if (useDoc.getState().project.mode === "vj") {
         // A key a mapping waits for is the mapping's, not a shortcut's.
@@ -236,6 +251,7 @@ function Shell({ devices }: { devices: Devices }) {
       <StatusBar />
       <SetupDialog devices={devices} />
       <ShowCheckDialog />
+      <MediaDialog />
       {/* Outside the menu bar, whose button rules would strip the dialog's buttons. */}
       {about ? <AboutDialog onClose={closeAbout} /> : null}
       <MenuHost />
@@ -285,6 +301,7 @@ function Editor() {
   }, [native, t]);
   useEffect(bindTimelineAdvance, []);
   useEffect(bindRemoteControl, []);
+  useEffect(bindMedia, []);
   useEffect(() => {
     if (native) void startDocument(t, setPhase).then(() => setConnected(true));
   }, [native, t]);

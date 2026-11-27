@@ -27,8 +27,11 @@ transport.
 | **Global layers** | A layer added as global keeps its clips in slots that are the same in every deck, so they stay when the deck changes. |
 | **Clips** | A video, a still image or a [generator](vj-generators.md), at most one per cell. |
 
-Import media with **Ctrl+I** (videos and still images: PNG, JPEG, WebP, BMP, TIFF, GIF) or drag files in, then drag
-them from the browser onto cells. Generators are in the **Generators** tab of the browser, and effects in the
+Import media with **Ctrl+I** (videos and still images: PNG, JPEG, WebP, BMP, TIFF, GIF), then drag
+them from the browser onto cells. You can also drag files from the file explorer straight onto a cell: the first goes
+in that cell, in place of its clip, and each next one in the next cell to the right on the same layer. The cell under the
+pointer lights up. Files that are not videos or images, that FFmpeg cannot read, or that find no cell are left out, and
+the status bar says how many (`project_drop_vj`). Generators are in the **Generators** tab of the browser, and effects in the
 **Effects** tab.
 
 ## Launching clips
@@ -177,7 +180,7 @@ of 1536 x 768). The settings live in the project, per slice, in **Advanced Outpu
 | **Layers** | **Grid** (one pixel lines on the first pixel of each cabinet, a 2 pixel outline of the slice and a mark at every cabinet corner), **Ids**, **Circle** and **Diagonals** (they show a stretch: the circle touches the top and bottom of the slice, and a stretched slice shows an ellipse), **Centre lines** (dashed), **Label**, **Bars** (colour bars and a grey ramp) and **Motion**. A mark in the top left corner shows a mirrored or turned wall. |
 | **Guides** | How thick the circle, diagonals and centre lines are, from 1 to 6 pixels. |
 | **Label** | The slice's name, its resolution, the cabinet count and size (`CAB 12 x 6 · 128 x 128 px`) and the screen's name and window size, on a dark rounded plate. **Name**, **Resolution** and **Plate** switch parts off; **Label height** moves it up and down the slice. |
-| **Logo** | **Show logo** (off by default) puts an image in a disc above the label. **Image** picks one of the project's images (PNG, JPEG, WebP and the other stills the media library takes), or **Import image...** adds one to the project's media without putting it on the grid; it is stored in the `.flx` like any other media, so the project stays portable. **Disc** is the colour behind the logo and **Logo size** the disc's diameter, 10 to 60 % of the slice's short side. The logo is fitted inside the disc, keeping its shape, and its transparency shows the disc. |
+| **Logo** | **Show logo** (off by default) puts an image in a disc above the label. **Image** picks one of the project's images (PNG, JPEG, WebP and the other stills the media library takes), or **Import image...** adds one to the project's media without putting it on the grid; it is linked by path like any other media (see [Media and offline files](./video-output.md#media-and-offline-files)); **Collect media** gathers it for moving the project. **Disc** is the colour behind the logo and **Logo size** the disc's diameter, 10 to 60 % of the slice's short side. The logo is fitted inside the disc, keeping its shape, and its transparency shows the disc. |
 | **Copy to all slices** | Gives every slice of the screen these settings, the logo included, each keeping its own colour and its own **Show on this slice**. This is how a logo becomes the same on the whole screen. |
 
 **Motion** is a clock with a frame number (`HH:MM:SS:FF`), eight squares that count the frames in binary and, under them,

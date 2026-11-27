@@ -380,11 +380,21 @@ export interface ProjectMeta {
   description?: string;
 }
 
+/** A media file kept outside the project file, found by path. */
+export interface MediaLink {
+  /** Absolute, as the system gave it. */
+  path: string;
+  /** Relative to the project file's folder, tried when `path` is gone. */
+  relative?: string;
+}
+
 export interface AudioAsset {
   id: string;
   name: string;
-  /** Archive path, `audio/<file name>`. */
+  /** Archive path, `audio/<file name>`: the asset's stable key, and where its bytes are with no `link`. */
   file: string;
+  /** Where the audio lives outside the project file; absent when the project holds it. */
+  link?: MediaLink;
   /** The tempo found in the audio or set by the user; absent when it was never detected. */
   bpm?: number;
 }
@@ -394,6 +404,8 @@ export interface VideoAsset {
   name: string;
   /** Archive path, `video/<file name>`. */
   file: string;
+  /** Where the file lives outside the project file; absent when the project holds it. */
+  link?: MediaLink;
 }
 
 export type AudioAssignment = { type: "inherit" } | { type: "silent" } | { type: "output"; id: string };

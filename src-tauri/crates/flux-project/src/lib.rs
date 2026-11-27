@@ -3,10 +3,12 @@
 mod archive;
 mod clips;
 mod cue_ops;
+mod dropped;
 mod error;
 mod events;
 pub mod generator;
 mod item_ops;
+pub mod media;
 pub(crate) mod meta;
 mod migrate;
 mod model;
@@ -36,6 +38,7 @@ pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Tr
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
 pub use clips::{ClipOp, apply as apply_clip_op};
 pub use cue_ops::{CueEdited, CueOp, CueTrackKind};
+pub use dropped::{Dropped, MediaKind, Staged, media_kind};
 pub use error::{ProjectError, Result};
 pub use events::{
     MidiEvent, MidiMessage, MidiPortRef, MscCommand, OscArg, OscDestination, OscEvent,
@@ -45,9 +48,9 @@ pub use item_ops::{Fade, ItemOp, MAX_TRACK_NAME};
 pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, Autosave, DEFAULT_LTC_LEVEL, ENVELOPE_MAX_DB,
     ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, EnvPoint, FORMAT_VERSION, FadeCurve,
-    LtcOutput, MAX_BPM, MAX_CLIP_NAME, MAX_ENVELOPE_POINTS, MAX_OFFSET_MS, MIN_BPM, Meta,
-    MetronomeOutput, MtcOutput, Note, OutputConfig, Project, Tempo, TimecodeSettings, Timeline,
-    Track, TrackKind, VIDEO_DIR, VideoAsset, VideoClip, VideoFit,
+    LtcOutput, MAX_BPM, MAX_CLIP_NAME, MAX_ENVELOPE_POINTS, MAX_OFFSET_MS, MIN_BPM, MediaLink,
+    Meta, MetronomeOutput, MtcOutput, Note, OutputConfig, Project, Tempo, TimecodeSettings,
+    Timeline, Track, TrackKind, VIDEO_DIR, VideoAsset, VideoClip, VideoFit,
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, ProjectState, Session};

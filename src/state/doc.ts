@@ -63,7 +63,7 @@ export type DocAction =
   | { type: "undo" }
   | { type: "redo" }
   /** `meta` is the one the backend wrote with the save. */
-  | { type: "saved"; path: string; meta: Project["meta"]; snapshot?: Project };
+  | { type: "saved"; path: string; meta: Project["meta"]; links?: Pick<Project, "assets" | "videos">; snapshot?: Project };
 
 const HISTORY_LIMIT = 200;
 
@@ -175,7 +175,8 @@ function reduce(doc: Doc, action: DocAction): Doc {
     }
     case "saved": {
       const snapshot = action.snapshot ?? doc.project;
-      const saved = { ...snapshot, meta: action.meta };
+      // The links as the save wrote them, so the window and the backend hold the same project.
+      const saved = { ...snapshot, ...action.links, meta: action.meta };
       const project = doc.project === snapshot ? saved : { ...doc.project, meta: action.meta };
       return { ...doc, path: action.path, project, saved };
     }

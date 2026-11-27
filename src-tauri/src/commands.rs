@@ -411,7 +411,7 @@ pub async fn project_import_image(
 }
 
 /// Opens a video with FFmpeg and logs what it is; a file it cannot decode is refused with the reason.
-fn check_video(path: &Path) -> Result<()> {
+pub(crate) fn check_video(path: &Path) -> Result<()> {
     let video = flux_video::VideoFile::open(path)
         .map_err(|err| ProjectError::Invalid(format!("{}: {err}", path.display())))?;
     let info = video.info();

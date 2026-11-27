@@ -1,6 +1,7 @@
 import { useAudioOutputName } from "../audio/routing";
 import { usePreferences } from "../preferences/store";
 import { setCollapsed } from "../state/ui";
+import { useFileDrop } from "../state/fileDrop";
 import { addOrder, operatorEdit, useVoice } from "../voice/store";
 import type { VoiceOrder } from "../project/types";
 import { memo, useRef, useState } from "react";
@@ -10,6 +11,8 @@ import type { ClipOp } from "../project/api";
 import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
+import { MediaProgressBar } from "../media/progress";
+import { focusMedia, useMedia } from "../media/store";
 import { editClip, editVideoClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
@@ -155,7 +158,7 @@ export const TrackHeader = memo(function TrackHeader({
  * Drag an item sideways in whole frames; commit once on release so undo takes one step. `length` is
  * how many frames it lasts, so that its end can land on something as well as its start.
  */
-function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number) {
+function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number, onClick?: () => void) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
   const move =
     kind === "operator"
@@ -185,6 +188,7 @@ function useDrag(id: string, kind: Selected["kind"], position: number, length: n
     },
     onPointerUp() {
       if (origin.current && delta !== 0) void move(id, origin.current.position + delta);
+      else if (origin.current) onClick?.(); // A press that never moved: a click.
       origin.current = null;
       setSnapGuide(null);
       setDelta(0);
@@ -318,9 +322,10 @@ function ClipBlock({
   const renaming = useUi((ui) => ui.renaming?.kind === "clip" && ui.renaming.id === clip.id);
   const labelRef = useRef<HTMLSpanElement>(null);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
+  const offline = useMedia((media) => media.offline.has(clip.asset));
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
-  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame, offline ? () => focusMedia(clip.asset) : undefined);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame);
@@ -340,6 +345,7 @@ function ClipBlock({
       tabIndex={0}
       aria-pressed={selected}
       data-selected={selected}
+      data-offline={offline || undefined}
       data-muted={muted}
       style={{ left: frameX(left, pxPerFrame), width, height }}
       onContextMenu={(event) => {
@@ -421,10 +427,12 @@ function ClipBlock({
       ) : (
         <span className="clip-label" ref={labelRef}>
           {name}
+          {offline && <span className="clip-offline">{t("media.state.offline")}</span>}
           {bpm !== undefined && <span className="clip-bpm">{bpm} BPM</span>}
           {clip.gainDb !== 0 && <span className="clip-gain">{clip.gainDb > 0 ? "+" : ""}{clip.gainDb} dB</span>}
         </span>
       )}
+      <MediaProgressBar asset={clip.asset} />
       <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
       <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
       <ClipHandle
@@ -460,9 +468,10 @@ function VideoBlock({
   const t = useT();
   const selected = useUi((ui) => ui.selection?.id === clip.id);
   const probe = useDoc((doc) => doc.video[clip.asset]);
+  const offline = useMedia((media) => media.offline.has(clip.asset));
   const name = useDoc((doc) => clip.name ?? doc.project.videos?.find((video) => video.id === clip.asset)?.name ?? clip.asset);
   const length = videoClipLength(clip, probe, fps, guessLength);
-  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame);
+  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame, offline ? () => focusMedia(clip.asset) : undefined);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame, true);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame, true);
@@ -485,6 +494,7 @@ function VideoBlock({
       tabIndex={0}
       aria-pressed={selected}
       data-selected={selected}
+      data-offline={offline || undefined}
       style={{ left: frameX(left, pxPerFrame), width, height: rowHeight - 12 }}
       {...pointer}
     >
@@ -522,6 +532,7 @@ function VideoBlock({
       )}
       <span className="clip-label">
         {name}
+        {offline && <span className="clip-offline">{t("media.state.offline")}</span>}
         {sound?.bpm !== undefined && <span className="clip-bpm">{sound.bpm} BPM</span>}
         {probe && (
           <span className="clip-bpm">
@@ -529,6 +540,7 @@ function VideoBlock({
           </span>
         )}
       </span>
+      <MediaProgressBar asset={clip.asset} />
       <ClipHandle edge="start" label={t("clip.trimStart", { name })} handlers={trimStart.handlers} />
       <ClipHandle edge="end" label={t("clip.trimEnd", { name })} handlers={trimEnd.handlers} />
       <ClipHandle
@@ -709,6 +721,8 @@ export const TrackLane = memo(function TrackLane({
 }) {
   const t = useT();
   const height = laneHeight(track);
+  // Files from the file explorer are over this lane.
+  const dropping = useFileDrop((drop) => drop.timeline?.track === track.id);
   // A double click on the empty part of a notes, MIDI or OSC lane adds one there.
   const addHere = (event: MouseEvent<HTMLDivElement>) => {
     const kind = track.kind.type;
@@ -724,6 +738,8 @@ export const TrackLane = memo(function TrackLane({
     <div
       className="lane"
       style={{ height, ...traceStyle(track.color) }}
+      data-drop-track={track.id}
+      data-drop={dropping}
       data-muted={track.muted}
       data-kind={track.kind.type}
       data-dragging={dragging}

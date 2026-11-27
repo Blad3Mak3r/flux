@@ -23,6 +23,7 @@ import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
 import { reorderTrack } from "../state/actions";
 import { snapFrame } from "../state/snap";
+import { useFileDrop } from "../state/fileDrop";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
@@ -109,6 +110,12 @@ function SnapGuideLine({ pxPerFrame }: { pxPerFrame: number }) {
       aria-hidden="true"
     />
   );
+}
+
+/** Where files dragged in from the file explorer would start: a line at their time. */
+function DropLine({ pxPerFrame }: { pxPerFrame: number }) {
+  const frame = useFileDrop((drop) => drop.timeline?.frame ?? null);
+  return frame === null ? null : <div className="drop-guide" style={{ left: frameX(frame, pxPerFrame) }} />;
 }
 
 export function Timeline() {
@@ -315,6 +322,7 @@ export function Timeline() {
           <div
             className="screen-inner"
             style={{ width: laneWidth }}
+            data-drop-timeline
             onPointerMove={onPointerMove}
             onPointerLeave={() => patchReadout({ hover: null })}
           >
@@ -354,6 +362,7 @@ export function Timeline() {
 
             <SpanShade pxPerFrame={pxPerFrame} />
             <HoverLine pxPerFrame={pxPerFrame} />
+            <DropLine pxPerFrame={pxPerFrame} />
             <SnapGuideLine pxPerFrame={pxPerFrame} />
             <Playhead start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
           </div>

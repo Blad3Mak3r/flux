@@ -3,6 +3,7 @@
 import { analyzeAudio, detectBpm } from "../audio/api";
 import { errorMessage } from "../project/api";
 import type { AudioAsset } from "../project/types";
+import { withoutOffline } from "../media/store";
 import { edit } from "./actions";
 import { setAssetBpm } from "./edit";
 import { dispatch, useDoc } from "./store";
@@ -16,9 +17,11 @@ export const forgetAnalyses = () => {
 };
 
 /** Reads the length and waveform of each asset; resolves when all of them were tried. */
-export function analyse(assets: AudioAsset[]): Promise<void> {
+export async function analyse(all: AudioAsset[]): Promise<void> {
   const current = generation;
-  if (assets.length === 0) return Promise.resolve();
+  // An offline file is not an error: the media page lists it, and it is read once it is relinked.
+  const assets = await withoutOffline(all);
+  if (assets.length === 0 || generation !== current) return;
   say("status.analysing");
   let pending = assets.length;
   let failed = false;
@@ -44,7 +47,7 @@ export function analyse(assets: AudioAsset[]): Promise<void> {
         if (pending === 0 && !failed && generation === current) say("status.analysed");
       }),
   );
-  return Promise.all(reads).then(() => undefined);
+  await Promise.all(reads);
 }
 
 /**
@@ -76,7 +79,7 @@ export async function detectTempo(asset: AudioAsset, report = false, derived = f
  * not decode them all at once.
  */
 export async function detectTempos(assets: AudioAsset[], derived = false): Promise<void> {
-  const missing = assets.filter((asset) => asset.bpm === undefined);
+  const missing = (await withoutOffline(assets)).filter((asset) => asset.bpm === undefined);
   if (derived) {
     for (const asset of missing) await detectTempo(asset, false, true);
   } else {

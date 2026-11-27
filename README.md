@@ -83,8 +83,9 @@ It is built for three people who share one project file:
 
 ### Everywhere
 
-- **Portable projects.** A `.flx` file is a zip with `project.json` and the bundled audio, so a show opens on
-  another machine and just works.
+- **Portable projects.** A `.flx` file is a zip with `project.json`; audio, video and images are linked by path (a
+  video can be several GB), missing files show as offline and can be relinked or searched for, and **Collect media**
+  gathers everything beside the project to move it.
 - **English and Spanish.** Every string is translatable, with the language saved per computer.
 - **Built-in diagnostics.** A rotating log and a one-click zip of logs plus a system and device report, from the
   Help menu.

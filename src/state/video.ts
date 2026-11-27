@@ -15,6 +15,7 @@ import {
   videoThumbnails,
 } from "../video/api";
 import type { ConvertProgress } from "../video/api";
+import { useMedia, withoutOffline } from "../media/store";
 import { dispatch, useDoc } from "./store";
 import { say, sayError } from "./ui";
 
@@ -25,9 +26,11 @@ export const useVideoErrors = create<Record<string, string>>(() => ({}));
  * Asks the backend about each video; one it cannot read is reported and drawn at the guessed length.
  * A VJ project needs neither the waveform nor the tempo of a video's sound.
  */
-export function probeVideos(assets: VideoAsset[]): Promise<void> {
+export async function probeVideos(all: VideoAsset[]): Promise<void> {
   const vj = useDoc.getState().project.mode === "vj";
-  return Promise.all(
+  // An offline video is not an error: the media page lists it, and it is read once it is relinked.
+  const assets = await withoutOffline(all);
+  await Promise.all(
     assets.map((asset) =>
       probeVideo(asset)
         .then((info) => dispatch({ type: "video", id: asset.id, info }))
@@ -37,7 +40,7 @@ export function probeVideos(assets: VideoAsset[]): Promise<void> {
           sayError(`${asset.name}: ${errorMessage(err)}`);
         }),
     ),
-  ).then(() => undefined);
+  );
 }
 
 /** Fetches the thumbnails of a video once probed; without them its clip is drawn plain. */
@@ -66,7 +69,7 @@ const asked = new Set<string>();
 
 /** Loads the waveform of a video's sound once, for a VJ clip that shows it; `probeVideos` skips it for a VJ project. */
 export function ensureSound(asset: VideoAsset): void {
-  if (asked.has(asset.id) || useDoc.getState().audio[asset.id]) return;
+  if (asked.has(asset.id) || useDoc.getState().audio[asset.id] || useMedia.getState().offline.has(asset.id)) return;
   asked.add(asset.id);
   loadSound(asset).catch((err) => {
     asked.delete(asset.id);

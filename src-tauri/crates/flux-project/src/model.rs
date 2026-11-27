@@ -21,7 +21,8 @@ pub use super::meta::Meta;
 /// Version 13 adds `videos` and the `video` track kind.
 /// Version 14 adds `mode` and the VJ grid `vj`.
 /// Version 15 gives a VJ show a file of its own shape (see `vj_file`); a cue show's is unchanged.
-pub const FORMAT_VERSION: u32 = 15;
+/// Version 16 adds `link` to audio and video assets: media kept outside the archive, by path.
+pub const FORMAT_VERSION: u32 = 16;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";
@@ -177,21 +178,41 @@ pub struct TimecodeSettings {
 pub struct AudioAsset {
     pub id: String,
     pub name: String,
-    /// Archive path, `audio/<file name>`.
+    /// Archive path, `audio/<file name>`: where the bytes live when `link` is absent, and in any
+    /// case the stable key of the asset (its preview, its extension).
     pub file: String,
+    /// Where the audio lives outside the archive; absent when the archive holds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<MediaLink>,
     /// The tempo found in the audio, or set by the user; absent when it was never detected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bpm: Option<f64>,
 }
 
-/// A video file bundled in the archive.
+/// A video (or image) file, in the archive or linked.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoAsset {
     pub id: String,
     pub name: String,
-    /// Archive path, `video/<file name>`.
+    /// Archive path, `video/<file name>`; like [`AudioAsset::file`], the key of the asset.
     pub file: String,
+    /// Where the file lives outside the archive; absent when the archive holds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<MediaLink>,
+}
+
+/// A media file kept outside the archive, found by path (a project with videos of several GB must
+/// not copy them).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaLink {
+    /// Absolute, as the system gave it.
+    pub path: String,
+    /// Relative to the folder of the project file, `/`-separated: tried when `path` is gone, so a
+    /// project moved together with its media still finds it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relative: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -568,6 +589,14 @@ impl Project {
                 _ => {}
             }
         }
+        // The image a test card draws as its logo.
+        let logos = self
+            .output
+            .screens
+            .iter()
+            .flat_map(|screen| &screen.slices)
+            .map(|slice| slice.test_card.logo.as_str());
+        used.extend(logos.filter(|logo| !logo.is_empty()));
         let grid = self.vj.layers.iter().flat_map(|layer| &layer.clips);
         used.extend(
             grid.map(|clip| clip.asset.as_str())
@@ -589,6 +618,7 @@ impl Project {
         let mut asset_files = HashSet::new();
         for asset in &self.assets {
             check_asset_path(&asset.file)?;
+            check_link(asset.link.as_ref())?;
             ensure_unique(&mut asset_ids, "asset id", &asset.id)?;
             ensure_unique(&mut asset_files, "asset file", &asset.file)?;
             if asset
@@ -604,6 +634,7 @@ impl Project {
         let mut video_ids = HashSet::new();
         for video in &self.videos {
             check_video_path(&video.file)?;
+            check_link(video.link.as_ref())?;
             ensure_unique(&mut asset_ids, "asset id", &video.id)?;
             ensure_unique(&mut asset_files, "asset file", &video.file)?;
             video_ids.insert(video.id.as_str());
@@ -905,6 +936,15 @@ pub(super) fn check_video_path(file: &str) -> Result<()> {
     check_path_in(VIDEO_DIR, file)
 }
 
+fn check_link(link: Option<&MediaLink>) -> Result<()> {
+    match link {
+        Some(link) if link.path.is_empty() => {
+            Err(ProjectError::Invalid("a media link has no path".into()))
+        }
+        _ => Ok(()),
+    }
+}
+
 fn check_path_in(dir: &str, file: &str) -> Result<()> {
     let valid = file
         .strip_prefix(dir)
@@ -951,6 +991,7 @@ pub(super) mod tests {
                 id: "a1".into(),
                 name: "Click".into(),
                 file: "audio/click.wav".into(),
+                link: None,
                 bpm: Some(128.5),
             }],
             videos: Vec::new(),
@@ -1104,7 +1145,7 @@ pub(super) mod tests {
 
     /// The shape of the current format: what `sample_project` must serialise to and parse from.
     const FIXTURE: &str = r##"{
-        "formatVersion": 15,
+        "formatVersion": 16,
         "autosave": { "enabled": true, "intervalSeconds": 30 },
         "name": "Opening night",
         "meta": {
@@ -1725,6 +1766,7 @@ pub(super) mod tests {
             id: "v1".into(),
             name: "Intro".into(),
             file: "video/intro.mp4".into(),
+            link: None,
         });
         project.timelines[0].tracks.push(Track {
             audio_output: Default::default(),

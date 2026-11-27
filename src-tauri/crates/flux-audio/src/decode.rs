@@ -38,7 +38,16 @@ impl Decoded {
 /// Decodes `bytes`, using `extension` (`"mp3"`, `"wav"`, ...) as a hint for the container.
 /// Mono is played on both sides and anything beyond two channels is dropped.
 pub fn decode(bytes: Vec<u8>, extension: Option<&str>) -> Result<Decoded, AudioError> {
-    decode_inner(bytes, extension, None)
+    decode_inner(bytes, extension, None, &mut |_| ())
+}
+
+/// Like [`decode`], telling `progress` how far it is (0 to 1) as it reads, when the file says how long it is.
+pub fn decode_with(
+    bytes: Vec<u8>,
+    extension: Option<&str>,
+    progress: &mut dyn FnMut(f32),
+) -> Result<Decoded, AudioError> {
+    decode_inner(bytes, extension, None, progress)
 }
 
 /// Bound speech imports during decoding, before collecting an unbounded sample buffer.
@@ -47,13 +56,14 @@ pub fn decode_limited(
     extension: Option<&str>,
     max_frames: u64,
 ) -> Result<Decoded, AudioError> {
-    decode_inner(bytes, extension, Some(max_frames))
+    decode_inner(bytes, extension, Some(max_frames), &mut |_| ())
 }
 
 fn decode_inner(
     bytes: Vec<u8>,
     extension: Option<&str>,
     max_frames: Option<u64>,
+    progress: &mut dyn FnMut(f32),
 ) -> Result<Decoded, AudioError> {
     let stream = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
     let mut hint = Hint::new();
@@ -73,6 +83,7 @@ fn decode_inner(
         .default_track(TrackType::Audio)
         .ok_or(AudioError::NoAudioTrack)?;
     let track_id = track.id;
+    let total = track.num_frames.filter(|&n| n > 0);
     let Some(CodecParameters::Audio(params)) = track.codec_params.clone() else {
         return Err(AudioError::NoAudioTrack);
     };
@@ -110,6 +121,9 @@ fn decode_inner(
                 for frame in scratch.chunks_exact(channels) {
                     stereo.push(frame[0]);
                     stereo.push(frame[channels.min(2) - 1]);
+                }
+                if let Some(total) = total {
+                    progress((frames as f32 / total as f32).min(1.0));
                 }
             }
             // A damaged packet is skipped; the rest of the file is still good.
@@ -224,6 +238,17 @@ pub(crate) mod tests {
         assert_eq!(decoded.frames(), 48_000);
         assert_eq!(decoded.source_rate, 48_000);
         assert!((decoded.duration_seconds() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn decode_with_should_report_progress_up_to_the_end() {
+        let mono = sine(48_000, 1.0, 0.5);
+        let mut seen = Vec::new();
+
+        decode_with(wav(48_000, 1, &mono), Some("wav"), &mut |f| seen.push(f)).unwrap();
+
+        assert!(seen.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert_eq!(seen.last(), Some(&1.0));
     }
 
     #[test]

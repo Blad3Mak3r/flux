@@ -293,6 +293,7 @@ mod tests {
             id: "a1".into(),
             name: "Intro".into(),
             file: "audio/intro.wav".into(),
+            link: None,
             bpm: None,
         });
         let tracks = &mut project.timelines[0].tracks;

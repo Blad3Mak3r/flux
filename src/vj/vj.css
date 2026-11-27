@@ -615,6 +615,7 @@
 .vj-meta dt { flex: none; color: var(--ink-faint); }
 .vj-meta dd { min-width: 0; margin: 0; color: var(--ink-dim); text-align: right; }
 .vj-meta dd .marquee, .vj-m figcaption .marquee, .vj-dim.marquee { display: block; }
+.vj-meta > .media-file { grid-column: 1 / -1; margin-bottom: 0; }
 
 /* Media */
 .vj-mg { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); align-content: start; gap: 14px 10px; height: 100%; padding: 12px; overflow: auto; }
@@ -647,6 +648,10 @@
   transform: translate(-50%, -50%);
 }
 .vj-state.failed { color: var(--amber); }
+/* A clip whose file is gone: dim, striped, and labelled in the fault colour. */
+.vj-state.offline { color: var(--signal); font-weight: 700; border: 1px solid var(--signal); }
+.vj-clip.offline .vj-thumb { filter: grayscale(1) brightness(0.45); }
+.vj-clip.offline { background-image: repeating-linear-gradient(135deg, transparent 0 8px, oklch(0.7 0.2 32 / 0.16) 8px 16px); }
 .vj-spin {
   width: 10px;
   height: 10px;

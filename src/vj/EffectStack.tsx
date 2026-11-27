@@ -2,8 +2,8 @@
 // effect to drag onto one. The backend owns the kinds, the settings with their ranges and defaults, the order and
 // the limit; this draws what its catalogue says and forwards the user's intent.
 
-import { Fragment, useMemo, useState } from "react";
-import type { DragEvent, ReactNode } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -18,6 +18,8 @@ import {
   RefreshIcon,
 } from "../components/icons";
 import { useT } from "../i18n";
+import { startDrag, useDropTarget } from "../state/pointerDrag";
+import type { DragData } from "../state/pointerDrag";
 import { effectModulation } from "../project/types";
 import type { MessageKey } from "../i18n";
 import type { VjEffect, VjEffectKind, VjGrid, VjModulations, VjParamValue } from "../project/types";
@@ -41,15 +43,13 @@ const DRAG_ROW = "application/x-flux-vj-fx";
 export type EffectTarget = { clip: string } | { layer: string } | { group: string } | "composition";
 
 /** Whether a drag carries an effect from the browser that `target` takes: one for the composition only is not for a clip or a layer. */
-export const carriesEffect = (event: DragEvent, target: EffectTarget) =>
-  event.dataTransfer.types.includes(DRAG_EFFECT) && (target === "composition" || !event.dataTransfer.types.includes(DRAG_COMPOSITION));
+export const carriesEffect = (data: DragData, target: EffectTarget) =>
+  DRAG_EFFECT in data && (target === "composition" || !(DRAG_COMPOSITION in data));
 
 /** Adds the effect a drop carries to `target`; whether it carried one that `target` takes. */
-export function dropEffect(event: DragEvent, target: EffectTarget): boolean {
-  const kind = event.dataTransfer.getData(DRAG_EFFECT);
-  if (!kind || !carriesEffect(event, target)) return false;
-  event.preventDefault();
-  event.stopPropagation();
+export function dropEffect(data: DragData, target: EffectTarget): boolean {
+  const kind = data[DRAG_EFFECT];
+  if (!kind || !carriesEffect(data, target)) return false;
   void edit({ op: "addEffect", target, kind });
   if (target === "composition") showTab("composition");
   return true;
@@ -58,21 +58,12 @@ export function dropEffect(event: DragEvent, target: EffectTarget): boolean {
 /** What makes an element take the effects dropped on it into the composition (the output panel, the composition bar). */
 export function useCompositionDrop() {
   const [over, setOver] = useState(false);
-  return {
-    over,
-    props: {
-      onDragOver: (event: DragEvent) => {
-        if (!carriesEffect(event, "composition")) return;
-        event.preventDefault();
-        setOver(true);
-      },
-      onDragLeave: () => setOver(false),
-      onDrop: (event: DragEvent) => {
-        setOver(false);
-        dropEffect(event, "composition");
-      },
-    },
-  };
+  const ref = useDropTarget({
+    accepts: (data) => carriesEffect(data, "composition"),
+    over: setOver,
+    drop: (data) => dropEffect(data, "composition"),
+  });
+  return { over, ref };
 }
 
 /**
@@ -212,33 +203,28 @@ function EffectRow({ effect, index, stack, full }: { effect: VjEffect; index: nu
     return <button type="button" className="vj-fx-b" disabled={disabled} aria-pressed={pressed} title={label} aria-label={label} onClick={run}>{icon}</button>;
   };
   // A row dragged here goes before or after this one, by which half it is dropped on.
-  const over = (event: DragEvent<HTMLLIElement>) => {
-    if (!event.dataTransfer.types.includes(DRAG_ROW)) return;
-    event.preventDefault();
-    const box = event.currentTarget.getBoundingClientRect();
-    setEdge(event.clientY < box.top + box.height / 2 ? "before" : "after");
+  const row = useRef<HTMLLIElement | null>(null);
+  const edgeAt = (y: number) => {
+    const box = row.current?.getBoundingClientRect();
+    return box && y < box.top + box.height / 2 ? "before" : "after";
   };
-  const drop = (event: DragEvent<HTMLLIElement>) => {
-    const from = event.dataTransfer.getData(DRAG_ROW);
-    const at = stack.findIndex((e) => e.id === from);
-    setEdge(null);
-    if (!from || at < 0 || from === id) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const place = index + (edge === "after" ? 1 : 0);
-    void edit({ op: "moveEffect", effect: from, index: at < place ? place - 1 : place });
-  };
+  const target = useDropTarget({
+    accepts: (data) => DRAG_ROW in data,
+    over: (on, at) => setEdge(on ? edgeAt(at.y) : null),
+    drop: (data, at) => {
+      const from = data[DRAG_ROW];
+      const dragged = stack.findIndex((e) => e.id === from);
+      if (dragged < 0 || from === id) return;
+      const place = index + (edgeAt(at.y) === "after" ? 1 : 0);
+      void edit({ op: "moveEffect", effect: from, index: dragged < place ? place - 1 : place });
+    },
+  });
   return (
     <li className={`vj-fx-item${bypass ? " off" : ""}${folded ? " folded" : ""}${edge ? ` drop-${edge}` : ""}`}
-      onDragOver={over} onDragLeave={() => setEdge(null)} onDrop={drop}>
+      ref={(el) => { row.current = el; target(el); }}>
       <div className="vj-fx-h">
-        <span className="vj-fx-g" draggable title={t("vj.effect.drag")} aria-label={t("vj.effect.drag")}
-          onDragStart={(event) => {
-            event.dataTransfer.setData(DRAG_ROW, id);
-            event.dataTransfer.effectAllowed = "move";
-            const row = event.currentTarget.closest("li");
-            if (row) event.dataTransfer.setDragImage(row, 12, 12);
-          }}><GripIcon /></span>
+        <span className="vj-fx-g" title={t("vj.effect.drag")} aria-label={t("vj.effect.drag")}
+          onPointerDown={(event) => startDrag(event, { [DRAG_ROW]: id }, name)}><GripIcon /></span>
         <button type="button" className="vj-fx-n" aria-expanded={!folded} title={t(folded ? "vj.effect.open" : "vj.effect.fold")}
           onClick={() => foldEffect(id)}>
           {folded ? <ChevronRightIcon /> : <ChevronDownIcon />}
@@ -269,18 +255,13 @@ export function EffectStack({ target, effects }: { target: EffectTarget; effects
   const full = effects.length >= max;
   const composition = target === "composition";
   const title = t(composition ? "vj.composition.effects" : "vj.effects");
+  const drop = useDropTarget({
+    accepts: (data) => carriesEffect(data, target),
+    over: setOver,
+    drop: (data) => dropEffect(data, target),
+  });
   return (
-    <section className={`vj-fx${over ? " over" : ""}`} aria-label={title}
-      onDragOver={(event) => {
-        if (!carriesEffect(event, target)) return;
-        event.preventDefault();
-        setOver(true);
-      }}
-      onDragLeave={() => setOver(false)}
-      onDrop={(event) => {
-        setOver(false);
-        dropEffect(event, target);
-      }}>
+    <section className={`vj-fx${over ? " over" : ""}`} aria-label={title} ref={drop}>
       <header className="vj-fx-head">
         <h3>{title}<span className="vj-dim vj-fx-count">{effects.length}/{catalog?.max ?? "–"}</span></h3>
         <button type="button" className="vj-fx-b" title={t("vj.preset.button")} aria-label={t("vj.preset.button")} aria-haspopup="menu"
@@ -347,13 +328,9 @@ export function EffectBrowser({ target }: { target: EffectTarget | null }) {
           <div className="vj-fxg">
             {catalog.effects.filter((spec) => spec.category === category).map((spec) => (
               <div key={spec.name} className="vj-fxw">
-              <div className="vj-fxc" draggable role="button" tabIndex={0}
+              <div className="vj-fxc" role="button" tabIndex={0}
                 title={t("vj.effects.note")}
-                onDragStart={(event) => {
-                  event.dataTransfer.setData(DRAG_EFFECT, spec.name);
-                  if (spec.compositionOnly) event.dataTransfer.setData(DRAG_COMPOSITION, spec.name);
-                  event.dataTransfer.effectAllowed = "copy";
-                }}
+                onPointerDown={(event) => startDrag(event, { [DRAG_EFFECT]: spec.name, ...(spec.compositionOnly ? { [DRAG_COMPOSITION]: spec.name } : {}) }, t(effectKey(spec.name)))}
                 onDoubleClick={() => add(spec)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") add(spec);

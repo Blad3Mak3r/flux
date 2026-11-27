@@ -572,6 +572,7 @@ mod tests {
             id: "a1".into(),
             name: "Intro".into(),
             file: "audio/intro.wav".into(),
+            link: None,
             bpm: None,
         });
         project.timelines[0].tracks.push(track(
@@ -796,6 +797,7 @@ mod tests {
             id: "v1".into(),
             name: "Intro".into(),
             file: "video/intro.mp4".into(),
+            link: None,
         });
         project.timelines[0].tracks.push(track(
             "video",
