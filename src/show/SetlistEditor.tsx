@@ -10,6 +10,7 @@ import { editShow } from "./api";
 import { EntrySummary } from "./EntrySummary";
 import { useShowOverview } from "./overview";
 import type { Setlist, SetlistEntry, Transition } from "./types";
+import { Select } from "../components/Select";
 
 export function SetlistEditor() {
   const t = useT();
@@ -61,7 +62,7 @@ export function SetlistEditor() {
     <div className="setlist-heading">
       <div><h3>{setlist?.name ?? t("show.workspace")}</h3><p>{t("show.workspaceNote")}</p></div>
       <div className="button-row">
-        {setlist && <select aria-label={t("show.setlist")} value={setlist.id} disabled={locked} onChange={(e) => {setSelected(e.target.value); setEntryId(""); setSettings(false);}}>{lists.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+        {setlist && <Select aria-label={t("show.setlist")} value={setlist.id} disabled={locked} onChange={(value) => {setSelected(value); setEntryId(""); setSettings(false);}}>{lists.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</Select>}
         {setlist && <button type="button" className="button" disabled={locked} onClick={() => setCreating(!creating)}><PlusIcon />{t("show.addSetlist")}</button>}
         {setlist && <button type="button" className="button" aria-pressed={settings} onClick={() => setSettings(!settings)}>{t("show.setlistSettings")}</button>}
       </div>
@@ -84,10 +85,10 @@ export function SetlistEditor() {
             <button type="button" className="button" disabled={ordering || selectedView?.moveUp == null} title={t("show.moveUpShortcut")} onClick={() => move(entry.id, selectedView?.moveUp)}><ArrowUpIcon />{t("show.up")}</button>
             <button type="button" className="button" disabled={ordering || selectedView?.moveDown == null} title={t("show.moveDownShortcut")} onClick={() => move(entry.id, selectedView?.moveDown)}><ArrowDownIcon />{t("show.down")}</button>
             <label className="setlist-move-to">{t("show.moveTo")}
-              <select aria-label={t("show.moveTo")} value={entry.id} disabled={ordering || !sheet}
-                onChange={(e) => move(entry.id, sheet?.entries.find((item) => item.id === e.target.value)?.position)}>
+              <Select aria-label={t("show.moveTo")} value={entry.id} disabled={ordering || !sheet}
+                onChange={(value) => move(entry.id, sheet?.entries.find((item) => item.id === value)?.position)}>
                 {sheet?.entries.map((item) => <option key={item.id} value={item.id}>{item.number} · {item.name}</option>)}
-              </select>
+              </Select>
             </label>
           </div>}
           <p className="setlist-order-hint" id="setlist-order-hint">{t("show.reorderHint")}</p>
@@ -114,7 +115,7 @@ export function SetlistEditor() {
         {setlist.entries.length === 0 && <div className="setlist-empty-list"><h4>{t("show.emptyOrder")}</h4><p>{t("show.emptyEntries")}</p></div>}
         {adding && <form className="setlist-add" onSubmit={(e) => {e.preventDefault(); void add();}}>
           <label htmlFor="add-setlist-timeline">{t("show.chooseTimeline")}</label>
-          <select id="add-setlist-timeline" autoFocus value={timelineId} onChange={(e) => setTimelineId(e.target.value)}>{project.timelines.map((tl) => <option key={tl.id} value={tl.id}>{tl.name}</option>)}</select>
+          <Select id="add-setlist-timeline" autoFocus value={timelineId} onChange={(value) => setTimelineId(value)}>{project.timelines.map((tl) => <option key={tl.id} value={tl.id}>{tl.name}</option>)}</Select>
           <div className="button-row"><button type="submit" className="button primary">{t("show.addEntry")}</button><button type="button" className="button" onClick={() => setAdding(false)}>{t("dialog.cancel")}</button></div>
         </form>}
         <footer className="setlist-order-foot"><p>{t("show.portableNote")}</p><button type="button" className="button" disabled={locked || setlist.entries.length === 0} onClick={() => setView("live")}>{t("show.openLive")}</button></footer>

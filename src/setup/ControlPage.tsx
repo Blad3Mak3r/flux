@@ -23,6 +23,7 @@ import {
 import { errorMessage } from "../project/api";
 import { RowStatus } from "./pages";
 import { portChoices, portKey, portLabel, splitPortKey } from "./outputs";
+import { Select } from "../components/Select";
 
 /** The lamp of an input: its word always rides beside it. */
 function linkLamp(link: LinkState): { state: "off" | "on" | "fault"; word: MessageKey } {
@@ -54,13 +55,13 @@ function ActionFields({
   const t = useT();
   return (
     <>
-      <select aria-label={label} value={action.type} onChange={(event) => onChange(defaultAction(event.target.value as ActionType))}>
+      <Select aria-label={label} value={action.type} onChange={(value) => onChange(defaultAction(value as ActionType))}>
         {ACTION_TYPES.map((type) => (
           <option key={type} value={type}>
             {t(actionKey(type))}
           </option>
         ))}
-      </select>
+      </Select>
       {isNumbered(action.type) && (
         <TextField
           label={`${label}: ${t(`setup.control.value.${action.type}` as MessageKey)}`}

@@ -74,6 +74,8 @@ export interface OpenMenu {
   y: number;
   items: MenuItem[];
   owner?: string;
+  /** Set for the list of a `Select`: the id of the button it hangs from, and the width of that button. */
+  select?: { id: string; width: number };
 }
 
 interface UiState {

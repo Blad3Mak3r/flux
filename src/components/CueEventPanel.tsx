@@ -16,6 +16,7 @@ import type {
 import { deleteSelection } from "../state/actions";
 import { moveCueEvent, setMidiMessage, setMidiPort, setOscDestination, setOscMessage } from "../state/cues";
 import { portChoices, portKey, portLabel, splitPortKey } from "../setup/outputs";
+import { Select } from "./Select";
 import { SelectField, TextField, TimecodeField } from "./fields";
 import { PlusIcon, TrashIcon } from "./icons";
 
@@ -285,26 +286,18 @@ function OscArgRow({ arg, number, onChange, onRemove }: { arg: OscArg; number: n
   const t = useT();
   return (
     <li className="osc-arg">
-      <select
-        aria-label={t("osc.arg.type", { number })}
-        value={arg.type}
-        onChange={(event) => onChange(blank(event.target.value as OscArg["type"]))}
-      >
+      <Select aria-label={t("osc.arg.type", { number })} value={arg.type} onChange={(type) => onChange(blank(type as OscArg["type"]))}>
         {OSC_TYPES.map((type) => (
           <option key={type} value={type}>
             {t(`osc.type.${type}` as MessageKey)}
           </option>
         ))}
-      </select>
+      </Select>
       {arg.type === "bool" ? (
-        <select
-          aria-label={t("osc.arg.value", { number })}
-          value={String(arg.value)}
-          onChange={(event) => onChange({ type: "bool", value: event.target.value === "true" })}
-        >
+        <Select aria-label={t("osc.arg.value", { number })} value={String(arg.value)} onChange={(value) => onChange({ type: "bool", value: value === "true" })}>
           <option value="true">{t("osc.bool.true")}</option>
           <option value="false">{t("osc.bool.false")}</option>
-        </select>
+        </Select>
       ) : (
         <input
           // The value is applied on blur or Enter, like the fields of the panel.

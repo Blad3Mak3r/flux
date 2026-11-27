@@ -12,6 +12,7 @@ import { changePreferences, usePreferences } from "../preferences/store";
 import { vjAnalysisLevels } from "../vj/api";
 import type { AnalysisLevels } from "../vj/api";
 import { RowStatus } from "./pages";
+import { Select } from "../components/Select";
 
 interface Input {
   name: string;
@@ -97,42 +98,42 @@ export function AnalysisPage() {
       <p className="field-note">{t("setup.analysis.note")}</p>
       <Field label={t("setup.analysis.source")}>
         {({ id }) => (
-          <select id={id} value={source.kind} onChange={(event) => choose(event.target.value as Kind)}>
+          <Select id={id} value={source.kind} onChange={(value) => choose(value as Kind)}>
             {KINDS.map((kind) => (
               <option key={kind} value={kind}>{t(`setup.analysis.source.${kind}` as MessageKey)}</option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <h4>{t("setup.analysis.source.input")}</h4>
       <Field label={t("voice.inputDriver")}>
         {({ id }) => (
-          <select id={id} value={driver ?? ""} onChange={(event) => pick(input?.device ?? "", 1, event.target.value || null)}>
+          <Select id={id} value={driver ?? ""} onChange={(value) => pick(input?.device ?? "", 1, value || null)}>
             <option value="">{t("voice.systemDriver")}</option>
             {hosts.map((host) => (
               <option key={host.name} value={host.name}>{host.name}</option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <Field label={t("setup.analysis.device")}>
         {({ id }) => (
-          <select id={id} value={input?.device ?? ""} disabled={inputs === null} onChange={(event) => pick(event.target.value, 1)}>
+          <Select id={id} value={input?.device ?? ""} disabled={inputs === null} onChange={(value) => pick(value, 1)}>
             <option value="">{t(inputs === null ? "voice.loadingInputs" : "setup.analysis.none")}</option>
             {input?.device && inputs && !selected && <option value={input.device}>{t("voice.inputMissing", { name: input.device })}</option>}
             {inputs?.map((candidate) => (
               <option key={candidate.name} value={candidate.name}>{candidate.name}</option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <Field label={t("setup.analysis.channel")}>
         {({ id }) => (
-          <select id={id} value={input?.channel ?? 1} disabled={!selected} onChange={(event) => input && pick(input.device, Number(event.target.value))}>
+          <Select id={id} value={input?.channel ?? 1} disabled={!selected} onChange={(value) => input && pick(input.device, Number(value))}>
             {(selected?.channels ?? [input?.channel ?? 1]).map((channel) => (
               <option key={channel} value={channel}>{channel}</option>
             ))}
-          </select>
+          </Select>
         )}
       </Field>
       <Hearing />

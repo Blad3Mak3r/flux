@@ -15,6 +15,7 @@ import { sayError } from "../state/ui";
 import { mappingEdit } from "../video/mapping";
 import type { CardLayers, CardMode, Slice, TestCard } from "../video/mapping";
 import { ColourField, Segments } from "./controls";
+import { Select } from "../components/Select";
 
 const PRESETS = ["custom", "64", "104", "128"] as const;
 const NUMBERINGS = ["alpha", "dotted", "sequence"] as const;
@@ -187,11 +188,11 @@ export function TestCardFields({ screenId, slice, index }: { screenId: string; s
               {row(
                 t("vj.card.logoImage"),
                 <div className="tc-base">
-                  <select
+                  <Select
                     className="tc-select"
                     aria-label={t("vj.card.logoImage")}
                     value={images.some((video) => video.id === card.logo) ? card.logo : ""}
-                    onChange={(event) => send({ logo: event.target.value })}
+                    onChange={(value) => send({ logo: value })}
                   >
                     <option value="">{t("vj.card.logoNone")}</option>
                     {images.map((video) => (
@@ -199,7 +200,7 @@ export function TestCardFields({ screenId, slice, index }: { screenId: string; s
                         {video.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   <button type="button" className="tc-chip" onClick={() => void importLogo()}>
                     {t("vj.card.logoImport")}
                   </button>

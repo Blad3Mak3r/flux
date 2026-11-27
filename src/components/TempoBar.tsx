@@ -5,6 +5,7 @@ import { setTimelineTempo } from "../state/actions";
 import { useDoc, useTimeline } from "../state/store";
 import { openSetup, setRulerMode, useUi } from "../state/ui";
 import type { RulerMode } from "../state/ui";
+import { Select } from "./Select";
 
 const BEAT_COUNTS = Array.from({ length: MAX_BEATS_PER_BAR }, (_, i) => i + 1);
 
@@ -63,32 +64,32 @@ export function TempoBar() {
   const clicking = tempo.click && hasOutput;
   return (
     <div className="tempo-bar" role="group" aria-label={t("tempo.legend")}>
-      <select
+      <Select
         className="ruler-select"
         aria-label={t("tempo.ruler")}
         value={ruler}
-        onChange={(event) => setRulerMode(event.target.value as RulerMode)}
+        onChange={(mode) => setRulerMode(mode as RulerMode)}
       >
         <option value="time">{t("tempo.ruler.time")}</option>
         <option value="bars">{t("tempo.ruler.bars")}</option>
-      </select>
+      </Select>
       <BpmInput bpm={tempo.bpm} />
       <span className="tempo-unit" aria-hidden="true">
         BPM
       </span>
-      <select
+      <Select
         className="beats-select"
         aria-label={t("tempo.beats")}
         title={t("tempo.beats")}
         value={tempo.beatsPerBar}
-        onChange={(event) => setTimelineTempo({ beatsPerBar: Number(event.target.value) })}
+        onChange={(beats) => setTimelineTempo({ beatsPerBar: Number(beats) })}
       >
         {BEAT_COUNTS.map((beats) => (
           <option key={beats} value={beats}>
             {beats}/4
           </option>
         ))}
-      </select>
+      </Select>
       <button
         type="button"
         className="follow-toggle click-toggle"
