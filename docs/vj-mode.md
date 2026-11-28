@@ -480,6 +480,11 @@ size does: **Small** (88 px wide), **Medium** (116 px, a 80 px picture over a 24
 taller picture). It is kept on this computer with the dock layouts, not in the show, and stays when another layout is
 applied.
 
+## Status bar
+
+The right of the status bar shows one short tip about the thumbnails, and only while there is no message of its own to
+show; below a window width of 1400 px the tip is not shown at all.
+
 ## Keys
 
 A VJ show binds only the keys Resolume has by default, with the same function ([Resolume's shortcuts](https://resolume.com/support/en/shortcuts)).

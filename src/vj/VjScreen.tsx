@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
-import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
+import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon, VideoIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
 import { MediaFile } from "../media/MediaFile";
@@ -429,7 +429,7 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
           modulated={layer.modulation?.opacity ? { layer: layer.id, field: "opacity" } : undefined} />
       </div>
       <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={stripOf(thumbs, clip)} generator={clip?.generator}>
-        {clip && <PlayTime layer={layer.id} countdown="header" />}
+        {clip ? <PlayTime layer={layer.id} countdown="header" /> : <span className="vj-nonow" aria-hidden="true"><VideoIcon /></span>}
         {transition != null && <span className="vj-tbar"><i style={{ width: `${transition * 100}%` }} /></span>}
       </Thumb>
       <div className="vj-tcol">
@@ -1270,14 +1270,8 @@ export function VjScreen() {
   );
 }
 
-/** The VJ screen's tips, shown at the right of the status bar. */
-export function VjTips() {
+/** The VJ screen's one short tip, at the right of the status bar; the bar shows it only when it has no message of its own, and the stylesheet hides it on narrow windows. */
+export function VjTip() {
   const t = useT();
-  const global = useDoc((doc) => doc.project.vj?.layers.some((layer) => layer.global) ?? false);
-  return (
-    <span className="vj-tips">
-      {global && <span className="vj-hint"><GlobeIcon />{t("vj.globalHint")}</span>}
-      <span>{t("vj.outputNote")}</span>
-    </span>
-  );
+  return <span className="vj-tips">{t("vj.tip")}</span>;
 }
