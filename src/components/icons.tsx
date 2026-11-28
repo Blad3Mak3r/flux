@@ -74,6 +74,13 @@ export const OscIcon = () => (
   </Icon>
 );
 
+/** Light levels: DMX. */
+export const DmxIcon = () => (
+  <Icon>
+    <path d="M3 13 V8 M8 13 V3 M13 13 V10" />
+  </Icon>
+);
+
 export const MuteIcon = ({ on }: { on: boolean }) => (
   <Icon>
     <path d="M2.5 6 H5 L8.5 3 V13 L5 10 H2.5 Z" fill="currentColor" stroke="none" />

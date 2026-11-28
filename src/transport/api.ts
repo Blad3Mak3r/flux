@@ -28,7 +28,7 @@ export interface OutputInfo {
 
 /** How one destination of the cue tracks ended up; when it did not open, `target` is the name the project holds. */
 export interface CueInfo {
-  kind: "midi" | "osc";
+  kind: "midi" | "osc" | "dmx";
   target: string;
   ok: boolean;
 }

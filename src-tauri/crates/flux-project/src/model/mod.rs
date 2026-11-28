@@ -33,7 +33,8 @@ pub use crate::meta::Meta;
 /// Version 14 adds `mode` and the VJ grid `vj`.
 /// Version 15 gives a VJ show a file of its own shape (see `vj_file`); a cue show's is unchanged.
 /// Version 16 adds `link` to audio and video assets: media kept outside the archive, by path.
-pub const FORMAT_VERSION: u32 = 16;
+/// Version 17 adds the `dmx` track kind and `output.dmx` (nothing was reshaped, but an older build cannot read them).
+pub const FORMAT_VERSION: u32 = 17;
 
 /// Folder inside the archive that holds the audio files (flat, no subfolders).
 pub const AUDIO_DIR: &str = "audio/";

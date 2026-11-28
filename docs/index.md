@@ -20,6 +20,7 @@ The [landing page](https://blad3mak3r.github.io/flux/) shows both modes. Downloa
 | Guide | Covers |
 | --- | --- |
 | [Video and projection mapping](/video-output) | Video clips, output screens, slices, soft edges and masks. |
+| [DMX lighting](/dmx-lighting) | Lighting scenes with fades, sent over Art-Net or sACN. |
 | [Remote control](/remote-control) | MIDI controllers and OSC as a remote. |
 | [Per-track audio outputs](/audio-routing) | Per-track destinations and per-computer interfaces. |
 | [Voice operator](/voice-operator) | Spoken operator tracks. |

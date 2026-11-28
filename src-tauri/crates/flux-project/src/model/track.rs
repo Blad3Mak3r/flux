@@ -54,6 +54,13 @@ pub enum TrackKind {
         destination: Option<String>,
         events: Vec<OscEvent>,
     },
+    /// Lighting scenes sent at points of the timeline to one of `output.dmx`.
+    Dmx {
+        /// Id of an entry in `OutputConfig::dmx`; absent until the user picks one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        destination: Option<String>,
+        scenes: Vec<crate::dmx::DmxScene>,
+    },
     /// Video clips shown in time with the timeline.
     Video {
         clips: Vec<VideoClip>,

@@ -1862,6 +1862,64 @@ body.dragging {
   min-width: 0;
 }
 
+/* A DMX scene: the line and tag of an event, and a bar as long as the fade it takes to get there. */
+.cue-event[data-kind="dmx"] .cue-event-body {
+  border-style: dotted;
+}
+
+.dmx-fade {
+  position: absolute;
+  left: 0;
+  bottom: 8px;
+  height: 6px;
+  background: linear-gradient(to right, transparent, var(--trace-c-dim));
+  border-right: 1px solid var(--trace-c);
+  pointer-events: none;
+}
+
+/* The channels of a scene: universe, channel and value on one line, and a way to drop it. */
+.dmx-channels {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dmx-channels legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.dmx-channels ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dmx-channel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.dmx-channel input {
+  min-width: 0;
+}
+
+.dmx-channel-head {
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
 /* A muted track keeps its shape but is drawn hollow. */
 .lane[data-muted="true"] .clip {
   background: transparent;

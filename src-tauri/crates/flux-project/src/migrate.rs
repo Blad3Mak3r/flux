@@ -77,6 +77,7 @@ pub(crate) fn vj_without_cues(value: &mut Value) {
         for list in ["ltc", "mtc", "osc", "audio"] {
             output.insert(list.into(), json!([]));
         }
+        output.remove("dmx");
         output.remove("metronome");
         output.remove("legacyRoutes");
     }

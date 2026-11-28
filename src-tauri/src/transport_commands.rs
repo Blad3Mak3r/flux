@@ -768,7 +768,11 @@ pub async fn output_set_clips(
             Some(running) => {
                 running.cues.replace(list);
                 // The cue tracks follow the edit too (their schedules, and any new port).
-                warnings.extend(running.output.set_events(timeline, &project.output.osc));
+                warnings.extend(running.output.set_events(
+                    timeline,
+                    &project.output.osc,
+                    &project.output.dmx,
+                ));
                 if let Some(pending) = &mut running.pending_audio {
                     pending.programme = Programme {
                         set: set.clone(),

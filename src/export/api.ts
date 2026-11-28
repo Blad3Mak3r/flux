@@ -10,7 +10,7 @@ import type { Project } from "../project/types";
 /** Which timelines go into the sheet. */
 export type SheetScope = "active" | "all";
 
-const KINDS: CueKind[] = ["operator", "audio", "note", "midi", "osc", "video"];
+const KINDS: CueKind[] = ["operator", "audio", "note", "midi", "osc", "dmx", "video"];
 const ACTIONS: CueAction[] = ["noteOn", "noteOff", "controlChange", "programChange", "msc", "sysEx", "osc"];
 const RATES = ["fps24", "fps25", "fps2997Drop", "fps30"] as const;
 

@@ -42,6 +42,9 @@ pub struct OutputConfig {
     /// The OSC receivers the project's OSC tracks send to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub osc: Vec<OscDestination>,
+    /// The DMX receivers (Art-Net, sACN) the project's DMX tracks send to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dmx: Vec<crate::dmx::DmxDestination>,
     /// The MIDI port that receives the tempo as MIDI clock; absent is none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_clock: Option<MidiClockOutput>,

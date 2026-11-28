@@ -36,6 +36,8 @@ export function trackItems(track: Track): LaneItem[] {
         const view = useVoice.getState().views[order.id];
         return { kind: "operator", id: order.id, start: view?.start ?? order.at, end: view?.start != null && view.length != null ? view.start + view.length : undefined };
       });
+    case "dmx":
+      return kind.scenes.map((scene) => ({ kind: "event", id: scene.id, start: scene.at, end: scene.fade ? scene.at + scene.fade : undefined }));
     default:
       return kind.events.map((event) => ({ kind: "event", id: event.id, start: event.at }));
   }
@@ -44,7 +46,7 @@ export function trackItems(track: Track): LaneItem[] {
 /** The ids of the items of a track: all `trackItems` needs, without measuring them. */
 export function trackIds(track: Track): string[] {
   const kind = track.kind;
-  const items = kind.type === "audio" || kind.type === "video" ? kind.clips : kind.type === "notes" ? kind.notes : kind.type === "operator" ? kind.orders : kind.events;
+  const items = kind.type === "audio" || kind.type === "video" ? kind.clips : kind.type === "notes" ? kind.notes : kind.type === "operator" ? kind.orders : kind.type === "dmx" ? kind.scenes : kind.events;
   return items.map((item) => item.id);
 }
 
