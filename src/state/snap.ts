@@ -4,6 +4,7 @@
 import { collectTargets, fixedSpacing, snapMove, snapPoint } from "../timeline/snap";
 import type { GridLines, SnapItem, SnapSource, SnapTarget } from "../timeline/snap";
 import { lineSpacing, nearestBeatLine } from "../timeline/scale";
+import { realFps } from "../timecode";
 import { beatGrid } from "./tempoMap";
 import { currentFrame } from "../transport/store";
 import { activeTimeline } from "./doc";
@@ -19,13 +20,14 @@ import { setSnapGuide, useUi } from "./ui";
 function gridSpacing(): GridLines | null {
   const { ruler, zoom, gridStep, snapSources } = useUi.getState();
   if (!snapSources.grid) return null;
-  const timeline = activeTimeline(useDoc.getState());
-  const { timecode } = timeline;
-  const beat = beatGrid(timeline);
+  const { timecode } = activeTimeline(useDoc.getState());
+  const beat = beatGrid();
   // Beats and bars follow the tempo map, so their lines are not a fixed step apart.
+  const needsBeats = gridStep === "beat" || gridStep === "bar" || (gridStep === "auto" && ruler === "bars");
+  if (needsBeats && !beat.segments.length) return null;
   if (gridStep === "beat" || gridStep === "bar") return (frame) => nearestBeatLine(frame, beat, zoom, gridStep);
   if (gridStep === "auto" && ruler === "bars") return (frame) => nearestBeatLine(frame, beat, zoom, "auto");
-  return gridStep === "auto" ? lineSpacing(zoom, timecode.frameRate, null) : fixedSpacing(gridStep, beat);
+  return gridStep === "auto" ? lineSpacing(zoom, timecode.frameRate, null) : fixedSpacing(gridStep, realFps(timecode.frameRate));
 }
 
 /** Whether the magnet works for this gesture: it is on, and Alt, held, turns it the other way. */

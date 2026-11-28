@@ -44,7 +44,7 @@ test("the time view snaps onto its drawn lines at every zoom", () => {
 });
 
 test("the bars view snaps onto its drawn beats and bars at every zoom", () => {
-  const grid = { bpm: 123, beatsPerBar: 4, fps: 25 };
+  const grid = { segments: [{ startFrame: 0, beatFrames: (60 / 123) * 25, beatsPerBar: 4, beatUnit: 4, bpm: 123, firstBar: 1 }] };
   for (const zoom of [0.04, 0.1, 0.37, 1.6, 7.3, 40]) {
     const spacing = lineSpacing(zoom, "fps25", grid);
     const { major, minor } = barTickPositions(zoom, grid, 20_000);
@@ -55,7 +55,7 @@ test("the bars view snaps onto its drawn beats and bars at every zoom", () => {
 });
 
 test("zooming in snaps to finer lines in the bars view", () => {
-  const grid = { bpm: 120, beatsPerBar: 4, fps: 25 };
+  const grid = { segments: [{ startFrame: 0, beatFrames: 12.5, beatsPerBar: 4, beatUnit: 4, bpm: 120, firstBar: 1 }] };
   assert.ok(lineSpacing(0.1, "fps25", grid) > lineSpacing(1.6, "fps25", grid));
   assert.equal(lineSpacing(1.6, "fps25", grid), 12.5);
 });
@@ -139,18 +139,13 @@ test("a block with no length snaps by its start only", () => {
 });
 
 test("a fixed grid step has the same spacing at every zoom", () => {
-  const tempo = { bpm: 120, beatsPerBar: 4, fps: 25 };
-  assert.equal(fixedSpacing("frame", tempo), 1);
-  assert.equal(fixedSpacing("second", tempo), 25);
-  // 120 BPM is two beats a second.
-  assert.equal(fixedSpacing("beat", tempo), 12.5);
-  assert.equal(fixedSpacing("bar", tempo), 50);
-  assert.equal(fixedSpacing("second", { ...tempo, fps: 30_000 / 1_001 }), 30_000 / 1_001);
+  assert.equal(fixedSpacing("frame", 25), 1);
+  assert.equal(fixedSpacing("second", 25), 25);
+  assert.equal(fixedSpacing("second", 30_000 / 1_001), 30_000 / 1_001);
 });
 
 test("a beat that is not a whole frame snaps to a whole frame", () => {
-  const beat = fixedSpacing("beat", { bpm: 120, beatsPerBar: 4, fps: 25 });
-  assert.deepEqual(snapPoint(36, [], beat, 4), { frame: Math.round(37.5), source: "grid" });
+  assert.deepEqual(snapPoint(36, [], 12.5, 4), { frame: Math.round(37.5), source: "grid" });
 });
 
 test("markers and the edges of regions are targets when that source is on", () => {

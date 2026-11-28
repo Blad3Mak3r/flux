@@ -1,6 +1,6 @@
 import { CONTROL_RAIL_H, ControlLayer } from "../show/ControlLayer";
 import { MARKER_RAIL_H, MarkLines, MarkerLane } from "../marks/MarkerLane";
-import { beatGrid, useBeatMap } from "../state/tempoMap";
+import { useBeatMap } from "../state/tempoMap";
 import { openSetlists, openShowControls } from "../state/ui";
 import { ListIcon, LoopIcon } from "./icons";
 import { useVoice } from "../voice/store";
@@ -142,16 +142,9 @@ export function Timeline() {
   const pxPerFrame = useUi((ui) => ui.zoom);
   const bars = useUi((ui) => ui.ruler === "bars");
   const { frameRate, start } = timeline.timecode;
-  const { bpm, beatsPerBar, beatUnit } = timeline.tempo;
-  const exactFps = realFps(frameRate);
-  const later = useBeatMap((map) => map.later);
-  const hasChanges = Boolean(timeline.tempoChanges?.length);
-  // Kept by identity while nothing it is made of changes, so the ticks are not redrawn for nothing.
-  const grid = useMemo<BeatGrid | null>(
-    () => (bars ? beatGrid(timeline, later) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the grid is made of exactly these
-    [bars, bpm, beatsPerBar, beatUnit, exactFps, later, hasChanges],
-  );
+  const segments = useBeatMap((map) => map.segments);
+  // Kept by identity while the backend's answer is, so the ticks are not redrawn for nothing.
+  const grid = useMemo<BeatGrid | null>(() => (bars && segments.length ? { segments } : null), [bars, segments]);
   const fps = nominalFps(frameRate);
   const guessLength = GUESS_SECONDS * fps;
   const zoomPercent = Math.round((pxPerFrame / DEFAULT_PX_PER_FRAME) * 100);
