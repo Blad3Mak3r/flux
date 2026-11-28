@@ -116,9 +116,63 @@ Each video clip is a cue of kind `video`, named after the clip (or its video), r
 | --- | --- | --- |
 | `live_cues` | `project` | The `Cue` list. |
 | `live_state` | `project`, `frame` | The `LiveState` at that frame, for when no output runs and the playhead is parked in the window. |
+| `live_search` | `project`, `query` | The ids of the cues that match, best first (see Cue search). |
+| `show_lock_get` / `show_lock_set` | `locked` | Whether the show is locked; `set` answers with the state it is in (see Show lock). |
+| `midi_panic` | `project` | A `PanicReport` (see MIDI panic). |
 
 With an output running, the `flux-live` lane sends the same `LiveState` over its channel; the output keeps a cue list
 that `output_start` and `output_set_clips` rebuild, which the lane swaps in whole like the meters' state.
+
+### Cue search (`cue_search.rs`)
+
+`live_search(project, query)` answers which cues of the active timeline the operator means, so the search field of the Live
+view only types the query and lists the ids it gets back. An empty query matches every cue in show order. A query that
+is a number (`12` or `#12`) puts the cue with that number first; after it, and for any other query, come the cues
+(in show order) whose name, whole text, track name or notation (`Cue.detail`) contain the query in any letter case.
+Picking a result seeks to `Cue.frame`, the same as a double click on its row.
+
+### Show lock (`session.rs`, `live_commands.rs`)
+
+The operator can lock the show from the Live bar. The lock is one flag of the backend `Session`
+(`Session::show_lock`): session state, off at start, never written to the project. While it is set,
+`Session::ensure_editable` fails with `show.error.showLocked` and so does everything that goes through it: every
+editing operation (the project, the timelines, imports), `project_new`, `project_open`, `project_close`, leaving the editor
+(`window_close_editor`) and restoring a recovery. That covers the shortcuts and the remote control too, since they reach the
+backend by the same commands. What the lock does not refuse is the show: starting the output (`output_start` only asks
+`ensure_not_running`, which the setlist's own execution lock also uses), the transport, going to a cue, GO, and saving. The
+window mirrors the flag: the Edit side of the view switch, the project menus, the timeline tabs and the editing keys are
+disabled while it is on. Locking is a click; unlocking needs a press and hold, so it cannot happen by accident.
+
+### MIDI panic (`midi_panic.rs`)
+
+`midi_panic(project)` is the operator's last resort when a receiver is stuck (a lost Note Off after a cable drop, a synth
+latched by hand). The window stops the transport and then calls it. On each of the 16 channels it sends All Sound Off
+(CC 120), Reset All Controllers (CC 121) and All Notes Off (CC 123), 48 messages, to every MIDI port the project uses: the port of every
+MIDI track of every timeline (muted tracks too) and the MTC ports this machine assigned. Nothing is sent to a port the
+project does not use. The ports are opened for the burst, so it works with the output stopped; and because some systems let
+a port be opened once only, a request also raises a counter that the `flux-midi` threads read in their loop
+(`Sink::panic`), so the ports a running output holds are silenced through the output's own connection. Nothing logs from
+that path. Each fire thread marks the port it holds (`midi_panic::Served`) while it lives, so a port the output holds is
+not opened a second time: it counts in `sent` and in `via_output`, and only a port that is neither held nor opens is in
+`failed` and named in the window. The command logs the `PanicReport`. The same panic runs from the remote control
+(`ControlAction::Panic`, `/flux/panic`), the OSC API (`/flux/v1/panic`) and Ctrl+Shift+P, each stopping the transport first.
+A setlist run keeps its own cue thread, which is not marked: its ports are opened for the burst like any other. The messages are pure (`midi_panic::messages`, `midi_panic::ports`) and tested with a recording port.
+
+### LTC to WAV (`ltc_wav.rs`, `export_commands.rs`)
+
+File > Export > LTC to WAV… renders the LTC of the active timeline offline. `ltc_export(project, path, options, on_progress)` uses
+the same `LtcStream` as the output, started at the timeline origin, so the file is the signal Flux would send frame for
+frame. It starts at the timeline's start timecode and runs for the whole timeline: up to the end of its last cue
+(`CueList::end_samples`), rounded up to a whole frame so the last word is complete, at the timeline's frame rate (29.97 drop-frame
+included). `options` (the export dialog) chooses the sample rate (44.1, 48 or 96 kHz), the bit depth (`pcm16`, `pcm24` or `float32`, a
+IEEE float file with the `fact` chunk) and a pre-roll of 0 to 60 whole seconds of LTC before the timeline start (rounded up to a
+whole frame; it counts back from the start timecode and wraps across midnight). The defaults are 48 kHz, 24-bit and no
+pre-roll; anything out of range is refused (`show.error.ltcOptions`). The file is mono, at the level of the project's first LTC output (half scale when none is set or
+the project has none). It is written in pieces on
+the blocking pool, without touching a running output; `on_progress` receives the fraction done only when the render has
+lasted over a second. A timeline with no cues has no length (`show.error.ltcEmpty`), one over about 7.9 hours does not fit
+a WAV file (`show.error.ltcTooLong`), and a render that fails leaves no half-written file. The tests decode the frames back from the
+bits of the file and compare them with the timecode of each frame at every frame rate.
 
 ### Cue sheet (`cue_sheet.rs`, `export_commands.rs`)
 
