@@ -663,6 +663,7 @@ mod tests {
             crossfader: 0.5,
             beats,
             beats_paused: false,
+            link_peers: None,
         }
     }
 
