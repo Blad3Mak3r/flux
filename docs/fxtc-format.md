@@ -54,6 +54,7 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `output.mtc` | `[{ slot }]` | Logical MTC outputs with unique positive slots, independent of LTC slots. The computer assigns the MIDI port, same-name port index and latency. |
 | `output.midiClock` | `true` | The project sends MIDI clock; absent is off. The port is a local preference. Added without a version bump. |
 | `output.osc` | `[{ id, name, host, port }]` | The OSC receivers (UDP) the OSC tracks send to, defined once for the project. `id` is unique among them; `host` is a name or an address without spaces, `port` 1 to 65535. A host that does not resolve is reported when the output opens and never blocks the project. Absent is an empty list. Added in version 5. |
+| `output.dmx` | `[{ id, name, protocol, host }]` | The DMX receivers the DMX tracks send to, defined once for the project. `id` is unique among them; `protocol` is `artnet` (UDP port 6454) or `sacn` (E1.31, UDP port 5568); `host` is a name or an address without spaces (a node's, or a broadcast address such as `255.255.255.255`). A host that does not resolve is reported when the output opens and never blocks the project. Absent is an empty list. Added in version 17. |
 | `output.composition` | `{ width, height }` | The size in pixels of the picture every video clip is sized into (by its `fit`) and the slices of `output.screens` are cut from, each side 16 to 8192. Absent is the size of the first entry of `videos`, or 1920 × 1080 without one. |
 | `output.screens` | `[{ id, name, slices?: [{ id, name, input: { x, y, width, height }, corners: [{ x, y } ×4], hidden?, softEdge?: { left, right, top, bottom, gamma }, testCard?: { show, cabinetWidth, cabinetHeight, numbering, scheme, guideWidth, showName, showResolution, labelPlate, labelY, base, layers, mode, custom, showLogo, logo, logoBack, logoSize } }], masks?: [{ id, name, points: [{ x, y }], invert?, hidden? }], enabled? }]` | The screens of the video output, at most 8, each a window on a display of its own. The screen `main` always exists: when it is not listed it has no slices and is named "Screen 1". `id` is unique and `name` 1 to 80 characters; `enabled` (absent: true, no format change) false makes the screen's window show black; the display each opens on is a local preference. `slices` are drawn in order. `input` is the part of the picture shown, inside it and at least 0.005 on each side; `corners` are where its top left, top right, bottom right and bottom left go on the screen, each from −1 to 2. All numbers are fractions of the width or height from the top left. `id` is unique, `name` 1 to 80 characters, at most 64 slices. No slices is the whole picture fitted to the screen. `testCard` (absent: the defaults, no format change) sets the slice's test card: cabinet sides 8 to 2048 pixels (default 128), `numbering` `alpha`/`dotted`/`sequence`, `scheme` `vivid`/`dark`/`light`/`contrast`, `guideWidth` 1 to 12, `labelY` 0 to 100, `base` and `custom` as `#rrggbb` (`base` empty: a colour from the slice's place), `mode` `pattern`/`red`/`green`/`blue`/`white`/`black`/`custom`, `showLogo` (default false) with `logo`, the id of an image in `videos` (empty: none), `logoBack` as `#rrggbb` (default `#10131a`) and `logoSize` 10 to 60 (percent of the slice's short side, default 24), and `layers` booleans `grid`, `numbers`, `circle`, `diagonals`, `crosshair`, `label`, `bars`, `motion`; see [the test card](./vj-mode.md#the-test-card). `softEdge` sides are fractions 0 to 1 of the slice (absent: hard edges) and `gamma` 0.2 to 5 (default 1). `masks` (at most 8, 3 to 32 points each, within 0 to 1) black out their shape over the screen's slices, or everything else when `invert`. |
 
@@ -117,8 +118,18 @@ Track kinds:
   (absent is 0): the picture and its sound rise from nothing over the first and fall to nothing over the last. Added in version 13. The clips play on the screens of `output.screens` in time with the clock,
   their sound plays through the track's routing, and Live lists each clip as a cue (see [Video](video-output.md)).
 
-Other kinds of track (Art-Net) will be added as new kinds. Events are kept in order of `at`; event ids share the
-namespace of clip and note ids.
+- `{ "type": "dmx", "destination"?: "<id of output.dmx>", "scenes": [{ id, at, name?, fade?, releaseOthers?, channels }] }`
+  — lighting scenes (see [DMX lighting](dmx-lighting.md)). A scene goes to its `channels`, a list of
+  `{ universe, channel, value }`, at frame `at`, in a straight line over `fade` frames (absent or 0 is at once). `universe`
+  is the Art-Net Port-Address, **0 to 32767 and counted from 0** as on the wire (sACN sends `universe + 1`), `channel` is
+  1 to 512 and `value` 0 to 255; a scene holds at most 4096 channels, kept sorted by universe and channel, and sets a
+  channel only once. Each channel starts from what the lights show when the scene starts, so a scene that begins during
+  a fade takes over from where it had got to. A channel the scene does not list keeps its value, unless `releaseOthers`
+  (absent is false) is true: then it fades to 0 too. Channels no scene has set are 0. `name` is at most 64 characters.
+  A destination that is not in `output.dmx` is rejected on open and save; one that is absent sends nothing. Added in
+  version 17.
+
+Events are kept in order of `at`; event ids (and scene ids) share the namespace of clip and note ids.
 
 Ids are strings chosen by the caller. They must be unique: asset ids, asset files, track ids, and clip/note ids
 (the last two kinds share one namespace). Local output channels must be at least 1, and audio channel lists must not
@@ -230,6 +241,9 @@ does not rewrite a file, including files without `meta`; their generated identit
 - **14**: added `mode` and the VJ grid `vj`. Nothing was reshaped, so there is no migration.
 - **16**: added `link` to audio and video assets. A file without it holds its media in the archive, as before, and opens and
   saves that way; there is no migration. See [Linked media](#linked-media-version-16).
+- **17**: added the `dmx` track kind and `output.dmx`. Nothing was reshaped, so there is no migration: a version 16
+  file opens unchanged and keeps no DMX. The bump makes an older build say the file is newer instead of failing on an
+  unknown track kind.
 
 ## Saving
 

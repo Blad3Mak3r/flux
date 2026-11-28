@@ -162,7 +162,7 @@ impl Output {
         let mut cues = CueRoutes::new(clock, Arc::clone(&shared), Arc::clone(&stop));
         let mut cue_warnings = Vec::new();
         let cue_info = if fire_cues {
-            cues.apply(timeline, &output.osc, &mut cue_warnings)
+            cues.apply(timeline, &output.osc, &output.dmx, &mut cue_warnings)
         } else {
             Vec::new()
         };
@@ -322,10 +322,15 @@ impl Output {
     /// Follows an edit of the cue tracks while the show runs: the schedules are replaced, carrying
     /// on from the position, and a port or destination that is new is opened now. Returns the
     /// reasons for those that could not be.
-    pub fn set_events(&mut self, timeline: &Timeline, osc: &[OscDestination]) -> Vec<String> {
+    pub fn set_events(
+        &mut self,
+        timeline: &Timeline,
+        osc: &[OscDestination],
+        dmx: &[flux_project::DmxDestination],
+    ) -> Vec<String> {
         let mut warnings = Vec::new();
         if self.fire_cues {
-            self.cues.apply(timeline, osc, &mut warnings);
+            self.cues.apply(timeline, osc, dmx, &mut warnings);
         }
         warnings
     }

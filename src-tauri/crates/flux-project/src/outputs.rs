@@ -16,6 +16,9 @@ pub struct ShowOutputs {
     pub ltc: Vec<LtcSignal>,
     pub mtc: Vec<MtcSignal>,
     pub osc: Vec<OscDestination>,
+    /// The DMX receivers (Art-Net, sACN) the DMX tracks send to.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dmx: Vec<crate::DmxDestination>,
     /// The show sends MIDI clock, to the port this installation chooses; absent is off.
     #[serde(skip_serializing_if = "crate::serde_util::is_false")]
     pub midi_clock: bool,
@@ -178,6 +181,7 @@ impl From<OutputConfig> for ShowOutputs {
                 .map(|(i, _)| MtcSignal { slot: i as u32 + 1 })
                 .collect(),
             osc: routes.osc.clone(),
+            dmx: routes.dmx.clone(),
             midi_clock: routes.midi_clock.is_some(),
             legacy_routes: Some(routes),
         }

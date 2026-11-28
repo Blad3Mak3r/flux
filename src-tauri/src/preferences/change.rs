@@ -435,6 +435,7 @@ impl Preferences {
                     .collect()
             },
             osc: show.osc.clone(),
+            dmx: show.dmx.clone(),
             midi_clock: if audition || !show.midi_clock {
                 None
             } else {

@@ -10,6 +10,7 @@ import type {
   FrameRate,
   MidiMessage,
   MidiPortRef,
+  DmxProtocol,
   OscArg,
   Project,
   ProjectMode,
@@ -180,7 +181,7 @@ export const markerStep = (project: Project, timeline: string, from: number, for
   invoke<number | null>("marker_step_at", { project, timeline, from, forward });
 
 /** Which kind of cue track an operation is about. */
-export type CueTrackKind = "midi" | "osc";
+export type CueTrackKind = "midi" | "osc" | "dmx";
 
 /** What can be done to the MIDI and OSC tracks and the OSC destinations; the backend decides how (see `project/cue_ops.rs`). */
 export type CueOp =
@@ -203,6 +204,19 @@ export interface CueEdited extends ProjectState {
 }
 
 export const cueEdit = (project: Project, op: CueOp) => invoke<CueEdited>("cue_edit", { project, op });
+
+/** What can be done to a DMX scene and the DMX destinations; the backend decides how (see `project/dmx.rs`). Tracks and scenes are added, moved and removed with a `CueOp`. */
+export type DmxOp =
+  | { op: "setScene"; id: string; name: string; fade: number; releaseOthers: boolean }
+  | { op: "addChannel"; id: string }
+  | { op: "setChannel"; id: string; fromUniverse: number; fromChannel: number; universe: number; channel: number; value: number }
+  | { op: "removeChannel"; id: string; universe: number; channel: number }
+  | { op: "setDestination"; trackId: string; destination: string | null }
+  | { op: "addDestination"; name: string; protocol: DmxProtocol; host: string }
+  | { op: "updateDestination"; id: string; name: string; protocol: DmxProtocol; host: string }
+  | { op: "removeDestination"; id: string };
+
+export const dmxEdit = (project: Project, op: DmxOp) => invoke<CueEdited>("dmx_edit", { project, op });
 
 export type SignalOp =
   | { op: "addLtc" | "addMtc" }

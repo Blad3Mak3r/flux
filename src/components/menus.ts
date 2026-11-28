@@ -197,6 +197,7 @@ export function addTracksMenu(t: Translate): MenuItem[] {
     { label: t("voice.addTrack"), disabled: !editing, run: () => void addOperator(t("track.kind.operator")) },
     { label: t("menu.addMidiTrack"), disabled: !editing, run: () => void addCueTrack("midi", t("track.kind.midi")) },
     { label: t("menu.addOscTrack"), disabled: !editing, run: () => void addCueTrack("osc", t("track.kind.osc")) },
+    { label: t("menu.addDmxTrack"), disabled: !editing, run: () => void addCueTrack("dmx", t("track.kind.dmx")) },
   ];
 }
 
@@ -426,12 +427,14 @@ export function videoTrackMenu(t: Translate, track: Track): MenuItem[] {
   return [renameTrackItem(t, track), muteItem(t, track), "-", { label: t("menu.deleteTrack"), run: () => deleteTrack(track.id) }, "-", snapItem(t)];
 }
 
-/** A MIDI or OSC track: its header offers an event at the playhead and the track's own actions. */
+const HERE = { midi: "context.addMidiHere", osc: "context.addOscHere", dmx: "context.addDmxHere" } as const;
+
+/** A MIDI, OSC or DMX track: its header offers an event at the playhead and the track's own actions. */
 export function cueTrackMenu(t: Translate, track: Track): MenuItem[] {
-  const kind = track.kind.type === "osc" ? "osc" : "midi";
+  const kind = track.kind.type === "osc" ? "osc" : track.kind.type === "dmx" ? "dmx" : "midi";
   return [
     {
-      label: t(kind === "osc" ? "context.addOscHere" : "context.addMidiHere"),
+      label: t(HERE[kind]),
       run: () => void addCueEvent(kind, currentFrame(), t(`track.kind.${kind}`), track.id),
     },
     renameTrackItem(t, track),
@@ -459,14 +462,14 @@ export function eventMenu(t: Translate, track: Track, id: string, at: number): M
 /** Empty timeline; on a notes, MIDI or OSC lane `here` is the frame under the pointer. */
 export function emptyMenu(
   t: Translate,
-  here?: { frame: number; trackId: string; kind: "notes" | "midi" | "osc" | "operator" },
+  here?: { frame: number; trackId: string; kind: "notes" | "midi" | "osc" | "dmx" | "operator" },
 ): MenuItem[] {
   return [
     here?.kind === "operator" ? { label: t("voice.addOrder"), run: () => void addOrder(here.trackId, here.frame - activeTimeline(useDoc.getState()).timecode.start) } :
-    here?.kind === "midi" || here?.kind === "osc"
+    here?.kind === "midi" || here?.kind === "osc" || here?.kind === "dmx"
       ? {
-          label: t(here.kind === "osc" ? "context.addOscHere" : "context.addMidiHere"),
-          run: () => void addCueEvent(here.kind as "midi" | "osc", here.frame, t(`track.kind.${here.kind as "midi" | "osc"}`), here.trackId),
+          label: t(HERE[here.kind]),
+          run: () => void addCueEvent(here.kind as "midi" | "osc" | "dmx", here.frame, t(`track.kind.${here.kind as "midi" | "osc" | "dmx"}`), here.trackId),
         }
       : here
         ? { label: t("context.addNoteHere"), run: () => addNoteAt(t, here.frame, here.trackId) }

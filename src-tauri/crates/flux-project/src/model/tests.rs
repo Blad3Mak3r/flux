@@ -189,6 +189,7 @@ pub fn sample_project() -> Project {
                 host: "192.168.1.20".into(),
                 port: 53000,
             }],
+            dmx: Vec::new(),
             preview: None,
             midi_clock: None,
             metronome: Some(MetronomeOutput {
@@ -203,7 +204,7 @@ pub fn sample_project() -> Project {
 
 /// The shape of the current format: what `sample_project` must serialise to and parse from.
 pub const FIXTURE: &str = r##"{
-    "formatVersion": 16,
+    "formatVersion": 17,
     "autosave": { "enabled": true, "intervalSeconds": 30 },
     "name": "Opening night",
     "meta": {

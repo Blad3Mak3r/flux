@@ -613,6 +613,16 @@ impl Session {
         Ok(CueEdited { state, id })
     }
 
+    /// Edits the DMX tracks and destinations (see [`crate::DmxOp`]).
+    pub fn dmx_edit(&mut self, op: crate::DmxOp) -> Result<CueEdited> {
+        let mut id = None;
+        let state = self.change(|project, _| {
+            id = crate::dmx::apply(project, op)?;
+            Ok(())
+        })?;
+        Ok(CueEdited { state, id })
+    }
+
     pub fn operator_edit(&mut self, op: crate::OperatorOp) -> Result<ProjectState> {
         self.change(|project, active| crate::operator::apply(project, active, op))
     }

@@ -38,6 +38,7 @@ import { LanguageSelect } from "../i18n/LanguageSelect";
 import { dispatch, useDoc, useTimeline } from "../state/store";
 import { flushDocumentSync } from "../state/persist";
 import { renameTimeline, setTimecode } from "../state/timelines";
+import type { CueInfo } from "../transport/api";
 import { isLost } from "../transport/lost";
 import { isPlaying } from "../transport/store";
 import { useTransport } from "../transport/store";
@@ -45,6 +46,7 @@ import { portChoices, portKey, portLabel, splitPortKey } from "./outputs";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const NO_OSC_DESTINATIONS: OscDestination[] = [];
+const NO_CUES: CueInfo[] = [];
 
 type LampState = "off" | "on" | "fault";
 
@@ -60,7 +62,7 @@ export function RowStatus({ state, word }: { state: LampState; word: MessageKey 
 }
 
 /** One output of a list: its name and state on the first line, its choices below. */
-function OutputRow({
+export function OutputRow({
   name,
   state,
   word,
@@ -93,7 +95,7 @@ function OutputRow({
 }
 
 /** The lamp for one row: running, missing or not yet connected, from what the output reported. */
-function rowState(
+export function rowState(
   reported: { ok: boolean } | undefined,
   connected: boolean,
   lost = false,
@@ -674,7 +676,7 @@ export function OscPage() {
   const destinations = useDoc(
     (doc) => doc.project.output.osc ?? NO_OSC_DESTINATIONS,
   );
-  const reported = useTransport((transport) => transport.info?.cues ?? []);
+  const reported = useTransport((transport) => transport.info?.cues ?? NO_CUES);
   const integer = (text: string) =>
     /^\s*\d+\s*$/.test(text) ? null : t("field.integerInvalid");
   return (

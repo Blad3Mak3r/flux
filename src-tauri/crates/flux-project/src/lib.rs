@@ -4,6 +4,7 @@ mod archive;
 mod bulk_ops;
 mod clips;
 mod cue_ops;
+mod dmx;
 mod dropped;
 mod error;
 mod events;
@@ -49,6 +50,10 @@ pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, sav
 pub use bulk_ops::{Extent, ItemsOp, Lengths, Ripple};
 pub use clips::{ClipOp, apply as apply_clip_op};
 pub use cue_ops::{CueEdited, CueOp, CueTrackKind};
+pub use dmx::{
+    DmxChannel, DmxDestination, DmxOp, DmxProtocol, DmxScene, MAX_SCENE_CHANNELS, MAX_UNIVERSE,
+    UNIVERSE_SIZE,
+};
 pub use dropped::{Dropped, MediaKind, Staged, media_kind};
 pub use error::{ProjectError, Result};
 pub use events::{

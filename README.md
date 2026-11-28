@@ -210,10 +210,11 @@ FLUX is in early development (`0.2.2`).
 
 | Available today | Not built yet |
 | --- | --- |
-| `.flx` projects with several timelines | Art-Net cues |
-| Audio and notes tracks, tempo detection, metronome | Chasing an external timecode |
-| LTC and MTC generation, with a full transport | macOS release builds |
+| `.flx` projects with several timelines | Chasing an external timecode |
+| Audio and notes tracks, tempo detection, metronome | macOS release builds |
+| LTC and MTC generation, with a full transport | |
 | MIDI and OSC cue tracks | |
+| DMX lighting tracks over Art-Net and sACN | |
 | Live view and setlists with GO | |
 | Spoken operator tracks | |
 | MIDI and OSC remote control, with lit pads | |

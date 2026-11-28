@@ -27,6 +27,7 @@ pub enum CueKind {
     Note,
     Midi,
     Osc,
+    Dmx,
     Video,
 }
 
@@ -53,6 +54,7 @@ impl CueKind {
             Self::Note => "note",
             Self::Midi => "midi",
             Self::Osc => "osc",
+            Self::Dmx => "dmx",
             Self::Video => "video",
         }
     }
@@ -274,6 +276,15 @@ impl CueList {
                         let mut item = cue(&event.id, CueKind::Osc, "", event.at, None);
                         item.action = Some(CueAction::Osc);
                         item.detail = Some(describe_osc(&event.address, &event.args));
+                        cues.push(item);
+                    }
+                }
+                TrackKind::Dmx { scenes, .. } => {
+                    for scene in scenes {
+                        let length = (scene.fade > 0).then_some(scene.fade);
+                        end = end.max(clock.frames_to_samples(scene.at + scene.fade));
+                        let mut item = cue(&scene.id, CueKind::Dmx, &scene.name, scene.at, length);
+                        item.detail = Some(format!("{} ch", scene.channels.len()));
                         cues.push(item);
                     }
                 }
@@ -706,6 +717,41 @@ mod tests {
         let cue = cue_named(&list(&p), "o1");
         assert_eq!(cue.kind, CueKind::Osc);
         assert_eq!(cue.detail.as_deref(), Some("/cue/1/start 1 0.5 \"a\" T"));
+    }
+
+    #[test]
+    fn a_dmx_scene_should_be_a_cue_as_long_as_its_fade() {
+        let mut p = project(false);
+        let scene = |id: &str, at, fade, channels: u16| flux_project::DmxScene {
+            id: id.into(),
+            at,
+            name: format!("Scene {id}"),
+            fade,
+            release_others: false,
+            channels: (1..=channels)
+                .map(|channel| flux_project::DmxChannel {
+                    universe: 0,
+                    channel,
+                    value: 255,
+                })
+                .collect(),
+        };
+        p.timelines[0].tracks.push(track(
+            "t3",
+            false,
+            TrackKind::Dmx {
+                destination: None,
+                scenes: vec![scene("d1", 30, 25, 3), scene("d2", 100, 0, 1)],
+            },
+        ));
+        let l = list(&p);
+        let cue = cue_named(&l, "d1");
+        assert_eq!(cue.kind, CueKind::Dmx);
+        assert_eq!(cue.name, "Scene d1");
+        assert_eq!(cue.detail.as_deref(), Some("3 ch"));
+        assert_eq!((cue.frame, cue.length), (130, Some(25)));
+        assert_eq!(cue_named(&l, "d2").length, None);
+        assert!(l.end_samples() >= 25 * 1920 * 5);
     }
 
     #[test]

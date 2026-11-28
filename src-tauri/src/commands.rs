@@ -430,6 +430,21 @@ pub async fn cue_edit(
     .await
 }
 
+/// Edits the DMX tracks and destinations (see [`DmxOp`]); the answer is the project with the edit
+/// made, and the id of what it created.
+#[tauri::command]
+pub async fn dmx_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: flux_project::DmxOp,
+) -> Result<CueEdited> {
+    run(&session, move |s| {
+        s.update(project);
+        s.dmx_edit(op)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn output_signal_edit(
     session: State<'_, SharedSession>,

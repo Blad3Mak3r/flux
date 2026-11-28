@@ -139,6 +139,7 @@ pub fn run() {
             commands::project_sync,
             commands::clip_edit,
             commands::cue_edit,
+            commands::dmx_edit,
             commands::item_edit,
             commands::items_edit,
             commands::marks_edit,

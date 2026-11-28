@@ -2267,3 +2267,68 @@ fn click_spec_should_leave_out_the_channels_a_device_does_not_have() {
     };
     assert_eq!(spec.out(4).channels, vec![0, 2]);
 }
+
+/// The real thread, from the transport's published position to the packets on a UDP socket.
+#[test]
+fn the_dmx_thread_should_send_the_state_of_the_position_and_hold_a_stop() {
+    use crate::dmx::{DmxPlan, PlannedScene, SharedPlan, run_dmx};
+    use flux_project::{DmxDestination, DmxProtocol};
+    use std::net::UdpSocket;
+    use std::sync::atomic::AtomicBool;
+
+    let scene = |at, fade, value| PlannedScene {
+        at,
+        fade,
+        release_others: false,
+        channels: vec![((0, 1), value)],
+    };
+    let destination = DmxDestination {
+        id: "d".into(),
+        name: "d".into(),
+        protocol: DmxProtocol::Artnet,
+        host: "127.0.0.1".into(),
+    };
+    let plan = SharedPlan::new(DmxPlan {
+        destination: destination.clone(),
+        tracks: vec![vec![scene(0, 0, 100), scene(1_000, 1_000, 200)]],
+    });
+    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+    receiver
+        .set_read_timeout(Some(Duration::from_millis(50)))
+        .unwrap();
+    let sink = crate::dmx::DmxSink::connect_to(&destination, receiver.local_addr().unwrap().port())
+        .unwrap();
+    let shared = Arc::new(SharedClock::new());
+    let stop = Arc::new(AtomicBool::new(false));
+    let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+    master_at(&shared, TransportState::Paused, 1, 1_500);
+    let thread = {
+        let (plan, shared, stop) = (Arc::new(plan), Arc::clone(&shared), Arc::clone(&stop));
+        std::thread::spawn(move || run_dmx(&plan, clock, sink, &shared, &stop))
+    };
+    // Whether channel 1 shows `wanted` on the wire before the time is up.
+    let wait_for = |wanted: u8, seconds: u64| {
+        let mut buffer = [0u8; 1024];
+        let deadline = Instant::now() + Duration::from_secs(seconds);
+        while Instant::now() < deadline {
+            if let Ok(len) = receiver.recv(&mut buffer)
+                && let Some(frame) = crate::artnet::parse_art_dmx(&buffer[..len])
+                && frame.data[0] == wanted
+            {
+                return true;
+            }
+        }
+        false
+    };
+    // Located in the middle of the fade: halfway between 100 and 200.
+    assert!(wait_for(150, 3), "mid-fade state after a seek");
+    master_at(&shared, TransportState::Paused, 2, 2_500);
+    assert!(wait_for(200, 3), "end state after seeking past the fade");
+    master_at(&shared, TransportState::Paused, 3, 10);
+    assert!(wait_for(100, 3), "state before the second scene");
+    // A stop holds the frame: the position goes back to 1_500 but the lights stay at 100.
+    master_at(&shared, TransportState::Stopped, 4, 1_500);
+    assert!(!wait_for(150, 1), "a stop must not move the lights");
+    stop.store(true, Ordering::Relaxed);
+    thread.join().unwrap();
+}

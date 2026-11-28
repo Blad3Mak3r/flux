@@ -519,6 +519,7 @@ export type TrackKind =
   | { type: "notes"; notes: Note[] }
   | { type: "midi"; port?: MidiPortRef; events: MidiEvent[] }
   | { type: "osc"; destination?: string; events: OscEvent[] }
+  | { type: "dmx"; destination?: string; scenes: DmxScene[] }
   | { type: "video"; clips: VideoClip[] };
 
 /** The MIDI port a track sends to, stored as a name hint like the MTC ports. */
@@ -559,6 +560,34 @@ export interface OscEvent {
   /** Starts with `/`. */
   address: string;
   args?: OscArg[];
+}
+
+/** One channel of a DMX scene: the value it fades to. The universe counts from 0 (Art-Net's), the channel from 1 to 512. */
+export interface DmxChannel {
+  universe: number;
+  channel: number;
+  value: number;
+}
+
+/** A lighting state to fade to at `at`, over `fade` frames. Channels it does not name keep their value, unless it releases the others. */
+export interface DmxScene {
+  id: string;
+  at: number;
+  name?: string;
+  fade?: number;
+  releaseOthers?: boolean;
+  /** Sorted by universe and channel. */
+  channels: DmxChannel[];
+}
+
+export type DmxProtocol = "artnet" | "sacn";
+
+/** A DMX receiver (UDP), defined once for the project and chosen by the DMX tracks that send to it. */
+export interface DmxDestination {
+  id: string;
+  name: string;
+  protocol: DmxProtocol;
+  host: string;
 }
 
 /** An OSC receiver (UDP), defined once for the project and chosen by the tracks that send to it. */
@@ -661,6 +690,8 @@ export interface ShowOutputs {
   /** The show sends MIDI clock, to the port this installation chooses; absent is off. */
   midiClock?: boolean;
   osc?: OscDestination[];
+  /** The DMX receivers (Art-Net, sACN) the DMX tracks send to. */
+  dmx?: DmxDestination[];
   legacyRoutes?: OutputConfig;
   /** The screens of the video output and their slices; none is the main screen with no slices. */
   screens?: import("../video/mapping").VideoScreen[];

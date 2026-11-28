@@ -1,6 +1,6 @@
 # Editing the timeline
 
-The editor works on clips, notes, MIDI events and OSC events (the operator's orders are moved one by one).
+The editor works on clips, notes, MIDI events, OSC events and DMX scenes (the operator's orders are moved one by one).
 Everything below is one step of undo, however many items it touches.
 
 ## Selecting several items

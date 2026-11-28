@@ -130,6 +130,14 @@ fn slots<'a>(kind: &'a mut TrackKind, lengths: &Lengths) -> Vec<Slot<'a>> {
                 at: &mut event.at,
             })
             .collect(),
+        TrackKind::Dmx { scenes, .. } => scenes
+            .iter_mut()
+            .map(|scene| Slot {
+                len: 0,
+                id: Some(scene.id.as_str()),
+                at: &mut scene.at,
+            })
+            .collect(),
         TrackKind::Operator { orders, .. } => orders
             .iter_mut()
             .map(|order| Slot {
@@ -268,6 +276,9 @@ fn remove_items(
             }
             TrackKind::Osc { events, .. } => {
                 events.retain(|event| !ids.contains(event.id.as_str()));
+            }
+            TrackKind::Dmx { scenes, .. } => {
+                scenes.retain(|scene| !ids.contains(scene.id.as_str()));
             }
             TrackKind::Operator { .. } => {}
         }
