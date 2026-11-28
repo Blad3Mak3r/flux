@@ -6,7 +6,7 @@ import { useDoc } from "../state/store";
 import { useUi } from "../state/ui";
 import { formatFrames } from "../timecode";
 import { selectSpan, useReadout } from "../timeline/layout";
-import { VjTips } from "../vj/VjScreen";
+import { VjTip } from "../vj/VjScreen";
 
 export function StatusBar() {
   const t = useT();
@@ -28,7 +28,7 @@ export function StatusBar() {
             {t("media.offlineCount", { count: offline })}
           </button>
         )}
-        {vj && <VjTips />}
+        {vj && "key" in message && message.key === "status.ready" && <VjTip />}
         {span !== null && span > 0 && (
           <span>
             {t("status.span")} <b>{formatFrames(span, rate)}</b> ({t("status.frames", { count: span })})

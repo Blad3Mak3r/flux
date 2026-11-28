@@ -1,14 +1,13 @@
-import { useVoice } from "../voice/store";
 // The magnet as the editor uses it: on or off, and onto the lines the ruler is drawing now, the
 // edges of the clips and notes, the playhead and the origin.
 
-import { nominalFps, realFps } from "../timecode";
-import { GUESS_SECONDS, clipLength, videoClipLength } from "../timeline/clip";
+import { realFps } from "../timecode";
 import { collectTargets, fixedSpacing, snapMove, snapPoint } from "../timeline/snap";
 import type { SnapItem, SnapSource, SnapTarget } from "../timeline/snap";
 import { lineSpacing } from "../timeline/scale";
 import { currentFrame } from "../transport/store";
 import { activeTimeline } from "./doc";
+import { trackItems } from "./selection";
 import { useDoc } from "./store";
 import { setSnapGuide, useUi } from "./ui";
 
@@ -32,41 +31,7 @@ function gridSpacing(): number | null {
 const active = (alt: boolean) => useUi.getState().snap !== alt;
 
 /** The clips, notes and events of the active timeline, as far as the magnet cares. */
-function timelineItems(): SnapItem[] {
-  const doc = useDoc.getState();
-  const { tracks, timecode } = activeTimeline(doc);
-  const fps = realFps(timecode.frameRate);
-  const guess = GUESS_SECONDS * nominalFps(timecode.frameRate);
-  return tracks.flatMap((track): SnapItem[] => {
-    switch (track.kind.type) {
-      case "audio":
-        return track.kind.clips.map((clip) => ({
-          id: clip.id,
-          start: clip.start,
-          end: clip.start + clipLength(clip, doc.audio[clip.asset], fps, guess),
-        }));
-      case "notes":
-        return track.kind.notes.map((note) => ({
-          id: note.id,
-          start: note.at,
-          end: note.length === undefined ? undefined : note.at + note.length,
-        }));
-      case "operator":
-        return track.kind.orders.map((order) => {
-          const view = useVoice.getState().views[order.id];
-          return { id: order.id, start: view?.start ?? order.at, end: view?.start != null && view.length != null ? view.start + view.length : undefined };
-        });
-      case "video":
-        return track.kind.clips.map((clip) => ({
-          id: clip.id,
-          start: clip.start,
-          end: clip.start + videoClipLength(clip, doc.video[clip.asset], fps, guess),
-        }));
-      default:
-        return track.kind.events.map((event) => ({ id: event.id, start: event.at }));
-    }
-  });
-}
+const timelineItems = (): SnapItem[] => activeTimeline(useDoc.getState()).tracks.flatMap(trackItems);
 
 /**
  * What a drag can land on besides the grid, taken once when the drag starts. `exclude` is the item

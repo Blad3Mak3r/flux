@@ -49,6 +49,8 @@ pub struct Fade {
     pub done: f32,
     /// How long the whole fade takes at its present speed.
     pub over: Duration,
+    /// The blend picked for this fade when the layer's transition is random.
+    pub picked: Option<Blend>,
 }
 
 impl Fade {
@@ -146,6 +148,25 @@ impl GridPlay {
         true
     }
 
+    /// A random number: the generator moves one step and the instant is mixed in.
+    fn roll(&mut self, tick: Tick) -> u64 {
+        self.rng ^= self.rng << 13;
+        self.rng ^= self.rng >> 7;
+        self.rng ^= self.rng << 17;
+        self.rng ^ tick.time.as_nanos() as u64
+    }
+
+    /// The blend of the transition running on `layer`: the one picked when the layer's transition
+    /// is random, else the layer's own.
+    fn transition_blend(layer: &flux_project::vj::Layer, launched: &Launched) -> Blend {
+        launched
+            .fade
+            .as_ref()
+            .and_then(|fade| fade.picked)
+            .filter(|_| layer.transition_random)
+            .unwrap_or(layer.transition_effect)
+    }
+
     /// Moves `layer` to `clip`, or to nothing, over the layer's transition: what it shows now
     /// leaves as the new clip comes in.
     fn start(&mut self, vj: &Vj, layer: &str, clip: Option<&str>, tick: Tick) {
@@ -178,11 +199,20 @@ impl GridPlay {
             self.playing.remove(layer);
             return;
         }
+        let random = vj
+            .layers
+            .iter()
+            .any(|l| l.id == layer && l.transition_random);
+        let picked = (random && !over.is_zero()).then(|| {
+            let roll = self.roll(tick);
+            Blend::ALL[(roll % Blend::ALL.len() as u64) as usize]
+        });
         let fade = (!over.is_zero()).then_some(Fade {
             from,
             since: now,
             done: 0.0,
             over,
+            picked,
         });
         let launched = Launched {
             clip: clip.map(str::to_owned),
@@ -359,10 +389,7 @@ impl GridPlay {
         for (layer, id) in due {
             // Only the random pick moves the generator.
             let roll = if layer.autopilot == Autopilot::Random {
-                self.rng ^= self.rng << 13;
-                self.rng ^= self.rng >> 7;
-                self.rng ^= self.rng << 17;
-                self.rng ^ tick.time.as_nanos() as u64
+                self.roll(tick)
             } else {
                 0
             };
@@ -520,6 +547,7 @@ impl GridPlay {
             let t = fading.map_or(1.0, |fade| fade.progress(now));
             // Both clips of a blend transition are mixed in a group of their own, drawn like the
             // layer would be; the new one is drawn with the transition's blend.
+            let effect = Self::transition_blend(layer, launched);
             let mixed = Self::mixes(layer, launched, now);
             let group = || {
                 mixed
@@ -527,7 +555,7 @@ impl GridPlay {
                     .or_else(|| layer.group.clone())
             };
             let (new_blend, new_opacity) = if mixed {
-                (layer.transition_effect, t)
+                (effect, t)
             } else {
                 (layer.blend, opacity * t)
             };
@@ -542,7 +570,7 @@ impl GridPlay {
                 ));
             }
             if let Some(left) = fading.and_then(|fade| fade.from.as_ref()) {
-                let (old, blend) = match (mixed, layer.transition_effect) {
+                let (old, blend) = match (mixed, effect) {
                     (true, _) => (1.0 - t, Blend::Alpha),
                     (false, Blend::Alpha) if launched.clip.is_some() => (opacity, layer.blend),
                     _ => (opacity * (1.0 - t), layer.blend),
@@ -564,7 +592,7 @@ impl GridPlay {
     /// does with a transition other than `Alpha`, outside a group (a group does not nest, there
     /// the new clip is blended over the old one flat).
     fn mixes(layer: &flux_project::vj::Layer, launched: &Launched, now: Duration) -> bool {
-        layer.transition_effect != Blend::Alpha
+        Self::transition_blend(layer, launched) != Blend::Alpha
             && layer.group.is_none()
             && launched.clip.is_some()
             && launched.fading(now).is_some_and(|fade| fade.from.is_some())
@@ -723,6 +751,7 @@ mod tests {
             blend: Blend::Alpha,
             transition: 0.0,
             transition_effect: Blend::Alpha,
+            transition_random: false,
             autopilot: Autopilot::Off,
             crossfade,
             bypass: false,
@@ -1032,6 +1061,50 @@ mod tests {
         assert_eq!(shown[1].opacity, 0.75);
         assert_eq!(play.layers(&vj, secs(12.0), &probe).len(), 1);
         assert_eq!(play.clips(&vj, secs(12.0)), [("b", "v1")]);
+    }
+
+    #[test]
+    fn a_random_transition_should_pick_a_blend_each_time_and_repeat_from_the_same_seed() {
+        let mut vj = grid();
+        vj.layers[0].transition = 2.0;
+        vj.layers[0].transition_random = true;
+        let picks = || {
+            let mut play = GridPlay::default();
+            play.launch(&vj, "a", secs(0.0));
+            let mut picks = Vec::new();
+            for i in 1..=12 {
+                let clip = if i % 2 == 0 { "a" } else { "b" };
+                play.launch(&vj, clip, secs(10.0 * f64::from(i)));
+                let at = secs(10.0 * f64::from(i) + 1.0);
+                let blend = GridPlay::transition_blend(
+                    &vj.layers[0],
+                    play.playing.get("l1").expect("playing"),
+                );
+                assert!(Blend::ALL.contains(&blend));
+                // What is drawn follows the picked blend.
+                if blend != Blend::Alpha {
+                    assert_eq!(play.layers(&vj, at, &probe)[0].blend, blend);
+                }
+                picks.push(blend);
+            }
+            picks
+        };
+        let first = picks();
+        assert_eq!(first, picks());
+        let distinct: std::collections::HashSet<String> =
+            first.iter().map(|b| format!("{b:?}")).collect();
+        assert!(distinct.len() > 3, "{first:?}");
+        // Off, the layer's own blend is always used.
+        vj.layers[0].transition_random = false;
+        vj.layers[0].transition_effect = Blend::Add;
+        let mut play = GridPlay::default();
+        play.launch(&vj, "a", secs(0.0));
+        play.launch(&vj, "b", secs(10.0));
+        let launched = play.playing.get("l1").unwrap();
+        assert_eq!(
+            GridPlay::transition_blend(&vj.layers[0], launched),
+            Blend::Add
+        );
     }
 
     #[test]

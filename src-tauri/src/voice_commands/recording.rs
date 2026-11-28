@@ -90,16 +90,28 @@ pub async fn voice_record_start(
     .await
 }
 
+/// How often the recording is looked at for a change.
+const STATUS_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// Sends how the recording goes (`None` while none runs) down `on_status` whenever it changes, until
+/// [`crate::watch::watch_stop`].
 #[tauri::command]
-pub fn voice_record_status(
+pub fn voice_record_watch(
     state: State<'_, Arc<VoiceState>>,
-) -> Option<flux_engine::recording::Status> {
-    state
-        .recording
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_ref()
-        .map(|r| r.capture.status())
+    watches: State<'_, crate::watch::Watches>,
+    on_status: tauri::ipc::Channel<Option<flux_engine::recording::Status>>,
+) {
+    let state = Arc::clone(&state);
+    let mut changes = crate::watch::Changes::default();
+    watches.start(on_status, STATUS_EVERY, move || {
+        let status = state
+            .recording
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(|r| r.capture.status());
+        changes.next(status)
+    });
 }
 
 #[tauri::command]

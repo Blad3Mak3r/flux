@@ -1,6 +1,7 @@
 //! The `.flx` project file (legacy `.fxtc`): a zip with `project.json` and the project's audio files.
 
 mod archive;
+mod bulk_ops;
 mod clips;
 mod cue_ops;
 mod dropped;
@@ -21,8 +22,11 @@ pub mod recovery;
 pub mod routing;
 pub use outputs::{ClickSettings, LtcSignal, MtcSignal, ShowOutputs, SignalOp, UNASSIGNED_DEVICE};
 pub mod playhead;
+mod serde_util;
 mod session;
 pub mod show;
+#[cfg(test)]
+mod test_util;
 mod video_clips;
 pub mod vj;
 pub mod vj_effects;
@@ -33,10 +37,12 @@ pub mod vj_layout;
 pub mod vj_mapfile;
 pub mod vj_mapping;
 pub mod vj_modulation;
+pub mod vj_osc_feedback;
 pub mod vj_presets;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 
 pub use archive::{AssetSource, ProjectArchive, ProjectMeta, open, read_meta, save};
+pub use bulk_ops::{Extent, ItemsOp, Lengths, Ripple};
 pub use clips::{ClipOp, apply as apply_clip_op};
 pub use cue_ops::{CueEdited, CueOp, CueTrackKind};
 pub use dropped::{Dropped, MediaKind, Staged, media_kind};

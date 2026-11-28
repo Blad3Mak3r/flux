@@ -6,7 +6,7 @@ use std::sync::{Mutex, PoisonError};
 
 use tauri::{AppHandle, Manager};
 
-use flux_project::vj_layout::{Layout, MonitorKind, State, Store, Target};
+use flux_project::vj_layout::{ClipSize, Layout, MonitorKind, State, Store, Target};
 use flux_project::{ProjectError, Result};
 
 /// Commands read and rewrite the whole file, and windows can ask at the same time.
@@ -109,6 +109,16 @@ pub fn vj_layout_delete(app: AppHandle, id: String) -> Result<State> {
 pub fn vj_layout_reset(app: AppHandle) -> Result<State> {
     edit(&app, |store| {
         store.reset();
+        Ok(())
+    })
+    .map(|(state, ())| state)
+}
+
+/// Sets how big the grid's clips are drawn; it is kept with the layouts, per machine.
+#[tauri::command]
+pub fn vj_layout_set_clip_size(app: AppHandle, size: ClipSize) -> Result<State> {
+    edit(&app, |store| {
+        store.clip_size = size;
         Ok(())
     })
     .map(|(state, ())| state)

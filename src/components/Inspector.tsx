@@ -109,6 +109,14 @@ function SelectionPanel({
 }) {
   const t = useT();
   const probes = useDoc((doc) => doc.video);
+  const picked = useUi((ui) => ui.picked.size);
+  if (picked > 1) {
+    return <div className="panel-body">
+      <h3>{t("inspector.manySelected", { count: picked })}</h3>
+      <p className="field-note">{t("inspector.manyHint")}</p>
+      <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
+    </div>;
+  }
   if (selection?.kind === "track") {
     const track = timeline.tracks.find((t) => t.id === selection.id);
     if (!track) return null;

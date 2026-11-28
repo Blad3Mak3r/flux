@@ -13,6 +13,8 @@ import { addCueEvent, addCueTrack, removeCueEvent } from "../state/cues";
 import { deleteSelection, deleteTrack, muteTrack, renameSelectedTrack, reorderTrack, setGain } from "../state/actions";
 import { activeTimeline } from "../state/doc";
 import { splitAtPlayhead } from "../state/clips";
+import { zoomToFit } from "../state/items";
+import { selectAll } from "../state/selection";
 import { findItem } from "../state/edit";
 import { dispatch, useDoc } from "../state/store";
 import { isPlaying } from "../transport/store";
@@ -25,6 +27,7 @@ import {
 } from "../state/timelines";
 import {
   GRID_STEPS,
+  RIPPLES,
   askRemoveTimeline,
   openAbout,
   openSetlists,
@@ -33,6 +36,7 @@ import {
   rename,
   select,
   setGridStep,
+  setRipple,
   setSnapSource,
   setView,
   toggleFollow,
@@ -105,6 +109,17 @@ export function snapMenu(t: Translate): MenuItem[] {
   ];
 }
 
+/** What moving or deleting items shifts: the menu of the Ripple control. */
+export function rippleMenu(t: Translate): MenuItem[] {
+  const { ripple } = useUi.getState();
+  return RIPPLES.map((mode): MenuItem => ({
+    label: t(`ripple.mode.${mode}`),
+    shortcut: mode === "off" ? "Alt+P" : undefined,
+    checked: ripple === mode,
+    run: () => setRipple(mode),
+  }));
+}
+
 const renameTrackItem = (t: Translate, track: Track): MenuItem => ({
   label: t("menu.renameTrack"),
   run: () => rename({ kind: "track", id: track.id }),
@@ -157,7 +172,10 @@ function editMenu(t: Translate): MenuItem[] {
     "-",
     { label: t("menu.split"), shortcut: "S", disabled: ui.view !== "edit" || (ui.selection?.kind !== "clip" && ui.selection?.kind !== "video"), run: () => void splitAtPlayhead() },
     { label: t("menu.delete"), shortcut: "Del", disabled: !ui.selection, run: deleteSelection },
+    { label: t("menu.selectAll"), shortcut: mod("A"), disabled: ui.view !== "edit", run: selectAll },
     { label: t("menu.deselect"), shortcut: "Esc", disabled: !ui.selection, run: () => select(null) },
+    "-",
+    { label: t("ripple.label"), submenu: rippleMenu(t) },
   ];
 }
 
@@ -278,6 +296,7 @@ function viewMenu(t: Translate): MenuItem[] {
     "-",
     { label: t("timeline.zoomIn"), shortcut: mod("="), run: () => zoomBy(ZOOM_STEP) },
     { label: t("timeline.zoomOut"), shortcut: mod("-"), run: () => zoomBy(1 / ZOOM_STEP) },
+    { label: t("menu.zoomFit"), shortcut: mod("0"), disabled: !editing, run: () => void zoomToFit() },
     "-",
     { label: t("inspector.legend"), shortcut: mod("B"), checked: !collapsed, run: toggleInspector },
     { label: t("timeline.follow"), checked: follow && !detached, run: toggleFollow },

@@ -30,10 +30,12 @@ mod vj_commands;
 mod vj_control;
 mod vj_layout_commands;
 mod vj_link;
+mod vj_osc_feedback;
 mod vj_presets_commands;
 mod vj_record;
 mod voice_commands;
 mod voice_jobs;
+mod watch;
 mod windows;
 
 /// WSLg's Wayland compositor places every window itself and ignores the position an app asks for,
@@ -62,6 +64,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(update_commands::PendingUpdate::default())
         .manage(commands::SharedSession::default())
+        .manage(watch::Watches::default())
         .manage(preferences::Store::default())
         .manage(std::sync::Arc::new(voice_commands::VoiceState::default()))
         .manage(flux_audio::SharedAudio::default())
@@ -87,6 +90,7 @@ pub fn run() {
             analysis::start(app.handle());
             modulation::start(app.handle());
             vj_link::start(app.handle());
+            vj_osc_feedback::start(app.handle());
             let app = app.handle().clone();
             let video = app.clone();
             tauri::async_runtime::spawn_blocking(move || control::start(&app));
@@ -112,7 +116,7 @@ pub fn run() {
             voice_commands::voice_import,
             voice_commands::recording::voice_inputs,
             voice_commands::recording::voice_record_start,
-            voice_commands::recording::voice_record_status,
+            voice_commands::recording::voice_record_watch,
             voice_commands::recording::voice_record_stop,
             voice_commands::recording::voice_record_cancel,
             voice_commands::recording::voice_job_discard,
@@ -126,6 +130,7 @@ pub fn run() {
             voice_commands::preview::voice_preview,
             voice_commands::preview::voice_preview_stop,
             show_commands::show_state,
+            show_commands::show_watch,
             show_commands::show_overview,
             show_commands::show_action,
             show_commands::show_edit,
@@ -135,6 +140,8 @@ pub fn run() {
             commands::clip_edit,
             commands::cue_edit,
             commands::item_edit,
+            commands::items_edit,
+            commands::items_extent,
             commands::output_signal_edit,
             commands::audio_routing_edit,
             preferences::preferences_get,
@@ -172,6 +179,7 @@ pub fn run() {
             vj_layout_commands::vj_layout_resize,
             vj_layout_commands::vj_layout_equalize,
             vj_layout_commands::vj_layout_set_monitor,
+            vj_layout_commands::vj_layout_set_clip_size,
             vj_layout_commands::vj_layout_apply,
             vj_layout_commands::vj_layout_save,
             vj_layout_commands::vj_layout_rename,
@@ -198,10 +206,11 @@ pub fn run() {
             vj_commands::vj_stop,
             vj_commands::vj_crossfader,
             vj_commands::vj_crossfader_reset,
-            vj_commands::vj_play_state,
+            vj_commands::vj_play_watch,
+            watch::watch_stop,
             vj_record::vj_record_start,
             vj_record::vj_record_stop,
-            vj_record::vj_record_state,
+            vj_record::vj_record_watch,
             vj_commands::vj_beat,
             vj_control::vj_learn,
             vj_commands::vj_output_frame,
@@ -228,7 +237,7 @@ pub fn run() {
             video_output::video_output_pattern,
             video_output::video_card_preview,
             video_output::video_card_base,
-            video_output::video_output_state,
+            video_output::video_output_watch,
             video_output::video_output_toggle,
             video_output::video_output_fullscreen,
             video_output::video_output_snapshot,
@@ -257,6 +266,7 @@ pub fn run() {
             device_commands::devices_find_audio,
             device_commands::devices_find_midi,
             control::control_get,
+            control::control_watch,
             timecode_in::timecode_in_status,
             timecode_in::timecode_in_close,
             timecode_in::timecode_midi_inputs,
