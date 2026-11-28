@@ -16,6 +16,7 @@ import { SETUP_GROUPS, groupOf, isAvailable, isListed } from "./outputs";
 import { useDoc } from "../state/store";
 import type { SetupGroup, SetupSection } from "./outputs";
 import { ControlPage } from "./ControlPage";
+import { DmxPage } from "./DmxPage";
 import { AnalysisPage } from "./AnalysisPage";
 import { TimecodeInPage } from "./TimecodeInPage";
 import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MidiClockPage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
@@ -42,6 +43,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <MidiClockPage devices={devices} />;
     case "osc":
       return <OscPage />;
+    case "dmx":
+      return <DmxPage />;
     case "video":
       return <VideoPage />;
     case "snapshots":
@@ -133,6 +136,7 @@ const NAV_LABEL: Partial<Record<SetupSection, MessageKey>> = {
   mtc: "setup.nav.mtc",
   midiClock: "setup.nav.midiClock",
   osc: "setup.nav.osc",
+  dmx: "setup.nav.dmx",
   controlMidi: "setup.nav.controlMidi",
   controlOsc: "setup.nav.osc",
   controlArtnet: "setup.nav.artnet",

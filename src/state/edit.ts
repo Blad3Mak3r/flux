@@ -9,6 +9,7 @@ import type {
   FrameRate,
   MidiEvent,
   OscEvent,
+  DmxScene,
   Project,
   Note,
   Tempo,
@@ -58,7 +59,8 @@ export type Found =
   | { kind: "clip"; track: Track; clip: AudioClip }
   | { kind: "note"; track: Track; note: Note }
   | { kind: "midiEvent"; track: Track; event: MidiEvent }
-  | { kind: "oscEvent"; track: Track; event: OscEvent };
+  | { kind: "oscEvent"; track: Track; event: OscEvent }
+  | { kind: "dmxScene"; track: Track; scene: DmxScene };
 
 /** Finds a clip or a note by its id, which is unique in the whole project. */
 export function findItem(project: Project, id: string): Found | null {
@@ -75,6 +77,9 @@ export function findItem(project: Project, id: string): Found | null {
     } else if (track.kind.type === "osc") {
       const event = track.kind.events.find((e) => e.id === id);
       if (event) return { kind: "oscEvent", track, event };
+    } else if (track.kind.type === "dmx") {
+      const scene = track.kind.scenes.find((s) => s.id === id);
+      if (scene) return { kind: "dmxScene", track, scene };
     }
   }
   return null;

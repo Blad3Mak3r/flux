@@ -8,7 +8,7 @@ import { memo, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
-import type { AudioClip, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
+import type { AudioClip, DmxScene, MidiEvent, Note, OscEvent, Track, VideoClip } from "../project/types";
 import { moveTo, muteTrack, nameClip, nameTrack, setGain } from "../state/actions";
 import { addCueEvent, moveCueEvent } from "../state/cues";
 import { MediaProgressBar } from "../media/progress";
@@ -37,7 +37,7 @@ import { Fader } from "./Fader";
 import { InlineName } from "./InlineName";
 import { LevelMeter } from "./LevelMeter";
 import { Marquee } from "./Marquee";
-import { ChevronRightIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, VideoIcon, WaveIcon, VoiceIcon } from "./icons";
+import { ChevronRightIcon, DmxIcon, MidiIcon, MuteIcon, NoteIcon, OscIcon, OutputIcon, VideoIcon, WaveIcon, VoiceIcon } from "./icons";
 import { audioMenu, cueTrackMenu, emptyMenu, eventMenu, noteMenu, notesTrackMenu, operatorOrderMenu, videoTrackMenu } from "./menus";
 
 export function laneHeight(track: Track): number {
@@ -50,6 +50,7 @@ const KIND_ICONS = {
   notes: <NoteIcon />,
   midi: <MidiIcon />,
   osc: <OscIcon />,
+  dmx: <DmxIcon />,
   video: <VideoIcon />,
 } as const;
 
@@ -720,6 +721,40 @@ function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEve
   );
 }
 
+/**
+ * A DMX scene on its lane: a line at its time with its name, and a bar as long as its fade, so the
+ * span the lights take to get there can be read off the ruler.
+ */
+function SceneBlock({ track, scene, pxPerFrame }: { track: Track; scene: DmxScene; pxPerFrame: number }) {
+  const t = useT();
+  const fade = scene.fade ?? 0;
+  const { shown, handlers: pointer } = useDrag(scene.id, "event", scene.at, fade, pxPerFrame, track);
+  const selected = useUi((ui) => isSelected(ui, scene.id));
+  return (
+    <div
+      className="cue-event dmx-scene"
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      data-selected={selected}
+      data-muted={track.muted}
+      data-kind="dmx"
+      style={{ left: frameX(shown, pxPerFrame) }}
+      onContextMenu={(menu) => {
+        if (!isSelected(useUi.getState(), scene.id)) select({ kind: "event", id: scene.id });
+        menuAtPointer(menu, eventMenu(t, track, scene.id, scene.at));
+      }}
+      {...pointer}
+    >
+      {fade > 0 && <span className="dmx-fade" style={{ width: fade * pxPerFrame }} />}
+      <span className="cue-event-body">
+        <span className="cue-event-tag">{t("event.tag.dmx")}</span>
+        {scene.name && <span className="cue-event-detail">{scene.name}</span>}
+      </span>
+    </div>
+  );
+}
+
 function OrderBlock({ track, order, fps, pxPerFrame }: { track: Track; order: VoiceOrder; fps: number; pxPerFrame: number }) {
   const t = useT();
   const view = useVoice((v) => v.views[order.id]);
@@ -833,6 +868,10 @@ export const TrackLane = memo(function TrackLane({
           : track.kind.type === "video"
             ? track.kind.clips.filter((clip) => near(clip.id, clip.start, videoClipLength(clip, videoInfo[clip.asset], fps, guessLength))).map((clip) => (
                 <VideoBlock key={clip.id} track={track} clip={clip} guessLength={guessLength} rowHeight={height} fps={fps} pxPerFrame={pxPerFrame} />
+              ))
+          : track.kind.type === "dmx"
+            ? track.kind.scenes.filter((scene) => near(scene.id, scene.at, scene.fade ?? 0)).map((scene) => (
+                <SceneBlock key={scene.id} track={track} scene={scene} pxPerFrame={pxPerFrame} />
               ))
           : track.kind.events.filter((event) => near(event.id, event.at, 0)).map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />

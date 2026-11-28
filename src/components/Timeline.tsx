@@ -62,6 +62,8 @@ function contentEnd(
       }
     } else if (track.kind.type === "video") {
       for (const clip of track.kind.clips) end = Math.max(end, clip.start + videoClipLength(clip, video[clip.asset], fps, guess));
+    } else if (track.kind.type === "dmx") {
+      for (const scene of track.kind.scenes) end = Math.max(end, scene.at + (scene.fade ?? 0) + 25);
     } else {
       for (const event of track.kind.events) end = Math.max(end, event.at + 25);
     }

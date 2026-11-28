@@ -26,6 +26,7 @@ import {
 } from "../state/edit";
 import { TRACK_COLORS } from "../timeline/palette";
 import { MidiEventPanel, OscEventPanel } from "./CueEventPanel";
+import { DmxScenePanel } from "./DmxPanel";
 import { FADE_CURVES } from "../audio/fade";
 import { SelectField, TextAreaField, TextField, TimecodeField } from "./fields";
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
@@ -298,6 +299,17 @@ function SelectionPanel({
 
   if (found.kind === "midiEvent") {
     return <MidiEventPanel track={found.track} event={found.event} start={start} rate={frameRate} />;
+  }
+  if (found.kind === "dmxScene") {
+    return (
+      <DmxScenePanel
+        track={found.track}
+        scene={found.scene}
+        start={start}
+        rate={frameRate}
+        destinations={project.output.dmx ?? []}
+      />
+    );
   }
   if (found.kind === "oscEvent") {
     return (

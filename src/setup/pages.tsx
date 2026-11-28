@@ -62,7 +62,7 @@ export function RowStatus({ state, word }: { state: LampState; word: MessageKey 
 }
 
 /** One output of a list: its name and state on the first line, its choices below. */
-function OutputRow({
+export function OutputRow({
   name,
   state,
   word,
@@ -95,7 +95,7 @@ function OutputRow({
 }
 
 /** The lamp for one row: running, missing or not yet connected, from what the output reported. */
-function rowState(
+export function rowState(
   reported: { ok: boolean } | undefined,
   connected: boolean,
   lost = false,
