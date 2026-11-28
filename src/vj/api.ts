@@ -78,6 +78,7 @@ export type VjOp =
   | { op: "scaleBpm"; factor: number }
   | { op: "tapBpm"; taps: number[] }
   | { op: "setClock"; source: VjClockSource }
+  | { op: "setLink"; on: boolean }
   | { op: "renameClip"; clip: string; name: string }
   | { op: "clipPlayback"; clip: string; playback: VjPlayback }
   | { op: "clipSpeed"; clip: string; value: number }
@@ -180,6 +181,8 @@ export interface GridState {
   /** The beats the grid's clock has counted, and whether they are held. */
   beats: number;
   beatsPaused: boolean;
+  /** How many other applications are in the Ableton Link session; `null` while the show is in none. */
+  linkPeers: number | null;
 }
 
 /** What the operator does to the beat clock; none of it is saved. */

@@ -18,7 +18,7 @@ import type { SetupGroup, SetupSection } from "./outputs";
 import { ControlPage } from "./ControlPage";
 import { AnalysisPage } from "./AnalysisPage";
 import { TimecodeInPage } from "./TimecodeInPage";
-import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
+import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MidiClockPage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
   switch (section) {
@@ -38,6 +38,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <LtcPage devices={devices} />;
     case "mtc":
       return <MtcPage devices={devices} />;
+    case "midiClock":
+      return <MidiClockPage devices={devices} />;
     case "osc":
       return <OscPage />;
     case "video":
@@ -129,6 +131,7 @@ const NAV_LABEL: Partial<Record<SetupSection, MessageKey>> = {
   audio: "setup.nav.audio",
   ltc: "setup.nav.ltc",
   mtc: "setup.nav.mtc",
+  midiClock: "setup.nav.midiClock",
   osc: "setup.nav.osc",
   controlMidi: "setup.nav.controlMidi",
   controlOsc: "setup.nav.osc",

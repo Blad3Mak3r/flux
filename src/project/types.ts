@@ -38,6 +38,8 @@ export interface VjGrid {
   deck: string;
   /** Where the timecode clock comes from; absent is `internal`. */
   clock?: VjClockSource;
+  /** The tempo and beat phase are shared with an Ableton Link session; absent is off. */
+  link?: boolean;
   /** Drawn on the final mix of the layers before the output mapping, the first applied first. */
   compositionEffects?: VjEffect[];
   /** The composition's effects are skipped; absent is false. */
@@ -600,6 +602,8 @@ export interface ShowOutputs {
   metronome?: { gainDb: number } | null;
   ltc: { slot: number; level?: number }[];
   mtc: { slot: number }[];
+  /** The show sends MIDI clock, to the port this installation chooses; absent is off. */
+  midiClock?: boolean;
   osc?: OscDestination[];
   legacyRoutes?: OutputConfig;
   /** The screens of the video output and their slices; none is the main screen with no slices. */
@@ -625,6 +629,8 @@ export interface OutputConfig {
   ltc: LtcOutputConfig[];
   /** Any number of MIDI ports that receive MTC. */
   mtc: MtcOutputConfig[];
+  /** The MIDI port that receives MIDI clock. Absent: none is sent. */
+  midiClock?: MtcOutputConfig & { freeRun?: boolean };
   /** The OSC receivers the OSC tracks send to. Absent: none. */
   osc?: OscDestination[];
 }

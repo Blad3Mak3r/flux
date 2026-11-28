@@ -53,6 +53,7 @@ pub(super) struct Plan {
     /// The metronome, shared with every stream that plays it.
     pub(super) metronome: Option<Arc<SharedMetronome>>,
     pub(super) mtc: Vec<MtcOutput>,
+    pub(super) midi_clock: Option<MidiClockOutput>,
     /// How many LTC outputs the project has.
     pub(super) ltc_outputs: usize,
     pub(super) unassigned_ltc: Vec<(usize, u16)>,
@@ -229,6 +230,7 @@ impl Plan {
             own_click,
             metronome: shared_metronome,
             mtc: output.mtc.clone(),
+            midi_clock: output.midi_clock.clone(),
             ltc_outputs: output.ltc.len(),
             unassigned_ltc: output
                 .ltc

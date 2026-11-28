@@ -18,6 +18,8 @@ export interface OutputInfo {
   /** Where the metronome plays; `null` when the project has no metronome output. */
   metronome: MetronomeInfo | null;
   operator: MetronomeInfo | null;
+  /** The MIDI port the clock goes to; `null` when the project sends no MIDI clock. */
+  midiClock: MtcInfo | null;
   /** One entry per MIDI port and OSC destination the cue tracks of the timeline send to. */
   cues: CueInfo[];
   /** Things that did not stop the output, e.g. a missing MIDI port. */

@@ -63,6 +63,26 @@ struct Controlled {
     commit: bool,
 }
 
+/// Tells the window the project as it is, as a change of the backend's own (a controller, the
+/// Link session's tempo): `commit` closes the gesture, making the state a step of the undo history.
+pub(crate) fn tell(app: &AppHandle, commit: bool) {
+    let state = app
+        .state::<SharedSession>()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .project_state();
+    if let Some(state) = state {
+        let controlled = Controlled {
+            project: state.project,
+            active: state.active,
+            commit,
+        };
+        if let Err(err) = app.emit(VJ_CONTROL, controlled) {
+            log::warn!("vj control: the window could not be told: {err}");
+        }
+    }
+}
+
 /// What a gesture has to do at an instant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
@@ -210,22 +230,7 @@ impl VjRunner {
     /// Tells the window the project as it is. A gesture still open is closed by a discrete edit,
     /// which is a state of its own.
     fn tell(&self, commit: bool) {
-        let state = self
-            .app
-            .state::<SharedSession>()
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .project_state();
-        if let Some(state) = state {
-            let controlled = Controlled {
-                project: state.project,
-                active: state.active,
-                commit,
-            };
-            if let Err(err) = self.app.emit(VJ_CONTROL, controlled) {
-                log::warn!("vj control: the window could not be told: {err}");
-            }
-        }
+        tell(&self.app, commit);
     }
 
     /// Whether the open project is a VJ show, the only one that has mappings.

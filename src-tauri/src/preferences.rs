@@ -1,5 +1,7 @@
 //! Per-installation routing and language. Nothing here belongs to an undo history.
-use flux_project::{AudioOutput, LtcOutput, MetronomeOutput, MtcOutput, OutputConfig, ShowOutputs};
+use flux_project::{
+    AudioOutput, LtcOutput, MetronomeOutput, MidiClockOutput, MtcOutput, OutputConfig, ShowOutputs,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -31,6 +33,9 @@ pub struct Preferences {
     pub metronome: Option<AudioOutput>,
     pub ltc: BTreeMap<u32, LtcOutput>,
     pub mtc: BTreeMap<u32, MtcOutput>,
+    /// The MIDI port MIDI clock goes to, for a cue show and a VJ show alike; the show decides
+    /// whether it is sent.
+    pub midi_clock: Option<MtcOutput>,
     /// The display the main screen of the video output opened on before screens had ids of
     /// their own; read as the main screen's when `video_displays` does not name it.
     #[serde(default)]
@@ -98,6 +103,11 @@ pub enum Change {
     },
     LtcIn {
         input: Option<Microphone>,
+    },
+    MidiClock {
+        port: Option<String>,
+        #[serde(default)]
+        index: usize,
     },
     MtcIn {
         port: Option<String>,
@@ -201,6 +211,9 @@ fn validate(p: &Preferences) -> Result<(), String> {
             || m.channel > 256
             || m.driver.as_ref().is_some_and(|d| d.len() > 128)
     }) || p.mtc_in.as_ref().is_some_and(|port| port.len() > 1024)
+        || p.midi_clock
+            .as_ref()
+            .is_some_and(|port| port.port_name.len() > 1024)
     {
         return Err("invalid microphone input".into());
     }
@@ -235,6 +248,7 @@ fn validate(p: &Preferences) -> Result<(), String> {
         ltc: p.ltc.values().cloned().collect(),
         mtc: p.mtc.values().cloned().collect(),
         osc: vec![],
+        midi_clock: None,
     };
     output.validate().map_err(|e| e.to_string())?;
     for (id, route) in &p.audio_routes {
@@ -279,6 +293,15 @@ impl Preferences {
             Change::Microphone { microphone } => self.microphone = Some(microphone),
             Change::LtcIn { input } => self.ltc_in = input,
             Change::MtcIn { port } => self.mtc_in = port,
+            Change::MidiClock { port, index } => {
+                self.midi_clock = port
+                    .filter(|port| !port.is_empty())
+                    .map(|port_name| MtcOutput {
+                        port_name,
+                        port_index: index,
+                        offset_ms: None,
+                    });
+            }
             Change::Analysis { source } => self.analysis = source,
             Change::AudioRoute { id, field, text } => {
                 if !flux_project::routing::valid_id(&id) {
@@ -491,6 +514,7 @@ impl Preferences {
             && self.metronome == other.metronome
             && self.ltc == other.ltc
             && self.mtc == other.mtc
+            && self.midi_clock == other.midi_clock
     }
 
     pub fn resolve_project(
@@ -503,6 +527,10 @@ impl Preferences {
             OPERATOR, PROGRAMME, ResolvedAudioBus, TrackRoute, audible, target,
         };
         let mut config = self.resolve(&project.output, audition);
+        // A VJ show's clock runs all the time; a cue show's runs with its transport.
+        if let Some(clock) = &mut config.midi_clock {
+            clock.free_run = project.mode == flux_project::ProjectMode::Vj;
+        }
         config.audio_routes = vec![
             ResolvedAudioBus {
                 id: PROGRAMME.into(),
@@ -598,6 +626,15 @@ impl Preferences {
                     .collect()
             },
             osc: show.osc.clone(),
+            midi_clock: if audition || !show.midi_clock {
+                None
+            } else {
+                self.midi_clock.as_ref().map(|port| MidiClockOutput {
+                    port_name: port.port_name.clone(),
+                    port_index: port.port_index,
+                    free_run: false,
+                })
+            },
         }
     }
 }
@@ -947,6 +984,57 @@ mod tests {
             channels: vec![1, 2],
         });
         assert!(p.edit_route("audio", "channels", "1-1", 0).is_err());
+    }
+
+    #[test]
+    fn midi_clock_should_go_out_only_when_the_show_and_this_computer_both_ask() {
+        let mut p = Preferences::default();
+        let mut show = ShowOutputs::default();
+        assert!(p.resolve(&show, false).midi_clock.is_none());
+        p.apply(Change::MidiClock {
+            port: Some("Drum machine".into()),
+            index: 1,
+        })
+        .unwrap();
+        assert!(
+            p.resolve(&show, false).midi_clock.is_none(),
+            "the show is off"
+        );
+        show.midi_clock = true;
+        let clock = p.resolve(&show, false).midi_clock.unwrap();
+        assert_eq!(
+            (clock.port_name.as_str(), clock.port_index),
+            ("Drum machine", 1)
+        );
+        assert!(!clock.free_run, "a cue show unless the project says VJ");
+        assert!(
+            p.resolve(&show, true).midi_clock.is_none(),
+            "no clock while auditioning"
+        );
+        p.apply(Change::MidiClock {
+            port: None,
+            index: 0,
+        })
+        .unwrap();
+        assert!(p.resolve(&show, false).midi_clock.is_none());
+    }
+
+    #[test]
+    fn a_vj_show_should_run_its_midi_clock_free() {
+        let mut p = Preferences::default();
+        p.apply(Change::MidiClock {
+            port: Some("Port".into()),
+            index: 0,
+        })
+        .unwrap();
+        let mut project = flux_project::Project::new("Show", flux_project::FrameRate::Fps25);
+        project.output.midi_clock = true;
+        let timeline = project.timelines[0].clone();
+        let cue = p.resolve_project(&project, &timeline, false);
+        assert!(!cue.midi_clock.unwrap().free_run);
+        project.mode = flux_project::ProjectMode::Vj;
+        let vj = p.resolve_project(&project, &timeline, false);
+        assert!(vj.midi_clock.unwrap().free_run);
     }
 
     #[test]

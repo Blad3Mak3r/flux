@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::*;
 use crate::error::{ProjectError, Result};
 use crate::events::OscDestination;
-use crate::serde_util::is_zero;
+use crate::serde_util::{is_false, is_zero};
 
 /// Devices are machine-specific, so only a name hint is stored, never an OS identifier.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -42,6 +42,24 @@ pub struct OutputConfig {
     /// The OSC receivers the project's OSC tracks send to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub osc: Vec<OscDestination>,
+    /// The MIDI port that receives the tempo as MIDI clock; absent is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midi_clock: Option<MidiClockOutput>,
+}
+
+/// Where MIDI clock goes: Flux sends it and never follows one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MidiClockOutput {
+    pub port_name: String,
+    /// Which of the ports named `port_name` this is, as in [`MtcOutput`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub port_index: usize,
+    /// The clock runs on its own at the show's tempo, and Start and Stop follow the transport (a
+    /// VJ show), instead of counting from the transport's position and stopping with it (a cue
+    /// show).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub free_run: bool,
 }
 
 /// Channel numbers are 1-based, as an audio interface labels them.

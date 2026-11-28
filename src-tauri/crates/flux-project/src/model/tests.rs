@@ -169,6 +169,7 @@ pub fn sample_project() -> Project {
                 port: 53000,
             }],
             preview: None,
+            midi_clock: None,
             metronome: Some(MetronomeOutput {
                 device_name: "Band Monitor".into(),
                 channels: vec![3, 4],
