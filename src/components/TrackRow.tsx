@@ -4,7 +4,7 @@ import { setCollapsed } from "../state/ui";
 import { useFileDrop } from "../state/fileDrop";
 import { addOrder, operatorEdit, useVoice } from "../voice/store";
 import type { VoiceOrder } from "../project/types";
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
@@ -19,7 +19,7 @@ import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
 import { useDoc } from "../state/store";
 import { isSelected, menuAtPointer, rename, select, setSnapGuide, useUi } from "../state/ui";
 import { moveItems } from "../state/items";
-import { groupStart, pickedIds, selectRange, setGroupDelta, toggleItem, useGroupDrag } from "../state/selection";
+import { groupStart, pickedIds, selectRange, setGroupDelta, toggleItem, trackIds, useGroupDrag } from "../state/selection";
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
@@ -29,6 +29,7 @@ import { fadePoints } from "../audio/fade";
 import { traceStyle } from "../timeline/palette";
 import type { SnapTarget } from "../timeline/snap";
 import { frameX } from "../timeline/scale";
+import { useVisibleRange } from "../timeline/useVisibleRange";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
@@ -761,6 +762,20 @@ export const TrackLane = memo(function TrackLane({
 }) {
   const t = useT();
   const height = laneHeight(track);
+  // Only what is near the screen is mounted: a long show has thousands of items, a canvas per clip.
+  const range = useVisibleRange(Number.POSITIVE_INFINITY);
+  const audioInfo = useDoc((doc) => doc.audio);
+  const videoInfo = useDoc((doc) => doc.video);
+  // The selected items stay mounted, so a drag that carries them out of the range is not cut short.
+  // Only this lane's own selection counts (as one string, which compares by value), so a selection
+  // elsewhere does not redraw it.
+  const keptKey = useUi((ui) => {
+    if (!ui.selection && ui.picked.size === 0) return "";
+    return trackIds(track).filter((id) => isSelected(ui, id)).join("|");
+  });
+  const kept = useMemo(() => new Set(keptKey.split("|")), [keptKey]);
+  const near = (id: string, start: number, length: number) =>
+    kept.has(id) || (frameX(start + length, pxPerFrame) >= range.from && frameX(start, pxPerFrame) <= range.to);
   // Files from the file explorer are over this lane.
   const dropping = useFileDrop((drop) => drop.timeline?.track === track.id);
   // A double click on the empty part of a notes, MIDI or OSC lane adds one there.
@@ -795,7 +810,7 @@ export const TrackLane = memo(function TrackLane({
     >
       {track.kind.type === "operator" && track.kind.orders.length === 0 && <button className="button operator-add" type="button" onClick={() => void addOrder(track.id, 0)}>{t("voice.addOrder")}</button>}
       {track.kind.type === "audio"
-        ? track.kind.clips.map((clip) => (
+        ? track.kind.clips.filter((clip) => near(clip.id, clip.start, clipLength(clip, audioInfo[clip.asset], fps, guessLength))).map((clip) => (
             <ClipBlock
               key={clip.id}
               track={track}
@@ -810,16 +825,16 @@ export const TrackLane = memo(function TrackLane({
             />
           ))
         : track.kind.type === "notes"
-          ? track.kind.notes.map((note) => (
+          ? track.kind.notes.filter((note) => near(note.id, note.at, note.length ?? 0)).map((note) => (
               <NoteBlock key={note.id} track={track} note={note} pxPerFrame={pxPerFrame} />
             ))
           : track.kind.type === "operator"
             ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} fps={fps} pxPerFrame={pxPerFrame} />)
           : track.kind.type === "video"
-            ? track.kind.clips.map((clip) => (
-                <VideoBlock key={clip.id} clip={clip} guessLength={guessLength} rowHeight={height} fps={fps} pxPerFrame={pxPerFrame} />
+            ? track.kind.clips.filter((clip) => near(clip.id, clip.start, videoClipLength(clip, videoInfo[clip.asset], fps, guessLength))).map((clip) => (
+                <VideoBlock key={clip.id} track={track} clip={clip} guessLength={guessLength} rowHeight={height} fps={fps} pxPerFrame={pxPerFrame} />
               ))
-          : track.kind.events.map((event) => (
+          : track.kind.events.filter((event) => near(event.id, event.at, 0)).map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
             ))}
     </div>

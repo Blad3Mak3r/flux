@@ -1433,6 +1433,90 @@ fn archive_sources(project: &Project, path: &Path) -> HashMap<String, AssetSourc
 
 #[cfg(test)]
 mod tests {
+    /// Measures what one edit costs on a large show. Run in release:
+    /// `cargo test -p flux-project --release -- --ignored --nocapture large_project_edit_cost`
+    #[test]
+    #[ignore = "a measurement, not a check"]
+    fn large_project_edit_cost() {
+        use serde_json::json;
+        use std::time::Instant;
+        // Items are counted per timeline; FLUX_SCALE=3 divides them to the totals of the whole project.
+        let scale: i32 = std::env::var("FLUX_SCALE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
+        let mut session = super::Session::default();
+        let mut project = session.new_project("Large", flux_core::FrameRate::Fps25);
+        project.assets.push(
+            session
+                .import_audio(std::path::Path::new("Cargo.toml"))
+                .unwrap(),
+        );
+        let asset = project.assets[0].id.clone();
+        let template = project.timelines[0].clone();
+        project.timelines.clear();
+        for n in 0..3 {
+            let mut timeline = template.clone();
+            timeline.id = format!("timeline-{n}");
+            let mut tracks = Vec::new();
+            for t in 0..30 {
+                let id = format!("{n}-{t}");
+                let kind = match t % 4 {
+                    0 => json!({"type": "audio", "clips": (0..25 / scale).map(|c| json!({
+                        "id": format!("c{id}-{c}"), "asset": asset, "start": c * 900, "gainDb": 0.0,
+                        "length": 800, "fadeIn": 10, "fadeOut": 10,
+                        "envelope": [{"at": 0, "gainDb": 0.0}, {"at": 400, "gainDb": -6.0}]})).collect::<Vec<_>>()}),
+                    1 => json!({"type": "notes", "notes": (0..625 / scale).map(|c| json!({
+                        "id": format!("n{id}-{c}"), "at": c * 100, "text": "A line the operator reads\nand a second line"})).collect::<Vec<_>>()}),
+                    2 => json!({"type": "midi", "events": (0..133 / scale).map(|c| json!({
+                        "id": format!("m{id}-{c}"), "at": c * 50,
+                        "message": {"type": "noteOn", "channel": 1, "note": 60, "velocity": 100}})).collect::<Vec<_>>()}),
+                    _ => json!({"type": "osc", "events": (0..133 / scale).map(|c| json!({
+                        "id": format!("o{id}-{c}"), "at": c * 50, "address": "/cue/1/start",
+                        "args": [{"type": "int", "value": 1}]})).collect::<Vec<_>>()}),
+                };
+                tracks.push(
+                    serde_json::from_value(json!({"id": format!("t{id}"), "name": "Track", "muted": false, "kind": kind}))
+                        .unwrap(),
+                );
+            }
+            timeline.tracks = tracks;
+            project.timelines.push(timeline);
+        }
+        let active = project.timelines[0].id.clone();
+        session.update(project.clone());
+        let json = serde_json::to_string(&project).unwrap();
+        let rounds = 20u32;
+        let time = |what: &str, mut run: Box<dyn FnMut()>| {
+            let started = Instant::now();
+            for _ in 0..rounds {
+                run();
+            }
+            println!("{what}: {:?} per call", started.elapsed() / rounds);
+        };
+        println!("payload: {} bytes", json.len());
+        time(
+            "serialize",
+            Box::new(|| drop(serde_json::to_string(&project).unwrap())),
+        );
+        time(
+            "deserialize",
+            Box::new(|| drop(serde_json::from_str::<crate::Project>(&json).unwrap())),
+        );
+        time(
+            "change()",
+            Box::new(|| {
+                session
+                    .change(|project, current| {
+                        *current = active.clone();
+                        project.name = "Large".into();
+                        Ok(())
+                    })
+                    .unwrap();
+            }),
+        );
+    }
+
     #[test]
     fn delayed_sync_should_not_resurrect_a_closed_or_replaced_document() {
         let mut session = super::Session::default();
