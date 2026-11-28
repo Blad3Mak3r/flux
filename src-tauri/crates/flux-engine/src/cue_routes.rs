@@ -14,6 +14,7 @@ use serde::Serialize;
 
 use super::fire::{Schedule, SharedSchedule, Sink, run_fire};
 use super::midi_cue::{self, MidiSink};
+use super::midi_panic::Served;
 use super::osc::{self, OscSink};
 use super::output::{SharedClock, connect_midi};
 
@@ -88,7 +89,8 @@ impl CueRoutes {
                 match connect_midi(&plan.port.port_name, plan.port.port_index, MIDI_CLIENT_NAME) {
                     Ok((_, _, connection)) => {
                         let schedule = Arc::new(SharedSchedule::new(plan.schedule));
-                        self.spawn("flux-midi", &schedule, MidiSink::new(connection))
+                        let served = Served::new(plan.port.clone());
+                        self.spawn("flux-midi", &schedule, MidiSink::new(connection), served)
                             .map(|()| self.midi.push((plan.port.clone(), schedule)))
                             .map_err(|err| {
                                 warnings.push(format!("MIDI cues are off on {target}: {err}"))
@@ -123,7 +125,7 @@ impl CueRoutes {
                 match OscSink::connect(&plan.destination) {
                     Ok(sink) => {
                         let schedule = Arc::new(SharedSchedule::new(plan.schedule));
-                        self.spawn("flux-osc", &schedule, sink)
+                        self.spawn("flux-osc", &schedule, sink, ())
                             .map(|()| self.osc.push((id, schedule)))
                             .map_err(|err| warnings.push(format!("OSC is off on {target}: {err}")))
                             .is_ok()
@@ -143,11 +145,13 @@ impl CueRoutes {
         info
     }
 
-    fn spawn<S: Sink<Payload> + Send + 'static>(
+    /// `held` lives as long as the thread does (the mark of a port it holds open, or nothing).
+    fn spawn<S: Sink<Payload> + Send + 'static, H: Send + 'static>(
         &mut self,
         name: &str,
         schedule: &Arc<SharedSchedule<Payload>>,
         sink: S,
+        held: H,
     ) -> std::io::Result<()> {
         let (schedule, shared, stop, clock) = (
             Arc::clone(schedule),
@@ -155,9 +159,10 @@ impl CueRoutes {
             Arc::clone(&self.stop),
             self.clock,
         );
-        let handle = thread::Builder::new()
-            .name(name.into())
-            .spawn(move || run_fire(&schedule, clock, sink, &shared, &stop))?;
+        let handle = thread::Builder::new().name(name.into()).spawn(move || {
+            let _held = held;
+            run_fire(&schedule, clock, sink, &shared, &stop);
+        })?;
         self.threads.push(handle);
         Ok(())
     }

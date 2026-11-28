@@ -271,6 +271,7 @@ fn the_fixed_addresses_should_map_to_their_actions() {
         ("/flux/timeline/prev", ControlAction::PrevTimeline),
         ("/flux/view/edit", ControlAction::ViewEdit),
         ("/flux/view/live", ControlAction::ViewLive),
+        ("/flux/panic", ControlAction::Panic),
     ] {
         assert_eq!(action(address, &[]), Some(expected), "{address}");
     }

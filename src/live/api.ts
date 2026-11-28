@@ -79,3 +79,32 @@ export function liveCues(project: Project): Promise<Cue[]> {
 export function liveState(project: Project, frame: number): Promise<LiveState> {
   return invoke<LiveState>("live_state", { project, frame });
 }
+
+/** The cues of the active timeline that match what was typed, best first; the backend decides which. */
+export function liveSearch(project: Project, query: string): Promise<string[]> {
+  return invoke<string[]>("live_search", { project, query });
+}
+
+/** Mirrors `PanicReport` in src-tauri/crates/flux-engine/src/midi_panic.rs. */
+export interface PanicReport {
+  /** Ports that took every message. */
+  sent: number;
+  /** Of `sent`, the ports a running output holds: its own thread sent to them. */
+  viaOutput: number;
+  /** Names of the ports that could not be reached. */
+  failed: string[];
+}
+
+/** Silences the MIDI gear of the project (all sound off, reset controllers, all notes off on 16 channels). */
+export function midiPanic(project: Project): Promise<PanicReport> {
+  return invoke<PanicReport>("midi_panic", { project });
+}
+
+/** Whether the operator has locked the show: the backend then refuses to change, open or close the project. */
+export function showLockGet(): Promise<boolean> {
+  return invoke<boolean>("show_lock_get");
+}
+
+export function showLockSet(locked: boolean): Promise<boolean> {
+  return invoke<boolean>("show_lock_set", { locked });
+}

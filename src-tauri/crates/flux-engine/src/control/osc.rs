@@ -146,6 +146,7 @@ pub fn osc_action(message: &OscMessage) -> Option<ControlAction> {
         "timeline/select" => position(ControlAction::SelectTimeline),
         "view/edit" => Some(ControlAction::ViewEdit),
         "view/live" => Some(ControlAction::ViewLive),
+        "panic" => Some(ControlAction::Panic),
         _ => None,
     }
 }

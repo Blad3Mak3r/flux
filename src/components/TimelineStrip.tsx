@@ -8,6 +8,7 @@ import { addTimeline, moveTimeline, openTimelineSettings, selectTimeline } from 
 import { menuAtPointer, openMenu } from "../state/ui";
 import { dropIndex, dropLineY } from "../timeline/reorder";
 import { isPlaying, selectMode, useTransport } from "../transport/store";
+import { useShowLock } from "../live/lockStore";
 import { ChevronDownIcon, PlusIcon } from "./icons";
 import { allTimelinesMenu, timelineMenu } from "./menus";
 
@@ -35,7 +36,8 @@ const Tab = memo(function Tab({
   const t = useT();
   const tab = useRef<HTMLButtonElement>(null);
   const label = name || t("timeline.default");
-  const locked = playing && !active;
+  const showLocked = useShowLock((lock) => lock.locked);
+  const locked = (playing || showLocked) && !active;
 
   // A timeline chosen from the list may be out of sight in the strip.
   useEffect(() => {
@@ -54,7 +56,7 @@ const Tab = memo(function Tab({
       data-playing={active && playing}
       data-dragging={dragging}
       onPointerDown={(event) => onGrab(event, id)}
-      title={locked ? `${label}\n${t("timeline.lockedPlaying")}` : label}
+      title={locked ? `${label}\n${t(showLocked ? "live.lock.blocked" : "timeline.lockedPlaying")}` : label}
       onClick={() => void selectTimeline(id)}
       onDoubleClick={() => void openTimelineSettings(id)}
       onContextMenu={(event) => menuAtPointer(event, timelineMenu(t, id))}

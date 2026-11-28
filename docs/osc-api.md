@@ -7,7 +7,9 @@ network listener settings. This is a trusted local show-control network interfac
 
 Existing `/flux/play`, `/flux/pause`, `/flux/toggle`, `/flux/stop`, cue navigation, timeline
 navigation, relative seek and view addresses retain their meaning. `/flux/go`, `/flux/devamp`
-and `/flux/devamp/cancel` are additional fire-and-forget controls for simple buttons.
+and `/flux/devamp/cancel` are additional fire-and-forget controls for simple buttons. So is
+`/flux/panic`, which stops the transport and silences the MIDI gear of the project (all sound off, reset
+controllers and all notes off on 16 channels of every MIDI port it uses); see [Remote control](remote-control.md).
 
 ## Requests and replies
 
@@ -51,6 +53,7 @@ have a four-byte unsigned big-endian length prefix. Zero-length frames and frame
 | `/flux/v1/transport/play` | none | Play/resume transport; explicit GO waits still require GO |
 | `/flux/v1/transport/pause` | none | Pause |
 | `/flux/v1/transport/stop` | none | Stop and reset the current entry |
+| `/flux/v1/panic` | none | Stop, then MIDI panic. The reply result is `{ sent, viaOutput, failed }`: ports reached (of which `viaOutput` through the running output) and the names of those that were not |
 | `/flux/v1/transport/seek` | absolute frame: nonnegative OSC int | Seek within the current timeline |
 | `/flux/v1/tracks/get` | none | Current tracks and operational levels/mutes |
 | `/flux/v1/track/gain` | track ID: string, dB: int/float | Set an audio/operator track's run level, −60 to +6; requires a prepared setlist |

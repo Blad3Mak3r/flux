@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import type { Translate } from "../i18n/messages";
 import type { CueAction, CueKind } from "../live/api";
@@ -50,4 +50,39 @@ export async function exportCueSheet(project: Project, scope: SheetScope, t: Tra
   if (path === null) return null;
   await invoke<void>("cue_sheet_export", { project, scope, labels: sheetLabels(t), path });
   return path;
+}
+
+export type LtcDepth = "pcm16" | "pcm24" | "float32";
+
+/** What the export dialog sends; mirrors `LtcOptions` in src-tauri/src/export_commands.rs, which checks the ranges. */
+export interface LtcOptions {
+  sampleRate: number;
+  depth: LtcDepth;
+  /** Seconds of LTC before the timeline starts. */
+  preRollSeconds: number;
+}
+
+export const LTC_SAMPLE_RATES = [44100, 48000, 96000];
+export const LTC_DEPTHS: LtcDepth[] = ["pcm16", "pcm24", "float32"];
+export const LTC_MAX_PRE_ROLL = 60;
+export const LTC_DEFAULTS: LtcOptions = { sampleRate: 48000, depth: "pcm24", preRollSeconds: 0 };
+
+/**
+ * Asks where to save the LTC of the active timeline and renders it there as a mono WAV file in the format
+ * of `options`. `onProgress` hears a fraction from 0 to 1, only when the render takes over a second.
+ * Resolves to the frames written, or `null` when the dialog is cancelled.
+ */
+export async function exportLtc(
+  project: Project,
+  options: LtcOptions,
+  onProgress: (fraction: number) => void,
+): Promise<number | null> {
+  const path = await save({
+    filters: [{ name: "WAV", extensions: ["wav"] }],
+    defaultPath: `${project.name} LTC.wav`,
+  });
+  if (path === null) return null;
+  const progress = new Channel<number>();
+  progress.onmessage = onProgress;
+  return invoke<number>("ltc_export", { project, path, options, onProgress: progress });
 }

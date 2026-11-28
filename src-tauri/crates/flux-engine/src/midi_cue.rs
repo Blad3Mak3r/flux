@@ -180,6 +180,13 @@ impl<W: MidiWrite> Sink<Vec<u8>> for MidiSink<W> {
             self.port.write(&[NOTE_OFF | channel, note, 0]);
         }
     }
+
+    fn panic(&mut self) {
+        self.held.clear();
+        for message in super::midi_panic::messages() {
+            self.port.write(&message);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -400,6 +407,22 @@ mod tests {
         assert_eq!(sink.port.0.len(), 4);
         sink.release();
         assert_eq!(sink.port.0.len(), 4);
+    }
+
+    #[test]
+    fn panic_should_send_the_silencing_messages_and_forget_the_held_notes() {
+        let mut sink = MidiSink::new(Recorder::default());
+        sink.send(&vec![0x90, 60, 100]);
+        sink.panic();
+        let sent: Vec<Vec<u8>> = sink.port.0[1..].to_vec();
+        let expected: Vec<Vec<u8>> = super::super::midi_panic::messages()
+            .iter()
+            .map(|message| message.to_vec())
+            .collect();
+        assert_eq!(sent, expected);
+        // The panic covered the held note, so a release has nothing left to turn off.
+        sink.release();
+        assert_eq!(sink.port.0.len(), 1 + 48);
     }
 
     #[test]

@@ -486,7 +486,7 @@ pub async fn output_start(
         session
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .ensure_editable()?;
+            .ensure_not_running()?;
         let previous = lock(&state).take();
         let parked = previous.as_ref().map(|r| {
             (

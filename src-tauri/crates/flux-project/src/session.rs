@@ -118,6 +118,9 @@ pub struct ProjectState {
 #[derive(Debug, Default)]
 pub struct Session {
     pub execution_lock: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// The operator's show lock: while set, nothing that could disrupt a running show is accepted.
+    /// Session state, never saved with the project and off at start.
+    pub show_lock: std::sync::Arc<std::sync::atomic::AtomicBool>,
     recovery_id: String,
     recovery_revision: u64,
     document: Option<Document>,
@@ -673,7 +676,19 @@ impl Session {
         }
     }
 
+    /// Fails while a setlist runs or the operator has locked the show: the project cannot change,
+    /// open, close or be replaced.
     pub fn ensure_editable(&self) -> Result<()> {
+        self.ensure_not_running()?;
+        if self.show_lock.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(ProjectError::Invalid("show.error.showLocked".into()));
+        }
+        Ok(())
+    }
+
+    /// Fails only while a setlist runs. The show lock does not refuse this one: the operator must
+    /// still be able to start the output to play.
+    pub fn ensure_not_running(&self) -> Result<()> {
         if self
             .execution_lock
             .load(std::sync::atomic::Ordering::Acquire)
@@ -707,6 +722,7 @@ impl Session {
     /// Links an audio file from disk and returns the asset to add to the project; the file stays
     /// where it is.
     pub fn import_audio(&mut self, file: &Path) -> Result<AudioAsset> {
+        self.ensure_editable()?;
         let file = std::path::absolute(file)?;
         if !fs::metadata(&file)?.is_file() {
             return Err(ProjectError::Invalid(format!(
@@ -1433,6 +1449,28 @@ fn archive_sources(project: &Project, path: &Path) -> HashMap<String, AssetSourc
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn the_show_lock_should_refuse_edits_opening_and_closing_but_not_starting_the_output() {
+        let mut session = super::Session::default();
+        let project = session.new_project("Show", flux_core::FrameRate::Fps25);
+        session.show_lock.store(true, Ordering::Release);
+
+        assert!(session.ensure_editable().is_err());
+        assert!(session.ensure_not_running().is_ok());
+        assert!(session.add_timeline("Timeline").is_err());
+        assert!(session.select_timeline(&project.timelines[0].id).is_err());
+        assert!(session.open(std::path::Path::new("missing.flx")).is_err());
+        let mut changed = project.clone();
+        changed.name = "Other".into();
+        assert!(session.sync(changed).is_err());
+        assert_eq!(session.document().unwrap().project, project);
+
+        session.show_lock.store(false, Ordering::Release);
+        assert!(session.add_timeline("Timeline").is_ok());
+    }
+
     /// Measures what one edit costs on a large show. Run in release:
     /// `cargo test -p flux-project --release -- --ignored --nocapture large_project_edit_cost`
     #[test]

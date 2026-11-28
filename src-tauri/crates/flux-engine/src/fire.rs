@@ -157,6 +157,10 @@ pub trait Sink<T> {
 
     /// Lets go of whatever the sink is holding, e.g. sends a Note Off for every note that is on.
     fn release(&mut self) {}
+
+    /// The operator asked for a panic ([`crate::midi_panic`]): silence whatever the receiver
+    /// holds, beyond what this sink knows it holds.
+    fn panic(&mut self) {}
 }
 
 /// Fires `schedule` into `sink` as the transport that `shared` publishes moves, until `stop`.
@@ -171,7 +175,13 @@ pub(crate) fn run_fire<T, S: Sink<T>>(
     let mut scheduler = Scheduler::new(schedule.load());
     let mut seen_epoch = None;
     let mut was_playing = false;
+    let mut panics = crate::midi_panic::requests();
     while !stop.load(Ordering::Relaxed) {
+        let asked = crate::midi_panic::requests();
+        if asked != panics {
+            panics = asked;
+            sink.panic();
+        }
         let snapshot = shared.load();
         let now = shared.now();
         let position = snapshot.estimated_position(now, clock);

@@ -8,6 +8,7 @@ import type { Ripple } from "../project/api";
 import type { SetupSection } from "../setup/outputs";
 import { DEFAULT_PX_PER_FRAME, clampZoom } from "../timeline/scale.ts";
 import { isPlaying } from "../transport/store.ts";
+import { isShowLocked } from "../live/lockStore.ts";
 
 /** The timeline is edited in `edit` and run on stage in `live`. */
 export type View = "edit" | "live";
@@ -285,6 +286,7 @@ export function setCollapsed(collapsed: boolean): void {
 /** The view cannot change while playing: Edit and Live may use different devices. Stop first. */
 export function setView(view: View): void {
   if (view === get().view) return;
+  if (isShowLocked() && view === "edit") return say("live.lock.blocked");
   if (useShow.getState().state && view === "edit") return say("show.leaveToEdit");
   if (isPlaying()) return say("view.lockedPlaying");
   set({ view });
@@ -410,6 +412,7 @@ export const ask = (pending: Pending | null) => set({ pending });
 
 
 export function openSetlists(): void {
+  if (isShowLocked()) return say("live.lock.blocked");
   if (useShow.getState().state) return say("show.leaveToEdit");
   if (isPlaying()) return say("view.lockedPlaying");
   setView("edit");

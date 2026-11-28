@@ -49,6 +49,8 @@ pub enum ControlAction {
     SelectTimeline(u32),
     ViewEdit,
     ViewLive,
+    /// Stops, then silences the MIDI gear of the project (see `midi_panic`).
+    Panic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

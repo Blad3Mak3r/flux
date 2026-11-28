@@ -21,7 +21,8 @@ export type ControlAction =
   | { type: "prevTimeline" }
   | { type: "selectTimeline"; value: number }
   | { type: "viewEdit" }
-  | { type: "viewLive" };
+  | { type: "viewLive" }
+  | { type: "panic" };
 
 export type ActionType = ControlAction["type"];
 
