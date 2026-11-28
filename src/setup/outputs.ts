@@ -10,7 +10,7 @@ import type { MtcOutputConfig } from "../project/types";
 export const SETUP_GROUPS = [
   { id: "show", sections: ["project", "timeline"] },
   { id: "audio", sections: ["audio", "audioOutputs", "metronome", "operator", "analysis"] },
-  { id: "outputs", sections: ["video", "snapshots", "recordings", "ltc", "mtc", "osc"] },
+  { id: "outputs", sections: ["video", "snapshots", "recordings", "ltc", "mtc", "midiClock", "osc"] },
   { id: "control", sections: ["timecodeIn", "controlMidi", "controlOsc", "controlArtnet", "http"] },
   { id: "app", sections: ["graphics", "general"] },
 ] as const;

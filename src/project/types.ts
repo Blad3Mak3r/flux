@@ -596,6 +596,8 @@ export interface ShowOutputs {
   metronome?: { gainDb: number } | null;
   ltc: { slot: number; level?: number }[];
   mtc: { slot: number }[];
+  /** The show sends MIDI clock, to the port this installation chooses; absent is off. */
+  midiClock?: boolean;
   osc?: OscDestination[];
   legacyRoutes?: OutputConfig;
   /** The screens of the video output and their slices; none is the main screen with no slices. */
@@ -621,6 +623,8 @@ export interface OutputConfig {
   ltc: LtcOutputConfig[];
   /** Any number of MIDI ports that receive MTC. */
   mtc: MtcOutputConfig[];
+  /** The MIDI port that receives MIDI clock. Absent: none is sent. */
+  midiClock?: MtcOutputConfig & { freeRun?: boolean };
   /** The OSC receivers the OSC tracks send to. Absent: none. */
   osc?: OscDestination[];
 }

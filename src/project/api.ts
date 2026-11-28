@@ -162,7 +162,8 @@ export type SignalOp =
   | { op: "removeLtc" | "removeMtc"; slot: number }
   | { op: "setLtcLevel"; slot: number; text: string }
   | { op: "setMetronome"; enabled: boolean }
-  | { op: "setMetronomeGain"; text: string };
+  | { op: "setMetronomeGain"; text: string }
+  | { op: "setMidiClock"; enabled: boolean };
 
 export const outputSignalEdit = (project: Project, op: SignalOp) =>
   invoke<ProjectState>("output_signal_edit", { project, op });

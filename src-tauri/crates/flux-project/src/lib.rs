@@ -50,8 +50,8 @@ pub use model::{
     AUDIO_DIR, AudioAsset, AudioClip, AudioOutput, Autosave, DEFAULT_LTC_LEVEL, ENVELOPE_MAX_DB,
     ENVELOPE_MIN_DB, ENVELOPE_TICKS_PER_FRAME, EnvCurve, EnvPoint, FORMAT_VERSION, FadeCurve,
     LtcOutput, MAX_BPM, MAX_CLIP_NAME, MAX_ENVELOPE_POINTS, MAX_OFFSET_MS, MIN_BPM, MediaLink,
-    Meta, MetronomeOutput, MtcOutput, Note, OutputConfig, Project, Tempo, TimecodeSettings,
-    Timeline, Track, TrackKind, VIDEO_DIR, VideoAsset, VideoClip, VideoFit,
+    Meta, MetronomeOutput, MidiClockOutput, MtcOutput, Note, OutputConfig, Project, Tempo,
+    TimecodeSettings, Timeline, Track, TrackKind, VIDEO_DIR, VideoAsset, VideoClip, VideoFit,
 };
 pub use preview::{AudioStamp, Preview};
 pub use session::{Document, ProjectState, Session};

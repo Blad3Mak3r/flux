@@ -175,6 +175,7 @@ impl Output {
             mtc: opened.mtc,
             metronome: opened.metronome,
             operator: opened.operator,
+            midi_clock: opened.midi_clock,
             cues: cue_info,
             warnings: [&warnings, &secondary_warnings, &cue_warnings]
                 .into_iter()
@@ -303,6 +304,7 @@ impl Output {
         self.info.mtc = opened.mtc;
         self.info.metronome = opened.metronome;
         self.info.operator = opened.operator;
+        self.info.midi_clock = opened.midi_clock;
         self.info.warnings = [
             &self.programme_warnings,
             &secondary_warnings,
@@ -313,7 +315,7 @@ impl Output {
         .cloned()
         .collect();
         Reconfigured::Applied {
-            info: self.info.clone(),
+            info: Box::new(self.info.clone()),
         }
     }
 
@@ -329,8 +331,9 @@ impl Output {
     }
 
     /// Follows an edit of the active timeline's tempo or click switch while the show runs.
-    /// Does nothing when the project has no metronome output.
+    /// The metronome and the MIDI clock follow it; either does nothing when the project has none.
     pub fn set_tempo(&self, tempo: Tempo) {
+        self.reader.shared.set_clock_bpm(tempo.bpm);
         if let Some(metronome) = &self.metronome {
             metronome.set(tempo);
         }

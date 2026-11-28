@@ -16,6 +16,9 @@ pub struct ShowOutputs {
     pub ltc: Vec<LtcSignal>,
     pub mtc: Vec<MtcSignal>,
     pub osc: Vec<OscDestination>,
+    /// The show sends MIDI clock, to the port this installation chooses; absent is off.
+    #[serde(skip_serializing_if = "crate::vj::is_false")]
+    pub midi_clock: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_routes: Option<OutputConfig>,
     /// The screens of the video output and their slices; none is the main screen showing the
@@ -58,6 +61,7 @@ pub enum SignalOp {
     SetLtcLevel { slot: u32, text: String },
     SetMetronome { enabled: bool },
     SetMetronomeGain { text: String },
+    SetMidiClock { enabled: bool },
 }
 
 impl ShowOutputs {
@@ -142,6 +146,7 @@ impl ShowOutputs {
                     .ok_or_else(|| ProjectError::Invalid("metronome is disabled".into()))?;
                 click.gain_db = number(&text)?;
             }
+            SignalOp::SetMidiClock { enabled } => self.midi_clock = enabled,
         }
         self.validate()
     }
@@ -173,6 +178,7 @@ impl From<OutputConfig> for ShowOutputs {
                 .map(|(i, _)| MtcSignal { slot: i as u32 + 1 })
                 .collect(),
             osc: routes.osc.clone(),
+            midi_clock: routes.midi_clock.is_some(),
             legacy_routes: Some(routes),
         }
     }
@@ -190,6 +196,27 @@ mod tests {
         assert_eq!(outputs.ltc[0].slot, 2);
         outputs.edit(SignalOp::AddLtc).unwrap();
         assert_eq!(outputs.ltc[1].slot, 1);
+    }
+    #[test]
+    fn midi_clock_should_be_in_the_file_only_while_on() {
+        let mut outputs = ShowOutputs::default();
+        assert!(
+            !serde_json::to_string(&outputs)
+                .unwrap()
+                .contains("midiClock")
+        );
+        outputs
+            .edit(SignalOp::SetMidiClock { enabled: true })
+            .unwrap();
+        assert!(
+            serde_json::to_string(&outputs)
+                .unwrap()
+                .contains(r#""midiClock":true"#)
+        );
+        outputs
+            .edit(SignalOp::SetMidiClock { enabled: false })
+            .unwrap();
+        assert!(!outputs.midi_clock);
     }
     #[test]
     fn levels_and_duplicate_slots_are_validated() {

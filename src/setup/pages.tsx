@@ -41,7 +41,7 @@ import { renameTimeline, setTimecode } from "../state/timelines";
 import { isLost } from "../transport/lost";
 import { isPlaying } from "../transport/store";
 import { useTransport } from "../transport/store";
-import { portChoices, portKey, portLabel } from "./outputs";
+import { portChoices, portKey, portLabel, splitPortKey } from "./outputs";
 
 const FRAME_RATES: FrameRate[] = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const NO_OSC_DESTINATIONS: OscDestination[] = [];
@@ -605,6 +605,65 @@ export function MtcPage({ devices }: { devices: Devices }) {
         <PlusIcon />
         {t("setup.mtc.add")}
       </button>
+    </div>
+  );
+}
+
+/**
+ * MIDI clock out, for a cue show and a VJ show alike: whether the project sends it (a switch of the
+ * project) and the MIDI port it goes to (a choice of this computer). The backend sends it.
+ */
+export function MidiClockPage({ devices }: { devices: Devices }) {
+  const t = useT();
+  const vj = useDoc((d) => d.project.mode === "vj");
+  const enabled = useDoc((d) => d.project.output.midiClock ?? false);
+  const port = usePreferences((p) => p.saved.midiClock);
+  const info = useTransport((p) => p.info?.midiClock);
+  const choices = portChoices(devices.midi.map((p) => p.name));
+  const key = port ? portKey(port) : UNASSIGNED;
+  const connected = !port || choices.some((c) => portKey(c) === key);
+  return (
+    <div className="setup-fields">
+      <p className="setup-intro">{t("setup.midiClock.intro")}</p>
+      <p className="field-note">{t(vj ? "setup.midiClock.vj" : "setup.midiClock.cue")}</p>
+      {devices.midiError && <p className="field-note">{t("out.midiUnavailable")}</p>}
+      <Scope project />
+      <label className="setup-check">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => signalEdit({ op: "setMidiClock", enabled: e.target.checked })}
+        />
+        {t("setup.midiClock.enabled")}
+      </label>
+      <Scope />
+      <p className="field-note">{t("setup.midiClock.portNote")}</p>
+      <SelectField
+        label={t("out.mtcPort")}
+        value={key}
+        disabled={!devices.available}
+        onChange={(value) => {
+          const [name, index] = splitPortKey(value);
+          void changePreferences({
+            op: "midiClock",
+            port: value === UNASSIGNED ? null : name,
+            index,
+          }).catch(() => undefined);
+        }}
+      >
+        <option value={UNASSIGNED}>{t("setup.unassigned")}</option>
+        {port && !connected && <option value={key}>{t("out.notConnected", { name: port.portName })}</option>}
+        {choices.map((c) => (
+          <option key={portKey(c)} value={portKey(c)}>
+            {portLabel(c, choices)}
+          </option>
+        ))}
+      </SelectField>
+      {enabled && port && (
+        <RowStatus
+          {...(rowState(info ?? undefined, connected))}
+        />
+      )}
     </div>
   );
 }

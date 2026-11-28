@@ -2054,6 +2054,7 @@ fn plan_ltc_should_be_empty_without_outputs() {
 fn output_info_should_serialise_the_outputs_as_lists() {
     let info = OutputInfo {
         operator: None,
+        midi_clock: None,
         device: "Main".into(),
         sample_rate: 48_000,
         channels: 4,
