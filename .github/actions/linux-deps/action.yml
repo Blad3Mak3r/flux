@@ -12,9 +12,10 @@ runs:
         # Tauri v2: the webview, GTK and the bundler's tools.
         # cpal: ALSA, JACK and PipeWire headers (PipeWire's bindings also need libclang).
         # keyring: D-Bus. midir: ALSA. flux-video, flux-capture: FFmpeg (its bindings also need libclang).
+        # flux-link: Ableton Link, built with CMake (its bindings also need libclang).
         sudo apt-get install -y --no-install-recommends \
           build-essential pkg-config libssl-dev libxdo-dev libdbus-1-dev \
           libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
           libasound2-dev libjack-jackd2-dev libpipewire-0.3-dev libspa-0.2-dev \
           libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libavdevice-dev \
-          clang libclang-dev
+          clang libclang-dev cmake

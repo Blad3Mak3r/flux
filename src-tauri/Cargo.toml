@@ -33,6 +33,7 @@ flux-video = { path = "crates/flux-video" }
 flux-capture = { path = "crates/flux-capture" }
 flux-render = { path = "crates/flux-render" }
 flux-text = { path = "crates/flux-text" }
+flux-link = { path = "crates/flux-link" }
 tauri = { version = "2", features = ["unstable"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2.8.4"

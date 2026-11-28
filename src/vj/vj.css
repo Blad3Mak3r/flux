@@ -499,8 +499,8 @@
   border-top: 1px solid var(--vj-ground);
 }
 
-/* Narrower than a wide screen the tempo takes a row of its own, so none of its keys is cut off. */
-@media (max-width: 1500px) {
+/* Narrower than a wide screen the tempo (with its Link key) takes a row of its own, so none of its keys is cut off. */
+@media (max-width: 1640px) {
   .vj-comp { grid-template-columns: var(--vj-header, 276px) minmax(0, 1fr) auto; height: auto; padding: 6px 8px 6px 0; row-gap: 6px; }
   .vj-comp > * { grid-row: 1; }
   .vj-comp > .vj-bpm { grid-row: 2; grid-column: 1 / -1; padding-left: 12px; }
@@ -1049,6 +1049,8 @@
 @keyframes vj-flash { from { opacity: 1; } to { opacity: 0.25; } }
 @media (prefers-reduced-motion: reduce) { .vj-beat .vj-beat-flash { animation: none; } }
 .vj-hold[aria-pressed="true"] { color: oklch(0.2 0.03 78); background: var(--vj-master); }
+/* The number of other applications in the Link session, beside the word. */
+.vj-link-n { margin-left: 6px; font: 600 12px var(--font-measure); font-variant-numeric: tabular-nums; }
 
 /* Timecode: its source, the clock, and the transport keys of the internal one. */
 .vj-tc { display: flex; align-items: center; gap: 8px; min-width: 0; justify-self: center; }

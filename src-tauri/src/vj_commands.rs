@@ -27,6 +27,8 @@ pub struct Grid {
     pace: f64,
     /// An autopilot launched a clip since [`Self::take_advanced`]: the sound has to follow.
     advanced: bool,
+    /// The Link session the show is in: the beat count keeps its phase while it runs.
+    link: Option<Arc<flux_link::Link>>,
 }
 
 /// How far a nudge moves the pace of the beats, as a fraction of the tempo.
@@ -43,6 +45,7 @@ impl Default for Grid {
             paused: false,
             pace: 1.0,
             advanced: false,
+            link: None,
         }
     }
 }
@@ -73,8 +76,19 @@ impl Grid {
         self.paused = on;
     }
 
-    /// Puts the beat count on the first beat of a bar now, the nearest one.
+    /// Joins the Link session `link` (or leaves the one the show is in), counting the beats up to
+    /// now at the tempo they had.
+    pub fn set_link(&mut self, link: Option<Arc<flux_link::Link>>, bpm: f64) {
+        self.beats(bpm);
+        self.link = link;
+    }
+
+    /// Puts the beat count on the first beat of a bar now, the nearest one. In a Link session the
+    /// bar is the session's and no peer is moved, so there is nothing to do.
     pub fn resync(&mut self, bpm: f64) {
+        if self.link.is_some() {
+            return;
+        }
         let beats = self.beats(bpm);
         self.beat.1 = (beats / BAR).round() * BAR;
     }
@@ -95,10 +109,15 @@ impl Grid {
 
     fn count(&mut self, now: Duration, bpm: f64) -> f64 {
         let (at, beats) = self.beat;
-        self.beat = (
-            now.max(at),
-            beats + now.saturating_sub(at).as_secs_f64() * bpm / 60.0 * self.rate(),
-        );
+        let mut counted = beats + now.saturating_sub(at).as_secs_f64() * bpm / 60.0 * self.rate();
+        // In a Link session the count keeps the phase of the session's bar of four, as long as it
+        // runs at the tempo: held or nudged beats are the operator's own.
+        if let Some(link) = &self.link
+            && self.rate() == 1.0
+        {
+            counted = flux_link::align(counted, link.beat(), flux_link::QUANTUM);
+        }
+        self.beat = (now.max(at), counted);
         self.beat.1
     }
 
@@ -143,6 +162,8 @@ pub struct GridState {
     /// The beats the grid's clock has counted, and whether they are held.
     pub beats: f64,
     pub beats_paused: bool,
+    /// How many other applications are in the Ableton Link session, while the show is in one.
+    pub link_peers: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -333,6 +354,7 @@ fn state(session: &SharedSession, vj: &Vj, grid: &Grid, tick: Tick, bpm: f64) ->
         crossfader: grid.play.crossfader(),
         beats: tick.beats,
         beats_paused: grid.paused(),
+        link_peers: grid.link.as_ref().map(|link| link.peers()),
     }
 }
 
@@ -633,6 +655,24 @@ mod tests {
         let held = grid.beats(120.0);
         assert!((2.0..2.1).contains(&held));
         assert_eq!(grid.beats(120.0), held);
+    }
+
+    #[test]
+    fn a_grid_in_a_link_session_should_keep_the_phase_of_its_bar() {
+        let link = Arc::new(flux_link::Link::new(120.0));
+        let mut grid = Grid::default();
+        grid.set_link(Some(Arc::clone(&link)), 120.0);
+        // Counts that would drift from the session's phase are put back on it.
+        for seconds in [0.3, 0.9, 1.4] {
+            let beats = grid.count(secs(seconds), 133.0);
+            let off = (beats - link.beat()).rem_euclid(4.0);
+            assert!(off < 0.05 || 4.0 - off < 0.05, "{seconds}: {beats} {off}");
+        }
+        // A hold is the operator's own, and a resync would move no peer.
+        grid.set_paused(true, 120.0);
+        let held = grid.beat.1;
+        grid.resync(120.0);
+        assert_eq!(grid.beat.1, held);
     }
 
     #[test]

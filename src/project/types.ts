@@ -38,6 +38,8 @@ export interface VjGrid {
   deck: string;
   /** Where the timecode clock comes from; absent is `internal`. */
   clock?: VjClockSource;
+  /** The tempo and beat phase are shared with an Ableton Link session; absent is off. */
+  link?: boolean;
   /** Drawn on the final mix of the layers before the output mapping, the first applied first. */
   compositionEffects?: VjEffect[];
   /** The composition's effects are skipped; absent is false. */
