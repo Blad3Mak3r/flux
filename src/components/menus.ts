@@ -60,6 +60,7 @@ import { nominalFps } from "../timecode";
 import { exportDiagnosticsFile, openLogFolder } from "../state/diagnostics";
 import { exportCueSheetFile } from "../state/export";
 import { openLtcDialog } from "../export/LtcDialog";
+import { keyHint } from "../keymap/keys";
 import { isShowLocked } from "../live/lockStore";
 import { panic } from "../live/panic";
 import { seek, stop, toggle } from "../transport/playback";
@@ -71,7 +72,6 @@ import { hasNativeWindow } from "./WindowControls";
 export const MOD_KEY = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 
 const ZOOM_STEP = 1.25;
-const mod = (keys: string) => `${MOD_KEY}+${keys}`;
 const state = () => ({ doc: useDoc.getState(), ui: useUi.getState() });
 
 /** The track of the selected clip or note, if anything is selected. */
@@ -83,7 +83,7 @@ function selectedTrack(): Track | null {
 /** The magnet, ticked while it is on. Every menu of the timeline offers it. */
 const snapItem = (t: Translate): MenuItem => ({
   label: t("context.snap"),
-  shortcut: "G",
+  shortcut: keyHint("toggleSnap"),
   checked: useUi.getState().snap,
   run: toggleSnap,
 });
@@ -119,7 +119,7 @@ export function rippleMenu(t: Translate): MenuItem[] {
   const { ripple } = useUi.getState();
   return RIPPLES.map((mode): MenuItem => ({
     label: t(`ripple.mode.${mode}`),
-    shortcut: mode === "off" ? "Alt+P" : undefined,
+    shortcut: mode === "off" ? keyHint("cycleRipple") : undefined,
     checked: ripple === mode,
     run: () => setRipple(mode),
   }));
@@ -141,18 +141,18 @@ function fileMenu(t: Translate): MenuItem[] {
   // A locked show cannot be replaced, closed or imported into; saving it is harmless.
   const locked = isShowLocked();
   return [
-    { label: t("menu.new"), shortcut: mod("N"), disabled: locked, run: () => newDocument(t) },
-    { label: t("menu.open"), shortcut: mod("O"), disabled: locked, run: openDocument },
+    { label: t("menu.new"), shortcut: keyHint("new"), disabled: locked, run: () => newDocument(t) },
+    { label: t("menu.open"), shortcut: keyHint("open"), disabled: locked, run: openDocument },
     "-",
-    { label: t("menu.save"), shortcut: mod("S"), run: () => void saveDocument(false) },
-    { label: t("menu.saveAs"), shortcut: mod("⇧+S"), run: () => void saveDocument(true) },
-    { label: t("menu.close"), shortcut: mod("W"), disabled: locked, run: closeDocument },
+    { label: t("menu.save"), shortcut: keyHint("save"), run: () => void saveDocument(false) },
+    { label: t("menu.saveAs"), shortcut: keyHint("saveAs"), run: () => void saveDocument(true) },
+    { label: t("menu.close"), shortcut: keyHint("close"), disabled: locked, run: closeDocument },
     "-",
     {
       label: t("menu.import"),
       disabled: locked,
       submenu: [
-        { label: t("menu.audio"), shortcut: "I", run: () => void importAudioFiles() },
+        { label: t("menu.audio"), shortcut: keyHint("importAudio"), run: () => void importAudioFiles() },
         { label: t("menu.video"), run: () => void importVideoFiles() },
       ],
     },
@@ -166,7 +166,7 @@ function fileMenu(t: Translate): MenuItem[] {
       ],
     },
     "-",
-    { label: t("menu.setup"), shortcut: mod(","), run: () => openSetup() },
+    { label: t("menu.setup"), shortcut: keyHint("setup"), run: () => openSetup() },
     ...(hasNativeWindow()
       ? ["-" as const, { label: t("menu.exit"), disabled: locked, run: () => void getCurrentWindow().close() }]
       : []),
@@ -176,13 +176,13 @@ function fileMenu(t: Translate): MenuItem[] {
 function editMenu(t: Translate): MenuItem[] {
   const { doc, ui } = state();
   return [
-    { label: t("menu.undo"), shortcut: mod("Z"), disabled: isShowLocked() || doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
-    { label: t("menu.redo"), shortcut: mod("⇧+Z"), disabled: isShowLocked() || doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
+    { label: t("menu.undo"), shortcut: keyHint("undo"), disabled: isShowLocked() || doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
+    { label: t("menu.redo"), shortcut: keyHint("redo"), disabled: isShowLocked() || doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
     "-",
-    { label: t("menu.split"), shortcut: "S", disabled: ui.view !== "edit" || (ui.selection?.kind !== "clip" && ui.selection?.kind !== "video"), run: () => void splitAtPlayhead() },
-    { label: t("menu.delete"), shortcut: "Del", disabled: !ui.selection, run: deleteSelection },
-    { label: t("menu.selectAll"), shortcut: mod("A"), disabled: ui.view !== "edit", run: selectAll },
-    { label: t("menu.deselect"), shortcut: "Esc", disabled: !ui.selection, run: () => select(null) },
+    { label: t("menu.split"), shortcut: keyHint("split"), disabled: ui.view !== "edit" || (ui.selection?.kind !== "clip" && ui.selection?.kind !== "video"), run: () => void splitAtPlayhead() },
+    { label: t("menu.delete"), shortcut: keyHint("delete"), disabled: !ui.selection, run: deleteSelection },
+    { label: t("menu.selectAll"), shortcut: keyHint("selectAll"), disabled: ui.view !== "edit", run: selectAll },
+    { label: t("menu.deselect"), shortcut: keyHint("deselect"), disabled: !ui.selection, run: () => select(null) },
     "-",
     { label: t("ripple.label"), submenu: rippleMenu(t) },
   ];
@@ -192,8 +192,8 @@ function editMenu(t: Translate): MenuItem[] {
 export function addTracksMenu(t: Translate): MenuItem[] {
   const editing = state().ui.view === "edit";
   return [
-    { label: t("menu.addSong"), shortcut: "I", run: () => void importAudioFiles() },
-    { label: t("menu.addNote"), shortcut: "N", disabled: !editing, run: () => addNoteAt(t) },
+    { label: t("menu.addSong"), shortcut: keyHint("importAudio"), run: () => void importAudioFiles() },
+    { label: t("menu.addNote"), shortcut: keyHint("addNote"), disabled: !editing, run: () => addNoteAt(t) },
     { label: t("voice.addTrack"), disabled: !editing, run: () => void addOperator(t("track.kind.operator")) },
     { label: t("menu.addMidiTrack"), disabled: !editing, run: () => void addCueTrack("midi", t("track.kind.midi")) },
     { label: t("menu.addOscTrack"), disabled: !editing, run: () => void addCueTrack("osc", t("track.kind.osc")) },
@@ -213,7 +213,7 @@ function trackMenu(t: Translate): MenuItem[] {
     { heading: track ? track.name || t("menu.untitledTrack") : t("menu.noTrack") },
     {
       label: t("menu.renameTrack"),
-      shortcut: "F2",
+      shortcut: keyHint("renameTrack"),
       disabled: !editing || !track,
       run: renameSelectedTrack,
     },
@@ -250,8 +250,8 @@ function timelineBarMenu(t: Translate): MenuItem[] {
     "-",
     ...moveItems(t, active),
     "-",
-    { label: t("menu.timeline.previous"), shortcut: mod("PgUp"), run: () => void stepTimeline(-1) },
-    { label: t("menu.timeline.next"), shortcut: mod("PgDn"), run: () => void stepTimeline(1) },
+    { label: t("menu.timeline.previous"), shortcut: keyHint("previousTimeline"), run: () => void stepTimeline(-1) },
+    { label: t("menu.timeline.next"), shortcut: keyHint("nextTimeline"), run: () => void stepTimeline(1) },
     { label: t("menu.timeline.goTo"), disabled: project.timelines.length < 2, submenu: allTimelinesMenu(t) },
   ];
 }
@@ -297,17 +297,17 @@ function viewMenu(t: Translate): MenuItem[] {
   const locked = isPlaying();
   const editing = view === "edit";
   return [
-    { label: t("view.edit"), shortcut: mod("1"), checked: editing, disabled: (locked && !editing) || isShowLocked(), run: () => setView("edit") },
-    { label: t("view.live"), shortcut: mod("2"), checked: !editing, disabled: locked && editing, run: () => setView("live") },
+    { label: t("view.edit"), shortcut: keyHint("viewEdit"), checked: editing, disabled: (locked && !editing) || isShowLocked(), run: () => setView("edit") },
+    { label: t("view.live"), shortcut: keyHint("viewLive"), checked: !editing, disabled: locked && editing, run: () => setView("live") },
     "-",
     { label: t("menu.view.timeline"), checked: editing && editSurface === "timeline", disabled: !editing, run: openTimelineEditor },
     { label: t("show.workspace"), checked: editing && editSurface === "setlists", disabled: locked, run: openSetlists },
     "-",
-    { label: t("timeline.zoomIn"), shortcut: mod("="), run: () => zoomBy(ZOOM_STEP) },
-    { label: t("timeline.zoomOut"), shortcut: mod("-"), run: () => zoomBy(1 / ZOOM_STEP) },
-    { label: t("menu.zoomFit"), shortcut: mod("0"), disabled: !editing, run: () => void zoomToFit() },
+    { label: t("timeline.zoomIn"), shortcut: keyHint("zoomIn"), run: () => zoomBy(ZOOM_STEP) },
+    { label: t("timeline.zoomOut"), shortcut: keyHint("zoomOut"), run: () => zoomBy(1 / ZOOM_STEP) },
+    { label: t("menu.zoomFit"), shortcut: keyHint("zoomFit"), disabled: !editing, run: () => void zoomToFit() },
     "-",
-    { label: t("inspector.legend"), shortcut: mod("B"), checked: !collapsed, run: toggleInspector },
+    { label: t("inspector.legend"), shortcut: keyHint("toggleInspector"), checked: !collapsed, run: toggleInspector },
     { label: t("timeline.follow"), checked: follow && !detached, run: toggleFollow },
     { label: t("context.snap"), submenu: snapMenu(t) },
   ];
@@ -317,22 +317,22 @@ function transportMenu(t: Translate): MenuItem[] {
   const second = () => nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
   const by = (frames: () => number) => () => seek(currentFrame() + frames());
   return [
-    { label: t("menu.playPause"), shortcut: "Space", run: () => void toggle() },
-    { label: t("menu.stop"), shortcut: "Home", run: () => void stop() },
+    { label: t("menu.playPause"), shortcut: keyHint("playPause"), run: () => void toggle() },
+    { label: t("menu.stop"), shortcut: keyHint("stop"), run: () => void stop() },
     "-",
-    { label: t("menu.frameBack"), shortcut: "←", run: by(() => -1) },
-    { label: t("menu.frameForward"), shortcut: "→", run: by(() => 1) },
-    { label: t("menu.secondBack"), shortcut: "⇧+←", run: by(() => -second()) },
-    { label: t("menu.secondForward"), shortcut: "⇧+→", run: by(second) },
+    { label: t("menu.frameBack"), shortcut: keyHint("frameBack"), run: by(() => -1) },
+    { label: t("menu.frameForward"), shortcut: keyHint("frameForward"), run: by(() => 1) },
+    { label: t("menu.secondBack"), shortcut: keyHint("secondBack"), run: by(() => -second()) },
+    { label: t("menu.secondForward"), shortcut: keyHint("secondForward"), run: by(second) },
     "-",
-    { label: t("marks.menu.addMarkerAtPlayhead"), shortcut: "M", run: () => void addMarkerAtPlayhead(t) },
-    { label: t("marks.menu.previousMarker"), shortcut: "Alt+←", run: () => void stepMarker(false) },
-    { label: t("marks.menu.nextMarker"), shortcut: "Alt+→", run: () => void stepMarker(true) },
-    { label: t("marks.menu.regionFromSelection"), shortcut: "R", run: () => void addRegionFromSelection(t) },
+    { label: t("marks.menu.addMarkerAtPlayhead"), shortcut: keyHint("addMarker"), run: () => void addMarkerAtPlayhead(t) },
+    { label: t("marks.menu.previousMarker"), shortcut: keyHint("previousMarker"), run: () => void stepMarker(false) },
+    { label: t("marks.menu.nextMarker"), shortcut: keyHint("nextMarker"), run: () => void stepMarker(true) },
+    { label: t("marks.menu.regionFromSelection"), shortcut: keyHint("addRegion"), run: () => void addRegionFromSelection(t) },
     "-",
     { label: t("check.title"), disabled: isPlaying(), run: openShowCheck },
     "-",
-    { label: t("panic.label"), shortcut: mod("⇧+P"), run: () => void panic(t) },
+    { label: t("panic.label"), shortcut: keyHint("panic"), run: () => void panic(t) },
   ];
 }
 
@@ -374,7 +374,7 @@ export function audioMenu(t: Translate, track: Track, clip?: AudioClip): MenuIte
     ...(clip
       ? [
           { label: t("context.goToStart"), run: () => seek(start + clip.start) },
-          { label: t("menu.split"), shortcut: "S", run: () => void splitAtPlayhead() },
+          { label: t("menu.split"), shortcut: keyHint("split"), run: () => void splitAtPlayhead() },
           { label: t("context.renameClip"), run: () => rename({ kind: "clip", id: clip.id }) },
         ]
       : []),

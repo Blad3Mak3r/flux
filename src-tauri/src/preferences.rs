@@ -1188,4 +1188,13 @@ mod tests {
             .unwrap();
         assert_eq!(keys(prefs), ["M"]);
     }
+
+    #[test]
+    fn every_action_the_window_uses_is_in_the_table() {
+        let ts = include_str!("../../src/keymap/actions.ts");
+        let used: std::collections::BTreeSet<&str> = ts.split('"').skip(1).step_by(2).collect();
+        let table: std::collections::BTreeSet<&str> =
+            flux_project::keymap::ACTIONS.iter().map(|a| a.id).collect();
+        assert_eq!(used, table);
+    }
 }

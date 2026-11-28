@@ -1,5 +1,6 @@
 import type { MouseEvent } from "react";
 import { useT } from "../i18n";
+import { useKeyHint } from "../keymap/keys";
 import { cycleRipple, openMenu, useUi } from "../state/ui";
 import { ChevronDownIcon } from "./icons";
 import { rippleMenu } from "./menus";
@@ -11,13 +12,14 @@ import { rippleMenu } from "./menus";
 export function RippleControl() {
   const t = useT();
   const mode = useUi((ui) => ui.ripple);
+  const hint = useKeyHint("cycleRipple");
   const options = (event: MouseEvent<HTMLButtonElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     openMenu({ x: box.left, y: box.bottom, items: rippleMenu(t) });
   };
   return (
     <div className="snap-control" role="group" aria-label={t("ripple.label")}>
-      <button type="button" className="snap-toggle" aria-pressed={mode !== "off"} title={t("ripple.hint")} onClick={cycleRipple}>
+      <button type="button" className="snap-toggle" aria-pressed={mode !== "off"} title={hint ? `${t("ripple.hint")} (${hint})` : t("ripple.hint")} onClick={cycleRipple}>
         <span className="lamp" data-state={mode === "off" ? "off" : "on"} aria-hidden="true" />
         {t("ripple.label")}
         {mode !== "off" && <span className="ripple-mode">{t(`ripple.mode.${mode}`)}</span>}
