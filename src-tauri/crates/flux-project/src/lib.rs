@@ -31,6 +31,7 @@ pub mod show;
 pub mod tempo_map;
 #[cfg(test)]
 mod test_util;
+mod track_ops;
 mod video_clips;
 pub mod vj;
 pub mod vj_dashboard;

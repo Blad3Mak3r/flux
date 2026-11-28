@@ -286,14 +286,15 @@ pub async fn clip_edit(
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
 
-/// Renames a track or a clip, or changes a clip's fade curves or volume envelope (see [`ItemOp`]);
-/// the answer is the project with the edit made, or the reason it was refused.
+/// Edits the tracks, clips and notes of the active timeline, and the project's audio files and name
+/// (see [`ItemOp`]); the answer is the project with the edit made and the id of what it created, or
+/// the reason it was refused.
 #[tauri::command]
 pub async fn item_edit(
     session: State<'_, SharedSession>,
     project: Project,
     op: ItemOp,
-) -> Result<ProjectState> {
+) -> Result<CueEdited> {
     run(&session, move |s| {
         s.update(project);
         s.item_edit(op)
@@ -365,7 +366,7 @@ pub async fn marks_edit(
     session: State<'_, SharedSession>,
     project: Project,
     op: MarksOp,
-) -> Result<ProjectState> {
+) -> Result<CueEdited> {
     run(&session, move |s| {
         s.update(project);
         s.marks_edit(op)

@@ -1,6 +1,7 @@
-//! What the user can do to the names of tracks and clips, the shape of a clip's fades and its
-//! volume envelope. The window only says which operation and with what; the trimming of names, the
-//! order of the points, their limits and the lookups live here, and
+//! What the user can do to the tracks and clips and notes on them: names, position, fader, colour,
+//! the shape of a clip's fades and its volume envelope. The window only says which operation and
+//! with what; the trimming of names, the order of the points, their limits and the lookups live
+//! here (the edits of tracks and items, in [`track_ops`](super::track_ops)), and
 //! [`Session::item_edit`](super::Session::item_edit) refuses anything that would leave the project
 //! invalid.
 
@@ -8,9 +9,10 @@ use serde::Deserialize;
 
 use super::error::{ProjectError, Result};
 use super::model::{
-    AudioClip, ENVELOPE_MAX_DB, ENVELOPE_MIN_DB, EnvCurve, EnvPoint, FadeCurve, MAX_CLIP_NAME,
-    MAX_ENVELOPE_POINTS, Project, TrackKind,
+    AudioAsset, AudioClip, ENVELOPE_MAX_DB, ENVELOPE_MIN_DB, EnvCurve, EnvPoint, FadeCurve,
+    MAX_CLIP_NAME, MAX_ENVELOPE_POINTS, Project, TrackKind,
 };
+use super::track_ops;
 
 /// The most characters a track's name can have.
 pub const MAX_TRACK_NAME: usize = 64;
@@ -23,8 +25,9 @@ pub enum Fade {
     Out,
 }
 
-/// An operation on a clip or a track of the active timeline. Positions of envelope points are in
-/// thousandths of a frame from the start of the clip's audio file (see [`EnvPoint::at`]).
+/// An operation on a clip, a note or a track of the active timeline (and on the project's audio
+/// files and name). Positions of envelope points are in thousandths of a frame from the start of
+/// the clip's audio file (see [`EnvPoint::at`]); the others are in frames from the timeline origin.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ItemOp {
@@ -70,6 +73,67 @@ pub enum ItemOp {
     ClearEnvelope {
         id: String,
     },
+    /// Moves a clip or a note to `at`, to a whole frame and never before the origin.
+    MoveItem {
+        id: String,
+        at: f64,
+    },
+    SetClipGain {
+        id: String,
+        gain_db: f32,
+    },
+    SetNoteText {
+        id: String,
+        text: String,
+    },
+    /// How long a note lasts; none (or less than a frame) is "until the next note".
+    SetNoteLength {
+        id: String,
+        length: Option<f64>,
+    },
+    /// An empty note at `at`. It goes on `track_id` when that is a notes track, else on the first
+    /// one, creating a track named `track_name` when there is none. Answers with the note's id.
+    AddNote {
+        track_id: Option<String>,
+        at: f64,
+        track_name: String,
+    },
+    /// Imported audio files, each on a new track of its own with a clip at `at`. Answers with the
+    /// id of the last clip.
+    AddAudioClips {
+        assets: Vec<AudioAsset>,
+        at: f64,
+    },
+    /// Removes the track and its clips or notes, and the audio files nothing else plays.
+    RemoveTrack {
+        id: String,
+    },
+    /// Puts the track at index `to` of the track order (clamped).
+    MoveTrack {
+        id: String,
+        to: i64,
+    },
+    ToggleMute {
+        id: String,
+    },
+    /// The fader of an audio or video track; 0 dB is stored as no value.
+    SetTrackGain {
+        id: String,
+        gain_db: f32,
+    },
+    /// `#rrggbb`, or none for the default colour.
+    SetTrackColor {
+        id: String,
+        color: Option<String>,
+    },
+    /// The tempo of an audio file, within the range of a tempo; none forgets it.
+    SetAssetBpm {
+        id: String,
+        bpm: Option<f64>,
+    },
+    RenameProject {
+        name: String,
+    },
 }
 
 /// `name` without the spaces around it, cut to `max` characters (not UTF-16 units or bytes).
@@ -85,7 +149,11 @@ fn gain(db: f32) -> Result<f32> {
     Ok(((db * 10.0).round() / 10.0).clamp(ENVELOPE_MIN_DB, ENVELOPE_MAX_DB))
 }
 
-fn clip_mut<'a>(project: &'a mut Project, active: &str, id: &str) -> Result<&'a mut AudioClip> {
+pub(crate) fn clip_mut<'a>(
+    project: &'a mut Project,
+    active: &str,
+    id: &str,
+) -> Result<&'a mut AudioClip> {
     project
         .timelines
         .iter_mut()
@@ -110,8 +178,9 @@ fn point_mut(clip: &mut AudioClip, index: usize) -> Result<&mut EnvPoint> {
     })
 }
 
-/// Applies `op` to the active timeline `active` of `project`.
-pub fn apply(project: &mut Project, active: &str, op: ItemOp) -> Result<()> {
+/// Applies `op` to the active timeline `active` of `project`. Returns the id of what it created.
+pub fn apply(project: &mut Project, active: &str, op: ItemOp) -> Result<Option<String>> {
+    let mut created = None;
     match op {
         ItemOp::RenameTrack { id, name } => {
             let name = tidy(&name, MAX_TRACK_NAME);
@@ -190,8 +259,43 @@ pub fn apply(project: &mut Project, active: &str, op: ItemOp) -> Result<()> {
             point_mut(clip_mut(project, active, &id)?, index)?.curve = curve;
         }
         ItemOp::ClearEnvelope { id } => clip_mut(project, active, &id)?.envelope.clear(),
+        ItemOp::MoveItem { id, at } => track_ops::move_item(project, active, &id, at)?,
+        ItemOp::SetClipGain { id, gain_db } => {
+            track_ops::set_clip_gain(project, active, &id, gain_db)?;
+        }
+        ItemOp::SetNoteText { id, text } => track_ops::set_note_text(project, active, &id, text)?,
+        ItemOp::SetNoteLength { id, length } => {
+            track_ops::set_note_length(project, active, &id, length)?;
+        }
+        ItemOp::AddNote {
+            track_id,
+            at,
+            track_name,
+        } => {
+            created = Some(track_ops::add_note(
+                project,
+                active,
+                track_id.as_deref(),
+                at,
+                &track_name,
+            )?);
+        }
+        ItemOp::AddAudioClips { assets, at } => {
+            created = Some(track_ops::add_audio_clips(project, active, assets, at)?);
+        }
+        ItemOp::RemoveTrack { id } => track_ops::remove_track(project, active, &id)?,
+        ItemOp::MoveTrack { id, to } => track_ops::move_track(project, active, &id, to)?,
+        ItemOp::ToggleMute { id } => track_ops::toggle_mute(project, active, &id)?,
+        ItemOp::SetTrackGain { id, gain_db } => {
+            track_ops::set_track_gain(project, active, &id, gain_db)?;
+        }
+        ItemOp::SetTrackColor { id, color } => {
+            track_ops::set_track_color(project, active, &id, color)?;
+        }
+        ItemOp::SetAssetBpm { id, bpm } => track_ops::set_asset_bpm(project, &id, bpm)?,
+        ItemOp::RenameProject { name } => project.name = name,
     }
-    Ok(())
+    Ok(created)
 }
 
 #[cfg(test)]
@@ -207,7 +311,7 @@ mod tests {
     }
 
     fn edit(session: &mut Session, op: ItemOp) -> Result<Project> {
-        session.item_edit(op).map(|state| state.project)
+        session.item_edit(op).map(|edited| edited.state.project)
     }
 
     fn clip(project: &Project) -> &AudioClip {
@@ -456,6 +560,26 @@ mod tests {
                 id: "c1".into(),
                 fade: Fade::Out,
                 curve: FadeCurve::EqualPower
+            }
+        );
+        // A value the window leaves out is none, and a null is none too.
+        let note: ItemOp =
+            serde_json::from_str(r#"{"op":"addNote","at":12,"trackName":"Notes"}"#).unwrap();
+        assert_eq!(
+            note,
+            ItemOp::AddNote {
+                track_id: None,
+                at: 12.0,
+                track_name: "Notes".into()
+            }
+        );
+        let color: ItemOp =
+            serde_json::from_str(r#"{"op":"setTrackColor","id":"t1","color":null}"#).unwrap();
+        assert_eq!(
+            color,
+            ItemOp::SetTrackColor {
+                id: "t1".into(),
+                color: None
             }
         );
     }
