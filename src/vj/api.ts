@@ -111,6 +111,7 @@ export type VjOp =
   | { op: "setMappingLights"; mapping: string; lights: VjLights | null }
   /** The colours of the pads whose mapping has none of its own, or `null` for the controller's preset. */
   | { op: "setLights"; lights: VjLights | null }
+  | { op: "setOscFeedback"; destinations: string }
   /** Follows a clip, layer, column, deck or effect by id or by its slot. */
   | { op: "setMappingFollow"; mapping: string; follow: VjFollow }
   | { op: "setMapping"; mapping: string; min: number; max: number; invert: boolean; mode: VjButtonMode }

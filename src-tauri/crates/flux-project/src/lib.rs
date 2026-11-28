@@ -33,6 +33,7 @@ pub mod vj_layout;
 pub mod vj_mapfile;
 pub mod vj_mapping;
 pub mod vj_modulation;
+pub mod vj_osc_feedback;
 pub mod vj_presets;
 pub use show::{ControlKind, Setlist, SetlistEntry, ShowEdit, TimelineControl, Transition};
 

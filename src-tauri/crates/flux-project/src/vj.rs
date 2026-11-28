@@ -1114,6 +1114,11 @@ pub enum VjOp {
     SetLights {
         lights: Option<crate::vj_feedback::Lights>,
     },
+    /// Sets where the OSC feedback goes: `host:port` separated by commas or spaces, at most 4;
+    /// an empty text turns it off.
+    SetOscFeedback {
+        destinations: String,
+    },
     /// Sets how a mapping of a clip, layer, column, deck or effect follows it: by id, or by the
     /// slot it is in.
     SetMappingFollow {
@@ -1195,6 +1200,7 @@ impl Vj {
             && self.mappings.is_empty()
             && self.dashboard.is_empty()
             && self.lights.is_none()
+            && self.osc_feedback.is_empty()
     }
 
     /// The grid of a new VJ project: [`DEFAULT_LAYERS`] layers and one deck of [`DEFAULT_COLUMNS`]
@@ -1215,6 +1221,7 @@ impl Vj {
             mappings: Vec::new(),
             dashboard: Vec::new(),
             lights: None,
+            osc_feedback: Vec::new(),
         }
     }
 
@@ -1806,6 +1813,9 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                 lights.validate()?;
             }
             vj.lights = lights;
+        }
+        VjOp::SetOscFeedback { destinations } => {
+            vj.osc_feedback = crate::vj_osc_feedback::parse_destinations(&destinations)?;
         }
         VjOp::SetMappingFine { mapping, fine } => {
             crate::vj_mapping::set_mapping_fine(vj, &mapping, fine)?;

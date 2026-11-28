@@ -48,6 +48,8 @@ export interface VjGrid {
   dashboard?: VjKnob[];
   /** The colours the pads of mappings with none of their own get; absent is the controller's preset. */
   lights?: VjLights;
+  /** Where the OSC feedback goes, `host:port` each; absent is nowhere. */
+  oscFeedback?: string[];
 }
 
 /** What a MIDI pad is sent for each state, 0 to 127 (a colour on controllers like the APC40). */
