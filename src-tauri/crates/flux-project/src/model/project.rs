@@ -171,6 +171,7 @@ impl Project {
         for timeline in &self.timelines {
             ensure_unique(&mut timeline_ids, "timeline id", &timeline.id)?;
             timeline.tempo.validate()?;
+            timeline.validate_marks(&mut item_ids)?;
             for track in &timeline.tracks {
                 validate_track(
                     track,

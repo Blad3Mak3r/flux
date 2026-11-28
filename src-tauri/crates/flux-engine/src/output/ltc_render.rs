@@ -192,7 +192,7 @@ impl Renderer {
                     let count = show.slice(&mut self.transport, available);
                     self.clips = Arc::clone(&show.current().clips);
                     if let Some(click) = &self.click {
-                        click.shared.set(show.current().timeline.tempo);
+                        click.shared.follow(&show.current().tempo);
                     }
                     count
                 };

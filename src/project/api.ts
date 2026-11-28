@@ -4,6 +4,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { en } from "../i18n/en";
 import type {
   AudioAsset,
+  BeatSegment,
   EnvCurve,
   FadeCurve,
   FrameRate,
@@ -150,6 +151,33 @@ export interface Extent {
 }
 
 export const itemsExtent = (project: Project, ids: string[]) => invoke<Extent | null>("items_extent", { project, ids });
+
+/** What can be done to the markers, regions and tempo changes of the active timeline; the backend decides how (see `project/marks.rs`). */
+export type MarksOp =
+  | { op: "addMarker"; at: number; label: string }
+  | { op: "moveMarker"; id: string; at: number }
+  | { op: "renameMarker"; id: string; name: string }
+  | { op: "setMarkerColor"; id: string; color: string | null }
+  | { op: "removeMarker"; id: string }
+  | { op: "addRegion"; start: number; end: number; label: string }
+  | { op: "setRegion"; id: string; start: number; end: number }
+  | { op: "renameRegion"; id: string; name: string }
+  | { op: "setRegionColor"; id: string; color: string | null }
+  | { op: "removeRegion"; id: string }
+  | { op: "setTempoAt"; at: number; bpm: number; beatsPerBar: number; beatUnit: number }
+  | { op: "moveTempoChange"; id: string; at: number }
+  | { op: "removeTempoChange"; id: string };
+
+/** Edits the markers, regions and tempo changes; answers with the project as it is now. */
+export const marksEdit = (project: Project, op: MarksOp) => invoke<ProjectState>("marks_edit", { project, op });
+
+/** The stretches of a timeline's tempo map, in frames, for the ruler and the grid to draw. */
+export const tempoSegments = (project: Project, timeline: string) =>
+  invoke<BeatSegment[]>("tempo_segments", { project, timeline });
+
+/** The frame of the marker before or after `from`, or `null` when there is none that way. */
+export const markerStep = (project: Project, timeline: string, from: number, forward: boolean) =>
+  invoke<number | null>("marker_step_at", { project, timeline, from, forward });
 
 /** Which kind of cue track an operation is about. */
 export type CueTrackKind = "midi" | "osc";

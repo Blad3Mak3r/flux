@@ -146,7 +146,7 @@ impl LtcFollower {
                 let entry = &plan.entries[tick.entry];
                 self.operator_clips = Arc::clone(&entry.clips);
                 if let Some(click) = &self.click {
-                    click.shared.set(entry.timeline.tempo);
+                    click.shared.follow(&entry.tempo);
                 }
                 if self.seen_epoch != snapshot.epoch {
                     for lane in &mut self.lanes {

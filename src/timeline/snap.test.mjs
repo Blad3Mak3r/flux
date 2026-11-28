@@ -152,3 +152,25 @@ test("a beat that is not a whole frame snaps to a whole frame", () => {
   const beat = fixedSpacing("beat", { bpm: 120, beatsPerBar: 4, fps: 25 });
   assert.deepEqual(snapPoint(36, [], beat, 4), { frame: Math.round(37.5), source: "grid" });
 });
+
+test("markers and the edges of regions are targets when that source is on", () => {
+  const marks = [300, 120, 500];
+  assert.deepEqual(frames(collectTargets([], { marks, sources: new Set(["markers"]) })), [120, 300, 500]);
+  assert.deepEqual(collectTargets([], { marks, sources: new Set(["items", "playhead"]) }), []);
+  assert.equal(collectTargets([], { marks, sources: new Set(["markers"]) })[0].source, "markers");
+});
+
+test("a position lands on a marker when it is nearer than the grid line", () => {
+  const targets = collectTargets([], { marks: [99], sources: new Set(["markers"]) });
+  assert.deepEqual(snapPoint(98, targets, 50, 2), { frame: 99, source: "markers" });
+  assert.deepEqual(snapPoint(101, targets, 50, 2), { frame: 100, source: "grid" });
+});
+
+test("the grid can be a function that finds the nearest line, for lines that are not evenly spaced", () => {
+  // Lines at 0, 10, 20, then every 30 from 20: 50, 80.
+  const lines = (frame) => (frame < 20 ? Math.round(frame / 10) * 10 : 20 + Math.round((frame - 20) / 30) * 30);
+  assert.deepEqual(snapPoint(11, [], lines, 2), { frame: 10, source: "grid" });
+  assert.deepEqual(snapPoint(48, [], lines, 2), { frame: 50, source: "grid" });
+  assert.deepEqual(snapPoint(35, [], lines, 2), { frame: 35, source: null });
+  assert.equal(snapMove(48, 28, [], lines, 2).start, 50);
+});

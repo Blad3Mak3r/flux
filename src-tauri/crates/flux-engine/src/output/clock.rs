@@ -88,6 +88,8 @@ pub struct SharedClock {
     /// The tempo the MIDI clock runs at, as the bits of an `f64`: the control side moves it while
     /// the show plays and the clock thread reads it.
     pub(super) clock_bpm: AtomicU64,
+    /// The tempo map of the timeline the MIDI clock of a cue show follows; none runs at `clock_bpm`.
+    clock_map: Mutex<Option<Arc<flux_project::TempoMap>>>,
 }
 
 /// What a [`SharedClock`] counts going wrong.
@@ -138,6 +140,7 @@ impl SharedClock {
             operator_invalid: AtomicBool::new(false),
             grid_audio: crate::grid_audio::GridAudio::default(),
             clock_bpm: AtomicU64::new(120f64.to_bits()),
+            clock_map: Mutex::new(None),
             operator_set: Mutex::new(Arc::new(ClipSet::default())),
             operator_subscribers: Mutex::new(Vec::new()),
             pending_plays: AtomicU64::new(0),
@@ -220,6 +223,23 @@ impl SharedClock {
     /// Moves the tempo of the MIDI clock.
     pub(super) fn set_clock_bpm(&self, bpm: f64) {
         self.clock_bpm.store(bpm.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Makes the MIDI clock of a cue show follow `map`, whose first tempo is also its starting one.
+    pub(super) fn set_clock_map(&self, map: flux_project::TempoMap) {
+        self.set_clock_bpm(map.bpm_at(0.0));
+        *self
+            .clock_map
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(Arc::new(map));
+    }
+
+    /// The map the MIDI clock follows, when it follows one.
+    pub(super) fn clock_map(&self) -> Option<Arc<flux_project::TempoMap>> {
+        self.clock_map
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Nanoseconds since this clock was created.

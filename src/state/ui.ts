@@ -32,12 +32,13 @@ export interface SnapSources {
   grid: boolean;
   items: boolean;
   playhead: boolean;
+  markers: boolean;
 }
 
 /** Where the magnet is holding an item or a point right now, for the guide line; `kind` is what it holds on to. */
 export interface SnapGuide {
   frame: number;
-  kind: "grid" | "items" | "playhead" | "origin";
+  kind: "grid" | "items" | "playhead" | "origin" | "markers";
 }
 
 export const RIPPLES: readonly Ripple[] = ["off", "track", "all"];
@@ -142,7 +143,7 @@ const GRID_STEP_KEY = "flux.snap.grid";
 const RIPPLE_KEY = "flux.ripple";
 
 function readSnapSources(): SnapSources {
-  const all = { grid: true, items: true, playhead: true };
+  const all = { grid: true, items: true, playhead: true, markers: true };
   try {
     const stored = JSON.parse(localStorage.getItem(SNAP_SOURCES_KEY) ?? "null");
     return stored && typeof stored === "object"
@@ -150,6 +151,7 @@ function readSnapSources(): SnapSources {
           grid: stored.grid !== false,
           items: stored.items !== false,
           playhead: stored.playhead !== false,
+          markers: stored.markers !== false,
         }
       : all;
   } catch {

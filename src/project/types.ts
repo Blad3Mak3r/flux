@@ -360,10 +360,58 @@ export interface Timeline {
   id: string;
   name: string;
   timecode: { frameRate: FrameRate; start: number };
-  /** The beat grid and the metronome of the timeline. */
+  /** The beat grid and the metronome of the timeline: the first point of its tempo map. */
   tempo: Tempo;
+  /** Where the tempo or the signature changes after the origin, in order; absent is none. */
+  tempoChanges?: TempoChange[];
+  /** Named points of the timeline, in order of position; absent is none. */
+  markers?: Marker[];
+  /** Named stretches of the timeline, in order of start; absent is none. */
+  regions?: Region[];
   tracks: Track[];
 }
+
+/** A change of tempo or signature that starts a new bar. Positions are frames from the timeline origin. */
+export interface TempoChange {
+  id: string;
+  at: number;
+  /** Quarter notes a minute, 20 to 400. */
+  bpm: number;
+  beatsPerBar: number;
+  /** The note a beat is: 4 a quarter, 8 an eighth; absent is 4. */
+  beatUnit?: number;
+}
+
+/** A named point of the timeline; `color` is `#rrggbb`. */
+export interface Marker {
+  id: string;
+  at: number;
+  name: string;
+  color?: string;
+}
+
+/** A named stretch of the timeline; `color` is `#rrggbb`. */
+export interface Region {
+  id: string;
+  start: number;
+  end: number;
+  name: string;
+  color?: string;
+}
+
+/** A stretch of the tempo map, in frames, as the backend derives it for the ruler and the grid. */
+export interface BeatSegment {
+  startFrame: number;
+  beatFrames: number;
+  beatsPerBar: number;
+  beatUnit: number;
+  bpm: number;
+  /** The bar it starts, counted from 1. */
+  firstBar: number;
+}
+
+/** The notes a beat can be, as the denominator of the signature. */
+export const BEAT_UNITS = [1, 2, 4, 8, 16] as const;
 
 /** Beats are counted from the timeline origin. Where the click plays is `OutputConfig.metronome`. */
 export interface Tempo {
@@ -371,6 +419,8 @@ export interface Tempo {
   bpm: number;
   /** 1 to 16. */
   beatsPerBar: number;
+  /** The note a beat is: 4 a quarter (the default), 8 an eighth. */
+  beatUnit?: number;
   /** Whether the metronome plays while this timeline runs. */
   click: boolean;
 }

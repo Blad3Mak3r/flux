@@ -42,8 +42,29 @@ pub fn sample_project() -> Project {
             tempo: Tempo {
                 bpm: 128.0,
                 beats_per_bar: 3,
+                beat_unit: 4,
                 click: true,
             },
+            tempo_changes: vec![TempoChange {
+                id: "tc1".into(),
+                at: 600,
+                bpm: 90.0,
+                beats_per_bar: 6,
+                beat_unit: 8,
+            }],
+            markers: vec![Marker {
+                id: "mk1".into(),
+                at: 300,
+                name: "Verse".into(),
+                color: Some("#ff8800".into()),
+            }],
+            regions: vec![Region {
+                id: "rg1".into(),
+                start: 300,
+                end: 900,
+                name: "Song".into(),
+                color: None,
+            }],
             tracks: vec![
                 Track {
                     audio_output: Default::default(),
@@ -198,6 +219,9 @@ pub const FIXTURE: &str = r##"{
         "id": "l1", "name": "Opening night",
         "timecode": { "frameRate": "fps2997Drop", "start": 107892 },
         "tempo": { "bpm": 128.0, "beatsPerBar": 3, "click": true },
+        "tempoChanges": [{ "id": "tc1", "at": 600, "bpm": 90.0, "beatsPerBar": 6, "beatUnit": 8 }],
+        "markers": [{ "id": "mk1", "at": 300, "name": "Verse", "color": "#ff8800" }],
+        "regions": [{ "id": "rg1", "start": 300, "end": 900, "name": "Song" }],
         "tracks": [
         {
             "id": "t1", "name": "Backing", "muted": false, "gainDb": -6.0, "color": "#5cd0ea",

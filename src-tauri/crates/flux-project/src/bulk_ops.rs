@@ -219,6 +219,16 @@ fn move_items(
             }
         }
     }
+    // Ripple on all tracks carries the markers, regions and tempo changes after the edit too.
+    if ripple == Ripple::All {
+        crate::marks::ripple(timeline, |at| {
+            if at >= first {
+                at.saturating_add_signed(delta)
+            } else {
+                at
+            }
+        });
+    }
     Ok(())
 }
 
@@ -271,6 +281,9 @@ fn remove_items(
                 *slot.at -= closed_by(*slot.at, &gaps);
             }
         }
+    }
+    if ripple == Ripple::All && !everywhere.is_empty() {
+        crate::marks::ripple(timeline, |at| at - closed_by(at, &everywhere));
     }
     // As the other ways of removing do: a song or a video left with no clip leaves the timeline.
     timeline.tracks.retain(|track| match &track.kind {
@@ -519,6 +532,61 @@ mod tests {
         assert_eq!(at(&mut project, 1), [5, 34]);
         assert_eq!(at(&mut project, 2), [10, 34, 54]);
         assert_eq!(at(&mut project, 3), [15, 39]);
+    }
+
+    /// The project with marks around the edit: markers at 5, 25 and 40, a region 22 to 45 and a tempo
+    /// change at 45.
+    fn marked() -> Project {
+        let mut project = project();
+        let timeline = &mut project.timelines[0];
+        timeline.markers.clear();
+        for (id, at) in [("k1", 5), ("k2", 25), ("k3", 40)] {
+            timeline.markers.push(crate::Marker {
+                id: id.into(),
+                at,
+                name: id.into(),
+                color: None,
+            });
+        }
+        timeline.regions[0].start = 22;
+        timeline.regions[0].end = 45;
+        timeline.tempo_changes[0].at = 45;
+        project
+    }
+
+    fn marks(project: &Project) -> (Vec<u64>, (u64, u64), u64) {
+        let t = &project.timelines[0];
+        (
+            t.markers.iter().map(|m| m.at).collect(),
+            (t.regions[0].start, t.regions[0].end),
+            t.tempo_changes[0].at,
+        )
+    }
+
+    #[test]
+    fn ripple_on_all_tracks_should_carry_the_marks_after_a_move_but_the_other_modes_should_not() {
+        let mut project = marked();
+        run(&mut project, mv(&["c2"], 4, Ripple::All)).unwrap();
+        assert_eq!(marks(&project), (vec![5, 29, 44], (26, 49), 49));
+        for mode in [Ripple::Off, Ripple::Track] {
+            let mut project = marked();
+            run(&mut project, mv(&["c2"], 4, mode)).unwrap();
+            assert_eq!(marks(&project), (vec![5, 25, 40], (22, 45), 45));
+        }
+    }
+
+    #[test]
+    fn ripple_on_all_tracks_should_close_the_marks_up_after_a_remove_but_the_other_modes_should_not()
+     {
+        let mut project = marked();
+        run(&mut project, rm(&["c2"], Ripple::All)).unwrap();
+        // Gap [20, 30): the marker at 25 sits inside it and goes to 20.
+        assert_eq!(marks(&project), (vec![5, 20, 30], (20, 35), 35));
+        for mode in [Ripple::Off, Ripple::Track] {
+            let mut project = marked();
+            run(&mut project, rm(&["c2"], mode)).unwrap();
+            assert_eq!(marks(&project), (vec![5, 25, 40], (22, 45), 45));
+        }
     }
 
     #[test]

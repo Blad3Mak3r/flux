@@ -8,8 +8,8 @@ pub(super) struct BranchCtx {
     pub(super) rate: FrameRate,
     pub(super) start: u64,
     pub(super) clock: Clock,
-    /// The tempo of the timeline, which the MIDI clock starts at.
-    pub(super) bpm: f64,
+    /// The tempo map of the timeline, which the MIDI clock follows.
+    pub(super) tempo: flux_project::TempoMap,
 }
 
 impl BranchCtx {
@@ -25,7 +25,7 @@ impl BranchCtx {
             ltc_config,
             rate,
             start: timeline.timecode.start,
-            bpm: timeline.tempo.bpm,
+            tempo: flux_project::TempoMap::of(timeline),
         }
     }
 }
@@ -408,7 +408,7 @@ impl Branches {
             }
         });
         let mtc = self.apply_mtc(plan, ctx, shared, warnings, &mut lamps);
-        shared.set_clock_bpm(ctx.bpm);
+        shared.set_clock_map(ctx.tempo.clone());
         let midi_clock = self.apply_midi_clock(plan, ctx, shared, warnings);
         shared.health().replace(lamps);
         Opened {

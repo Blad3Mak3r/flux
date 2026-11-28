@@ -62,6 +62,8 @@ import { bindTimelineAdvance, stepTimeline } from "./state/timelines";
 import { nominalFps } from "./timecode";
 import { patchReadout } from "./timeline/layout";
 import { bindTransport, seek, stop, toggle } from "./transport/playback";
+import { bindTempoMap } from "./state/tempoMap";
+import { addMarkerAtPlayhead, addRegionFromSelection, deleteSelectedMark, selectMark, stepMarker } from "./state/marks";
 import { currentFrame, useTransport } from "./transport/store";
 
 const ZOOM_STEP = 1.25;
@@ -204,9 +206,20 @@ function Shell({ devices }: { devices: Devices }) {
       } else if (event.key === "Home") {
         event.preventDefault();
         void stop();
+      } else if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        // Markers belong to the timeline: Live only follows the show.
+        if (useUi.getState().view !== "edit") return;
+        event.preventDefault();
+        void stepMarker(event.key === "ArrowRight");
       } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         seekBy((event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? fps : 1));
+      } else if (key === "m" || key === "r") {
+        // Like notes, markers and regions are placed in the editor only.
+        if (useUi.getState().view !== "edit") return;
+        event.preventDefault();
+        if (key === "m") void addMarkerAtPlayhead(t);
+        else void addRegionFromSelection(t);
       } else if (key === "n") {
         // Live only reads the show; notes are written in the editor.
         if (useUi.getState().view !== "edit") return;
@@ -237,9 +250,10 @@ function Shell({ devices }: { devices: Devices }) {
         void importAudioFiles();
       } else if (event.key === "Delete" || event.key === "Backspace") {
         if (isShowLocked()) return say("live.lock.blocked");
-        deleteSelection();
+        if (!deleteSelectedMark()) deleteSelection();
       } else if (event.key === "Escape") {
         patchReadout({ spanA: null, spanB: null });
+        selectMark(null);
         select(null);
       }
     };
@@ -321,6 +335,7 @@ function Editor() {
 
   useEffect(bindShow, []);
   useEffect(bindTransport, []);
+  useEffect(bindTempoMap, []);
   useEffect(bindVoice, []);
   useEffect(bindDocumentSync, []);
   useEffect(() => {
