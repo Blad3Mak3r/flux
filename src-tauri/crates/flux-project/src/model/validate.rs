@@ -10,6 +10,7 @@ pub(super) fn validate_track<'a>(
     asset_ids: &HashSet<&str>,
     video_ids: &HashSet<&str>,
     destination_ids: &HashSet<&str>,
+    dmx_destination_ids: &HashSet<&str>,
     track_ids: &mut HashSet<&'a str>,
     item_ids: &mut HashSet<&'a str>,
 ) -> Result<()> {
@@ -82,6 +83,23 @@ pub(super) fn validate_track<'a>(
             for event in events {
                 ensure_unique(item_ids, "clip/note id", &event.id)?;
                 event.validate()?;
+            }
+        }
+        TrackKind::Dmx {
+            destination,
+            scenes,
+        } => {
+            if let Some(id) = destination
+                && !dmx_destination_ids.contains(id.as_str())
+            {
+                return Err(ProjectError::Invalid(format!(
+                    "track {} sends to unknown DMX destination {id}",
+                    track.id
+                )));
+            }
+            for scene in scenes {
+                ensure_unique(item_ids, "clip/note id", &scene.id)?;
+                scene.validate()?;
             }
         }
         TrackKind::Video { clips } => {

@@ -166,6 +166,15 @@ impl Project {
             destination.validate()?;
             ensure_unique(&mut destination_ids, "OSC destination id", &destination.id)?;
         }
+        let mut dmx_destination_ids = HashSet::new();
+        for destination in &self.output.dmx {
+            destination.validate()?;
+            ensure_unique(
+                &mut dmx_destination_ids,
+                "DMX destination id",
+                &destination.id,
+            )?;
+        }
         let mut track_ids = HashSet::new();
         let mut item_ids = HashSet::new();
         for timeline in &self.timelines {
@@ -178,6 +187,7 @@ impl Project {
                     &asset_ids,
                     &video_ids,
                     &destination_ids,
+                    &dmx_destination_ids,
                     &mut track_ids,
                     &mut item_ids,
                 )?;

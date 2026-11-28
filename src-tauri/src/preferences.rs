@@ -248,6 +248,7 @@ fn validate(p: &Preferences) -> Result<(), String> {
         ltc: p.ltc.values().cloned().collect(),
         mtc: p.mtc.values().cloned().collect(),
         osc: vec![],
+        dmx: vec![],
         midi_clock: None,
     };
     output.validate().map_err(|e| e.to_string())?;
@@ -626,6 +627,7 @@ impl Preferences {
                     .collect()
             },
             osc: show.osc.clone(),
+            dmx: show.dmx.clone(),
             midi_clock: if audition || !show.midi_clock {
                 None
             } else {

@@ -1,4 +1,4 @@
-//! What the user can do to the MIDI and OSC tracks and to the OSC destinations. The window only says
+//! What the user can do to the MIDI, OSC and DMX tracks and to the OSC destinations. The window only says
 //! which operation and with what; the defaults, the lookups, the ordering and the clean-up of
 //! references live here, and [`Session::cue_edit`](super::Session::cue_edit) refuses anything that
 //! would leave the project invalid.
@@ -17,6 +17,7 @@ use super::session::ProjectState;
 pub enum CueTrackKind {
     Midi,
     Osc,
+    Dmx,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -115,7 +116,9 @@ fn active_mut<'a>(project: &'a mut Project, active: &str) -> Result<&'a mut Time
 fn is_kind(track: &Track, kind: CueTrackKind) -> bool {
     matches!(
         (&track.kind, kind),
-        (TrackKind::Midi { .. }, CueTrackKind::Midi) | (TrackKind::Osc { .. }, CueTrackKind::Osc)
+        (TrackKind::Midi { .. }, CueTrackKind::Midi)
+            | (TrackKind::Osc { .. }, CueTrackKind::Osc)
+            | (TrackKind::Dmx { .. }, CueTrackKind::Dmx)
     )
 }
 
@@ -137,6 +140,7 @@ fn empty_track(project: &Project, kind: CueTrackKind, name: &str) -> Track {
                 destination: project.output.osc.first().map(|d| d.id.clone()),
                 events: Vec::new(),
             },
+            CueTrackKind::Dmx => crate::dmx::empty_kind(project),
         },
     }
 }
@@ -197,6 +201,7 @@ fn add_event(
     match &mut timeline.tracks[index].kind {
         TrackKind::Midi { events, .. } => events.push(default_midi(id.clone(), at)),
         TrackKind::Osc { events, .. } => events.push(default_osc(id.clone(), at)),
+        TrackKind::Dmx { scenes, .. } => scenes.push(crate::dmx::blank_scene(id.clone(), at)),
         _ => unreachable!("the track was picked by its kind"),
     }
     Ok(id)
@@ -238,6 +243,15 @@ fn move_or_remove(project: &mut Project, id: &str, to: Option<u64>) -> Result<()
                     match to {
                         Some(at) => events[index].at = at,
                         None => drop(events.remove(index)),
+                    }
+                    return Ok(());
+                }
+            }
+            TrackKind::Dmx { scenes, .. } => {
+                if let Some(index) = scenes.iter().position(|scene| scene.id == id) {
+                    match to {
+                        Some(at) => scenes[index].at = at,
+                        None => drop(scenes.remove(index)),
                     }
                     return Ok(());
                 }
@@ -367,6 +381,7 @@ pub(super) fn apply(project: &mut Project, active: &str, op: CueOp) -> Result<Op
         }
     }
     sort_events(project);
+    crate::dmx::tidy(project);
     Ok(created)
 }
 

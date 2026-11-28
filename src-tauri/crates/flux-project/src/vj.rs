@@ -2021,6 +2021,7 @@ pub(crate) fn validate<'a>(
                 || !project.output.ltc.is_empty()
                 || !project.output.mtc.is_empty()
                 || !project.output.osc.is_empty()
+                || !project.output.dmx.is_empty()
                 || !project.output.audio.is_empty()
                 || project.output.metronome.is_some() =>
         {
