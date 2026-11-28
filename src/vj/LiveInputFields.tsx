@@ -2,6 +2,7 @@
 // and opens the one the clip names; a device that is not there is a normal state, shown as "not connected", never an error.
 
 import { useCallback, useEffect, useState } from "react";
+import { Select } from "../components/Select";
 import { useT } from "../i18n";
 import type { LiveRate, LiveSize, VjCaptureDevice, VjCaptureStatus, VjGenerator } from "../project/types";
 import { vjCaptureDevices, vjCaptureStatus } from "./api";
@@ -54,11 +55,11 @@ export function LiveInputFields({ clip, generator }: { clip: string; generator: 
     <>
       <div className="vj-f"><span>{t("vj.gen.device")}</span>
         <div className="vj-segs vj-linestep">
-          <select className="vj-select wide" value={device} aria-label={t("vj.gen.device")} onChange={(event) => keep(event.target.value)}>
+          <Select className="vj-select wide" value={device} aria-label={t("vj.gen.device")} onChange={keep}>
             <option value="">{t("vj.gen.deviceNone")}</option>
             {missing && <option value={device}>{device}</option>}
             {devices?.map((d) => <option key={d.name} value={d.name}>{d.name === "default" ? t("vj.gen.deviceDefault") : d.label}</option>)}
-          </select>
+          </Select>
           <button type="button" disabled={busy} title={t("vj.gen.deviceRefresh")} aria-label={t("vj.gen.deviceRefresh")} onClick={() => void refresh()}>↻</button>
         </div>
       </div>
@@ -66,14 +67,14 @@ export function LiveInputFields({ clip, generator }: { clip: string; generator: 
       {missing && <div className="vj-f"><span /><span className="vj-dim" role="status">{t("vj.gen.deviceMissing")}</span></div>}
       {devices?.length === 0 && device === "" && <div className="vj-f"><span /><span className="vj-dim" role="status">{t("vj.gen.deviceEmpty")}</span></div>}
       <div className="vj-f"><span>{t("vj.gen.resolution")}</span>
-        <select className="vj-select wide" value={generator.size ?? "auto"} aria-label={t("vj.gen.resolution")} onChange={(event) => change({ size: event.target.value as LiveSize })}>
+        <Select className="vj-select wide" value={generator.size ?? "auto"} aria-label={t("vj.gen.resolution")} onChange={(value) => change({ size: value as LiveSize })}>
           {SIZES.map((size) => <option key={size} value={size}>{size === "auto" ? t("vj.gen.auto") : size.replace("x", " × ")}</option>)}
-        </select>
+        </Select>
       </div>
       <div className="vj-f"><span>{t("vj.gen.fps")}</span>
-        <select className="vj-select wide" value={generator.rate ?? "auto"} aria-label={t("vj.gen.fps")} onChange={(event) => change({ rate: event.target.value as LiveRate })}>
+        <Select className="vj-select wide" value={generator.rate ?? "auto"} aria-label={t("vj.gen.fps")} onChange={(value) => change({ rate: value as LiveRate })}>
           {RATES.map((rate) => <option key={rate} value={rate}>{rate === "auto" ? t("vj.gen.auto") : rate}</option>)}
-        </select>
+        </Select>
       </div>
       {status?.refused && <div className="vj-f"><span /><span className="vj-dim" role="status">{t("vj.gen.formatRefused")}</span></div>}
     </>

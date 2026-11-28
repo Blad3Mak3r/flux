@@ -3,7 +3,7 @@
 //! rate, and hands the frames to `flux_video::Recorder`, which compresses and writes them on another.
 //! The sound is the grid's programme mix, which the output's audio callback copies into a lock-free
 //! ring while a recording is on (`flux_engine::analysis::record_tap`). Nothing here logs from the
-//! frame loop: the counters are read by `vj_record_state` and written to the log when it stops.
+//! frame loop: the counters are read by `vj_record_watch` and written to the log when it stops.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,8 +39,8 @@ pub struct Active {
     audio: bool,
 }
 
-/// Where a recording is shown to be: what `vj_record_state` answers.
-#[derive(Debug, Clone, Default, Serialize)]
+/// Where a recording is shown to be: what `vj_record_watch` sends.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordState {
     pub recording: bool,
@@ -482,15 +482,29 @@ pub async fn vj_record_stop(
     })
 }
 
-/// What the recording is doing now.
+/// How often the recording is looked at for a change (its elapsed time moves while it runs).
+const STATE_EVERY: Duration = Duration::from_millis(500);
+
+/// Sends what the recording is doing down `on_state` whenever it changes, until
+/// [`crate::watch::watch_stop`].
 #[tauri::command]
-pub fn vj_record_state(recording: State<'_, SharedRecording>) -> RecordState {
-    recording
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_ref()
-        .map(current)
-        .unwrap_or_default()
+pub fn vj_record_watch(
+    recording: State<'_, SharedRecording>,
+    watches: State<'_, crate::watch::Watches>,
+    on_state: tauri::ipc::Channel<RecordState>,
+) {
+    let recording = Arc::clone(&recording);
+    let mut changes = crate::watch::Changes::default();
+    watches.start(on_state, STATE_EVERY, move || {
+        changes.next(
+            recording
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .map(current)
+                .unwrap_or_default(),
+        )
+    });
 }
 
 #[cfg(test)]

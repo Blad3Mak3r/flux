@@ -11,6 +11,7 @@ import { useTransport } from "../transport/store";
 import { prepareSetlist, leaveSetlist } from "../transport/playback";
 import type { ShowAction, ShowEdit, ShowState } from "./types";
 import { useShow } from "./store";
+import { watch } from "../watch";
 
 export async function editShow(op: ShowEdit): Promise<ProjectState | undefined> {
   try {
@@ -31,8 +32,8 @@ export async function prepareShow(id: string): Promise<void> {
 export const closeShow = async () => {
   try { await leaveSetlist(); } catch (error) { sayError(errorMessage(error)); }
 };
-async function refresh(): Promise<void> {
-  const state = await invoke<ShowState | null>("show_state");
+const refresh = async () => accept(await invoke<ShowState | null>("show_state"));
+function accept(state: ShowState | null): void {
   const before = useShow.getState().state;
   useShow.setState({ state });
   if (state) {
@@ -46,14 +47,7 @@ async function refresh(): Promise<void> {
 }
 export function bindShow(): () => void {
   if (!hasNativeWindow()) return () => {};
-  let stopped = false;
-  let timer: ReturnType<typeof setTimeout>;
-  const poll = async () => {
-    if (stopped) return;
-    try { await refresh(); } catch { /* Window startup and shutdown can briefly have no IPC. */ }
-    if (!stopped) timer = setTimeout(poll, 100);
-  };
-  void poll();
+  const unwatch = watch<ShowState | null>("show_watch", accept);
   const onKey = (event: KeyboardEvent) => {
     if (event.key !== "Enter" || event.repeat || event.ctrlKey || event.metaKey || event.altKey || useUi.getState().view !== "live") return;
     if (event.target instanceof Element && event.target.closest("input, textarea, select, button, [contenteditable=true], [role=dialog]")) return;
@@ -62,7 +56,7 @@ export function bindShow(): () => void {
     void showAction({ type: "go" });
   };
   window.addEventListener("keydown", onKey);
-  return () => { stopped = true; clearTimeout(timer); window.removeEventListener("keydown", onKey); };
+  return () => { unwatch(); window.removeEventListener("keydown", onKey); };
 }
 
 export async function addShowControl(kind: "wait" | "loop", name: string): Promise<void> {

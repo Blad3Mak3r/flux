@@ -42,10 +42,12 @@ import { watchMediaProgress } from "./media/progress";
 import { watchFileDrops } from "./state/fileDrop";
 import { bindDocumentSync, flushDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, closeAbout, closeMenu, openMenu, openSetup, say, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
+import { ask, closeAbout, closeMenu, cycleRipple, openMenu, openSetup, say, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
 import { loadShowLock } from "./live/lock";
 import { panic } from "./live/panic";
 import { isShowLocked } from "./live/lockStore";
+import { zoomToFit } from "./state/items";
+import { selectAll } from "./state/selection";
 import {
   addNoteAt,
   closeDocument,
@@ -166,6 +168,8 @@ function Shell({ devices }: { devices: Devices }) {
           : key === "2" ? "viewLive"
           : key === "=" || key === "+" ? "zoomIn"
           : key === "-" ? "zoomOut"
+          : key === "0" ? "zoomFit"
+          : key === "a" ? "selectAll"
           : null;
         if (!action) return;
         event.preventDefault();
@@ -186,7 +190,11 @@ function Shell({ devices }: { devices: Devices }) {
         else if (action === "previousTimeline" || action === "nextTimeline") {
           void stepTimeline(action === "previousTimeline" ? -1 : 1);
         } else if (action === "viewEdit" || action === "viewLive") setView(action === "viewEdit" ? "edit" : "live");
-        else zoomBy(action === "zoomIn" ? ZOOM_STEP : 1 / ZOOM_STEP);
+        else if (action === "zoomFit") {
+          if (useUi.getState().view === "edit") void zoomToFit();
+        } else if (action === "selectAll") {
+          if (useUi.getState().view === "edit") selectAll();
+        } else zoomBy(action === "zoomIn" ? ZOOM_STEP : 1 / ZOOM_STEP);
         return;
       }
 
@@ -209,6 +217,11 @@ function Shell({ devices }: { devices: Devices }) {
         if (useUi.getState().view !== "edit") return;
         event.preventDefault();
         void splitAtPlayhead();
+      } else if (key === "p" && event.altKey) {
+        // Like the magnet, ripple is for placing things.
+        if (useUi.getState().view !== "edit") return;
+        event.preventDefault();
+        cycleRipple();
       } else if (key === "g") {
         // The magnet is for placing things: Live only reads the show.
         if (useUi.getState().view !== "edit") return;

@@ -912,6 +912,21 @@ pub async fn control_get(control: State<'_, SharedControl>) -> Result<ControlVie
     Ok(blocking(move || control.view()).await)
 }
 
+/// Sends the view down `on_view` whenever it changes (the Art-Net packet counter moves by itself),
+/// until [`crate::watch::watch_stop`].
+#[tauri::command]
+pub fn control_watch(
+    control: State<'_, SharedControl>,
+    watches: State<'_, crate::watch::Watches>,
+    on_view: tauri::ipc::Channel<ControlView>,
+) {
+    let control = Arc::clone(&control);
+    let mut changes = crate::watch::Changes::default();
+    watches.start(on_view, Duration::from_secs(1), move || {
+        changes.next(control.view())
+    });
+}
+
 /// Keeps `prefs`, opens the inputs they ask for and answers with how that went. Sending the same
 /// preferences again retries a port that was not connected.
 #[tauri::command]

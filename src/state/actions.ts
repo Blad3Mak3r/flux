@@ -17,7 +17,8 @@ import {
   toggleMute,
 } from "./edit";
 import { removeCueEvent } from "./cues";
-import { editItem } from "./items";
+import { editItem, removeItems } from "./items";
+import { selectedIds } from "./selection";
 import { rename, select, useUi } from "./ui";
 
 export const edit = (project: Project) => dispatch({ type: "edit", project });
@@ -53,6 +54,13 @@ export function deleteSelection(): void {
   if (!selection) return;
   if (selection.kind === "track") { deleteTrack(selection.id); return; }
   if (selection.kind === "operator") { void operatorEdit({ op: "removeOrder", id: selection.id }); select(null); return; }
+  // Several items, or one with ripple on, are removed by the backend in a single step.
+  const ids = selectedIds();
+  if (ids.length > 1 || (ids.length === 1 && useUi.getState().ripple !== "off")) {
+    void removeItems(ids);
+    select(null);
+    return;
+  }
   if (selection.kind === "event") {
     void removeCueEvent(selection.id);
     select(null);
