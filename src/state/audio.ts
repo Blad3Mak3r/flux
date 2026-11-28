@@ -4,9 +4,8 @@ import { analyzeAudio, detectBpm } from "../audio/api";
 import { errorMessage } from "../project/api";
 import type { AudioAsset } from "../project/types";
 import { withoutOffline } from "../media/store";
-import { edit } from "./actions";
-import { setAssetBpm } from "./edit";
-import { dispatch, useDoc } from "./store";
+import { editItem } from "./items";
+import { dispatch } from "./store";
 import { say, sayError } from "./ui";
 
 let generation = 0;
@@ -63,7 +62,7 @@ export async function detectTempo(asset: AudioAsset, report = false, derived = f
     // A tempo found for a file that was opened is not the user's edit: it neither enters the undo
     // history nor makes the document unsaved.
     if (bpm !== null && derived) dispatch({ type: "derivedBpm", id: asset.id, bpm });
-    else if (bpm !== null) edit(setAssetBpm(useDoc.getState().project, asset.id, bpm));
+    else if (bpm !== null) await editItem({ op: "setAssetBpm", id: asset.id, bpm });
     if (report) {
       if (bpm === null) say("status.tempoNone", { name: asset.name });
       else say("status.tempoFound", { name: asset.name, bpm });

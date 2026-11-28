@@ -24,16 +24,9 @@ import { seek, startTransport } from "../transport/playback";
 import { analyse, detectTempos, forgetAnalyses } from "./audio";
 import { probeVideos } from "./video";
 import { activeTimeline, isDirty } from "./doc";
-import { addAudioClip, addNote, emptyProject } from "./edit";
-import { edit } from "./actions";
+import { editItem } from "./items";
 import { dispatch, useDoc } from "./store";
 import { ask, resetView, say, select } from "./ui";
-
-/** The project of a window with no backend to ask (outside the desktop app). */
-const offlineProject = (t: Translate): ProjectState => {
-  const project = emptyProject(t("project.untitled"), "fps25");
-  return { project, active: project.timelines[0].id };
-};
 
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
@@ -113,9 +106,12 @@ export function startDocument(t: Translate, phase: (value: EditorPhase) => void)
 export const newDocument = (t: Translate, mode: ProjectMode = "timeline") =>
   replaceDoc(async () => {
     await flushDocumentSync();
-    const fresh = await newProject(t("project.untitled"), "fps25", mode).catch(() => offlineProject(t));
-    load(fresh, null);
-    say("status.ready");
+    try {
+      load(await newProject(t("project.untitled"), "fps25", mode), null);
+      say("status.ready");
+    } catch (err) {
+      fail(err);
+    }
   });
 
 /** A new VJ show with the structure of the template `id` (see `vj_presets`). */
@@ -184,17 +180,10 @@ export async function importAudioFiles(): Promise<void> {
   try {
     const assets = await importAudio();
     if (assets.length === 0) return;
-    const doc = useDoc.getState();
-    let next = doc.project;
-    const { id: timeline, timecode } = activeTimeline(doc);
-    let last = "";
-    for (const asset of assets) {
-      const added = addAudioClip(next, timeline, asset, currentFrame() - timecode.start);
-      next = added.project;
-      last = added.id;
-      say("status.imported", { name: asset.name });
-    }
-    edit(next);
+    const { timecode } = activeTimeline(useDoc.getState());
+    const last = await editItem({ op: "addAudioClips", assets, at: currentFrame() - timecode.start });
+    if (last === null) return;
+    for (const asset of assets) say("status.imported", { name: asset.name });
     // The tempo is read from the decoded audio, which the analysis leaves in the backend's cache.
     void analyse(assets).then(() => detectTempos(assets));
     select({ kind: "clip", id: last });
@@ -221,11 +210,10 @@ export async function importVideoFiles(): Promise<void> {
 }
 
 /** Adds an empty note at the playhead, or at `frame` (absolute) when given, and selects it to be written. */
-export function addNoteAt(t: Translate, frame = currentFrame(), trackId?: string): void {
-  const doc = useDoc.getState();
-  const { id: timeline, timecode } = activeTimeline(doc);
-  const added = addNote(doc.project, timeline, frame - timecode.start, t("track.kind.notes"), trackId);
-  edit(added.project);
-  select({ kind: "note", id: added.id });
+export async function addNoteAt(t: Translate, frame = currentFrame(), trackId?: string): Promise<void> {
+  const { timecode } = activeTimeline(useDoc.getState());
+  const id = await editItem({ op: "addNote", trackId, at: frame - timecode.start, trackName: t("track.kind.notes") });
+  if (id === null) return;
+  select({ kind: "note", id });
   say("status.noteAdded");
 }

@@ -12,10 +12,9 @@ import type { FrameRate } from "../project/types";
 import { DEFAULT_GRAPHICS, graphicsGet, graphicsRestart, graphicsSet } from "../graphics/api";
 import type { GraphicsApi, GraphicsPrefs, GraphicsState } from "../graphics/api";
 import { projectSetAutosave } from "../project/api";
-import { edit } from "../state/actions";
+import { editItem } from "../state/items";
 import { isDirty } from "../state/doc";
 import { ask } from "../state/ui";
-import { setName } from "../state/edit";
 import { LanguageSelect } from "../i18n/LanguageSelect";
 import { dispatch, useDoc, useTimeline } from "../state/store";
 import { flushDocumentSync } from "../state/persist";
@@ -41,7 +40,7 @@ export function ProjectPage() {
   };
   return (
     <div className="setup-fields">
-      <TextField label={t("project.name")} value={project.name} onCommit={(name) => edit(setName(project, name))} />
+      <TextField label={t("project.name")} value={project.name} onCommit={(name) => void editItem({ op: "renameProject", name })} />
       <h4>{t("setup.project.autosave")}</h4>
       <label className="check-row">
         <input type="checkbox" checked={project.autosave.enabled} disabled={busy}

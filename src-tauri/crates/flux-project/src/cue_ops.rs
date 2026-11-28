@@ -88,6 +88,8 @@ pub struct CueEdited {
     #[serde(flatten)]
     pub state: ProjectState,
     pub id: Option<String>,
+    /// False when the edit left the project as it was, so the window makes no undo step for it.
+    pub changed: bool,
 }
 
 fn new_id() -> String {

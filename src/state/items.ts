@@ -10,13 +10,18 @@ import { selectedIds } from "./selection";
 import { dispatch, useDoc } from "./store";
 import { sayError, setZoom, useUi } from "./ui";
 
-/** Asks for `op`. Resolves when the answer is shown; a refusal is said on the status line. */
-export async function editItem(op: ItemOp): Promise<void> {
+/**
+ * Asks for `op`. Resolves with the id of what it created (or `null`) when the answer is shown; a
+ * refusal is said on the status line and resolves with `null`.
+ */
+export async function editItem(op: ItemOp): Promise<string | null> {
   try {
-    const { project, active } = await itemEdit(useDoc.getState().project, op);
-    dispatch({ type: "apply", project, active });
+    const { project, active, id, changed } = await itemEdit(useDoc.getState().project, op);
+    if (changed) dispatch({ type: "apply", project, active });
+    return id;
   } catch (error) {
     sayError(errorMessage(error));
+    return null;
   }
 }
 

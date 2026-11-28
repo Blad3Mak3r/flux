@@ -62,6 +62,13 @@ pub enum MarksOp {
     RemoveRegion {
         id: String,
     },
+    /// Changes the tempo of the timeline itself (at its origin): what is given replaces what was.
+    /// The BPM is kept to two decimals and, like the beats per bar, must be one a tempo can have.
+    SetTempo {
+        bpm: Option<f64>,
+        beats_per_bar: Option<u8>,
+        click: Option<bool>,
+    },
     /// Changes the tempo and the signature from the bar closest to `at`. At the origin it changes
     /// the timeline's own tempo; on a bar that has a change it replaces that change.
     SetTempoAt {
@@ -192,6 +199,19 @@ pub(crate) fn apply(project: &mut Project, active: &str, op: MarksOp) -> Result<
                 return Err(unknown("region", &id));
             }
         }
+        MarksOp::SetTempo {
+            bpm,
+            beats_per_bar,
+            click,
+        } => {
+            let tempo = &mut timeline.tempo;
+            let mut changed = *tempo;
+            changed.bpm = bpm.map_or(changed.bpm, |bpm| (bpm * 100.0).round() / 100.0);
+            changed.beats_per_bar = beats_per_bar.unwrap_or(changed.beats_per_bar);
+            changed.click = click.unwrap_or(changed.click);
+            changed.validate()?;
+            *tempo = changed;
+        }
         MarksOp::SetTempoAt {
             at,
             bpm,
@@ -313,6 +333,39 @@ mod tests {
             label: "Marker".into(),
         };
         run(project, tl, op).unwrap();
+    }
+
+    #[test]
+    fn set_tempo_should_change_what_is_given_round_the_bpm_and_refuse_what_is_out_of_range() {
+        let (mut project, tl) = sample();
+        let set = |bpm, beats_per_bar, click| MarksOp::SetTempo {
+            bpm,
+            beats_per_bar,
+            click,
+        };
+        run(&mut project, &tl, set(Some(128.456), Some(5), Some(false))).unwrap();
+        let tempo = project.timelines[0].tempo;
+        assert_eq!(
+            (tempo.bpm, tempo.beats_per_bar, tempo.click),
+            (128.46, 5, false)
+        );
+        run(&mut project, &tl, set(None, None, Some(true))).unwrap();
+        let tempo = project.timelines[0].tempo;
+        assert_eq!(
+            (tempo.bpm, tempo.beats_per_bar, tempo.click),
+            (128.46, 5, true)
+        );
+        let before = project.clone();
+        for refused in [
+            set(Some(5.0), None, None),
+            set(Some(9000.0), None, None),
+            set(Some(f64::NAN), None, None),
+            set(None, Some(0), None),
+            set(None, Some(40), None),
+        ] {
+            assert!(run(&mut project, &tl, refused).is_err());
+        }
+        assert_eq!(project, before);
     }
 
     #[test]
@@ -476,9 +529,9 @@ mod tests {
             label: "Marker".into(),
         };
         let state = session.marks_edit(marker).unwrap();
-        assert_eq!(state.project.timelines[0].markers.len(), 2);
+        assert_eq!(state.state.project.timelines[0].markers.len(), 2);
         let state = session.marks_edit(tempo_at(100, 100.0, 4, 4)).unwrap();
-        assert_eq!(state.project.timelines[0].tempo_changes.len(), 2);
+        assert_eq!(state.state.project.timelines[0].tempo_changes.len(), 2);
         // A refused edit leaves the document as it was.
         assert!(session.marks_edit(tempo_at(100, 1.0, 4, 4)).is_err());
         // The window undoes by handing back an older project, and the next edit builds on that.
@@ -486,8 +539,8 @@ mod tests {
         let state = session
             .marks_edit(MarksOp::RemoveMarker { id: "mk1".into() })
             .unwrap();
-        assert!(state.project.timelines[0].markers.is_empty());
-        assert_eq!(state.project.timelines[0].tempo_changes.len(), 1);
+        assert!(state.state.project.timelines[0].markers.is_empty());
+        assert_eq!(state.state.project.timelines[0].tempo_changes.len(), 1);
     }
 
     #[test]

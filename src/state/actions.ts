@@ -1,51 +1,34 @@
 import { operatorEdit, selectedOperatorTrack } from "../voice/store";
-// Edits to the open document, built from the latest project at the moment they run. Each is one
-// stable function, so it can be handed to any component without a closure over a stale project.
+// Edits to the open document. Each only forwards the intent to the backend, which applies it and
+// answers with the project; each is one stable function, so it can be handed to any component.
 
 import { editVideoClip } from "./clips";
-import type { Project, Tempo } from "../project/types";
+import type { Tempo } from "../project/types";
 import { activeTimeline } from "./doc";
-import { dispatch, useDoc } from "./store";
-import {
-  findItem,
-  moveItem,
-  moveTrack,
-  removeItem,
-  removeTrack,
-  setTempo,
-  setTrackGain,
-  toggleMute,
-} from "./edit";
+import { useDoc } from "./store";
 import { removeCueEvent } from "./cues";
 import { editItem, removeItems } from "./items";
-import { selectedIds } from "./selection";
+import { editMarks } from "./marks";
+import { findItem, selectedIds } from "./selection";
 import { rename, select, useUi } from "./ui";
 
-export const edit = (project: Project) => dispatch({ type: "edit", project });
-
-/** Edits the project, given the id of the active timeline at the moment it runs. */
-export const editWith = (change: (project: Project, timeline: string) => Project) => {
-  const doc = useDoc.getState();
-  edit(change(doc.project, activeTimeline(doc).id));
-};
-
-export const moveTo = (id: string, position: number) => editWith((p, tl) => moveItem(p, tl, id, position));
-export const reorderTrack = (trackId: string, to: number) => editWith((p, tl) => moveTrack(p, tl, trackId, to));
-export const muteTrack = (trackId: string) => editWith((p, tl) => toggleMute(p, tl, trackId));
+export const reorderTrack = (trackId: string, to: number) => void editItem({ op: "moveTrack", id: trackId, to });
+export const muteTrack = (trackId: string) => void editItem({ op: "toggleMute", id: trackId });
 /** Renames a track; the backend trims the name and refuses a blank one. */
 export const nameTrack = (id: string, name: string) => editItem({ op: "renameTrack", id, name });
 /** Names a clip; a blank name takes it away, so the clip goes by its audio file's name again. */
 export const nameClip = (id: string, name: string) => editItem({ op: "renameClip", id, name });
 export const setGain = (trackId: string, gainDb: number) => {
   if (activeTimeline(useDoc.getState()).tracks.some((t) => t.id === trackId && t.kind.type === "operator")) void operatorEdit({ op: "setGain", trackId, gainDb });
-  else editWith((p, tl) => setTrackGain(p, tl, trackId, gainDb));
+  else void editItem({ op: "setTrackGain", id: trackId, gainDb });
 };
 
 /** Changes the tempo, beats per bar or click switch of the active timeline. */
-export const setTimelineTempo = (patch: Partial<Tempo>) => editWith((p, tl) => setTempo(p, tl, patch));
+export const setTimelineTempo = ({ bpm, beatsPerBar, click }: Partial<Tempo>) =>
+  void editMarks({ op: "setTempo", bpm, beatsPerBar, click });
 
 export function deleteTrack(trackId: string): void {
-  editWith((p, tl) => removeTrack(p, tl, trackId));
+  void editItem({ op: "removeTrack", id: trackId });
   select(null);
 }
 
@@ -71,7 +54,7 @@ export function deleteSelection(): void {
     select(null);
     return;
   }
-  editWith((p, tl) => removeItem(p, tl, selection.id));
+  void removeItems([selection.id]);
   select(null);
 }
 

@@ -130,9 +130,23 @@ export type ItemOp =
   | { op: "moveEnvelopePoint"; id: string; index: number; at: number; gainDb: number }
   | { op: "removeEnvelopePoint"; id: string; index: number }
   | { op: "setEnvelopeCurve"; id: string; index: number; curve: EnvCurve }
-  | { op: "clearEnvelope"; id: string };
+  | { op: "clearEnvelope"; id: string }
+  | { op: "moveItem"; id: string; at: number }
+  | { op: "setClipGain"; id: string; gainDb: number }
+  | { op: "setNoteText"; id: string; text: string }
+  | { op: "setNoteLength"; id: string; length: number | null }
+  | { op: "addNote"; trackId?: string; at: number; trackName: string }
+  | { op: "addAudioClips"; assets: AudioAsset[]; at: number }
+  | { op: "removeTrack"; id: string }
+  | { op: "moveTrack"; id: string; to: number }
+  | { op: "toggleMute"; id: string }
+  | { op: "setTrackGain"; id: string; gainDb: number }
+  | { op: "setTrackColor"; id: string; color: string | null }
+  | { op: "setAssetBpm"; id: string; bpm: number | null }
+  | { op: "renameProject"; name: string };
 
-export const itemEdit = (project: Project, op: ItemOp) => invoke<ProjectState>("item_edit", { project, op });
+/** Edits tracks, clips, notes, audio files and the project's name; answers with the project and the id of what it created. */
+export const itemEdit = (project: Project, op: ItemOp) => invoke<CueEdited>("item_edit", { project, op });
 
 /** What ripple editing shifts when items are moved or deleted. */
 export type Ripple = "off" | "track" | "all";
@@ -165,12 +179,13 @@ export type MarksOp =
   | { op: "renameRegion"; id: string; name: string }
   | { op: "setRegionColor"; id: string; color: string | null }
   | { op: "removeRegion"; id: string }
+  | { op: "setTempo"; bpm?: number; beatsPerBar?: number; click?: boolean }
   | { op: "setTempoAt"; at: number; bpm: number; beatsPerBar: number; beatUnit: number }
   | { op: "moveTempoChange"; id: string; at: number }
   | { op: "removeTempoChange"; id: string };
 
 /** Edits the markers, regions and tempo changes; answers with the project as it is now. */
-export const marksEdit = (project: Project, op: MarksOp) => invoke<ProjectState>("marks_edit", { project, op });
+export const marksEdit = (project: Project, op: MarksOp) => invoke<CueEdited>("marks_edit", { project, op });
 
 /** The stretches of a timeline's tempo map, in frames, for the ruler and the grid to draw. */
 export const tempoSegments = (project: Project, timeline: string) =>
@@ -204,6 +219,8 @@ export type CueOp =
 /** The project after a cue operation, and the id of what it created. */
 export interface CueEdited extends ProjectState {
   id: string | null;
+  /** False when the edit left the project as it was: nothing to show, no undo step. */
+  changed: boolean;
 }
 
 export const cueEdit = (project: Project, op: CueOp) => invoke<CueEdited>("cue_edit", { project, op });

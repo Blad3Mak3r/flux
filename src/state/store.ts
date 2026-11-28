@@ -3,13 +3,11 @@
 
 import { create } from "zustand";
 import { initialLocale, translator } from "../i18n/messages";
-import { docReducer, initialDoc } from "./doc";
-import { activeTimeline } from "./doc";
+import { activeTimeline, docReducer, initialDoc, placeholderProject } from "./doc";
 import type { Doc, DocAction } from "./doc";
-import { emptyProject } from "./edit";
 
 export const useDoc = create<Doc>()(() =>
-  initialDoc(emptyProject(translator(initialLocale())("project.untitled"), "fps25")),
+  initialDoc(placeholderProject(translator(initialLocale())("project.untitled"))),
 );
 
 /**

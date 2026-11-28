@@ -347,6 +347,7 @@ impl Session {
         Ok(crate::CueEdited {
             state,
             id: Some(id),
+            changed: true,
         })
     }
 

@@ -111,14 +111,38 @@ impl Session {
         })
     }
 
-    /// Renames a track or a clip, or changes a clip's fade curves or volume envelope (see [`ItemOp`]).
-    pub fn item_edit(&mut self, op: ItemOp) -> Result<ProjectState> {
-        self.change(|project, active| item_ops::apply(project, active, op))
+    /// Edits the tracks, clips and notes of the active timeline, and the project's audio files and
+    /// name (see [`ItemOp`]). Answers with the id of what it created.
+    pub fn item_edit(&mut self, op: ItemOp) -> Result<CueEdited> {
+        let before = self.project_now();
+        let mut id = None;
+        let state = self.change(|project, active| {
+            id = item_ops::apply(project, active, op)?;
+            Ok(())
+        })?;
+        Ok(CueEdited {
+            changed: before.as_ref() != Some(&state.project),
+            state,
+            id,
+        })
+    }
+
+    /// The project as the document holds it, to tell whether an edit changed anything.
+    fn project_now(&self) -> Option<crate::model::Project> {
+        self.document
+            .as_ref()
+            .map(|document| document.project.clone())
     }
 
     /// Edits the markers, regions and tempo changes of the active timeline (see [`MarksOp`]).
-    pub fn marks_edit(&mut self, op: crate::MarksOp) -> Result<ProjectState> {
-        self.change(|project, active| crate::marks::apply(project, active, op))
+    pub fn marks_edit(&mut self, op: crate::MarksOp) -> Result<CueEdited> {
+        let before = self.project_now();
+        let state = self.change(|project, active| crate::marks::apply(project, active, op))?;
+        Ok(CueEdited {
+            changed: before.as_ref() != Some(&state.project),
+            state,
+            id: None,
+        })
     }
 
     /// Moves or removes many items of the active timeline at once, with ripple if asked (see
@@ -175,7 +199,11 @@ impl Session {
             id = cue_ops::apply(project, active, op)?;
             Ok(())
         })?;
-        Ok(CueEdited { state, id })
+        Ok(CueEdited {
+            state,
+            id,
+            changed: true,
+        })
     }
 
     /// Edits the DMX tracks and destinations (see [`crate::DmxOp`]).
@@ -185,7 +213,11 @@ impl Session {
             id = crate::dmx::apply(project, op)?;
             Ok(())
         })?;
-        Ok(CueEdited { state, id })
+        Ok(CueEdited {
+            state,
+            id,
+            changed: true,
+        })
     }
 
     pub fn operator_edit(&mut self, op: crate::OperatorOp) -> Result<ProjectState> {

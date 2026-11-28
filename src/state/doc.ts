@@ -1,6 +1,7 @@
 // The open document: the project, where it lives on disk, and the undo history.
 
 import type { Project, Timeline } from "../project/types";
+import { DEFAULT_TEMPO } from "../project/types.ts";
 import type { VideoProbe, VideoStrip } from "../video/api";
 
 /** The waveform the backend decoded: `[min, max]` byte pairs, `perSecond` of them per second. */
@@ -59,13 +60,28 @@ export type DocAction =
   | { type: "thumbs"; id: string; strip: VideoStrip }
   /** A tempo read from the audio of a file opened with none: derived data, so it is no edit (no history, not unsaved work). */
   | { type: "derivedBpm"; id: string; bpm: number }
-  | { type: "edit"; project: Project }
   | { type: "undo" }
   | { type: "redo" }
   /** `meta` is the one the backend wrote with the save. */
   | { type: "saved"; path: string; meta: Project["meta"]; links?: Pick<Project, "assets" | "videos">; snapshot?: Project };
 
 const HISTORY_LIMIT = 200;
+
+/**
+ * A project to fill the store until the backend answers with the real one (`startDocument` loads
+ * it): it is never edited or saved. New projects are made by the backend.
+ */
+export function placeholderProject(name: string): Project {
+  return {
+    formatVersion: 12,
+    autosave: { enabled: true, intervalSeconds: 30 },
+    name,
+    meta: { id: "placeholder", createdAt: "", modifiedAt: "", createdWith: "", savedWith: "" },
+    assets: [],
+    output: { ltc: [], mtc: [] },
+    timelines: [{ id: "placeholder", name, timecode: { frameRate: "fps25", start: 0 }, tempo: DEFAULT_TEMPO, tracks: [] }],
+  };
+}
 
 export function initialDoc(project: Project): Doc {
   return { project, active: project.timelines[0]?.id ?? "", path: null, past: [], future: [], saved: null, audio: {}, video: {}, thumbs: {} };
@@ -134,14 +150,6 @@ function reduce(doc: Doc, action: DocAction): Doc {
       // The saved copy gets it too, so finding it does not make the document look edited.
       return { ...doc, project, saved: doc.saved === doc.project ? project : doc.saved && withBpm(doc.saved) };
     }
-    case "edit":
-      if (action.project === doc.project) return doc;
-      return {
-        ...doc,
-        project: action.project,
-        past: [...doc.past, doc.project].slice(-HISTORY_LIMIT),
-        future: [],
-      };
     case "apply":
       if (action.project === doc.project) return action.active === doc.active ? doc : { ...doc, active: action.active };
       return {

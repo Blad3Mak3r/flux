@@ -5,7 +5,6 @@ import { useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent } from "react";
 import type { ClipOp } from "../project/api";
 import type { Track } from "../project/types";
-import { moveTo } from "../state/actions";
 import { moveCueEvent } from "../state/cues";
 import { editClip, editVideoClip } from "../state/clips";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
@@ -21,7 +20,7 @@ import type { SnapTarget } from "../timeline/snap";
  * is one of several selected, the whole group moves with it and the backend moves them in one step.
  */
 export function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number, track: Track, onClick?: () => void) {
-  // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
+  // A clip or a note is moved by delta, like a group; an order, an event or a video by where it lands.
   const move =
     kind === "operator"
       ? (id: string, at: number) => operatorEdit({ op: "moveOrder", id, at })
@@ -29,7 +28,7 @@ export function useDrag(id: string, kind: Selected["kind"], position: number, le
         ? moveCueEvent
         : kind === "video"
           ? (id: string, at: number) => editVideoClip(id, "move", at)
-          : moveTo;
+          : null;
   const [delta, setDelta] = useState(0);
   // The group's drag is shared, so every selected item follows the one held.
   const grouped = useUi((ui) => ui.picked.has(id));
@@ -39,7 +38,7 @@ export function useDrag(id: string, kind: Selected["kind"], position: number, le
   // Moves the item by `by` frames; with a group or ripple on, the backend moves them.
   const commit = (by: number) => {
     const ui = useUi.getState();
-    if (ui.picked.has(id) || (ui.ripple !== "off" && kind !== "operator")) void moveItems(ui.picked.has(id) ? pickedIds() : [id], by);
+    if (ui.picked.has(id) || (ui.ripple !== "off" && kind !== "operator") || !move) void moveItems(ui.picked.has(id) ? pickedIds() : [id], by);
     else void move(id, Math.max(0, position + by));
   };
 
