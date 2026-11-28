@@ -4,7 +4,7 @@
 //! the show's tick), so a controller can never disagree with the screen. [`light`] decides it for
 //! one action; [`Lamps`] remembers what each pad was last sent and writes only what changed. Both
 //! are pure and tested with a recording [`MidiWrite`]. The thread that samples the facts and owns
-//! the port is the app's (`src-tauri/src/control.rs`); nothing here runs in an audio callback or
+//! the port is the app's (`src-tauri/src/control/`); nothing here runs in an audio callback or
 //! logs.
 
 use std::collections::{BTreeMap, HashMap, HashSet};

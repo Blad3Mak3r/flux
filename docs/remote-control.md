@@ -176,7 +176,7 @@ step. The format is in [fxtc-format.md](fxtc-format.md#mappings-file-flxmap).
 
 - `flux-engine/src/control.rs` decodes MIDI and OSC, maps them to a `ControlAction` and finds the frame of a cue action. It
   is pure and tested without hardware. `control_in.rs` holds the MIDI input port and the UDP socket.
-- `src-tauri/src/control.rs` keeps the preferences, opens the inputs when the app starts or the preferences change, and runs
+- `src-tauri/src/control/` keeps the preferences, opens the inputs when the app starts or the preferences change, and runs
   the `flux-control` thread that executes the actions. The inputs live as long as the app, not as long as an output: the
   output is closed and reopened on every timeline change.
 - What only the window can do (open the output to play, switch the view) is sent to it as the `control-action` event; a

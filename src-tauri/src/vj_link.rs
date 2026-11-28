@@ -1,7 +1,7 @@
 //! The VJ show's place in an Ableton Link session: joined while the show asks for it, with its
 //! tempo shared both ways.
 //!
-//! The beat phase is the grid's (see `Grid::count` in `vj_commands.rs`); what this thread does is
+//! The beat phase is the grid's (see `Grid::count` in `vj_commands/`); what this thread does is
 //! join and leave the session as `vj.link` says, and carry the tempo across: the operator's tempo
 //! goes to the session, a peer's comes into the show as a change of the project that the window
 //! is told of, like a controller's. Which way a tempo goes is decided by [`flux_link::sync_tempo`].

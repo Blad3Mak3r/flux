@@ -20,7 +20,7 @@ pub struct ShowOutputs {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub dmx: Vec<crate::DmxDestination>,
     /// The show sends MIDI clock, to the port this installation chooses; absent is off.
-    #[serde(skip_serializing_if = "crate::vj::is_false")]
+    #[serde(skip_serializing_if = "crate::serde_util::is_false")]
     pub midi_clock: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_routes: Option<OutputConfig>,
