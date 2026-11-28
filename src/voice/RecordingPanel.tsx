@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { watch } from "../watch";
 import { invoke } from "@tauri-apps/api/core";
 import { Field } from "../components/fields";
 import { listAudioHosts, type AudioHost } from "../devices/api";
@@ -40,19 +41,10 @@ export function RecordingPanel({ orderId }: { orderId: string }) {
   useEffect(() => () => { void leaveRecording(); }, [orderId]);
   useEffect(() => {
     if (active !== orderId) { setStatus(null); return; }
-    let disposed = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const next = await invoke<CaptureStatus | null>("voice_record_status");
-        if (disposed) return;
-        setStatus(next);
-        if (next?.done) { await stopRecording(); return; }
-      } catch (error) { if (!disposed) sayError(voiceError(error)); }
-      if (!disposed) timer = setTimeout(() => { void poll(); }, 100);
-    };
-    void poll();
-    return () => { disposed = true; clearTimeout(timer); };
+    return watch<CaptureStatus | null>("voice_record_watch", (next) => {
+      setStatus(next);
+      if (next?.done) void stopRecording();
+    }, "onStatus");
   }, [active, orderId]);
   const locked = active !== null || working;
   const choose = (device: string, channel: number, host = driver) => {

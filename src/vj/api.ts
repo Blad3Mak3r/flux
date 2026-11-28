@@ -43,7 +43,7 @@ export type VjOp =
   | { op: "layerMaster" | "layerOpacity" | "layerVolume" | "layerTransition"; layer: string; value: number }
   | { op: "layerLevelReset"; layer: string; level: VjLevel }
   | { op: "layerBlend"; layer: string; blend: VjBlend }
-  | { op: "layerTransitionEffect"; layer: string; effect: VjBlend }
+  | { op: "layerTransitionEffect"; layer: string; effect: VjBlend; random?: boolean }
   | { op: "layerAutopilot"; layer: string; mode: VjAutopilot }
   | { op: "layerCrossfade"; layer: string; side: VjSide | null }
   | { op: "layerBypass" | "layerSolo" | "layerCollapse"; layer: string; on: boolean }
@@ -111,6 +111,7 @@ export type VjOp =
   | { op: "setMappingLights"; mapping: string; lights: VjLights | null }
   /** The colours of the pads whose mapping has none of its own, or `null` for the controller's preset. */
   | { op: "setLights"; lights: VjLights | null }
+  | { op: "setOscFeedback"; destinations: string }
   /** Follows a clip, layer, column, deck or effect by id or by its slot. */
   | { op: "setMappingFollow"; mapping: string; follow: VjFollow }
   | { op: "setMapping"; mapping: string; min: number; max: number; invert: boolean; mode: VjButtonMode }
@@ -202,7 +203,6 @@ export const vjStop = (layer: string | null) => invoke<GridState>("vj_stop", { l
 /** Puts the crossfader back where the backend starts it. */
 export const vjCrossfaderReset = () => invoke<GridState>("vj_crossfader_reset");
 export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfader", { position });
-export const vjPlayState = () => invoke<GridState>("vj_play_state");
 /** What the grid sends to the screens now, as a small picture (see `bindOutput`); empty outside a VJ project. */
 export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");
 export const vjScreenFrame = (screen: string) => invoke<ArrayBuffer>("vj_screen_frame", { screen });
@@ -233,8 +233,11 @@ export interface DockLayout {
   root: DockNode;
   monitors: { id: string; kind: MonitorKind }[];
 }
+export type ClipSize = "small" | "medium" | "large";
 export interface LayoutState {
   current: DockLayout;
+  /** How big the grid's clips are drawn; kept per machine. */
+  clipSize: ClipSize;
   saved: { id: string; name: string }[];
   factory: { id: "default" | "performance" | "monitors" }[];
   /** The least `[width, height]` in px of every split, tab group and `"deck"`. */

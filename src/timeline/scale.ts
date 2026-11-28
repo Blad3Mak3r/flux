@@ -1,7 +1,7 @@
 import type { FrameRate } from "../project/types";
 import { nominalFps } from "../timecode.ts";
 
-export const MIN_PX_PER_FRAME = 0.04;
+export const MIN_PX_PER_FRAME = 0.003;
 export const MAX_PX_PER_FRAME = 40;
 export const DEFAULT_PX_PER_FRAME = 1.6;
 

@@ -6,10 +6,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 
 use crate::commands::SharedSession;
 use crate::video_commands::known_probe;
+use crate::watch::Watches;
 use flux_project::playhead::{Playhead, Tick};
 use flux_project::vj::{CUES, Playback, Region, Vj};
 use flux_project::{ProjectError, Result};
@@ -586,19 +588,77 @@ pub(crate) fn beat(
     play(app, session, grid, |_, _, _| Ok(()))
 }
 
-/// What the grid plays now.
+/// How often the window is told what plays, at most: thirty times a second.
+const PLAY_EVERY: Duration = Duration::from_millis(33);
+
+/// The play lane: what the grid plays is sent when it differs from what was sent last. The window
+/// shows the beat, not its fraction, so beats count as whole ones.
+#[derive(Default)]
+struct PlayLane {
+    last: Option<GridState>,
+}
+
+impl PlayLane {
+    fn next(&mut self, state: GridState) -> Option<GridState> {
+        let held = GridState {
+            beats: state.beats.floor(),
+            ..state.clone()
+        };
+        if self.last.as_ref() == Some(&held) {
+            return None;
+        }
+        self.last = Some(held);
+        Some(state)
+    }
+}
+
+/// Sends what the grid plays down `on_play` whenever it changes, until [`crate::watch::watch_stop`].
 #[tauri::command]
-pub fn vj_play_state(
+pub fn vj_play_watch(
     app: AppHandle,
     session: State<'_, SharedSession>,
     grid: State<'_, SharedGrid>,
-) -> Result<GridState> {
-    play(&app, &session, &grid, |_, _, _| Ok(()))
+    watches: State<'_, Watches>,
+    on_play: Channel<GridState>,
+) {
+    let (session, grid) = (Arc::clone(&session), Arc::clone(&grid));
+    let mut lane = PlayLane::default();
+    watches.start(on_play, PLAY_EVERY, move || {
+        play(&app, &session, &grid, |_, _, _| Ok(()))
+            .ok()
+            .and_then(|state| lane.next(state))
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn idle(beats: f64) -> GridState {
+        GridState {
+            playing: Vec::new(),
+            column: None,
+            crossfader: 0.5,
+            beats,
+            beats_paused: false,
+        }
+    }
+
+    #[test]
+    fn play_lane_should_send_the_first_state() {
+        assert!(PlayLane::default().next(idle(0.2)).is_some());
+    }
+
+    #[test]
+    fn play_lane_should_send_only_when_a_beat_or_anything_else_changed() {
+        let mut lane = PlayLane::default();
+        lane.next(idle(0.2));
+        assert_eq!(lane.next(idle(0.9)), None, "the same beat");
+        assert_eq!(lane.next(idle(1.1)), Some(idle(1.1)), "the next beat");
+        let mut moved = idle(1.2);
+        moved.crossfader = 0.7;
+        assert_eq!(lane.next(moved.clone()), Some(moved));
+    }
 
     fn secs(seconds: f64) -> Duration {
         Duration::from_secs_f64(seconds)

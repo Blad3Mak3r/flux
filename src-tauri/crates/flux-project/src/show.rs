@@ -55,7 +55,7 @@ pub struct TimelineControl {
 }
 
 /// Read-only show sheet. Derived here so Edit and the prepared run share the same entry identity.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntryOverview {
     pub id: String,
@@ -138,7 +138,7 @@ pub enum EntryProgress {
     Omitted,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RunningEntry {
     #[serde(flatten)]
     pub entry: EntryOverview,

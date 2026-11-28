@@ -93,6 +93,10 @@ pub struct Vj {
     /// absent is the controller's preset (see [`crate::vj_feedback`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lights: Option<crate::vj_feedback::Lights>,
+    /// The OSC destinations (`host:port`) the grid's state is echoed to, on the addresses that
+    /// control it (see [`crate::vj_osc_feedback`]); absent is none, and nothing is sent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub osc_feedback: Vec<String>,
 }
 
 /// Where the timecode clock of a VJ show comes from: Flux's own transport, or timecode coming in
@@ -201,6 +205,10 @@ pub struct Layer {
     /// transition mode); absent is [`Blend::Alpha`], a crossfade.
     #[serde(default, skip_serializing_if = "Blend::is_alpha")]
     pub transition_effect: Blend,
+    /// Whether each transition on the layer picks a blend at random, from all of them, instead of
+    /// using [`Self::transition_effect`] (Resolume's Random transition); absent is off.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub transition_random: bool,
     /// What the layer launches when the clip playing on it ends a pass; absent is [`Autopilot::Off`].
     #[serde(default, skip_serializing_if = "Autopilot::is_off")]
     pub autopilot: Autopilot,
@@ -264,6 +272,7 @@ impl Layer {
             blend: Blend::Alpha,
             transition: 0.0,
             transition_effect: Blend::Alpha,
+            transition_random: false,
             autopilot: Autopilot::Off,
             crossfade: None,
             bypass: false,
@@ -351,6 +360,39 @@ pub enum Blend {
 }
 
 impl Blend {
+    /// Every blend, for the random transition to pick from.
+    pub const ALL: [Blend; 29] = [
+        Blend::Alpha,
+        Blend::Add,
+        Blend::Subtract,
+        Blend::Multiply,
+        Blend::Screen,
+        Blend::Lighten,
+        Blend::Darken,
+        Blend::Difference,
+        Blend::Exclusion,
+        Blend::Overlay,
+        Blend::SoftLight,
+        Blend::HardLight,
+        Blend::ColorDodge,
+        Blend::ColorBurn,
+        Blend::LinearLight,
+        Blend::VividLight,
+        Blend::PinLight,
+        Blend::Hue,
+        Blend::Saturation,
+        Blend::Color,
+        Blend::Luminosity,
+        Blend::AlphaCut,
+        Blend::LumaKey,
+        Blend::LumaKeyInverted,
+        Blend::LumaIsAlpha,
+        Blend::DifferenceInverted,
+        Blend::Mask50,
+        Blend::Rgb,
+        Blend::Displace,
+    ];
+
     pub(crate) fn is_alpha(&self) -> bool {
         *self == Self::Alpha
     }
@@ -758,9 +800,13 @@ pub enum VjOp {
         layer: String,
         value: f32,
     },
+    /// With `random`, every transition of the layer picks its own blend and `effect` is kept for
+    /// when it is turned off.
     LayerTransitionEffect {
         layer: String,
         effect: Blend,
+        #[serde(default)]
+        random: bool,
     },
     LayerCrossfade {
         layer: String,
@@ -1077,6 +1123,11 @@ pub enum VjOp {
     SetLights {
         lights: Option<crate::vj_feedback::Lights>,
     },
+    /// Sets where the OSC feedback goes: `host:port` separated by commas or spaces, at most 4;
+    /// an empty text turns it off.
+    SetOscFeedback {
+        destinations: String,
+    },
     /// Sets how a mapping of a clip, layer, column, deck or effect follows it: by id, or by the
     /// slot it is in.
     SetMappingFollow {
@@ -1167,6 +1218,7 @@ impl Vj {
             && self.mappings.is_empty()
             && self.dashboard.is_empty()
             && self.lights.is_none()
+            && self.osc_feedback.is_empty()
     }
 
     /// The grid of a new VJ project: [`DEFAULT_LAYERS`] layers and one deck of [`DEFAULT_COLUMNS`]
@@ -1187,6 +1239,7 @@ impl Vj {
             mappings: Vec::new(),
             dashboard: Vec::new(),
             lights: None,
+            osc_feedback: Vec::new(),
         }
     }
 
@@ -1444,8 +1497,14 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::LayerTransition { layer, value } => {
             vj.layer_mut(&layer)?.transition = level(value / MAX_TRANSITION)? * MAX_TRANSITION;
         }
-        VjOp::LayerTransitionEffect { layer, effect } => {
-            vj.layer_mut(&layer)?.transition_effect = effect;
+        VjOp::LayerTransitionEffect {
+            layer,
+            effect,
+            random,
+        } => {
+            let layer = vj.layer_mut(&layer)?;
+            layer.transition_effect = effect;
+            layer.transition_random = random;
         }
         VjOp::LayerCrossfade { layer, side } => vj.layer_mut(&layer)?.crossfade = side,
         VjOp::LayerAutopilot { layer, mode } => vj.layer_mut(&layer)?.autopilot = mode,
@@ -1772,6 +1831,9 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
                 lights.validate()?;
             }
             vj.lights = lights;
+        }
+        VjOp::SetOscFeedback { destinations } => {
+            vj.osc_feedback = crate::vj_osc_feedback::parse_destinations(&destinations)?;
         }
         VjOp::SetMappingFine { mapping, fine } => {
             crate::vj_mapping::set_mapping_fine(vj, &mapping, fine)?;
@@ -2725,12 +2787,78 @@ mod tests {
     }
 
     #[test]
+    fn a_layer_transition_should_be_random_only_when_asked() {
+        let (mut project, mut new_id) = vj_project();
+        let op = |random| VjOp::LayerTransitionEffect {
+            layer: "g1".into(),
+            effect: Blend::Add,
+            random,
+        };
+        run(&mut project, op(true), &mut new_id);
+        let json = serde_json::to_value(&project.vj.layers[0]).unwrap();
+        assert_eq!(json["transitionRandom"], true);
+        assert_eq!(json["transitionEffect"], "add");
+        run(&mut project, op(false), &mut new_id);
+        let json = serde_json::to_value(&project.vj.layers[0]).unwrap();
+        assert!(json.get("transitionRandom").is_none());
+    }
+
+    #[test]
+    fn every_blend_should_be_listed_once_for_the_random_transition() {
+        let names: std::collections::HashSet<String> = Blend::ALL
+            .iter()
+            .map(|b| {
+                serde_json::to_value(b)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(names.len(), Blend::ALL.len());
+        // A new variant stops this from compiling until it is counted here and in `ALL`.
+        let count = |b: Blend| match b {
+            Blend::Alpha
+            | Blend::Add
+            | Blend::Subtract
+            | Blend::Multiply
+            | Blend::Screen
+            | Blend::Lighten
+            | Blend::Darken
+            | Blend::Difference
+            | Blend::Exclusion
+            | Blend::Overlay
+            | Blend::SoftLight
+            | Blend::HardLight
+            | Blend::ColorDodge
+            | Blend::ColorBurn
+            | Blend::LinearLight
+            | Blend::VividLight
+            | Blend::PinLight
+            | Blend::Hue
+            | Blend::Saturation
+            | Blend::Color
+            | Blend::Luminosity
+            | Blend::AlphaCut
+            | Blend::LumaKey
+            | Blend::LumaKeyInverted
+            | Blend::LumaIsAlpha
+            | Blend::DifferenceInverted
+            | Blend::Mask50
+            | Blend::Rgb
+            | Blend::Displace => 1,
+        };
+        assert_eq!(Blend::ALL.iter().map(|b| count(*b)).sum::<usize>(), 29);
+    }
+
+    #[test]
     fn a_layer_transition_should_take_any_blend_and_default_to_alpha() {
         let (mut project, mut new_id) = vj_project();
         assert_eq!(project.vj.layers[0].transition_effect, Blend::Alpha);
         let op = VjOp::LayerTransitionEffect {
             layer: "g1".into(),
             effect: Blend::Multiply,
+            random: false,
         };
         run(&mut project, op, &mut new_id);
         let json = serde_json::to_value(&project.vj.layers[0]).unwrap();

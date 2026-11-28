@@ -6,6 +6,8 @@ import { errorMessage } from "../project/api";
 import { dispatch, useDoc } from "../state/store";
 import { say, sayError } from "../state/ui";
 import { probeVideos } from "../state/video";
+import { watch } from "../watch";
+import { picture } from "./picture";
 import {
   vjBeat,
   vjCrossfader,
@@ -21,14 +23,13 @@ import {
   vjScreenFrame,
   vjPreviewFrame,
   vjPreview,
-  vjPlayState,
   vjRelease,
   vjScrub,
   vjImport,
   vjModulationValues,
   vjStop,
 } from "./api";
-import type { DockNode, DockTarget, GridState, LayoutState, ModValues, MonitorKind, VjBeatOp, VjOp } from "./api";
+import type { DockNode, ClipSize, DockTarget, GridState, LayoutState, ModValues, MonitorKind, VjBeatOp, VjOp } from "./api";
 
 /** A video file being copied into the project, shown where it will land until it is there. */
 export interface Importing {
@@ -251,6 +252,7 @@ export const layoutSetMonitor = (id: string, kind: MonitorKind) => laid(() => vj
 export const layoutApply = (id: string) => laid(() => vjLayout("apply", { id }));
 export const layoutSave = (name: string) => laid(() => vjLayout("save", { name }));
 export const layoutDelete = (id: string) => laid(() => vjLayout("delete", { id }));
+export const layoutSetClipSize = (size: ClipSize) => laid(() => vjLayout("set_clip_size", { size }));
 export const layoutReset = () => laid(() => vjLayout("reset"));
 
 /** Brings the tab of `panel` forward when it is open and hidden behind another; a closed one opens only with `open`. */
@@ -279,33 +281,10 @@ export const showModulation = (key: string, open?: boolean) =>
     return { modOpen };
   });
 
-/** Asks the backend what plays, twenty times a second, while the VJ screen is open and in sight. */
+/** Shows what the grid plays as the backend sends it, while the VJ screen is open: it sends on a change, so an idle grid is silent. */
 export function bindPlayState(): () => void {
-  let stopped = false;
-  const tick = () => {
-    if (stopped) return;
-    // A minimized window shows nothing: the screens play on without it.
-    if (document.hidden) {
-      window.setTimeout(tick, 100);
-      return;
-    }
-    vjPlayState()
-      .then((play) => {
-        if (!stopped) useVj.setState({ play });
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (!stopped) window.setTimeout(tick, PLAY_EVERY);
-      });
-  };
-  tick();
-  return () => {
-    stopped = true;
-  };
+  return watch<GridState>("vj_play_watch", (play) => useVj.setState({ play }), "onPlay");
 }
-
-/** How often the play state is asked for: the playhead of a clip moves with it. */
-const PLAY_EVERY = 50;
 
 /** How often the modulated values are asked for while the inspector shows something modulated: thirty times a second. */
 const MOD_EVERY = 1000 / 30;
@@ -333,15 +312,6 @@ export function bindModulation(): () => void {
     stopped = true;
     useVj.setState({ mod: NO_MOD });
   };
-}
-
-/** The backend's picture: its width and height as two little-endian u16, then its RGBA pixels. */
-function picture(bytes: ArrayBuffer): ImageData | null {
-  if (bytes.byteLength < 4) return null;
-  const size = new DataView(bytes);
-  const width = size.getUint16(0, true);
-  const height = size.getUint16(2, true);
-  return new ImageData(new Uint8ClampedArray(bytes, 4, width * height * 4), width, height);
 }
 
 /** How often the output monitor asks for a picture: thirty times a second. */

@@ -177,20 +177,26 @@
 
 .vj-grid {
   --vj-header: 276px;
+  /* The clip size: the width of a column and the height of a row (a picture over a 24 px name bar). */
+  --vj-clip-w: 116px;
+  --vj-row-h: 104px;
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding-right: 6px;
 }
 
+.vj-grid[data-size="small"] { --vj-clip-w: 88px; }
+.vj-grid[data-size="large"] { --vj-clip-w: 160px; --vj-row-h: 128px; }
+
 .vj-row {
   display: grid;
   /* Fixed columns as in Resolume (a 120 px pitch): the ones that do not fit scroll, the room left over stays empty. */
-  grid-template-columns: var(--vj-header) repeat(var(--columns), 116px);
+  grid-template-columns: var(--vj-header) repeat(var(--columns), var(--vj-clip-w));
   gap: 4px;
   width: max-content;
   min-width: 100%;
-  height: 104px;
+  height: var(--vj-row-h);
   margin-top: 4px;
 }
 
@@ -349,7 +355,10 @@
 }
 
 .vj-now { border-radius: 1px; box-shadow: 0 0 0 1px var(--signal); }
-.vj-now.empty { background: var(--vj-well); box-shadow: inset 0 0 0 1px var(--vj-line); }
+/* Nothing playing is an etched, dashed outline with a dim camera mark and no fill, so it is not the black of an empty slot. */
+.vj-now.empty { display: grid; place-items: center; background: none; box-shadow: none; outline: 1px dashed var(--ink-faint); outline-offset: -1px; }
+.vj-nonow { color: var(--ink-faint); opacity: 0.7; line-height: 0; }
+.vj-nonow .icon, .vj-nonow svg { width: 18px; height: 18px; }
 
 .vj-time {
   position: absolute;
@@ -483,9 +492,9 @@
 .vj-deck.add { padding: 0 8px; color: var(--ink-faint); }
 .vj-deck .icon { width: 12px; height: 12px; }
 .vj-count { color: var(--ink-faint); font-size: 10.5px; font-weight: 400; }
-.vj-tips { display: flex; align-items: center; gap: 18px; color: var(--ink-faint); }
-.vj-hint { display: flex; align-items: center; gap: 7px; }
-.vj-hint .icon { width: 12px; height: 12px; color: var(--vj-global-ink); }
+.vj-tips { color: var(--ink-faint); white-space: nowrap; }
+/* A tip is a nicety: below this width the status bar keeps its room for the real messages. */
+@media (max-width: 1399px) { .vj-tips { display: none; } }
 
 /* Composition */
 .vj-comp {

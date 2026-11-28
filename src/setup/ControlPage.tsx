@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { watch } from "../watch";
 import { PlusIcon, TrashIcon } from "../components/icons";
 import { SelectField, TextField } from "../components/fields";
 import { useT } from "../i18n";
@@ -99,10 +100,9 @@ export function ControlPage({ part }: { part: "midi" | "osc" | "artnet" }) {
 
   useEffect(() => {
     controlGet().then(setView, fail);
-    // The packet counter moves by itself: read it while the Art-Net page is open.
+    // The packet counter moves by itself: the backend sends the view when it changes, while the Art-Net page is open.
     if (part !== "artnet") return;
-    const timer = window.setInterval(() => void controlGet().then(setView, () => undefined), 1000);
-    return () => window.clearInterval(timer);
+    return watch<ControlView>("control_watch", setView, "onView");
   }, [part]);
 
   useEffect(() => {

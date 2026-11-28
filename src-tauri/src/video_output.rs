@@ -1717,10 +1717,21 @@ impl VideoOutputs {
     }
 }
 
-/// Whether the output is disabled or showing the test card, and where it is full screen.
+/// Sends whether the output is disabled or showing the test card, and where it is full screen,
+/// down `on_state` whenever it changes (a display can be plugged in or out), until
+/// [`crate::watch::watch_stop`].
 #[tauri::command]
-pub fn video_output_state(app: AppHandle, output: State<'_, SharedVideoOutput>) -> OutputState {
-    output.output_state(&app)
+pub fn video_output_watch(
+    app: AppHandle,
+    output: State<'_, SharedVideoOutput>,
+    watches: State<'_, crate::watch::Watches>,
+    on_state: tauri::ipc::Channel<OutputState>,
+) {
+    let output = Arc::clone(&output);
+    let mut changes = crate::watch::Changes::default();
+    watches.start(on_state, Duration::from_millis(1500), move || {
+        changes.next(output.output_state(&app))
+    });
 }
 
 /// Flips Disable Output or Show Test Card, and answers the state.
@@ -2079,6 +2090,7 @@ mod tests {
             blend: Blend::Add,
             transition: 2.0,
             transition_effect: Default::default(),
+            transition_random: false,
             autopilot: Default::default(),
             crossfade: Some(Side::A),
             bypass: true,

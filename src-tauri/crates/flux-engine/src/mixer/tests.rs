@@ -1,0 +1,867 @@
+use super::*;
+use flux_project::{AudioClip, ClipOp, FrameRate, Track, apply_clip_op};
+
+#[test]
+fn video_clips_should_sound_through_their_track_like_audio_clips() {
+    let mut project = Project::new("Show", FrameRate::Fps25);
+    project.videos.push(VideoAsset {
+        id: "v1".into(),
+        name: "Intro".into(),
+        file: "video/intro.mp4".into(),
+        link: None,
+    });
+    project.timelines[0].tracks.push(Track {
+        audio_output: Default::default(),
+        id: "video".into(),
+        name: "Video".into(),
+        muted: false,
+        gain_db: None,
+        color: None,
+        kind: TrackKind::Video {
+            clips: vec![flux_project::VideoClip {
+                id: "c1".into(),
+                asset: "v1".into(),
+                start: 2,
+                name: None,
+                offset: 1,
+                length: Some(1),
+                fit: Default::default(),
+                fade_in: 0,
+                fade_out: 0,
+            }],
+        },
+    });
+    let timeline = project.timelines[0].clone();
+    let programme = build_with_video(
+        &project,
+        &timeline,
+        |_| unreachable!("no audio clips"),
+        |_| Ok(Some(ramp(10_000))),
+    );
+    assert!(programme.warnings.is_empty());
+    // Frame 2 at 25 fps is sample 3840, and the clip starts one frame into the video.
+    let per_frame = (ENGINE_RATE / 25) as usize;
+    let (left, _) = mix(&programme.set, 2 * per_frame as u64, 4);
+    assert_eq!(left[0], per_frame as f32 * SCALE);
+    // One frame long: silent after it.
+    let (after, _) = mix(&programme.set, 3 * per_frame as u64, 4);
+    assert_eq!(after, vec![0.0; 4]);
+    // A video without sound adds nothing.
+    let silent = build_with_video(&project, &timeline, |_| unreachable!(), |_| Ok(None));
+    assert!(silent.set.is_empty());
+}
+
+#[test]
+fn operator_bus_is_separate_and_obeys_faders_and_overlap() {
+    let mut clips = set(vec![
+        player(audio(8192, 8192, 8), 0, 1.0),
+        player(audio(8192, 8192, 8), 0, 1.0),
+    ]);
+    clips.operator_tracks.push(0);
+    assert_eq!(mix(&clips, 0, 4).0, vec![0.0; 4]);
+    let (mut left, mut right) = ([0.0; 4], [0.0; 4]);
+    clips.mix_operator(0, &mut left, &mut right);
+    assert_eq!(left, [0.5; 4]);
+    clips.levels().set_gain_db("t1", -60.0);
+    clips.mix_operator(4, &mut [0.0; 4], &mut [0.0; 4]);
+    let mut silent = [0.0; 4];
+    clips.mix_operator(4, &mut silent, &mut [0.0; 4]);
+    assert_eq!(silent, [0.0; 4]);
+}
+
+#[test]
+fn operator_end_alignment_is_exact_and_invalid_positions_are_silent() {
+    let mut project = Project::new("Show", FrameRate::Fps25);
+    project.assets.push(AudioAsset {
+        id: "voice".into(),
+        name: "Voice".into(),
+        file: "audio/voice.mp3".into(),
+        link: None,
+        bpm: None,
+    });
+    project.timelines[0].tracks.push(Track {
+        audio_output: Default::default(),
+        id: "operator".into(),
+        name: "Operator".into(),
+        muted: false,
+        gain_db: None,
+        color: None,
+        kind: TrackKind::Operator {
+            voice: None,
+            orders: vec![flux_project::VoiceOrder {
+                mode: Default::default(),
+                synthesis_text: None,
+                trim_start: 0,
+                trim_end: 0,
+                id: "go".into(),
+                at: 1,
+                dialogue: "Changed dialogue".into(),
+                alignment: flux_project::Alignment::End,
+                generated: Some(flux_project::GeneratedVoice {
+                    origin: flux_project::operator::RecordingOrigin::Generated,
+                    synthesis_text: None,
+                    asset: "voice".into(),
+                    dialogue: "Go".into(),
+                    voice: "v".into(),
+                    model: flux_project::operator::VOICE_MODEL.into(),
+                    samples: 10,
+                }),
+            }],
+        },
+    });
+    let build_set = |p: &Project| build(p, &p.timelines[0], |_| Ok(audio(16384, 16384, 10))).set;
+    let set = build_set(&project);
+    let mut left = [0.0; 12];
+    set.mix_operator(1909, &mut left, &mut [0.0; 12]);
+    assert_eq!(
+        left,
+        [0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.0]
+    );
+    if let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind {
+        orders[0].trim_start = 2;
+        orders[0].trim_end = 3;
+    }
+    let trimmed = build(&project, &project.timelines[0], |_| Ok(ramp(10))).set;
+    let mut left = [0.0; 7];
+    trimmed.mix_operator(1914, &mut left, &mut [0.0; 7]);
+    assert_eq!(
+        left,
+        [
+            0.0,
+            2.0 * SCALE,
+            3.0 * SCALE,
+            4.0 * SCALE,
+            5.0 * SCALE,
+            6.0 * SCALE,
+            0.0
+        ]
+    );
+    if let TrackKind::Operator { orders, .. } = &mut project.timelines[0].tracks[0].kind {
+        orders[0].at = 0;
+    }
+    assert!(build_set(&project).is_empty());
+    project.timelines[0].tracks[0].muted = true;
+    assert!(build_set(&project).is_empty());
+}
+
+fn audio(left: i16, right: i16, frames: usize) -> Arc<Decoded> {
+    Arc::new(Decoded {
+        samples: (0..frames).flat_map(|_| [left, right]).collect(),
+        source_rate: ENGINE_RATE,
+    })
+}
+
+/// A clip set with one track at 0 dB that holds every clip.
+fn set(clips: Vec<ClipPlayer>) -> ClipSet {
+    ClipSet::new(clips, vec![("t1".into(), 1.0)])
+}
+
+fn player(audio: Arc<Decoded>, start: u64, gain: f32) -> ClipPlayer {
+    ClipPlayer::new(audio, start, gain, 0)
+}
+
+fn mix(set: &ClipSet, position: u64, frames: usize) -> (Vec<f32>, Vec<f32>) {
+    let (mut left, mut right) = (vec![0.0; frames], vec![0.0; frames]);
+    set.mix(position, &mut left, &mut right);
+    (left, right)
+}
+
+/// Samples that count up from 0, so a mixed sample says which sample of the asset it is.
+fn ramp(frames: usize) -> Arc<Decoded> {
+    Arc::new(Decoded {
+        samples: (0..frames).flat_map(|i| [i as i16, i as i16]).collect(),
+        source_rate: ENGINE_RATE,
+    })
+}
+
+/// `audio` as a clip at the timeline origin, at 25 fps (1920 samples a frame), edited by `edit`.
+fn trimmed(audio: Arc<Decoded>, edit: impl FnOnce(&mut AudioClip)) -> ClipSet {
+    let mut clip = AudioClip::new("c1", "a1", 0);
+    edit(&mut clip);
+    let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+    let span = span(&clip, &clock, audio.frames() as u64);
+    set(vec![ClipPlayer {
+        envelope: Envelope::new(&clip, span.origin, &clock),
+        audio,
+        span,
+        gain: 1.0,
+        track: 0,
+    }])
+}
+
+#[test]
+fn mix_should_start_a_trimmed_clip_after_its_offset() {
+    let clips = trimmed(ramp(19_200), |clip| clip.offset = 2);
+
+    let (left, _) = mix(&clips, 0, 2);
+
+    assert_eq!(left, [3840.0 * SCALE, 3841.0 * SCALE]);
+}
+
+#[test]
+fn mix_should_stop_a_trimmed_clip_at_its_length() {
+    let clips = trimmed(ramp(19_200), |clip| clip.length = Some(3));
+
+    let (left, _) = mix(&clips, 5758, 4);
+
+    assert_eq!(left, [5758.0 * SCALE, 5759.0 * SCALE, 0.0, 0.0]);
+}
+
+#[test]
+fn mix_should_ramp_a_fade_in_up_from_silence() {
+    let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| clip.fade_in = 1);
+
+    let (left, _) = mix(&clips, 0, 1922);
+
+    assert_eq!((left[0], left[960], left[1920]), (0.0, 0.25, 0.5));
+}
+
+#[test]
+fn mix_should_ramp_a_fade_out_down_to_silence() {
+    let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| clip.fade_out = 1);
+
+    let (left, _) = mix(&clips, 17_279, 1921);
+
+    assert_eq!((left[0], left[960], left[1920]), (0.5, 0.25, 0.0));
+}
+
+#[test]
+fn fade_shape_should_run_from_silence_to_full_level_on_every_curve() {
+    for curve in [
+        FadeCurve::Linear,
+        FadeCurve::EqualPower,
+        FadeCurve::SCurve,
+        FadeCurve::Exponential,
+    ] {
+        assert_eq!(fade_shape(curve, 0.0), 0.0, "{curve:?} starts silent");
+        assert!(
+            (fade_shape(curve, 1.0) - 1.0).abs() < 1e-6,
+            "{curve:?} ends full"
+        );
+        let mut last = 0.0;
+        for step in 1..=100 {
+            let gain = fade_shape(curve, step as f32 / 100.0);
+            assert!(gain >= last, "{curve:?} never falls on the way up");
+            last = gain;
+        }
+    }
+}
+
+#[test]
+fn fade_shape_should_hit_the_known_midpoints() {
+    assert_eq!(fade_shape(FadeCurve::Linear, 0.5), 0.5);
+    assert!(
+        (fade_shape(FadeCurve::EqualPower, 0.5) - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6
+    );
+    assert!((fade_shape(FadeCurve::SCurve, 0.5) - 0.5).abs() < 1e-6);
+    assert_eq!(fade_shape(FadeCurve::Exponential, 0.5), 0.25);
+}
+
+#[test]
+fn mix_should_shape_a_fade_in_with_its_curve() {
+    let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+        clip.fade_in = 1;
+        clip.fade_in_curve = FadeCurve::Exponential;
+    });
+
+    let (left, _) = mix(&clips, 0, 1922);
+
+    // Half way up the fade the line would give 0.25 (half of 0.5); the square gives a quarter of that.
+    assert_eq!((left[0], left[960], left[1920]), (0.0, 0.125, 0.5));
+}
+
+#[test]
+fn mix_should_shape_a_fade_out_with_its_own_curve_and_end_in_silence() {
+    let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+        clip.fade_out = 1;
+        clip.fade_out_curve = FadeCurve::EqualPower;
+        clip.fade_in_curve = FadeCurve::Exponential;
+    });
+
+    let (left, _) = mix(&clips, 17_279, 1921);
+
+    assert_eq!(left[0], 0.5);
+    assert!((left[960] - 0.5 * std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
+    assert_eq!(left[1920], 0.0);
+}
+
+fn point(frames: u64, gain_db: f32, curve: EnvCurve) -> flux_project::EnvPoint {
+    flux_project::EnvPoint {
+        at: frames * ENVELOPE_TICKS_PER_FRAME,
+        gain_db,
+        curve,
+    }
+}
+
+/// The envelope of an untrimmed clip at the origin, at 25 fps (1920 samples a frame).
+fn envelope(points: Vec<flux_project::EnvPoint>) -> Arc<Envelope> {
+    let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+    let clip = AudioClip {
+        envelope: points,
+        ..AudioClip::new("c1", "a1", 0)
+    };
+    Envelope::new(&clip, 0, &clock).expect("the clip has points")
+}
+
+#[test]
+fn envelope_should_be_absent_without_points() {
+    let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+    assert!(Envelope::new(&AudioClip::new("c1", "a1", 0), 0, &clock).is_none());
+}
+
+#[test]
+fn envelope_should_hold_the_nearest_point_outside_its_points() {
+    let envelope = envelope(vec![
+        point(1, -6.0, EnvCurve::Linear),
+        point(2, 0.0, EnvCurve::Linear),
+    ]);
+    let first = gain_from_db(-6.0);
+    assert_eq!(envelope.gain_at(-500), first);
+    assert_eq!(envelope.gain_at(1920), first);
+    assert_eq!(envelope.gain_at(3840), 1.0);
+    assert_eq!(envelope.gain_at(900_000), 1.0);
+}
+
+#[test]
+fn envelope_should_run_a_segment_in_db() {
+    let envelope = envelope(vec![
+        point(0, 0.0, EnvCurve::Linear),
+        point(1, -6.0, EnvCurve::Linear),
+    ]);
+    // Half way along is half way in dB: -3 dB, not the mean of the two amplitudes.
+    assert!((envelope.gain_at(960) - gain_from_db(-3.0)).abs() < 1e-6);
+}
+
+#[test]
+fn envelope_should_run_a_segment_that_touches_silence_in_amplitude() {
+    let up = envelope(vec![
+        point(0, ENVELOPE_MIN_DB, EnvCurve::Linear),
+        point(1, 0.0, EnvCurve::Linear),
+    ]);
+    assert_eq!(up.gain_at(0), 0.0);
+    assert!((up.gain_at(960) - 0.5).abs() < 1e-6);
+    let down = envelope(vec![
+        point(0, 0.0, EnvCurve::Linear),
+        point(1, ENVELOPE_MIN_DB, EnvCurve::Linear),
+    ]);
+    assert!((down.gain_at(480) - 0.75).abs() < 1e-6);
+    assert_eq!(down.gain_at(1920), 0.0);
+}
+
+#[test]
+fn envelope_curves_should_bend_the_segment_between_the_same_two_points() {
+    let at_quarter = |curve| {
+        envelope(vec![
+            point(0, ENVELOPE_MIN_DB, curve),
+            point(1, 0.0, EnvCurve::Linear),
+        ])
+        .gain_at(480)
+    };
+    let linear = at_quarter(EnvCurve::Linear);
+    assert!(at_quarter(EnvCurve::Slow) < linear, "slow lags the line");
+    assert!(
+        at_quarter(EnvCurve::Smooth) < linear,
+        "smooth eases out of the first point"
+    );
+    assert!(at_quarter(EnvCurve::Fast) > linear, "fast leads the line");
+}
+
+#[test]
+fn envelope_hold_should_keep_the_gain_then_ramp_to_the_next_point_without_a_step() {
+    let envelope = envelope(vec![
+        point(0, 0.0, EnvCurve::Hold),
+        point(1, ENVELOPE_MIN_DB, EnvCurve::Linear),
+    ]);
+    let end = 1920 - HOLD_RAMP;
+    assert_eq!(envelope.gain_at(0), 1.0);
+    assert_eq!(envelope.gain_at(end), 1.0);
+    assert!(envelope.gain_at(end + HOLD_RAMP / 2) < 1.0);
+    assert!(envelope.gain_at(1919) > 0.0);
+    // No two neighbouring samples are more than one ramp step apart.
+    for at in end..1920 {
+        let step = (envelope.gain_at(at) - envelope.gain_at(at + 1)).abs();
+        assert!(
+            step <= 1.0 / HOLD_RAMP as f32 + 1e-6,
+            "step of {step} at {at}"
+        );
+    }
+}
+
+#[test]
+fn mix_should_scale_a_clip_by_its_envelope() {
+    let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+        clip.envelope = vec![
+            point(0, 0.0, EnvCurve::Linear),
+            point(1, ENVELOPE_MIN_DB, EnvCurve::Linear),
+        ];
+    });
+
+    let (left, _) = mix(&clips, 0, 1921);
+
+    assert_eq!((left[0], left[960]), (0.5, 0.25));
+    assert_eq!(left[1920], 0.0);
+    // Past the last point the clip stays at its gain, which is silence.
+    assert_eq!(mix(&clips, 5_000, 1).0[0], 0.0);
+}
+
+#[test]
+fn mix_should_multiply_the_envelope_with_the_fade_and_the_clip_gain() {
+    let clock = Clock::new(ENGINE_RATE, FrameRate::Fps25);
+    let mut clip = AudioClip::new("c1", "a1", 0);
+    clip.fade_in = 1;
+    clip.envelope = vec![point(0, -6.0, EnvCurve::Linear)];
+    let audio = audio(16_384, 16_384, 19_200);
+    let span = span(&clip, &clock, audio.frames() as u64);
+    let set = set(vec![ClipPlayer {
+        envelope: Envelope::new(&clip, span.origin, &clock),
+        span,
+        audio,
+        gain: gain_from_db(-6.0),
+        track: 0,
+    }]);
+
+    let (left, _) = mix(&set, 0, 1921);
+
+    // Half way up the fade (0.5) of a half-scale signal, at -6 dB twice.
+    let expected = 0.5 * 0.5 * gain_from_db(-6.0) * gain_from_db(-6.0);
+    assert!(
+        (left[960] - expected).abs() < 1e-6,
+        "{} != {expected}",
+        left[960]
+    );
+}
+
+#[test]
+fn mix_should_fade_a_trimmed_clip_from_the_edges_of_what_sounds() {
+    let clips = trimmed(audio(16_384, 16_384, 19_200), |clip| {
+        clip.offset = 2;
+        clip.length = Some(4);
+        clip.fade_in = 1;
+    });
+
+    let (left, _) = mix(&clips, 0, 3);
+
+    assert_eq!(left[0], 0.0);
+    assert!(left[2] > 0.0);
+}
+
+#[test]
+fn mix_should_be_silent_with_no_clips() {
+    let (left, right) = mix(&ClipSet::default(), 0, 8);
+    assert!(left.iter().chain(&right).all(|&s| s == 0.0));
+}
+
+#[test]
+fn mix_should_play_a_clip_from_its_start_sample_to_its_end() {
+    let clips = set(vec![player(audio(16_384, -16_384, 4), 3, 1.0)]);
+
+    let (left, right) = mix(&clips, 0, 10);
+
+    assert_eq!(left, [0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5, 0.0, 0.0, 0.0]);
+    assert_eq!(
+        right,
+        [0.0, 0.0, 0.0, -0.5, -0.5, -0.5, -0.5, 0.0, 0.0, 0.0]
+    );
+}
+
+#[test]
+fn mix_should_continue_a_clip_across_buffers() {
+    let clips = set(vec![player(audio(8_192, 8_192, 6), 0, 1.0)]);
+
+    let (first, _) = mix(&clips, 0, 4);
+    let (second, _) = mix(&clips, 4, 4);
+
+    assert_eq!(first, [0.25; 4]);
+    assert_eq!(second, [0.25, 0.25, 0.0, 0.0]);
+}
+
+#[test]
+fn mix_should_start_in_the_middle_of_a_clip_after_a_seek() {
+    let mut samples = vec![0i16; 20];
+    samples[10] = 16_384; // frame 5, left
+    let clip = Arc::new(Decoded {
+        samples,
+        source_rate: ENGINE_RATE,
+    });
+    let clips = set(vec![player(clip, 100, 1.0)]);
+
+    let (left, _) = mix(&clips, 103, 4);
+
+    assert_eq!(left, [0.0, 0.0, 0.5, 0.0]);
+}
+
+#[test]
+fn mix_should_add_overlapping_clips_and_apply_gain() {
+    let clips = set(vec![
+        player(audio(16_384, 0, 2), 0, 1.0),
+        player(audio(16_384, 0, 2), 0, 0.5),
+    ]);
+
+    let (left, _) = mix(&clips, 0, 2);
+
+    assert_eq!(left, [0.75, 0.75]);
+}
+
+fn project_with(tracks: Vec<Track>, assets: Vec<AudioAsset>) -> Project {
+    let mut project = Project::new("Show", FrameRate::Fps25);
+    project.timelines[0].tracks = tracks;
+    project.assets = assets;
+    project
+}
+
+fn asset(id: &str) -> AudioAsset {
+    AudioAsset {
+        id: id.into(),
+        name: id.into(),
+        file: format!("audio/{id}.wav"),
+        link: None,
+        bpm: None,
+    }
+}
+
+fn audio_track(id: &str, muted: bool, clips: Vec<AudioClip>) -> Track {
+    Track {
+        audio_output: Default::default(),
+        id: id.into(),
+        name: id.into(),
+        muted,
+        gain_db: None,
+        color: None,
+        kind: TrackKind::Audio { clips },
+    }
+}
+
+fn clip(id: &str, asset: &str, start: u64, gain_db: f32) -> AudioClip {
+    AudioClip {
+        gain_db,
+        ..AudioClip::new(id, asset, start)
+    }
+}
+
+#[test]
+fn build_should_place_clips_by_frame_and_convert_gain_from_db() {
+    let project = project_with(
+        vec![audio_track("t1", false, vec![clip("c1", "a1", 25, -6.0)])],
+        vec![asset("a1")],
+    );
+
+    let programme = build(&project, &project.timelines[0], |_| Ok(audio(1, 1, 10)));
+
+    assert!(programme.warnings.is_empty());
+    assert_eq!(programme.set.len(), 1);
+    let placed = &programme.set.clips[0];
+    // 25 frames at 25 fps is one second.
+    assert_eq!(placed.span.from, 48_000);
+    assert!(
+        (placed.gain - 0.501_187).abs() < 1e-5,
+        "gain {}",
+        placed.gain
+    );
+}
+
+#[test]
+fn build_should_leave_out_muted_tracks() {
+    let project = project_with(
+        vec![
+            audio_track("t1", true, vec![clip("c1", "a1", 0, 0.0)]),
+            audio_track("t2", false, vec![clip("c2", "a1", 0, 0.0)]),
+        ],
+        vec![asset("a1")],
+    );
+
+    let programme = build(&project, &project.timelines[0], |_| Ok(audio(1, 1, 10)));
+
+    assert_eq!(programme.set.len(), 1);
+}
+
+#[test]
+fn build_should_skip_an_asset_it_cannot_load_and_say_so_once() {
+    let project = project_with(
+        vec![audio_track(
+            "t1",
+            false,
+            vec![clip("c1", "gone", 0, 0.0), clip("c2", "gone", 100, 0.0)],
+        )],
+        vec![asset("gone")],
+    );
+
+    let programme = build(&project, &project.timelines[0], |_| {
+        Err(AudioError::NoAudioTrack)
+    });
+
+    assert!(programme.set.is_empty());
+    assert_eq!(programme.warnings.len(), 1);
+    assert!(programme.warnings[0].starts_with("gone is silent"));
+}
+
+#[test]
+fn a_programme_shares_audio_even_when_it_does_not_fit_the_global_cache() {
+    let project = project_with(
+        vec![audio_track(
+            "track",
+            false,
+            vec![clip("first", "a1", 0, 0.0), clip("second", "a1", 100, 0.0)],
+        )],
+        vec![asset("a1")],
+    );
+    let cache = flux_audio::AudioCache::with_budget(0);
+    let mut decodes = 0;
+    let programme = build(&project, &project.timelines[0], |asset| {
+        if let Some(audio) = cache.get(&asset.id) {
+            return Ok(audio);
+        }
+        decodes += 1;
+        let decoded = audio(1, 1, 10);
+        cache.insert(&asset.id, Arc::clone(&decoded));
+        Ok(decoded)
+    });
+    assert_eq!(decodes, 1);
+    assert!(Arc::ptr_eq(
+        &programme.set.clips[0].audio,
+        &programme.set.clips[1].audio
+    ));
+    assert_eq!(cache.retained_bytes(), 0);
+}
+
+fn on_track(mut player: ClipPlayer, track: usize) -> ClipPlayer {
+    player.track = track;
+    player
+}
+
+fn two_tracks(first_gain: f32, second_gain: f32) -> ClipSet {
+    ClipSet::new(
+        vec![
+            on_track(player(audio(16_384, 0, 8), 0, 1.0), 0),
+            on_track(player(audio(8_192, 0, 8), 0, 1.0), 1),
+        ],
+        vec![("t1".into(), first_gain), ("t2".into(), second_gain)],
+    )
+}
+
+#[test]
+fn mix_should_scale_each_track_by_its_own_gain() {
+    let clips = two_tracks(0.5, 1.0);
+
+    let (left, _) = mix(&clips, 0, 4);
+
+    // 0.5 * 0.5 from the first track, 0.25 from the second.
+    assert_eq!(left, [0.5; 4]);
+}
+
+#[test]
+fn mix_should_multiply_the_track_gain_by_the_clip_gain() {
+    let clips = ClipSet::new(
+        vec![player(audio(16_384, 0, 4), 0, 0.5)],
+        vec![("t1".into(), 0.5)],
+    );
+
+    let (left, _) = mix(&clips, 0, 4);
+
+    assert_eq!(left, [0.125; 4]);
+}
+
+#[test]
+fn mix_should_be_silent_on_a_track_at_zero_gain() {
+    let clips = two_tracks(0.0, 1.0);
+
+    let (left, _) = mix(&clips, 0, 4);
+
+    assert_eq!(left, [0.25; 4]);
+}
+
+#[test]
+fn mix_should_ramp_a_gain_change_instead_of_stepping() {
+    let clips = ClipSet::new(
+        vec![player(audio(32_767, 0, 512), 0, 1.0)],
+        vec![("t1".into(), 1.0)],
+    );
+    clips.levels().set_gain_db("t1", SILENT_DB);
+
+    let (left, _) = mix(&clips, 0, 256);
+    let (next, _) = mix(&clips, 256, 256);
+
+    let slope = 1.0 / 256.0 + 1e-4;
+    assert!(left[0] < 1.0, "the first sample already moved");
+    assert!(left.windows(2).all(|pair| pair[0] - pair[1] <= slope));
+    assert!(left[255].abs() < 1e-4, "the ramp reached silence");
+    assert!(next.iter().all(|&s| s == 0.0), "and stayed there");
+}
+
+fn peaks_of(set: &ClipSet) -> Vec<(String, f32)> {
+    set.levels()
+        .take_peaks()
+        .into_iter()
+        .map(|track| (track.id, track.peak))
+        .collect()
+}
+
+#[test]
+fn peaks_should_be_measured_after_the_gain_and_per_track() {
+    let clips = two_tracks(0.5, 1.0);
+    mix(&clips, 0, 4);
+    assert_eq!(
+        peaks_of(&clips),
+        [("t1".to_owned(), 0.25), ("t2".to_owned(), 0.25)]
+    );
+
+    let clips = two_tracks(1.0, 0.5);
+    mix(&clips, 0, 4);
+    assert_eq!(
+        peaks_of(&clips),
+        [("t1".to_owned(), 0.5), ("t2".to_owned(), 0.125)]
+    );
+}
+
+#[test]
+fn peak_should_be_the_larger_channel_and_the_largest_sample() {
+    let mut samples = vec![0i16; 8];
+    samples[2] = 8_192; // frame 1, left
+    samples[5] = -24_576; // frame 2, right
+    let clip = Arc::new(Decoded {
+        samples,
+        source_rate: ENGINE_RATE,
+    });
+    let clips = set(vec![player(clip, 0, 1.0)]);
+
+    mix(&clips, 0, 4);
+
+    assert_eq!(peaks_of(&clips)[0].1, 0.75);
+}
+
+#[test]
+fn peak_should_accumulate_across_buffers_and_reset_when_read() {
+    let clips = set(vec![player(audio(16_384, 0, 8), 4, 1.0)]);
+
+    mix(&clips, 0, 4);
+    assert_eq!(clips.levels().take_peaks()[0].peak, 0.0);
+
+    mix(&clips, 4, 4);
+    mix(&clips, 8, 4);
+    let levels = clips.levels();
+    assert_eq!(levels.take_peaks()[0].peak, 0.5);
+    assert_eq!(levels.take_peaks()[0].peak, 0.0);
+}
+
+#[test]
+fn set_gain_db_should_ignore_unknown_tracks_and_non_finite_values() {
+    let levels = TrackLevels::new([("t1".to_owned(), 1.0)]);
+
+    assert!(!levels.set_gain_db("nope", -6.0));
+    assert!(levels.set_gain_db("t1", f32::NAN));
+    assert_eq!(levels.tracks[0].target.load(), 1.0);
+    assert!(levels.set_gain_db("t1", -6.0));
+    assert!((levels.tracks[0].target.load() - 0.501_187).abs() < 1e-5);
+}
+
+#[test]
+fn track_gain_from_db_should_be_silent_at_the_bottom_of_the_fader() {
+    assert_eq!(track_gain_from_db(SILENT_DB), 0.0);
+    assert_eq!(track_gain_from_db(-90.0), 0.0);
+    assert_eq!(track_gain_from_db(0.0), 1.0);
+    assert!((track_gain_from_db(6.0) - 1.995_262).abs() < 1e-5);
+}
+
+#[test]
+fn build_should_seed_each_track_with_its_gain_and_skip_muted_ones() {
+    let mut quiet = audio_track("t1", false, vec![clip("c1", "a1", 0, 0.0)]);
+    quiet.gain_db = Some(-6.0);
+    let mut muted = audio_track("t2", true, vec![clip("c2", "a1", 0, 0.0)]);
+    muted.gain_db = Some(0.0);
+    let project = project_with(vec![quiet, muted], vec![asset("a1")]);
+
+    let programme = build(&project, &project.timelines[0], |_| Ok(audio(16_384, 0, 4)));
+
+    let (left, _) = mix(&programme.set, 0, 4);
+    assert!((left[0] - 0.5 * 0.501_187).abs() < 1e-5, "{}", left[0]);
+    let peaks = programme.set.levels().take_peaks();
+    assert_eq!(peaks.len(), 1, "the muted track has no meter");
+    assert_eq!(peaks[0].id, "t1");
+}
+
+/// Mixes `clips` of `asset` (a ramp, so every sample is different) for the first `frames`
+/// frames of the timeline, at 29.97 fps, where a frame is not a whole number of samples.
+fn mixed(clips: &[AudioClip], asset: &Arc<Decoded>, frames: u64) -> Vec<f32> {
+    let clock = Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop);
+    let players = clips
+        .iter()
+        .map(|clip| {
+            let span = span(clip, &clock, asset.frames() as u64);
+            ClipPlayer {
+                envelope: Envelope::new(clip, span.origin, &clock),
+                span,
+                audio: Arc::clone(asset),
+                gain: 1.0,
+                track: 0,
+            }
+        })
+        .collect();
+    let set = ClipSet::new(players, vec![("t1".into(), 1.0)]);
+    let samples = clock.frames_to_samples(frames) as usize;
+    let (mut left, mut right) = (vec![0.0; samples], vec![0.0; samples]);
+    set.mix(0, &mut left, &mut right);
+    left
+}
+
+#[test]
+fn split_should_play_back_exactly_with_an_envelope_and_fade_curves() {
+    let asset = Arc::new(Decoded {
+        samples: (0..192_000usize)
+            .flat_map(|i| [(i % 30_000) as i16, 0])
+            .collect(),
+        source_rate: ENGINE_RATE,
+    });
+    let asset_frames = Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop).samples_to_frames(192_000);
+    let mut original = AudioClip::new("c1", "a1", 7);
+    original.offset = 13;
+    original.length = Some(80);
+    original.fade_in = 10;
+    original.fade_out = 12;
+    original.fade_in_curve = FadeCurve::SCurve;
+    original.fade_out_curve = FadeCurve::Exponential;
+    // Points counted from the file, which starts 13 frames before the clip does; the cuts below
+    // fall between them, on a segment of every kind.
+    original.envelope = vec![
+        point(13, -6.0, EnvCurve::Smooth),
+        point(30, -40.0, EnvCurve::Hold),
+        point(45, 0.0, EnvCurve::Fast),
+        point(70, ENVELOPE_MIN_DB, EnvCurve::Slow),
+        point(100, -3.0, EnvCurve::Linear),
+    ];
+    for cut in [20, 33, 61] {
+        let halves =
+            apply_clip_op(&original, ClipOp::Split, cut, asset_frames, || "c2".into()).unwrap();
+        assert_eq!(
+            mixed(&halves, &asset, 100),
+            mixed(std::slice::from_ref(&original), &asset, 100),
+            "cut at {cut}"
+        );
+    }
+}
+
+#[test]
+fn split_should_play_back_exactly_like_the_clip_it_came_from() {
+    // Four seconds of a ramp that wraps, so no two neighbouring samples are alike.
+    let asset = Arc::new(Decoded {
+        samples: (0..192_000usize)
+            .flat_map(|i| [(i % 30_000) as i16, 0])
+            .collect(),
+        source_rate: ENGINE_RATE,
+    });
+    let asset_frames = Clock::new(ENGINE_RATE, FrameRate::Fps2997Drop).samples_to_frames(192_000);
+    // Trimmed in and faded, then cut at frames that do not fall on a whole sample.
+    let mut original = AudioClip::new("c1", "a1", 7);
+    original.offset = 13;
+    original.length = Some(80);
+    original.fade_in = 10;
+    original.fade_out = 12;
+    // Cuts clear of the fades, which stay with the half that holds them.
+    for cut in [20, 33, 61] {
+        let halves =
+            apply_clip_op(&original, ClipOp::Split, cut, asset_frames, || "c2".into()).unwrap();
+        assert_eq!(
+            mixed(&halves, &asset, 100),
+            mixed(std::slice::from_ref(&original), &asset, 100),
+            "cut at {cut}"
+        );
+    }
+}

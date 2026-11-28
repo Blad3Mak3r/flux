@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::error::{ProjectError, Result};
+use crate::serde_util::{is_false, is_zero};
 
 /// The MIDI port a track sends to. Only a name hint is stored, like for MTC.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,10 +14,6 @@ pub struct MidiPortRef {
     /// Which of the ports named `port_name` this is, counting from 0 in the system's order.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub port_index: usize,
-}
-
-fn is_zero(value: &usize) -> bool {
-    *value == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -262,10 +259,6 @@ impl OscDestination {
         }
         Ok(())
     }
-}
-
-fn is_false(value: &bool) -> bool {
-    !value
 }
 
 #[cfg(test)]

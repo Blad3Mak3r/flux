@@ -4,6 +4,7 @@ import { useShow } from "../show/store.ts";
 
 import { create } from "zustand";
 import type { MessageKey } from "../i18n/messages";
+import type { Ripple } from "../project/api";
 import type { SetupSection } from "../setup/outputs";
 import { DEFAULT_PX_PER_FRAME, clampZoom } from "../timeline/scale.ts";
 import { isPlaying } from "../transport/store.ts";
@@ -37,6 +38,8 @@ export interface SnapGuide {
   frame: number;
   kind: "grid" | "items" | "playhead" | "origin";
 }
+
+export const RIPPLES: readonly Ripple[] = ["off", "track", "all"];
 
 export interface Selected {
   kind: "clip" | "video" | "note" | "event" | "operator" | "track";
@@ -84,6 +87,10 @@ interface UiState {
   setlistEntrySelection: string;
   controlEditor: string | null;
   selection: Selected | null;
+  /** Every id of a selection of two or more items (clips, notes, events); `selection` is the last one picked. Empty with one or none. */
+  picked: ReadonlySet<string>;
+  /** What moving or deleting an item shifts: nothing, what follows it on its track, or on every track. */
+  ripple: Ripple;
   /** The name being edited in place, if any. */
   renaming: Renaming | null;
   collapsed: boolean;
@@ -131,6 +138,7 @@ const RULER_KEY = "flux.ruler";
 const SNAP_KEY = "flux.snap";
 const SNAP_SOURCES_KEY = "flux.snap.sources";
 const GRID_STEP_KEY = "flux.snap.grid";
+const RIPPLE_KEY = "flux.ripple";
 
 function readSnapSources(): SnapSources {
   const all = { grid: true, items: true, playhead: true };
@@ -154,6 +162,15 @@ function readGridStep(): GridStep {
     return GRID_STEPS.find((step) => step === stored) ?? "auto";
   } catch {
     return "auto";
+  }
+}
+
+function readRipple(): Ripple {
+  try {
+    const stored = localStorage.getItem(RIPPLE_KEY);
+    return RIPPLES.find((ripple) => ripple === stored) ?? "off";
+  } catch {
+    return "off";
   }
 }
 
@@ -195,6 +212,8 @@ export const useUi = create<UiState>()(() => ({
   setlistEntrySelection: "",
   controlEditor: null,
   selection: null,
+  picked: new Set<string>(),
+  ripple: readRipple(),
   renaming: null,
   collapsed: readCollapsed(),
   view: readView(),
@@ -220,9 +239,34 @@ export const useUi = create<UiState>()(() => ({
 const set = useUi.setState;
 const get = useUi.getState;
 
+const NONE: ReadonlySet<string> = new Set();
+
 export function select(selection: Selected | null): void {
-  set({ selection, controlEditor: null });
+  set({ selection, picked: NONE, controlEditor: null });
 }
+
+/** Selects several items at once; the last is the one the inspector and the keys refer to. */
+export function selectMany(items: readonly Selected[]): void {
+  if (items.length < 2) return select(items[0] ?? null);
+  set({ selection: items[items.length - 1], picked: new Set(items.map((item) => item.id)), controlEditor: null });
+}
+
+/** Whether the item `id` is selected, alone or with others. */
+export const isSelected = (ui: Pick<UiState, "selection" | "picked">, id: string) =>
+  ui.selection?.id === id || ui.picked.has(id);
+
+/** The ripple mode: what moving or deleting an item shifts. */
+export function setRipple(ripple: Ripple): void {
+  set({ ripple });
+  try {
+    localStorage.setItem(RIPPLE_KEY, ripple);
+  } catch {
+    // Not remembered, still works.
+  }
+}
+
+/** Ripple off, then per track, then all tracks, and round again. */
+export const cycleRipple = () => setRipple(RIPPLES[(RIPPLES.indexOf(get().ripple) + 1) % RIPPLES.length]);
 
 /** Opens the name of a track or a clip for typing; `null` closes it. */
 export function rename(renaming: Renaming | null): void {
@@ -323,7 +367,7 @@ export const zoomBy = (factor: number) => setZoom(get().zoom * factor);
 
 /** Back to the origin at the default zoom, nothing selected. */
 export const resetView = () =>
-  set((ui) => ({ selection: null, controlEditor: null, zoom: DEFAULT_PX_PER_FRAME, docKey: ui.docKey + 1 }));
+  set((ui) => ({ selection: null, picked: NONE, controlEditor: null, zoom: DEFAULT_PX_PER_FRAME, docKey: ui.docKey + 1 }));
 
 export const say = (key: MessageKey, values?: Record<string, string | number>) =>
   set({ message: { key, values, tone: "info" } });
