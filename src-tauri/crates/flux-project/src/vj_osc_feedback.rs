@@ -165,6 +165,16 @@ pub fn messages(vj: &Vj, live: &Live) -> Vec<Message> {
                         format!("/composition/layers/{n}/clips/{}/connect", m + 1),
                         connected((live.playing)(&clip.id)),
                     );
+                    for (k, knob) in clip.dashboard.iter().enumerate() {
+                        push(
+                            format!(
+                                "/composition/layers/{n}/clips/{}/dashboard/link{}",
+                                m + 1,
+                                k + 1
+                            ),
+                            level(knob.value),
+                        );
+                    }
                 }
             }
         }
@@ -193,6 +203,12 @@ pub fn messages(vj: &Vj, live: &Live) -> Vec<Message> {
             format!("/composition/layers/{n}/transition/duration"),
             level(layer.transition / MAX_TRANSITION),
         );
+        for (k, knob) in layer.dashboard.iter().enumerate() {
+            push(
+                format!("/composition/layers/{n}/dashboard/link{}", k + 1),
+                level(knob.value),
+            );
+        }
     }
     push(
         "/composition/crossfader/phase".into(),
@@ -333,6 +349,34 @@ mod tests {
         assert_eq!(value("/composition/columns/1/connect"), Value::Int(0));
         // A slot with no clip says nothing.
         assert!(find(&all, "/composition/layers/1/clips/1/connect").is_none());
+    }
+
+    #[test]
+    fn the_layer_and_clip_dashboard_knobs_should_be_echoed_on_their_addresses() {
+        let mut vj = show();
+        vj.layers[0].dashboard.push(crate::vj_mapping::Knob {
+            value: 0.25,
+            ..Default::default()
+        });
+        vj.layers[1].clips[0]
+            .dashboard
+            .push(crate::vj_mapping::Knob {
+                value: 0.6,
+                ..Default::default()
+            });
+        let none = |_: &str| false;
+        let all = messages(&vj, &live(&none));
+        let value = |a: &str| find(&all, a).unwrap().value;
+        assert_eq!(
+            value("/composition/layers/1/dashboard/link1"),
+            Value::Float(0.25)
+        );
+        // The clip is in the second layer, first column: its dashboard follows its connect.
+        assert_eq!(
+            value("/composition/layers/2/clips/1/dashboard/link1"),
+            Value::Float(0.6)
+        );
+        assert!(find(&all, "/composition/layers/2/dashboard/link1").is_none());
     }
 
     #[test]
