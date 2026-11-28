@@ -95,7 +95,7 @@ the task matches:
 
 ## Agents
 
-Work is split by model:
+For Claude, work is split by model:
 
 | Role | Model | Does |
 | --- | --- | --- |
@@ -110,6 +110,16 @@ decided design, the rules of this file), and passes these rules on to any agent 
   The main session does not commit, push, branch, merge or open PRs itself: it delegates, giving the intent (what
   changed and why), the branch/PR, and whether pushing or opening a PR is wanted.
 - The `impeccable-*` agents are driven by the `impeccable` skill.
+
+For Codex and ChatGPT Work, use the same roles with the following model choices when delegating:
+
+| Role | Model |
+| --- | --- |
+| `reader`, `git-operator`, and straightforward `impeccable` documentation | `gpt-6-luna` |
+| `coder` and complex reviews | `gpt-6.2-sol` |
+
+In hosted sessions, specify the model explicitly when spawning a subagent. These choices guide delegation in
+Codex and ChatGPT Work; the Claude agent definitions continue to select their own Claude models.
 
 ## Conventions
 
