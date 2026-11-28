@@ -427,6 +427,8 @@ the **same addresses that control it**, with the new value, as Resolume does and
 | `/composition/crossfader/phase` | The crossfader, 0 to 1 |
 | `/composition/tempocontroller/tempo` | The BPM |
 | `/composition/dashboard/link{k}` | The dashboard's knob `k`, 0 to 1 |
+| `/composition/layers/{n}/dashboard/link{k}` | The knob `k` of the layer's dashboard, 0 to 1 |
+| `/composition/layers/{n}/clips/{m}/dashboard/link{k}` | The knob `k` of the clip's dashboard, 0 to 1 (a slot with no clip says nothing) |
 
 An OSC address learned in the map mode echoes its target too: a fader's level through the mapping's own range (inverted
 if the mapping is), a switch, a launch or a stop as 1 or 0. A mapping to a setting of an effect or a generator has no
