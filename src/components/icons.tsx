@@ -87,6 +87,12 @@ export const ZoomInIcon = () => (
   </Icon>
 );
 
+export const ZoomFitIcon = () => (
+  <Icon>
+    <path d="M2.5 3 V13 M13.5 3 V13 M5.5 8 H10.5 M7 6 L5.5 8 L7 10 M9 6 L10.5 8 L9 10" />
+  </Icon>
+);
+
 export const ZoomOutIcon = () => (
   <Icon>
     <path d="M3 8 H13" />

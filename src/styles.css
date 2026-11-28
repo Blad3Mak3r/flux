@@ -4172,6 +4172,22 @@ body.dragging {
   color: var(--ink);
 }
 
+.ripple-mode {
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--phosphor);
+}
+
+/* The box dragged on the empty part of the lanes to pick what it touches. */
+.select-box {
+  position: absolute;
+  z-index: 6;
+  background: oklch(0.87 0.17 128 / 0.1);
+  border: 1px solid var(--phosphor);
+  pointer-events: none;
+}
+
 .snap-guide {
   position: absolute;
   top: 0;

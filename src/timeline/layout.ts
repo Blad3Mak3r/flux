@@ -32,3 +32,17 @@ export function setViewport(patch: Partial<Viewport>): void {
   const current = useViewport.getState();
   if ((Object.keys(patch) as (keyof Viewport)[]).some((key) => patch[key] !== current[key])) useViewport.setState(patch);
 }
+
+let scroller: HTMLElement | null = null;
+
+/** The element the lanes scroll in, so a zoom to fit can also bring its stretch into view. */
+export const setScroller = (element: HTMLElement | null) => {
+  scroller = element;
+};
+
+/** Scrolls the lanes to `left` pixels from the origin, once the zoom that changes their width has drawn. */
+export function scrollLanesTo(left: number): void {
+  requestAnimationFrame(() => {
+    if (scroller) scroller.scrollLeft = Math.max(0, left);
+  });
+}
