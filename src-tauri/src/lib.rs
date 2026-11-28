@@ -33,6 +33,7 @@ mod vj_presets_commands;
 mod vj_record;
 mod voice_commands;
 mod voice_jobs;
+mod watch;
 mod windows;
 
 /// WSLg's Wayland compositor places every window itself and ignores the position an app asks for,
@@ -61,6 +62,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(update_commands::PendingUpdate::default())
         .manage(commands::SharedSession::default())
+        .manage(watch::Watches::default())
         .manage(preferences::Store::default())
         .manage(std::sync::Arc::new(voice_commands::VoiceState::default()))
         .manage(flux_audio::SharedAudio::default())
