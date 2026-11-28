@@ -1,3 +1,4 @@
+import { parseDecimal } from "../format";
 import { MediaFile } from "../media/MediaFile";
 import { useEffect } from "react";
 import { TrackRouteField } from "../audio/routing";
@@ -264,13 +265,13 @@ function SelectionPanel({
               monospace
               validate={(text) => {
                 if (text.trim() === "") return null;
-                const bpm = Number(text.replace(",", "."));
+                const bpm = parseDecimal(text);
                 return Number.isFinite(bpm) && bpm >= MIN_BPM && bpm <= MAX_BPM
                   ? null
                   : t("tempo.bpm.invalid", { min: MIN_BPM, max: MAX_BPM });
               }}
               onCommit={(text) =>
-                onEdit(setAssetBpm(project, asset.id, text.trim() === "" ? null : Number(text.replace(",", "."))))
+                onEdit(setAssetBpm(project, asset.id, text.trim() === "" ? null : parseDecimal(text)))
               }
             />
             <div className="button-row">

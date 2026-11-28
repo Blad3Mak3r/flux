@@ -2,16 +2,15 @@
 // colour the card's palette is made from, which layers show and what the label says. The backend keeps every value in range
 // and draws the card (flux-render/src/pattern.rs); this sends the whole settings back with the one change.
 
+import { fail } from "../state/fail";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { TextField } from "../components/fields";
-import { errorMessage } from "../project/api";
 import type { ProjectState } from "../project/types";
 import { dispatch, useDoc } from "../state/store";
-import { sayError } from "../state/ui";
 import { mappingEdit } from "../video/mapping";
 import type { CardLayers, CardMode, Slice, TestCard } from "../video/mapping";
 import { ColourField, Segments } from "./controls";
@@ -60,7 +59,7 @@ export function TestCardFields({ screenId, slice, index }: { screenId: string; s
       const added = (state.project.videos ?? []).find((video) => !before.some((old) => old.id === video.id));
       if (added) send({ logo: added.id, showLogo: true });
     } catch (err) {
-      sayError(errorMessage(err));
+      fail(err);
     }
   };
 

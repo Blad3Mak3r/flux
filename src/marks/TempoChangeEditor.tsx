@@ -1,3 +1,4 @@
+import { parseDecimal } from "../format";
 import { useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Select } from "../components/Select";
@@ -23,7 +24,7 @@ export function TempoChangeEditor({ change }: { change: TempoChange }) {
 
   const commit = () => {
     if (draft === null) return;
-    const value = Number(draft.replace(",", "."));
+    const value = parseDecimal(draft);
     if (draft.trim() === "" || !Number.isFinite(value) || value < MIN_BPM || value > MAX_BPM) {
       setInvalid(true);
       return;

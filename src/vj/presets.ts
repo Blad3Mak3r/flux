@@ -2,13 +2,13 @@
 // are listed from it and every change is a command that answers with the new list; this holds that list, the question
 // for a name and the preset menus, and shows the project a preset was applied to through `apply` (one undo step).
 
+import { fail } from "../state/fail";
 import { create } from "zustand";
 import { openMenu } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import type { Translate } from "../i18n/messages";
-import { errorMessage } from "../project/api";
 import { dispatch, useDoc } from "../state/store";
-import { say, sayError } from "../state/ui";
+import { say } from "../state/ui";
 import {
   vjPresetApply,
   vjPresetDelete,
@@ -40,8 +40,6 @@ interface PresetsState {
 }
 
 export const usePresets = create<PresetsState>()(() => ({ presets: [], templates: [], ask: null, manage: null }));
-
-const fail = (err: unknown) => sayError(errorMessage(err));
 
 /** Reads both lists from the backend. */
 export async function loadPresets(): Promise<void> {

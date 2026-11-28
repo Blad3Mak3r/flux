@@ -1,10 +1,9 @@
+import { fail } from "../state/fail";
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useT } from "../i18n";
 import type { Translate } from "../i18n/messages";
 import { SelectField, TextField } from "../components/fields";
-import { errorMessage } from "../project/api";
-import { sayError } from "../state/ui";
 import { useDoc } from "../state/store";
 import { ScreenSwitch } from "../video/ScreenSwitch";
 import { MAIN_SCREEN, compositionSet, screenEdit, useComposition } from "../video/mapping";
@@ -47,7 +46,7 @@ export function useOutputStatus() {
     const read = () =>
       invoke<VideoOutputStatus>("video_output_status").then(
         (next) => alive && setStatus(next),
-        (err) => sayError(errorMessage(err)),
+        (err) => fail(err),
       );
     void read();
     const timer = window.setInterval(() => void read(), REFRESH_MS);
@@ -61,7 +60,7 @@ export function useOutputStatus() {
     invoke<VideoOutputStatus>("video_output_choose", {
       screen,
       display: display === OFF ? null : display,
-    }).then(setStatus, (err) => sayError(errorMessage(err)));
+    }).then(setStatus, (err) => fail(err));
   return { status, choose };
 }
 

@@ -1,5 +1,5 @@
+import { fail } from "../state/fail";
 import type { Translate } from "../i18n/messages";
-import { errorMessage } from "../project/api";
 import { useDoc } from "../state/store";
 import { say, sayError } from "../state/ui";
 import { stop } from "../transport/playback";
@@ -13,6 +13,6 @@ export async function panic(t: Translate): Promise<void> {
     if (report.failed.length > 0) sayError(t("panic.failed", { ports: report.failed.join(", ") }));
     else say("panic.sent", { count: report.sent });
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }

@@ -1,3 +1,4 @@
+import { fail } from "./state/fail";
 import { bindShow } from "./show/api";
 import { SetlistEditor } from "./show/SetlistEditor";
 import { ControlEditor } from "./show/ControlEditor";
@@ -10,7 +11,7 @@ import { useOutputView } from "./preferences/outputs";
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { errorMessage, projectClose } from "./project/api";
+import { projectClose } from "./project/api";
 import { Faceplate } from "./components/Faceplate";
 import { MenuHost } from "./components/Menu";
 import { textMenu } from "./components/menus";
@@ -318,7 +319,7 @@ function Editor() {
           await flushDocumentSync();
           await projectClose();
           await appWindow.destroy();
-        } catch (err) { sayError(errorMessage(err)); }
+        } catch (err) { fail(err); }
       };
       void protectVoiceWork().then((safe) => { if (!safe) return; if (isDirty(useDoc.getState())) ask(close); else void close(); });
     }).catch(() => undefined);

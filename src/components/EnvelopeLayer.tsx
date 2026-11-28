@@ -1,3 +1,4 @@
+import { round2 } from "../format";
 import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
@@ -88,7 +89,7 @@ export function EnvelopeLayer({
     vertices.unshift([0, vertices[0][1]]);
     vertices.push([width, vertices[vertices.length - 1][1]]);
   }
-  const line = vertices.map(([x, y]) => `${Math.round(x * 100) / 100},${Math.round(y * 100) / 100}`).join(" ");
+  const line = vertices.map(([x, y]) => `${round2(x)},${round2(y)}`).join(" ");
 
   const finish = (commit: boolean) => {
     const dropped = drag.current;

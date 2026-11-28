@@ -1,10 +1,10 @@
+import { fail } from "../state/fail";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { useT } from "../i18n";
 import { Select } from "../components/Select";
-import { errorMessage } from "../project/api";
 import { useDoc } from "../state/store";
-import { say, sayError } from "../state/ui";
+import { say } from "../state/ui";
 import { exportLtc, LTC_DEFAULTS, LTC_DEPTHS, LTC_MAX_PRE_ROLL, LTC_SAMPLE_RATES } from "./api";
 import type { LtcDepth, LtcOptions } from "./api";
 
@@ -43,7 +43,7 @@ export function LtcDialog() {
         close();
       }
     } catch (err) {
-      sayError(errorMessage(err));
+      fail(err);
     } finally {
       setBusy(false);
     }

@@ -1,10 +1,10 @@
 // What the VJ screen shows besides the project: what the grid plays, which clip is selected and a
 // fader being moved. The backend owns the grid and what plays; this only keeps its last answer.
 
+import { fail } from "../state/fail";
 import { create } from "zustand";
-import { errorMessage } from "../project/api";
 import { dispatch, useDoc } from "../state/store";
-import { say, sayError } from "../state/ui";
+import { say } from "../state/ui";
 import { probeVideos } from "../state/video";
 import { watch } from "../watch";
 import { picture } from "./picture";
@@ -90,8 +90,6 @@ export const useVj = create<VjState>()(() => ({
   mod: NO_MOD,
   output: false,
 }));
-
-const fail = (err: unknown) => sayError(errorMessage(err));
 
 /** Applies an edit of the grid in the backend; the answer enters the undo history. `false` when the backend refused it. */
 export async function edit(op: VjOp): Promise<boolean> {

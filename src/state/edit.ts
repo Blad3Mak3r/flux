@@ -16,6 +16,7 @@ import type {
   Timeline,
   Track,
 } from "../project/types";
+import { round2 } from "../format.ts";
 import { DEFAULT_TEMPO, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/types.ts";
 
 export function emptyProject(name: string, frameRate: FrameRate): Project {
@@ -289,7 +290,7 @@ export function addAudioClip(
 export function clampTempo(tempo: Tempo): Tempo {
   const bpm = Number.isFinite(tempo.bpm) ? Math.min(MAX_BPM, Math.max(MIN_BPM, tempo.bpm)) : DEFAULT_TEMPO.bpm;
   const beats = Number.isFinite(tempo.beatsPerBar) ? Math.round(tempo.beatsPerBar) : DEFAULT_TEMPO.beatsPerBar;
-  return { ...tempo, bpm: Math.round(bpm * 100) / 100, beatsPerBar: Math.min(MAX_BEATS_PER_BAR, Math.max(1, beats)) };
+  return { ...tempo, bpm: round2(bpm), beatsPerBar: Math.min(MAX_BEATS_PER_BAR, Math.max(1, beats)) };
 }
 
 /** Changes the tempo of a timeline. One that comes out the same keeps the project as it was. */

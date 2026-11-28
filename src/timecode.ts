@@ -2,6 +2,7 @@
 // Erasable syntax only, so `node --test` can run it without a build step.
 
 import type { FrameRate } from "./project/types";
+import { pad2 } from "./format.ts";
 
 export interface Timecode {
   hours: number;
@@ -78,12 +79,10 @@ export function timecodeToFrames(tc: Timecode, rate: FrameRate): number | null {
   return nominal - 2 * (totalMinutes - Math.floor(totalMinutes / 10));
 }
 
-const two = (n: number) => String(n).padStart(2, "0");
-
 /** `HH:MM:SS:FF`, with `;` before the frames for drop-frame. */
 export function formatTimecode(tc: Timecode, rate: FrameRate): string {
   const separator = isDropFrame(rate) ? ";" : ":";
-  return `${two(tc.hours)}:${two(tc.minutes)}:${two(tc.seconds)}${separator}${two(tc.frames)}`;
+  return `${pad2(tc.hours)}:${pad2(tc.minutes)}:${pad2(tc.seconds)}${separator}${pad2(tc.frames)}`;
 }
 
 export function formatFrames(frames: number, rate: FrameRate): string {

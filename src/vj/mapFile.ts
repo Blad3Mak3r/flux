@@ -2,11 +2,11 @@
 // shown. The backend reads the file, finds what would be overwritten and applies the choice; this picks the file,
 // asks when something would be overwritten, and shows the answer through `apply` (one undo step).
 
+import { fail } from "../state/fail";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
-import { errorMessage } from "../project/api";
 import { dispatch, useDoc } from "../state/store";
-import { say, sayError } from "../state/ui";
+import { say } from "../state/ui";
 import { vjMappingsExport, vjMappingsImport, vjMappingsImportPreview } from "./api";
 import type { MapImportChoice, MapImportPlan } from "./api";
 
@@ -28,7 +28,7 @@ export async function exportMappings(): Promise<void> {
     await vjMappingsExport(doc, path);
     say("vj.mapfile.exported");
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }
 
@@ -41,7 +41,7 @@ export async function importMappings(): Promise<void> {
     if (plan.conflicts.length === 0) await runImport(path, { wipe: false, keep: [] });
     else useImportAsk.setState({ pending: { path, plan } });
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }
 
@@ -52,6 +52,6 @@ export async function runImport(path: string, choice: MapImportChoice): Promise<
     dispatch({ type: "apply", project, active });
     say("vj.mapfile.imported", { imported, skipped, kept });
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }

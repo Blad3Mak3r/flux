@@ -1,13 +1,13 @@
+import { fail } from "./fail";
 import { exportDiagnostics, openLogDir } from "../diagnostics/api";
-import { errorMessage } from "../project/api";
-import { say, sayError } from "./ui";
+import { say } from "./ui";
 
-export const openLogFolder = () => openLogDir().catch((err) => sayError(errorMessage(err)));
+export const openLogFolder = () => openLogDir().catch((err) => fail(err));
 
 export async function exportDiagnosticsFile() {
   try {
     if ((await exportDiagnostics()) !== null) say("status.diagnosticsExported");
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }

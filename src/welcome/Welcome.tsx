@@ -1,3 +1,4 @@
+import { fail } from "../state/fail";
 import { ErrorDialog } from "../components/ErrorDialog";
 import { sayError } from "../state/ui";
 import { useCallback, useEffect, useState } from "react";
@@ -84,7 +85,7 @@ function Welcome() {
     try {
       await action();
     } catch (err) {
-      sayError(errorMessage(err));
+      fail(err);
     } finally {
       setBusy(false);
     }

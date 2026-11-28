@@ -1,9 +1,8 @@
 // The catalogue of effects the backend offers: which kinds there are, in which category, and what each
 // setting takes. The interface draws its lists and controls from it and holds no range of its own.
 
+import { fail } from "../state/fail";
 import { create } from "zustand";
-import { errorMessage } from "../project/api";
-import { sayError } from "../state/ui";
 import { vjEffectCatalog } from "./api";
 import type { VjEffectCatalog, VjEffectSpec } from "./api";
 import type { MessageKey } from "../i18n";
@@ -18,7 +17,7 @@ export function loadEffectCatalog(): Promise<void> {
     .then((catalog) => useEffectCatalog.setState({ catalog }))
     .catch((err) => {
       loading = null;
-      sayError(errorMessage(err));
+      fail(err);
     });
   return loading;
 }

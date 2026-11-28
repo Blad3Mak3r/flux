@@ -2,6 +2,7 @@
 // what is heard; the timeline draws the same curve from them.
 
 import type { FadeCurve } from "../project/types";
+import { round2 } from "../format.ts";
 
 export const FADE_CURVES: readonly FadeCurve[] = ["linear", "equalPower", "sCurve", "exponential"];
 
@@ -32,9 +33,8 @@ export function fadePoints(curve: FadeCurve, direction: "in" | "out", width: num
   for (let step = 0; step <= steps; step++) {
     const along = step / steps;
     const gain = fadeShape(curve, direction === "in" ? along : 1 - along);
-    points.push(`${round(along * width)},${round((1 - gain) * height)}`);
+    points.push(`${round2(along * width)},${round2((1 - gain) * height)}`);
   }
   return points.join(" ");
 }
 
-const round = (value: number) => Math.round(value * 100) / 100;

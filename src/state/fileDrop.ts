@@ -3,15 +3,15 @@
 // attributes of the page, lights it, and on the drop hands the paths and the place to the backend,
 // which decides which files it takes and where they go.
 
+import { fail } from "./fail";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { create } from "zustand";
-import { errorMessage } from "../project/api";
 import type { AudioAsset, ProjectState, VideoAsset } from "../project/types";
 import { analyse, detectTempos } from "./audio";
 import { snapFrame, snapTargets } from "./snap";
 import { dispatch, useDoc } from "./store";
-import { say, sayError, useUi } from "./ui";
+import { say, useUi } from "./ui";
 import { probeVideos } from "./video";
 
 /** Where a file would land: a cell of the VJ grid, or a time on the timeline and the track it is on, if any. */
@@ -62,7 +62,7 @@ async function drop(paths: string[], target: Target): Promise<void> {
     // The tempo is read from the decoded audio, which the analysis leaves in the backend's cache.
     if (audio.length > 0) void analyse(audio).then(() => detectTempos(audio));
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }
 

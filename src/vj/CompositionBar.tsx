@@ -1,6 +1,7 @@
 // The composition bar of the VJ screen, as in Resolume: the show's tempo and its timecode clock.
 // The backend keeps the tempo and the clock's source; the transport runs the clock.
 
+import { pad2, parseDecimal } from "../format";
 import { useEffect, useRef, useState } from "react";
 import type { FocusEvent } from "react";
 import { PauseIcon, PlayIcon, StopIcon } from "../components/icons";
@@ -70,7 +71,7 @@ export function Tempo() {
   const paused = useVj((vj) => vj.play.beatsPaused);
   const taps = useRef<number[]>([]);
   const commit = () => {
-    if (draft !== null && draft.trim() !== "") void edit({ op: "setBpm", bpm: Number(draft.replace(",", ".")) });
+    if (draft !== null && draft.trim() !== "") void edit({ op: "setBpm", bpm: parseDecimal(draft) });
     setDraft(null);
   };
   const tap = () => {
@@ -239,8 +240,7 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
 /** Elapsed milliseconds as `H:MM:SS`. */
 const elapsed = (ms: number) => {
   const total = Math.floor(ms / 1000);
-  const two = (n: number) => String(n).padStart(2, "0");
-  return `${Math.floor(total / 3600)}:${two(Math.floor(total / 60) % 60)}:${two(total % 60)}`;
+  return `${Math.floor(total / 3600)}:${pad2(Math.floor(total / 60) % 60)}:${pad2(total % 60)}`;
 };
 
 /** Shown while the composition is being recorded: the word REC beside its dot, how long, the frames that were late, and the key that stops it. */

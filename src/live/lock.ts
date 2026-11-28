@@ -1,5 +1,4 @@
-import { errorMessage } from "../project/api";
-import { sayError } from "../state/ui";
+import { fail } from "../state/fail";
 import { showLockGet, showLockSet } from "./api";
 import { useShowLock } from "./lockStore";
 
@@ -8,7 +7,7 @@ export async function loadShowLock(): Promise<void> {
   try {
     useShowLock.setState({ locked: await showLockGet() });
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }
 
@@ -17,6 +16,6 @@ export async function setShowLock(locked: boolean): Promise<void> {
   try {
     useShowLock.setState({ locked: await showLockSet(locked) });
   } catch (err) {
-    sayError(errorMessage(err));
+    fail(err);
   }
 }
