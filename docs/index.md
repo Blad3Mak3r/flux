@@ -18,6 +18,7 @@ describe what the app does today.
 | --- | --- |
 | [Setlists and show operation](/setlists) | Preparing and running a setlist, GO and transitions. |
 | [Video and projection mapping](/video-output) | Video clips, output screens, slices, soft edges and masks. |
+| [DMX lighting](/dmx-lighting) | Lighting scenes with fades, sent over Art-Net or sACN. |
 | [Remote control](/remote-control) | MIDI controllers and OSC as a remote. |
 | [Per-track audio outputs](/audio-routing) | Per-track destinations and per-computer interfaces. |
 | [Voice operator](/voice-operator) | Spoken operator tracks. |

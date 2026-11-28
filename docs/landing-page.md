@@ -33,7 +33,7 @@ The CI `Docs` job builds the docs on every pull request. It fails on a dead link
 The version shown on the page (three `<span data-version>`) is written by `scripts/set-version.mjs` with the rest, so a
 release updates it. Do not edit it by hand.
 
-- The page makes no claim the README or the docs do not make. Not built yet: Art-Net cues, chasing an external
+- The page makes no claim the README or the docs do not make. Not built yet: chasing an external
   timecode, macOS builds.
 - Fig. 1 (the demo clock) and Fig. 2 (the signal path) are drawn for the page and say so. Fig. 3 (Edit), Fig. 4 (Live),
   Fig. 5 (the mapping editor) and Fig. 6 (two projector outputs) are real screenshots of the app running a sample show,

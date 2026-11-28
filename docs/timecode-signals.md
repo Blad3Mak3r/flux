@@ -130,7 +130,8 @@ are neither shown nor queued. MIDI and OSC events are cues of kind `midi` and `o
 `controlChange`, `programChange`, `msc`, `sysEx`, `osc`) and `Cue.detail` writes it in notation (`C4 · ch 1 · vel 100`,
 `GO 12.5 · L2`, `/cue/1/start 1 0.5`), which the UI shows next to the translated action. A note with a length is
 `running` for that long; the others are instant, so they go from `next` to `done`. Firing them is described below.
-Each video clip is a cue of kind `video`, named after the clip (or its video), running for as long as the clip shows. Art-Net will be a new track kind.
+Each video clip is a cue of kind `video`, named after the clip (or its video), running for as long as the clip shows. Each scene of a DMX track is a cue of kind `dmx`, named after the scene, with
+`Cue.detail` its channel count (`3 ch`); its length is its fade.
 
 | Command | Arguments | Result |
 | --- | --- | --- |
@@ -235,6 +236,29 @@ share its thread and schedule.
   destination, resolved when the output opens (never from the firing thread). MIDI Show Control and the OSC message
   format are described in the track kinds of [fxtc-format.md](fxtc-format.md).
 
+## Sending DMX (`dmx.rs`, `cue_routes.rs`)
+
+The scenes of the `dmx` tracks are sent from a thread of their own, `flux-dmx`, one for each destination the unmuted
+tracks of the active timeline use. Unlike the events above, DMX is a **state**: `DmxPlan::frames(position)` folds the
+scenes up to a position (each channel moves from where it is when a scene starts, and carries on with its own fade when
+a later scene does not name it; `releaseOthers` fades the channels the scene does not name to 0) and tracks that share a
+destination merge channel by channel, highest value wins. It is pure and tested without a socket.
+
+- The thread follows the published position like `flux-osc`. While the transport plays it recomputes every 25 ms and
+  sends a universe only when its values changed; so a fade goes out at up to 40 frames a second.
+- **Seek, start and loop** recompute the state at the new position, so locating in the middle of a fade is exact.
+- **Stop** holds the last frame: the lights stay as they were, whatever position the transport returns to. A seek while
+  stopped or paused recomputes it. The frame is repeated once a second (a node that lost it recovers), and nothing is
+  sent after the output closes; to turn the lights off at the end of a show, end it with a scene that releases the others.
+- **Packets.** Art-Net is `ArtDmx` (OpCode `0x5000`, version 14, a sequence from 1 to 255, the 15-bit Port-Address as
+  SubUni and Net, 512 channels). sACN is an E1.31 data packet (priority 100, a random source id for each socket, universe
+  `universe + 1`). Both go over UDP from an unconnected socket, so a closed port is not an error; a destination is
+  resolved when the output opens (never from the thread), and broadcast is allowed.
+- A destination that cannot be opened is a warning in `OutputInfo.warnings` and an entry of `OutputInfo.cues` with
+  `kind: "dmx"`; a send that fails is counted (`Faults.cue_errors`). Nothing logs from `flux-dmx`.
+- DMX is not sent in a setlist show (`show_events.rs`) yet, and a destination edited while the output runs takes effect
+  when it opens again (a new one is opened at once, as for OSC).
+
 ## Metronome (`engine/metronome.rs`)
 
 The metronome clicks on every beat of the active timeline's `tempo`, counted from the timeline origin; beat 0 of each
@@ -323,11 +347,12 @@ No command runs on the main thread, which belongs to the window and its event lo
 | `flux-mtc` | MIDI Timecode quarter frames. |
 | `flux-midi-clock` | MIDI clock: timing clocks, Start, Continue, Stop and Song Position (see MIDI clock). |
 | `flux-midi`, `flux-osc` | Fire the events of the MIDI and OSC tracks, one thread per port / destination (see Firing MIDI and OSC cues). |
+| `flux-dmx` | Sends the lighting state of the DMX tracks over Art-Net or sACN, one thread per destination (see Sending DMX). |
 | `flux-position`, `flux-live`, `flux-levels` | The three lanes above. |
 | `flux-advance` | With `advance` on: sees the show end and makes the next timeline the active one. |
 | `flux-log` | Writes the log for the output (see [diagnostics.md](diagnostics.md)): transport and device changes, and the fault counters. |
 
-**Nothing logs from `flux-audio`, `flux-ltc`, `flux-click`, `flux-mtc`, `flux-midi-clock`, `flux-midi` or `flux-osc`**: writing a file waits. Their error callbacks and
+**Nothing logs from `flux-audio`, `flux-ltc`, `flux-click`, `flux-mtc`, `flux-midi-clock`, `flux-midi`, `flux-osc` or `flux-dmx`**: writing a file waits. Their error callbacks and
 send failures only bump atomic counters (`SharedClock::faults`: `xruns`, `stream_errors`, `mtc_errors`, `cue_errors`) and raise the
 `lost` flags, and the `flux-log` lane turns the changes into log lines. A dropout (`ErrorKind::Xrun`) is counted and
 does not mark the device as lost; any other stream error does.
