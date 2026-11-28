@@ -5,6 +5,8 @@
 
 use flux_project::mapping::Scheme;
 
+use crate::composite::{to_linear, to_srgb};
+
 /// The smallest contrast ratio text on the card has against its background.
 pub const MIN_CONTRAST: f32 = 4.5;
 
@@ -128,7 +130,7 @@ pub fn contrast(a: [u8; 3], b: [u8; 3]) -> f32 {
 }
 
 fn luminance(c: [u8; 3]) -> f32 {
-    let [r, g, b] = c.map(|v| linear(v as f32 / 255.0));
+    let [r, g, b] = c.map(|v| to_linear(v as f32 / 255.0));
     0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
@@ -165,25 +167,9 @@ fn lightness(c: [u8; 3]) -> f32 {
     to_oklch(c).0
 }
 
-fn linear(v: f32) -> f32 {
-    if v <= 0.04045 {
-        v / 12.92
-    } else {
-        ((v + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-fn gamma(v: f32) -> f32 {
-    if v <= 0.003_130_8 {
-        v * 12.92
-    } else {
-        1.055 * v.powf(1.0 / 2.4) - 0.055
-    }
-}
-
 /// `(lightness 0..1, chroma, hue in degrees)` of an sRGB colour.
 pub fn to_oklch(c: [u8; 3]) -> (f32, f32, f32) {
-    let [r, g, b] = c.map(|v| linear(v as f32 / 255.0));
+    let [r, g, b] = c.map(|v| to_linear(v as f32 / 255.0));
     let l = (0.412_221_47 * r + 0.536_332_55 * g + 0.051_445_995 * b).cbrt();
     let m = (0.211_903_5 * r + 0.680_699_5 * g + 0.107_396_96 * b).cbrt();
     let s = (0.088_302_46 * r + 0.281_718_85 * g + 0.629_978_7 * b).cbrt();
@@ -225,7 +211,7 @@ pub fn from_oklch(lightness: f32, chroma: f32, hue: f32) -> [u8; 3] {
             }
         }
     }
-    best.map(|v| (gamma(v.clamp(0.0, 1.0)) * 255.0).round() as u8)
+    best.map(|v| (to_srgb(v.clamp(0.0, 1.0)) * 255.0).round() as u8)
 }
 
 #[cfg(test)]
