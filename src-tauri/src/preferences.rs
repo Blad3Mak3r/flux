@@ -50,6 +50,11 @@ pub struct Preferences {
     pub snapshot_media: bool,
     /// The folder the VJ recording saves into; absent is `Videos/FLUX`.
     pub recordings_dir: Option<String>,
+    /// The keys the user changed in a cue show; see `flux_project::keymap`.
+    pub shortcuts: flux_project::keymap::Overrides,
+    /// The keys every action has now: what the window looks key presses up in. Worked out when sent.
+    #[serde(skip_deserializing, skip_serializing_if = "Vec::is_empty")]
+    pub keymap: Vec<flux_project::keymap::ActionView>,
     #[serde(skip_deserializing)]
     pub revision: u64,
     #[serde(skip_deserializing)]
@@ -142,6 +147,15 @@ pub enum Change {
         #[serde(default)]
         only_if_unset: bool,
     },
+    /// Gives an action one key, or none. Refused when another action has the key.
+    Shortcut {
+        action: String,
+        key: Option<String>,
+    },
+    /// Back to the default keys of an action, or of all.
+    ShortcutReset {
+        action: Option<String>,
+    },
     Offset {
         kind: String,
         slot: u32,
@@ -196,6 +210,7 @@ fn save(path: &Path, prefs: &Preferences) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     let mut stored = prefs.clone();
     stored.warning = None;
+    stored.keymap.clear();
     let bytes = serde_json::to_vec_pretty(&stored).map_err(|e| e.to_string())?;
     fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
     fs::rename(&tmp, path).map_err(|e| {
@@ -230,6 +245,7 @@ fn validate(p: &Preferences) -> Result<(), String> {
         return Err("invalid analysis input".into());
     }
     flux_project::operator::validate_voice(p.voice.as_deref()).map_err(|e| e.to_string())?;
+    flux_project::keymap::validate(&p.shortcuts).map_err(|e| e.to_string())?;
     if p.ltc.keys().chain(p.mtc.keys()).any(|s| *s == 0) {
         return Err("invalid output slot".into());
     }
@@ -280,6 +296,12 @@ fn main_screen() -> String {
 }
 
 impl Preferences {
+    /// What the window is sent: these preferences with the keys every action has now.
+    fn sent(mut self) -> Self {
+        self.keymap = flux_project::keymap::view(&self.shortcuts);
+        self
+    }
+
     /// The display the screen `screen` of the video output opens on.
     pub fn video_display_for(&self, screen: &str) -> Option<String> {
         self.video_displays.get(screen).cloned().or_else(|| {
@@ -347,6 +369,14 @@ impl Preferences {
                 if !only_if_unset || self.locale.is_none() {
                     self.locale = Some(locale);
                 }
+            }
+            Change::Shortcut { action, key } => {
+                flux_project::keymap::set(&mut self.shortcuts, &action, key.as_deref())
+                    .map_err(|e| e.to_string())?;
+            }
+            Change::ShortcutReset { action } => {
+                flux_project::keymap::reset(&mut self.shortcuts, action.as_deref())
+                    .map_err(|e| e.to_string())?;
             }
             Change::Offset { kind, slot, text } => {
                 let offset: i32 = text.trim().parse().map_err(|_| "invalid latency offset")?;
@@ -671,7 +701,8 @@ pub fn preferences_get(app: AppHandle, state: State<'_, Store>) -> Result<Prefer
                     ..Default::default()
                 })
         })
-        .clone())
+        .clone()
+        .sent())
 }
 
 #[tauri::command]
@@ -689,6 +720,7 @@ pub fn preferences_change(
     save(&path, &next)?;
     next.revision = current.revision + 1;
     *current = next.clone();
+    let next = next.sent();
     let _ = app.emit("preferences-changed", &next);
     Ok(next)
 }
@@ -1120,5 +1152,51 @@ mod tests {
             channel: 0,
         });
         assert!(validate(&prefs).is_err());
+    }
+
+    #[test]
+    fn shortcuts_round_trip_and_refuse_a_key_in_use() {
+        let mut prefs = Preferences::default();
+        let change = |json: &str| serde_json::from_str::<Change>(json).unwrap();
+        prefs
+            .apply(change(
+                r#"{"op":"shortcut","action":"addMarker","key":"k"}"#,
+            ))
+            .unwrap();
+        let error = prefs
+            .apply(change(
+                r#"{"op":"shortcut","action":"addRegion","key":"K"}"#,
+            ))
+            .unwrap_err();
+        assert_eq!(error, "conflict:addMarker");
+        let dir = std::env::temp_dir().join(format!("flux-keys-{}", std::process::id()));
+        let path = dir.join("preferences.json");
+        save(&path, &prefs.clone().sent()).unwrap();
+        let loaded = load(&path);
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(loaded.warning, None);
+        assert_eq!(loaded.shortcuts, prefs.shortcuts);
+        let keys = |p: Preferences| {
+            p.sent()
+                .keymap
+                .into_iter()
+                .find(|a| a.id == "addMarker")
+                .unwrap()
+                .keys
+        };
+        assert_eq!(keys(loaded), ["K"]);
+        prefs
+            .apply(change(r#"{"op":"shortcutReset","action":null}"#))
+            .unwrap();
+        assert_eq!(keys(prefs), ["M"]);
+    }
+
+    #[test]
+    fn every_action_the_window_uses_is_in_the_table() {
+        let ts = include_str!("../../src/keymap/actions.ts");
+        let used: std::collections::BTreeSet<&str> = ts.split('"').skip(1).step_by(2).collect();
+        let table: std::collections::BTreeSet<&str> =
+            flux_project::keymap::ACTIONS.iter().map(|a| a.id).collect();
+        assert_eq!(used, table);
     }
 }

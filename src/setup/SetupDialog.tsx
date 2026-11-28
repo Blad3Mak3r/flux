@@ -2,6 +2,7 @@ import { VoicePage } from "../voice/VoicePanel";
 import { VideoPage } from "./VideoPage";
 import { SnapshotPage } from "./SnapshotPage";
 import { RecordingsPage } from "./RecordingsPage";
+import { ShortcutsPage } from "./ShortcutsPage";
 import { usePreferences } from "../preferences/store";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
@@ -63,6 +64,8 @@ function Page({ section, devices }: { section: SetupSection; devices: Devices })
       return <ControlPage part="artnet" />;
     case "graphics":
       return <GraphicsPage />;
+    case "shortcuts":
+      return <ShortcutsPage />;
     case "general":
       return <GeneralPage />;
     default:
