@@ -399,6 +399,25 @@ The **Composition** tab of the inspector holds a **dashboard** of eight knobs, a
   that has a modulation of its own follows its own modulation. The tempo (BPM) is not moved by a modulated knob.
 - The dashboard, with its modulations, is saved with the show.
 
+### Layer and clip dashboards
+
+Each **layer** and each **clip** has a dashboard of its own, as in Resolume: eight knobs under the effects of the Layer
+and Clip tabs of the inspector. They work like the composition's: drag a knob, name it, **Link numbers** and click the
+numbers it moves, set each link's **0** and **100** values, **~** to modulate it.
+
+- A **layer's** knobs move numbers of that layer: its Master, Opacity, Audio level and Transition, its effects' settings,
+  and the speed, generator numbers and effect settings of its clips. A **clip's** knobs move numbers of that clip: its
+  speed, its generator's numbers and its effects' settings. Clicking a number of another layer or clip while linking is
+  refused.
+- So a number of a clip can be linked to the clip's dashboard, its layer's or the composition's, and one of a layer to its
+  own or the composition's. A number can be on several knobs; the one turned last wins.
+- A clip keeps its dashboard, links and modulations when it is moved to another cell. Moved to another layer, the links of
+  its old layer's dashboard to it are dropped. Removing a layer or a clip, or an effect, unlinks what pointed to it.
+- A knob can be **mapped** like any other control (the map mode shows each knob), and answers on OSC at
+  `/composition/layers/{n}/dashboard/link{k}` and `/composition/layers/{n}/clips/{m}/dashboard/link{k}` (see
+  [Remote control](remote-control.md#osc)).
+- The dashboards are saved with the layers and clips, and with a template (without the links to clips).
+
 ## Composition effects
 
 The composition has an effect stack of its own, in the **Composition** tab of the inspector. It applies to the final mix

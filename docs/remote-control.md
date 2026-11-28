@@ -90,6 +90,8 @@ their slot).
 | `/composition/decks/next`, `/composition/decks/prev` | 1 | Next or previous deck. |
 | `/composition/disconnectall` | 1 | Stops every layer. |
 | `/composition/dashboard/link{k}` | 0 to 1 | Turns dashboard knob `k` (1 to 8). |
+| `/composition/layers/{n}/dashboard/link{k}` | 0 to 1 | Turns knob `k` (1 to 8) of layer `n`'s dashboard. |
+| `/composition/layers/{n}/clips/{m}/dashboard/link{k}` | 0 to 1 | Turns knob `k` of the dashboard of the clip at column `m` of layer `n`. |
 
 The tempo addresses also work as `/tempocontroller/...`. A message to a layer, column or deck that does not exist is
 ignored.
