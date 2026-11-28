@@ -133,6 +133,8 @@ pub fn run() {
             commands::clip_edit,
             commands::cue_edit,
             commands::item_edit,
+            commands::items_edit,
+            commands::items_extent,
             commands::output_signal_edit,
             commands::audio_routing_edit,
             preferences::preferences_get,

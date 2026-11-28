@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::archive::{self, AssetSource};
+use super::bulk_ops::{self, Extent, ItemsOp, Lengths};
 use super::clips::{self, ClipOp};
 use super::cue_ops::{self, CueEdited, CueOp};
 use super::dropped::{self, Dropped, MediaKind, Staged};
@@ -545,6 +546,53 @@ impl Session {
     /// Renames a track or a clip, or changes a clip's fade curves or volume envelope (see [`ItemOp`]).
     pub fn item_edit(&mut self, op: ItemOp) -> Result<ProjectState> {
         self.change(|project, active| item_ops::apply(project, active, op))
+    }
+
+    /// Moves or removes many items of the active timeline at once, with ripple if asked (see
+    /// [`ItemsOp`]); `lengths` is what [`Session::length_assets`] asked for.
+    pub fn items_edit(&mut self, op: ItemsOp, lengths: &Lengths) -> Result<ProjectState> {
+        self.change(|project, active| bulk_ops::apply(project, active, op, lengths))
+    }
+
+    /// The stretch of the active timeline the items `ids` cover, or all its content when empty.
+    pub fn items_extent(&self, ids: &[String], lengths: &Lengths) -> Result<Option<Extent>> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        bulk_ops::extent(&document.project, &document.active, ids, lengths)
+    }
+
+    /// The media of the clips of the active timeline that play all of it, whose length the
+    /// backend must read to know where those clips end, and the frame rate of the timeline.
+    pub fn length_assets(&self) -> Result<(Vec<AudioAsset>, Vec<VideoAsset>, FrameRate)> {
+        let document = self.document.as_ref().ok_or_else(no_project)?;
+        let project = &document.project;
+        let timeline = self.active_timeline(project)?;
+        let (mut audio, mut video) = (Vec::new(), Vec::new());
+        for track in &timeline.tracks {
+            match &track.kind {
+                TrackKind::Audio { clips } => audio.extend(
+                    clips
+                        .iter()
+                        .filter(|clip| clip.length.is_none())
+                        .filter_map(|clip| project.assets.iter().find(|a| a.id == clip.asset)),
+                ),
+                TrackKind::Video { clips } => video.extend(
+                    clips
+                        .iter()
+                        .filter(|clip| clip.length.is_none())
+                        .filter_map(|clip| project.videos.iter().find(|v| v.id == clip.asset)),
+                ),
+                _ => {}
+            }
+        }
+        audio.sort_by(|a, b| a.id.cmp(&b.id));
+        audio.dedup_by(|a, b| a.id == b.id);
+        video.sort_by(|a, b| a.id.cmp(&b.id));
+        video.dedup_by(|a, b| a.id == b.id);
+        Ok((
+            audio.into_iter().cloned().collect(),
+            video.into_iter().cloned().collect(),
+            timeline.timecode.frame_rate,
+        ))
     }
 
     /// Edits the MIDI and OSC tracks and the OSC destinations (see [`CueOp`]).
