@@ -20,7 +20,7 @@ export default defineConfig({
     logo: "/flux-symbol.svg",
     siteTitle: "FLUX",
     nav: [
-      { text: "Use FLUX", link: "/setlists", activeMatch: "/(setlists|video-output|remote-control|audio-routing|voice-operator|diagnostics)" },
+      { text: "Use FLUX", link: "/setlists", activeMatch: "/(timeline-editing|setlists|video-output|remote-control|audio-routing|voice-operator|diagnostics)" },
       { text: "VJ mode", link: "/vj-mode", activeMatch: "/vj-" },
       { text: "Integrate", link: "/osc-api", activeMatch: "/(osc-api|fxtc-format|timecode-signals)" },
       { text: "Download", link: "https://github.com/Blad3Mak3r/flux/releases/latest" },
@@ -29,6 +29,7 @@ export default defineConfig({
       {
         text: "Use FLUX",
         items: [
+          { text: "Editing the timeline", link: "/timeline-editing" },
           { text: "Setlists and show operation", link: "/setlists" },
           { text: "Video and projection mapping", link: "/video-output" },
           { text: "Remote control", link: "/remote-control" },
