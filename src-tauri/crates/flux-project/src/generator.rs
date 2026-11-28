@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::serde_util::full;
 use crate::{ProjectError, Result};
 
 /// Fastest a strobe flashes or a noise changes, a second.
@@ -198,7 +199,7 @@ pub enum Generator {
         size: f32,
         #[serde(default = "white")]
         colour: String,
-        #[serde(default = "one")]
+        #[serde(default = "full")]
         opacity: f32,
         #[serde(default)]
         align: TextAlign,
@@ -239,10 +240,6 @@ fn noise_rate() -> f32 {
 
 fn half() -> f32 {
     0.5
-}
-
-fn one() -> f32 {
-    1.0
 }
 
 fn text() -> String {

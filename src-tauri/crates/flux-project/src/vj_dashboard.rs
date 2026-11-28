@@ -15,7 +15,9 @@ use serde::Deserialize;
 
 use crate::model::Project;
 use crate::vj::{Clip, Layer, Vj};
-use crate::vj_mapping::{KNOBS, Knob, Link, MAX_LINKS, Target, finite, linkable, value_op};
+use crate::vj_mapping::{
+    KNOBS, Knob, Link, MAX_LINKS, Target, check_knob, finite, linkable, value_op,
+};
 use crate::vj_modulation::Modulation;
 use crate::{ProjectError, Result};
 
@@ -281,24 +283,12 @@ pub(crate) fn validate(vj: &Vj) -> Result<()> {
         }
     }
     for (scope, _, knob) in scoped(vj) {
-        if !(0.0..=1.0).contains(&knob.value) || knob.links.len() > MAX_LINKS {
-            return Err(ProjectError::Invalid(
-                "a knob is 0 to 1 and drives at most 16 numbers".into(),
-            ));
-        }
-        crate::vj::check_name(knob.name.as_deref())?;
-        if let Some(m) = &knob.modulation {
-            m.validate(0.0, 1.0)?;
-        }
-        for link in &knob.links {
-            let (lo, hi) = link.target.range(vj).unwrap_or((1.0, 0.0));
-            let inside = |v: f32| v.is_finite() && (lo..=hi).contains(&v);
-            if !in_scope(vj, &scope, &link.target) || !inside(link.min) || !inside(link.max) {
-                return Err(ProjectError::Invalid(
-                    "a knob is linked to a number that is not its own, or out of its range".into(),
-                ));
-            }
-        }
+        check_knob(
+            vj,
+            knob,
+            |target| in_scope(vj, &scope, target),
+            "a knob is linked to a number that is not its own, or out of its range",
+        )?;
     }
     Ok(())
 }

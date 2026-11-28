@@ -13,7 +13,8 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::vj::{Blend, Layer, MAX_LAYERS, Vj, check_name, full, is_false, is_full};
+use crate::serde_util::{full, is_false, is_full};
+use crate::vj::{Blend, Layer, MAX_LAYERS, Vj, check_name};
 use crate::vj_effects::{Effect, validate_stack};
 use crate::{ProjectError, Result};
 
