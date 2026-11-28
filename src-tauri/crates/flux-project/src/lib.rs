@@ -9,6 +9,7 @@ mod error;
 mod events;
 pub mod generator;
 mod item_ops;
+pub mod keymap;
 mod marks;
 pub mod media;
 pub(crate) mod meta;
