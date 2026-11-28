@@ -378,10 +378,37 @@ Flux starts those with **Clip = yellow, On = green**, as Resolume does:
 
 Any other controller starts with Clip = 32 (dim) and On = 127 (full), Off = 0, and you type the values its manual says.
 The **Pad colours** row at the top of the Mappings tab sets the values for the whole show; each MIDI row can override
-them. OSC feedback (sending values back to a mapped OSC address) is not implemented.
+them.
 
 A `.flxmap` file carries the colours of each mapping, and a file written before them imports with none. The
 grid-wide **Pad colours** and a knob's modulation belong to the show, not to the file, so they are not exported.
+
+### OSC feedback
+
+Type where the feedback goes in the **OSC feedback** row of the Mappings tab: one or more `host:port` (at most 4,
+separated by commas or spaces), for example `192.168.1.20:9001`. The row is empty at first and nothing is sent. The
+destinations belong to the show, as the mappings do. Flux then echoes the state of the grid to every destination on
+the **same addresses that control it**, with the new value, as Resolume does and as QLab's OSC state feedback does
+([OSC API v1](osc-api.md) has its own, separate feedback):
+
+| Address | Value |
+| --- | --- |
+| `/composition/layers/{n}/clips/{m}/connect` | 1 while the clip plays, else 0 (a slot with no clip says nothing) |
+| `/composition/columns/{m}/connect` | 1 for the column launched last, else 0 |
+| `/composition/layers/{n}/master`, `/audio/volume`, `/video/opacity`, `/transition/duration` | The layer's M, A, V and T faders, 0 to 1 |
+| `/composition/crossfader/phase` | The crossfader, 0 to 1 |
+| `/composition/tempocontroller/tempo` | The BPM |
+| `/composition/dashboard/link{k}` | The dashboard's knob `k`, 0 to 1 |
+
+An OSC address learned in the map mode echoes its target too: a fader's level through the mapping's own range (inverted
+if the mapping is), a switch, a launch or a stop as 1 or 0. A mapping to a setting of an effect or a generator has no
+feedback, and neither do the values a modulation moves: the value sent is the stored one.
+
+Every message is one integer (connections and switches) or float (levels). The whole state is sent when a
+destination is added or the show opens, and after that only what **changed** is sent, at most **30 times a second per
+address**: a fast sweep of a fader sends about thirty values a second and always ends on the last one. It is sent by a
+thread of its own that only reads the grid, never from the audio, so a destination that is slow or missing cannot delay
+the sound or the picture; one that cannot be reached is tried again every two seconds.
 
 ### Dashboard
 
@@ -472,6 +499,18 @@ properties of the selected item on the right. It is the same mapping described i
 The switch in front of each screen turns the output to it on or off, as in Resolume: a screen that is off keeps its window
 open (it does not jump around) but shows black, and its row is dimmed. The main screen can be turned off too. It is also in
 the screen's properties, and it is part of the show, so it is undone like any other edit.
+
+## Clip size
+
+The **S / M / L** control in the Grid panel's header sets how big the clips of the grid are drawn, as Resolume's clip
+size does: **Small** (88 px wide), **Medium** (116 px, a 80 px picture over a 24 px name bar) and **Large** (160 px, a
+taller picture). It is kept on this computer with the dock layouts, not in the show, and stays when another layout is
+applied.
+
+## Status bar
+
+The right of the status bar shows one short tip about the thumbnails, and only while there is no message of its own to
+show; below a window width of 1400 px the tip is not shown at all.
 
 ## Keys
 

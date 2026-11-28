@@ -231,11 +231,19 @@ transition mode other than Alpha is worked out like this, with `t` the progress 
 
 At `t = 0` only the old clip shows and at `t = 1` only the new one, so the cut at the end of the transition does not
 jump. In between, **Add** adds the two lights, **Multiply** darkens where both are dark, **Difference** lights up where
-they differ, and so on for every mode. Resolume also has transition effects that are not blend modes (wipes, slides and
-the like in its transition menu, and a Random choice); FLUX does not have them yet.
+they differ, and so on for every mode. Resolume also has transition effects that are not blend modes (wipes and slides
+in its transition menu); FLUX does not have them yet. It does have the **Random** choice, below.
 
 A layer that is in a [group](vj-mode.md#groups) cannot nest a second mix, so there the new clip is blended over the old
 one flat, with the transition's blend, and the group mixes the result.
+
+### Random · `transitionRandom`
+
+The first entry of the transition mode menu. With it, every transition that runs on the layer picks one of the 29 blend
+modes at random (Alpha included) when it starts, and keeps it until it ends, so one transition never changes mode half
+way. The pick is made by the backend and is different each time a clip is launched on the layer with a transition time
+above 0; a cut (transition time 0) has no mode to pick. Choosing any other mode in the menu turns Random off, and the
+mode that was set before is kept for when Random is turned off. It is saved with the layer as `transitionRandom`.
 
 ## Choices where Resolume is silent
 

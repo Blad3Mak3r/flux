@@ -1,7 +1,7 @@
 // The mappings of the show as a list: what drives what, the range of a level, the way a button acts, and the
 // way out. The backend owns the mappings and checks every change; this shows them and forwards the edit.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import { TrashIcon } from "../components/icons";
@@ -110,6 +110,10 @@ export function MappingsPanel({ grid }: { grid: VjGrid }) {
             onSet={(lights) => void edit({ op: "setLights", lights })} />
         </div>
       )}
+      <div className="vj-mp-bar vj-mp-pads">
+        <span className="vj-dim" title={t("vj.oscFeedback.note")}>{t("vj.oscFeedback")}</span>
+        <OscFeedbackField value={(grid.oscFeedback ?? []).join(", ")} />
+      </div>
       <div className="vj-mp-bar vj-mp-tools">
         <Segments options={FILTERS} value={filter} label={(f) => t(`vj.mappings.filter.${f}` as MessageKey)} onPick={setFilter} />
         <span className="vj-mp-files">
@@ -129,5 +133,24 @@ export function MappingsPanel({ grid }: { grid: VjGrid }) {
         </ul>
       )}
     </div>
+  );
+}
+
+/** Where the OSC feedback goes, as the text the backend reads (`host:port` separated by commas); it keeps what it understands. */
+function OscFeedbackField({ value }: { value: string }) {
+  const t = useT();
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <input className="vj-input" value={text} placeholder={t("vj.oscFeedback.placeholder")} aria-label={t("vj.oscFeedback")}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={() => {
+        if (text !== value) void edit({ op: "setOscFeedback", destinations: text }).then((done) => { if (!done) setText(value); });
+      }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === "Enter") event.currentTarget.blur();
+        if (event.key === "Escape") { setText(value); event.currentTarget.blur(); }
+      }} />
   );
 }

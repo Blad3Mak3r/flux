@@ -29,6 +29,7 @@ mod vj_audio;
 mod vj_commands;
 mod vj_control;
 mod vj_layout_commands;
+mod vj_osc_feedback;
 mod vj_presets_commands;
 mod vj_record;
 mod voice_commands;
@@ -87,6 +88,7 @@ pub fn run() {
             flux_text::warm();
             analysis::start(app.handle());
             modulation::start(app.handle());
+            vj_osc_feedback::start(app.handle());
             let app = app.handle().clone();
             let video = app.clone();
             tauri::async_runtime::spawn_blocking(move || control::start(&app));
@@ -173,6 +175,7 @@ pub fn run() {
             vj_layout_commands::vj_layout_resize,
             vj_layout_commands::vj_layout_equalize,
             vj_layout_commands::vj_layout_set_monitor,
+            vj_layout_commands::vj_layout_set_clip_size,
             vj_layout_commands::vj_layout_apply,
             vj_layout_commands::vj_layout_save,
             vj_layout_commands::vj_layout_rename,

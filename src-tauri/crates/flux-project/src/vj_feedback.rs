@@ -123,7 +123,7 @@ impl Pad {
 
 /// The state of what `target` is, `None` for a target that shows nothing (a fader, a tap).
 /// `playing` says whether a clip plays; `paused` whether the beats are held.
-fn state(
+pub(crate) fn state(
     vj: &Vj,
     target: &Target,
     playing: &dyn Fn(&str) -> bool,

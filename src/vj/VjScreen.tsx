@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent, ReactNode } from "react";
 import { InlineName } from "../components/InlineName";
 import { Marquee } from "../components/Marquee";
-import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon } from "../components/icons";
+import { ChevronDownIcon, ChevronRightIcon, CloseIcon, GlobeIcon, ImportIcon, PlayIcon, PlusIcon, StopIcon, VideoIcon } from "../components/icons";
 import { useT } from "../i18n";
 import { errorMessage, pickMediaPaths } from "../project/api";
 import { MediaFile } from "../media/MediaFile";
@@ -52,11 +52,12 @@ import {
   selectLayer,
   showMedia,
   loadLayout,
+  layoutSetClipSize,
   stopLayer,
   useVj,
 } from "./store";
 import type { MediaKind } from "./store";
-import type { MonitorKind } from "./api";
+import type { ClipSize, MonitorKind, VjOp } from "./api";
 import { Dock } from "./Dock";
 import { Monitor } from "./Monitor";
 import { GENERATORS, swatch } from "./generators";
@@ -135,6 +136,22 @@ function blendOptions(t: ReturnType<typeof useT>) {
     </>
   );
 }
+/** The transition mode options: Random, then every blend. */
+function transitionOptions(t: ReturnType<typeof useT>) {
+  return (
+    <>
+      <option value="random">{t("vj.blend.random")}</option>
+      {blendOptions(t)}
+    </>
+  );
+}
+/** The Select value and the edit for a layer's transition mode, Random being its own entry. */
+const transitionValue = (layer: VjLayer) => (layer.transitionRandom ? "random" : (layer.transitionEffect ?? "alpha"));
+const transitionEdit = (layer: VjLayer, value: string): VjOp =>
+  value === "random"
+    ? { op: "layerTransitionEffect", layer: layer.id, effect: layer.transitionEffect ?? "alpha", random: true }
+    : { op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend };
+const CLIP_SIZES: ClipSize[] = ["small", "medium", "large"];
 const AUTOPILOTS: VjAutopilot[] = ["off", "next", "previous", "random"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
@@ -412,16 +429,16 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
           modulated={layer.modulation?.opacity ? { layer: layer.id, field: "opacity" } : undefined} />
       </div>
       <Thumb className={`vj-now${clip ? "" : " empty"}`} strip={stripOf(thumbs, clip)} generator={clip?.generator}>
-        {clip && <PlayTime layer={layer.id} countdown="header" />}
+        {clip ? <PlayTime layer={layer.id} countdown="header" /> : <span className="vj-nonow" aria-hidden="true"><VideoIcon /></span>}
         {transition != null && <span className="vj-tbar"><i style={{ width: `${transition * 100}%` }} /></span>}
       </Thumb>
       <div className="vj-tcol">
         <Fader letter="T" map={{ kind: "layerTransition", layer: layer.id }} label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION}
           progress={transition} {...level("layerTransition", MAX_TRANSITION)} />
-        <Select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
+        <Select className="vj-select short" value={transitionValue(layer)} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
-          onChange={(value) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend })}>
-          {blendOptions(t)}
+          onChange={(value) => void edit(transitionEdit(layer, value))}>
+          {transitionOptions(t)}
         </Select>
       </div>
       {nameRow}
@@ -742,6 +759,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
   const liveColumn = deck.columns.findIndex((column) => column.id === lit);
   const sideNames = (side: VjSide) => grid.layers.filter((l) => l.crossfade === side).map((l) => layerName(t, grid, l)).join(", ");
   const columns = { "--columns": deck.columns.length } as CSSProperties;
+  const clipSize = useVj((vj) => vj.layout?.clipSize ?? "medium");
   // An effect dropped on the composition bar goes to the composition's stack.
   const composition = useCompositionDrop();
   const mapping = useMap((state) => state.on);
@@ -751,13 +769,15 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
         <h2>{t("vj.grid")}</h2>
         {mapping && <MapBar grid={grid} />}
         <div className="vj-tools">
+          <Segments options={CLIP_SIZES} value={clipSize} label={(o) => t(`vj.clipSize.${o}.short`)} title={(o) => t(`vj.clipSize.${o}`)}
+            onPick={(size) => void layoutSetClipSize(size)} />
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addLayer", global: false })}><PlusIcon />{t("vj.layer.add")}</button>
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addLayer", global: true })}><GlobeIcon />{t("vj.layer.addGlobal")}</button>
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addColumn" })}><PlusIcon />{t("vj.column.add")}</button>
         </div>
       </header>
       <div className="vj-pb">
-        <div className="vj-grid" style={columns}>
+        <div className="vj-grid" style={columns} data-size={clipSize}>
           <div className="vj-row head">
             <div className="vj-corner">{t("vj.summary", { layers: grid.layers.length, columns: deck.columns.length })}</div>
             {deck.columns.map((column, at) => <ColumnHead key={column.id} column={column} at={at} live={at === liveColumn} />)}
@@ -998,9 +1018,9 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
             </Select>
           </label>
           <label className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
-            <Select className="vj-select wide" value={layer.transitionEffect ?? "alpha"}
-              onChange={(value) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend })}>
-              {blendOptions(t)}
+            <Select className="vj-select wide" value={transitionValue(layer)}
+              onChange={(value) => void edit(transitionEdit(layer, value))}>
+              {transitionOptions(t)}
             </Select>
           </label>
           <div className="vj-f" {...mappable({ kind: "layerAutopilot", layer: layer.id })}><span>{t("vj.layer.autopilot")}</span>
@@ -1250,14 +1270,8 @@ export function VjScreen() {
   );
 }
 
-/** The VJ screen's tips, shown at the right of the status bar. */
-export function VjTips() {
+/** The VJ screen's one short tip, at the right of the status bar; the bar shows it only when it has no message of its own, and the stylesheet hides it on narrow windows. */
+export function VjTip() {
   const t = useT();
-  const global = useDoc((doc) => doc.project.vj?.layers.some((layer) => layer.global) ?? false);
-  return (
-    <span className="vj-tips">
-      {global && <span className="vj-hint"><GlobeIcon />{t("vj.globalHint")}</span>}
-      <span>{t("vj.outputNote")}</span>
-    </span>
-  );
+  return <span className="vj-tips">{t("vj.tip")}</span>;
 }
