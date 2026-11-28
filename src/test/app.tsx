@@ -52,7 +52,7 @@ export function resetStores() {
 /** Gives the open project an unsaved change. */
 export function makeDirty() {
   act(() => {
-    const { project } = useDoc.getState();
-    dispatch({ type: "edit", project: { ...project, name: `${project.name} (edited)` } });
+    const { project, active } = useDoc.getState();
+    dispatch({ type: "apply", project: { ...project, name: `${project.name} (edited)` }, active });
   });
 }
