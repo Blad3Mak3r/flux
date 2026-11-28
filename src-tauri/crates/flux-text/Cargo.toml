@@ -1,6 +1,6 @@
 [package]
 name = "flux-text"
-version = "0.2.2"
+version = "0.3.0"
 license = "GPL-3.0-or-later"
 description = "Text as a picture: system and bundled fonts, laid out and rasterised on the CPU"
 edition = "2024"

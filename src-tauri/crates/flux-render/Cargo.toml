@@ -1,6 +1,6 @@
 [package]
 name = "flux-render"
-version = "0.2.2"
+version = "0.3.0"
 license = "GPL-3.0-or-later"
 description = "Draws the video frames on an output window through the GPU (wgpu)"
 edition = "2024"
