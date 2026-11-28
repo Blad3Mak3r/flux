@@ -105,7 +105,11 @@ pub fn light(action: ControlAction, facts: &Facts) -> Option<Light> {
                     .timeline
                     .is_some_and(|(_, count)| (1..=count).contains(&place)))
         }
-        ControlAction::ViewEdit | ControlAction::ViewLive | ControlAction::Panic => return None,
+        ControlAction::NextMarker
+        | ControlAction::PrevMarker
+        | ControlAction::ViewEdit
+        | ControlAction::ViewLive
+        | ControlAction::Panic => return None,
     })
 }
 

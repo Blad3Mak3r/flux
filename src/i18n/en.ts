@@ -888,6 +888,8 @@ export const en = {
   "setup.control.action.stop": "Stop and go to the start",
   "setup.control.action.nextCue": "Next cue",
   "setup.control.action.prevCue": "Previous cue",
+  "setup.control.action.nextMarker": "Next marker",
+  "setup.control.action.prevMarker": "Previous marker",
   "setup.control.action.gotoCue": "Go to cue",
   "setup.control.action.stepFrames": "Move by frames",
   "setup.control.action.stepSeconds": "Move by seconds",

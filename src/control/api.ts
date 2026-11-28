@@ -14,6 +14,8 @@ export type ControlAction =
   | { type: "stop" }
   | { type: "nextCue" }
   | { type: "prevCue" }
+  | { type: "nextMarker" }
+  | { type: "prevMarker" }
   | { type: "gotoCue"; value: number }
   | { type: "stepFrames"; value: number }
   | { type: "stepSeconds"; value: number }

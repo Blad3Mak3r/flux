@@ -892,6 +892,8 @@ export const es: Record<MessageKey, string> = {
   "setup.control.action.stop": "Parar e ir al inicio",
   "setup.control.action.nextCue": "Cue siguiente",
   "setup.control.action.prevCue": "Cue anterior",
+  "setup.control.action.nextMarker": "Marcador siguiente",
+  "setup.control.action.prevMarker": "Marcador anterior",
   "setup.control.action.gotoCue": "Ir al cue",
   "setup.control.action.stepFrames": "Mover por frames",
   "setup.control.action.stepSeconds": "Mover por segundos",

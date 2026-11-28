@@ -113,6 +113,7 @@ pub(super) fn number(args: &[OscArg]) -> Option<i32> {
 /// | `/flux/play`, `/flux/pause`, `/flux/toggle`, `/flux/stop` | none | transport |
 /// | `/flux/cue/next`, `/flux/cue/prev` | none | cue before or after the position |
 /// | `/flux/cue/goto` | number, from 1 | the cue with that number |
+/// | `/flux/marker/next`, `/flux/marker/prev` | none | marker after or before the position |
 /// | `/flux/seek/frames`, `/flux/seek/seconds` | number, negative goes back | move the position |
 /// | `/flux/timeline/next`, `/flux/timeline/prev` | none | neighbour timeline |
 /// | `/flux/timeline/select` | number, from 1 | the timeline in that place |
@@ -138,6 +139,8 @@ pub fn osc_action(message: &OscMessage) -> Option<ControlAction> {
         "stop" => Some(ControlAction::Stop),
         "cue/next" => Some(ControlAction::NextCue),
         "cue/prev" => Some(ControlAction::PrevCue),
+        "marker/next" => Some(ControlAction::NextMarker),
+        "marker/prev" => Some(ControlAction::PrevMarker),
         "cue/goto" => position(ControlAction::GotoCue),
         "seek/frames" => number(args).map(ControlAction::StepFrames),
         "seek/seconds" => number(args).map(ControlAction::StepSeconds),
