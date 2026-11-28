@@ -1,17 +1,19 @@
-// The dashboard of the composition: eight knobs, each moving one or more numbers of the show at once, every number
-// between its own two limits. The backend keeps the knobs and moves what they are linked to (`vj_mapping.rs`); a
-// knob can also be mapped to a MIDI control or an OSC address like any other number.
+// The dashboard of the composition, of a layer or of a clip: eight knobs, each moving one or more numbers at once,
+// every number between its own two limits. The backend keeps the knobs and moves what they are linked to
+// (`vj_mapping.rs`, `vj_dashboard.rs`); a knob can also be mapped to a MIDI control or an OSC address like any other
+// number.
 
 import { useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
-import type { VideoAsset, VjGrid, VjKnob, VjLink } from "../project/types";
+import type { VideoAsset, VjGrid, VjKnob, VjLink, VjTarget } from "../project/types";
+import type { DashScope, ModTarget } from "./api";
 import { CloseIcon } from "../components/icons";
 import { useDoc } from "../state/store";
 import { Scrub } from "./controls";
 import { useEffectCatalog } from "./effects";
 import { linkKnob, useMap } from "./mapping";
-import { mappable, targetKey, targetLabel, targetUnits } from "./mapModel";
+import { knobsOf, mappable, targetKey, targetLabel, targetUnits } from "./mapModel";
 import { ModButton, ModPanel } from "./Modulation";
 import type { ModRange } from "./Modulation";
 import { edit, preview, useVj } from "./store";
@@ -24,17 +26,29 @@ const EMPTY: VjKnob = { value: 0 };
 /** A knob is 0 to 100, and a new modulation of it sweeps all of it. */
 const KNOB_RANGE: ModRange = { min: 0, max: 1, start: [0, 1], shown: 100, unit: "%", decimals: 0 };
 
+/** What a knob of `scope` is, to the map mode and the modulation. */
+const knobTarget = (scope: DashScope | undefined, knob: number): VjTarget =>
+  !scope ? { kind: "dashboard", knob } : scope.kind === "layer" ? { kind: "layerDashboard", layer: scope.layer, knob } : { kind: "clipDashboard", clip: scope.clip, knob };
+
+const modTarget = (scope: DashScope | undefined, knob: number): ModTarget => (scope ? { ...scope, knob } as ModTarget : { knob });
+
+/** The same scope, for two dashboards that are one. */
+const sameScope = (a: DashScope | undefined, b: DashScope | undefined) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
 /** A rotary knob: its arc is the value, its pointer the same, and the number is printed under it. */
-function Knob({ index, knob, picked, onPick }: { index: number; knob: VjKnob; picked: boolean; onPick: () => void }) {
+function Knob({ scope, index, knob, picked, onPick }: { scope: DashScope | undefined; index: number; knob: VjKnob; picked: boolean; onPick: () => void }) {
   const t = useT();
   const [held, setHeld] = useState<{ y: number; from: number; v: number } | null>(null);
   // A modulated knob shows where the backend says it is now.
-  const modulated = useVj((vj) => (knob.modulation ? vj.mod.knobs[index] : undefined));
+  const modulated = useVj((vj) =>
+    !knob.modulation ? undefined
+    : !scope ? vj.mod.knobs[index]
+    : scope.kind === "layer" ? vj.mod.layerKnobs[scope.layer]?.[index] : vj.mod.clipKnobs[scope.clip]?.[index]);
   const value = held?.v ?? modulated ?? knob.value;
   const label = t("vj.dashboard.knobNamed", { n: index + 1, name: knob.name ?? "" }).trim();
   const dragged = (event: PointerEvent<HTMLElement>, from: { y: number; from: number }) =>
     Math.min(1, Math.max(0, from.from + ((from.y - event.clientY) / TRAVEL) * (event.shiftKey ? 0.1 : 1)));
-  const set = (v: number) => void edit({ op: "dashboardValue", knob: index, value: Math.min(1, Math.max(0, v)) });
+  const set = (v: number) => void edit({ op: "dashboardValue", scope, knob: index, value: Math.min(1, Math.max(0, v)) });
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     const step = event.key === "ArrowUp" || event.key === "ArrowRight" ? 1 : event.key === "ArrowDown" || event.key === "ArrowLeft" ? -1 : 0;
     if (!step) return;
@@ -52,7 +66,7 @@ function Knob({ index, knob, picked, onPick }: { index: number; knob: VjKnob; pi
   const [px, py] = at(5, angle);
   const [qx, qy] = at(13, angle);
   return (
-    <div className={`vj-knob${picked ? " picked" : ""}${knob.links?.length ? " linked" : ""}${knob.modulation ? " modulated" : ""}`} {...mappable({ kind: "dashboard", knob: index })}>
+    <div className={`vj-knob${picked ? " picked" : ""}${knob.links?.length ? " linked" : ""}${knob.modulation ? " modulated" : ""}`} {...mappable(knobTarget(scope, index))}>
       <div className="vj-knob-dial" role="slider" tabIndex={0} aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(value * 100)}
         title={`${label} ${Math.round(value * 100)}`}
         onKeyDown={onKeyDown}
@@ -65,7 +79,7 @@ function Knob({ index, knob, picked, onPick }: { index: number; knob: VjKnob; pi
           if (!held) return;
           const v = dragged(event, held);
           setHeld({ ...held, v });
-          preview({ op: "dashboardValue", knob: index, value: v });
+          preview({ op: "dashboardValue", scope, knob: index, value: v });
         }}
         onPointerUp={(event) => {
           if (!held) return;
@@ -88,14 +102,14 @@ function Knob({ index, knob, picked, onPick }: { index: number; knob: VjKnob; pi
   );
 }
 
-function LinkRow({ grid, knob, link }: { grid: VjGrid; knob: number; link: VjLink }) {
+function LinkRow({ grid, scope, knob, link }: { grid: VjGrid; scope: DashScope | undefined; knob: number; link: VjLink }) {
   const t = useT();
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const catalog = useEffectCatalog((state) => state.catalog);
   const units = targetUnits(link.target, grid, catalog);
   const name = targetLabel(t, link.target, grid, videos);
   const set = (changed: Partial<Pick<VjLink, "min" | "max">>) =>
-    void edit({ op: "dashboardLink", knob, target: link.target, min: link.min, max: link.max, ...changed });
+    void edit({ op: "dashboardLink", scope, knob, target: link.target, min: link.min, max: link.max, ...changed });
   const scrub = (tag: string, label: string, key: "min" | "max") =>
     units && (
       <Scrub label={tag} name={`${name}: ${label}`} value={link[key]} shown={units.shown} reset={key === "min" ? units.min : units.max}
@@ -110,31 +124,35 @@ function LinkRow({ grid, knob, link }: { grid: VjGrid; knob: number; link: VjLin
         {scrub("1", t("vj.dashboard.atMax"), "max")}
       </span>
       <button type="button" className="vj-mp-del" title={t("vj.dashboard.unlink")} aria-label={`${t("vj.dashboard.unlink")}: ${name}`}
-        onClick={() => void edit({ op: "dashboardUnlink", knob, target: link.target })}><CloseIcon /></button>
+        onClick={() => void edit({ op: "dashboardUnlink", scope, knob, target: link.target })}><CloseIcon /></button>
     </li>
   );
 }
 
-/** The eight knobs and the links of the one picked. */
-export function Dashboard({ grid }: { grid: VjGrid }) {
+/** The eight knobs and the links of the one picked: the composition's, or with a `scope` the layer's or the clip's. */
+export function Dashboard({ grid, scope }: { grid: VjGrid; scope?: DashScope }) {
   const t = useT();
   const [picked, setPicked] = useState(0);
-  const linking = useMap((state) => state.linking);
-  const knob = grid.dashboard?.[picked] ?? EMPTY;
+  const here = useMap((state) => state.linking && sameScope(state.linking.scope, scope) ? state.linking.knob : null);
+  const linking = here;
+  const knobs = knobsOf(grid, scope);
+  const knob = knobs?.[picked] ?? EMPTY;
+  const title = t(!scope ? "vj.dashboard.title" : scope.kind === "layer" ? "vj.dashboard.layerTitle" : "vj.dashboard.clipTitle");
+  const note = t(!scope ? "vj.dashboard.note" : scope.kind === "layer" ? "vj.dashboard.layerNote" : "vj.dashboard.clipNote");
   const label = t("vj.dashboard.knobNamed", { n: picked + 1, name: knob.name ?? "" }).trim();
   const links = knob.links ?? [];
   const [draft, setDraft] = useState<string | null>(null);
   const rename = () => {
-    if (draft !== null && draft !== (knob.name ?? "")) void edit({ op: "renameKnob", knob: picked, name: draft });
+    if (draft !== null && draft !== (knob.name ?? "")) void edit({ op: "renameKnob", scope, knob: picked, name: draft });
     setDraft(null);
   };
   return (
-    <section className="vj-dash" aria-label={t("vj.dashboard.title")}>
-      <h3 className="vj-sub">{t("vj.dashboard.title")}</h3>
-      <p className="vj-dim vj-fx-empty">{t("vj.dashboard.note")}</p>
+    <section className={`vj-dash${scope ? " scoped" : ""}`} aria-label={title}>
+      <h3 className="vj-sub">{title}</h3>
+      <p className="vj-dim vj-fx-empty">{note}</p>
       <div className="vj-knobs" role="group">
         {Array.from({ length: KNOBS }, (_, i) => (
-          <Knob key={i} index={i} knob={grid.dashboard?.[i] ?? EMPTY} picked={i === picked} onPick={() => { setPicked(i); if (linking !== null) linkKnob(i); }} />
+          <Knob key={i} scope={scope} index={i} knob={knobs?.[i] ?? EMPTY} picked={i === picked} onPick={() => { setPicked(i); if (linking !== null) linkKnob(i, scope); }} />
         ))}
       </div>
       <div className="vj-dash-head">
@@ -145,17 +163,17 @@ export function Dashboard({ grid }: { grid: VjGrid }) {
             if (event.key === "Escape") { setDraft(null); event.currentTarget.blur(); }
           }} />
         <button type="button" className={`vj-tb${linking === picked ? " on" : ""}`} aria-pressed={linking === picked}
-          title={t("vj.dashboard.linkNote")} onClick={() => linkKnob(linking === picked ? null : picked)}>
+          title={t("vj.dashboard.linkNote")} onClick={() => linkKnob(linking === picked ? null : picked, scope)}>
           {t(linking === picked ? "vj.dashboard.linking" : "vj.dashboard.link")}
         </button>
-        <ModButton target={{ knob: picked }} modulation={knob.modulation} range={KNOB_RANGE} name={label} />
+        <ModButton target={modTarget(scope, picked)} modulation={knob.modulation} range={KNOB_RANGE} name={label} />
       </div>
-      <ModPanel target={{ knob: picked }} modulation={knob.modulation} range={KNOB_RANGE} />
+      <ModPanel target={modTarget(scope, picked)} modulation={knob.modulation} range={KNOB_RANGE} />
       {links.length === 0 ? (
         <p className="vj-dim vj-fx-empty">{t("vj.dashboard.noLinks")}</p>
       ) : (
         <ul className="vj-links">
-          {links.map((link) => <LinkRow key={targetKey(link.target)} grid={grid} knob={picked} link={link} />)}
+          {links.map((link) => <LinkRow key={targetKey(link.target)} grid={grid} scope={scope} knob={picked} link={link} />)}
         </ul>
       )}
     </section>

@@ -8,16 +8,23 @@ import { dispatch } from "../state/store";
 import type { Project } from "../project/types";
 import type { VjSource, VjTarget } from "../project/types";
 import { vjLearn } from "./api";
+import type { DashScope } from "./api";
 import { linkable } from "./mapModel";
 import { edit } from "./store";
+
+/** A dashboard knob being linked. */
+export interface Linking {
+  scope?: DashScope;
+  knob: number;
+}
 
 interface MapState {
   /** Whether the overlays show. */
   on: boolean;
   /** The target waiting for a control or an OSC message. */
   learn: VjTarget | null;
-  /** The dashboard knob that the next continuous control clicked is linked to. */
-  linking: number | null;
+  /** The dashboard knob (of the composition, or of the layer or clip in `scope`) that the next continuous control clicked is linked to. */
+  linking: Linking | null;
   /** The source of the last mapping learned, for the overlay to confirm it. */
   learned: VjSource | null;
   /** The key the backend refused to learn because the app uses it, until the next try. */
@@ -52,7 +59,7 @@ export function escapeMap(): boolean {
 export function pickTarget(target: VjTarget): void {
   const { linking } = useMap.getState();
   if (linking !== null) {
-    if (linkable(target)) void edit({ op: "dashboardLink", knob: linking, target });
+    if (linkable(target)) void edit({ op: "dashboardLink", scope: linking.scope, knob: linking.knob, target });
     return;
   }
   useMap.setState({ learn: target, learned: null, refused: null });
@@ -62,10 +69,10 @@ export function pickTarget(target: VjTarget): void {
 export const clearMapping = (target: VjTarget) => void edit({ op: "clearMapping", target });
 
 /** Starts or stops linking a dashboard knob; the mode turns on, since the links are picked from the overlays. */
-export function linkKnob(knob: number | null): void {
+export function linkKnob(knob: number | null, scope?: DashScope): void {
   if (knob !== null && !useMap.getState().on) useMap.setState({ on: true });
   if (knob !== null) stopLearning();
-  useMap.setState({ linking: knob, learn: null });
+  useMap.setState({ linking: knob === null ? null : { scope, knob }, learn: null });
 }
 
 /** Takes what the backend does for a controller (the states it sends while a control moves, the learned source). */

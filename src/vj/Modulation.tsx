@@ -17,16 +17,17 @@ import { edit, preview, showModulation, useVj } from "./store";
 /** The key of what a modulation is set on, which the screen keeps its open sub-rows by. */
 export function modKey(target: ModTarget): string {
   if ("effect" in target) return `e:${target.effect}:${target.param}`;
+  if ("knob" in target) return "layer" in target ? `lk:${target.layer}:${target.knob}` : "clip" in target ? `ck:${target.clip}:${target.knob}` : `k:${target.knob}:value`;
   if ("layer" in target) return `l:${target.layer}:${target.field}`;
-  if ("knob" in target) return `k:${target.knob}:value`;
   return `c:${target.clip}:${target.field}`;
 }
 
 /** Whether the inspector shows anything modulated: the clip, its layer or an effect of either. */
 export function inspectorModulated(layer: VjLayer | undefined, clip: VjClip | undefined, composition?: VjLayer["effects"]): boolean {
-  const modulated = (holder: { modulation?: object; effects?: VjLayer["effects"] } | undefined) =>
+  const modulated = (holder: { modulation?: object; effects?: VjLayer["effects"]; dashboard?: VjLayer["dashboard"] } | undefined) =>
     !!holder &&
     (Object.keys(holder.modulation ?? {}).length > 0 ||
+      (holder.dashboard ?? []).some((knob) => knob.modulation) ||
       (holder.effects ?? []).some((effect) => Object.keys(effectModulation(effect) ?? {}).length > 0));
   return modulated(layer) || modulated(clip) || modulated({ effects: composition });
 }
@@ -47,8 +48,8 @@ export interface ModRange {
 export function useModMarker(target: ModTarget, modulation: VjModulation | undefined, range: ModRange): number | undefined {
   const value = useVj((vj) =>
     "effect" in target ? vj.mod.effects[target.effect]?.[target.param]
+    : "knob" in target ? ("layer" in target ? vj.mod.layerKnobs[target.layer]?.[target.knob] : "clip" in target ? vj.mod.clipKnobs[target.clip]?.[target.knob] : vj.mod.knobs[target.knob])
     : "layer" in target ? vj.mod.layers[target.layer]?.[target.field]
-    : "knob" in target ? vj.mod.knobs[target.knob]
     : vj.mod.clips[target.clip]?.[target.field],
   );
   if (!modulation || value === undefined || range.max === range.min) return undefined;

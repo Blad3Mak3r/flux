@@ -10,7 +10,7 @@ import type { MessageKey } from "../i18n";
 import type { VideoAsset, VjGrid, VjTarget } from "../project/types";
 import { useDoc } from "../state/store";
 import { linkKnob, setMapMode, clearMapping, pickTarget, useMap } from "./mapping";
-import { linkable, mappingsByTarget, sourceLabel, targetKey, targetLabel } from "./mapModel";
+import { knobsOf, linkable, mappingsByTarget, sourceLabel, targetKey, targetLabel } from "./mapModel";
 
 const NO_VIDEOS: VideoAsset[] = [];
 
@@ -90,7 +90,7 @@ export function MapLayer({ grid }: { grid: VjGrid }) {
   if (!on) return null;
   const mapped = mappingsByTarget(grid);
   const learning = learn ? targetKey(learn) : null;
-  const linked = linking === null ? new Set<string>() : new Set((grid.dashboard?.[linking]?.links ?? []).map((link) => targetKey(link.target)));
+  const linked = linking === null ? new Set<string>() : new Set((knobsOf(grid, linking.scope)?.[linking.knob]?.links ?? []).map((link) => targetKey(link.target)));
   return (
     <div className="vj-map" aria-label={t("vj.map.layer")}>
       {boxes.map((box) => {
@@ -143,7 +143,7 @@ export function MapBar({ grid }: { grid: VjGrid }) {
   }, []);
   const status = refused ? t("vj.map.keyTaken", { key: sourceLabel(refused).replace("Key ", "") })
     : linking !== null
-    ? t("vj.map.linkingKnob", { n: linking + 1 })
+    ? t("vj.map.linkingKnob", { n: linking.knob + 1 })
     : learn ? t("vj.map.waitingFor", { target: targetLabel(t, learn, grid, videos) }) : t("vj.map.hint");
   const lamp = (name: "midi" | "osc" | "artnet") => {
     const link = inputs?.[name];

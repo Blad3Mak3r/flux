@@ -24,6 +24,16 @@ test("a knob links levels but not another knob", () => {
   assert.equal(linkable({ kind: "stopAll" }), false);
 });
 
+test("the knobs of a layer and of a clip are levels that no knob links, and they follow their slot", () => {
+  const knobs = [{ kind: "layerDashboard", layer: "a", knob: 2 }, { kind: "clipDashboard", clip: "c", knob: 0 }];
+  for (const knob of knobs) {
+    assert.equal(targetClass(knob), "continuous");
+    assert.equal(linkable(knob), false);
+    assert.equal(hasSlot(knob), true);
+  }
+  assert.notEqual(targetKey(knobs[0]), targetKey({ kind: "layerDashboard", layer: "a", knob: 3 }));
+});
+
 test("mappable carries the target as JSON and nothing without one", () => {
   assert.deepEqual(mappable({ kind: "stopAll" }), { "data-map": '{"kind":"stopAll"}' });
   assert.deepEqual(mappable(undefined), {});

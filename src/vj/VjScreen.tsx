@@ -968,6 +968,7 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
           {(["positionX", "positionY"] as const).map((field) => modPanel(field))}
         </div>
         <EffectStack target={{ clip: clip.id }} effects={clip.effects ?? NO_EFFECTS} />
+        <Dashboard key={clip.id} grid={grid} scope={{ kind: "clip", clip: clip.id }} />
         <dl className="vj-meta">
           {generator ? (
             <div><dt>{t("vj.gen.kind")}</dt><dd>{t(`vj.generator.${generator.kind}`)}</dd></div>
@@ -1036,6 +1037,7 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
           })}
         </div>
         <EffectStack target={{ layer: layer.id }} effects={layer.effects ?? NO_EFFECTS} />
+        <Dashboard key={layer.id} grid={grid} scope={{ kind: "layer", layer: layer.id }} />
       </div>
     );
   } else if (tab === "group" && group) {

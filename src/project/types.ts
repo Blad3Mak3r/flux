@@ -83,6 +83,8 @@ export type VjTarget =
   | { kind: "clipSpeed"; clip: string }
   | { kind: "generatorNumber"; clip: string; name: string }
   | { kind: "dashboard"; knob: number }
+  | { kind: "layerDashboard"; layer: string; knob: number }
+  | { kind: "clipDashboard"; clip: string; knob: number }
   | { kind: "deckNext" | "deckPrev" | "stopAll" | "bpmTap" | "bpmResync" | "bpmPlus" | "bpmMinus" | "bpmDouble" | "bpmHalf" | "bpmNudgeUp" | "bpmNudgeDown" | "bpmPause" | "crossfader" | "bpm" };
 
 /** What a mapped button does: a press runs or turns on, flips a switch, or holds while down. */
@@ -176,6 +178,8 @@ export interface VjLayer {
   effects?: VjEffect[];
   /** What drives `master`, `opacity` or `volume` by itself. */
   modulation?: VjModulations;
+  /** The layer's dashboard; a knob not listed is at 0 with no links. */
+  dashboard?: VjKnob[];
   /** At most one per column of each deck, or per slot on a global layer. */
   clips?: VjClip[];
 }
@@ -341,6 +345,8 @@ export interface VjClip {
   effects?: VjEffect[];
   /** What drives `scale`, `positionX` or `positionY` by itself. */
   modulation?: VjModulations;
+  /** The clip's dashboard, as the layer's. */
+  dashboard?: VjKnob[];
 }
 
 export interface Autosave {

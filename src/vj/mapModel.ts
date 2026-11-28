@@ -3,7 +3,8 @@
 
 import type { MessageKey, Translate } from "../i18n";
 import type { VjEffectCatalog } from "./api";
-import type { VideoAsset, VjClip, VjEffect, VjGrid, VjMapping, VjTarget } from "../project/types";
+import type { VideoAsset, VjClip, VjEffect, VjGrid, VjKnob, VjMapping, VjTarget } from "../project/types";
+import type { DashScope } from "./api";
 import { targetKey } from "./mapTarget";
 
 export { hasSlot, keyName, linkable, mappable, sourceKind, sourceLabel, targetClass, targetKey } from "./mapTarget";
@@ -31,6 +32,16 @@ function effectOf(grid: VjGrid, id: string): VjEffect | undefined {
 }
 
 const targetName = (kind: VjTarget["kind"]) => `vj.map.target.${kind}` as MessageKey;
+
+/** The knobs of the dashboard of `scope` (the composition's when absent). */
+export function knobsOf(grid: VjGrid, scope?: DashScope): VjKnob[] | undefined {
+  if (!scope) return grid.dashboard;
+  return scope.kind === "layer" ? grid.layers.find((l) => l.id === scope.layer)?.dashboard : clipOf(grid, scope.clip)?.dashboard;
+}
+
+/** A knob as it is called: its number, then its name if it has one. */
+const knobName = (t: Translate, knobs: VjKnob[] | undefined, knob: number) =>
+  t("vj.dashboard.knobNamed", { n: knob + 1, name: knobs?.[knob]?.name ?? "" }).trim();
 
 /** What a target is called in the mappings list: where it is, then what of it. */
 export function targetLabel(t: Translate, target: VjTarget, grid: VjGrid, videos: VideoAsset[]): string {
@@ -63,7 +74,17 @@ export function targetLabel(t: Translate, target: VjTarget, grid: VjGrid, videos
       return `${name} · ${t(paramKey(effect?.effect ?? "", target.param)) ?? t(genericParamKey(target.param))}`;
     }
     case "dashboard":
-      return t("vj.dashboard.knobNamed", { n: target.knob + 1, name: grid.dashboard?.[target.knob]?.name ?? "" }).trim();
+      return knobName(t, grid.dashboard, target.knob);
+    case "layerDashboard": {
+      const layer = grid.layers.find((l) => l.id === target.layer);
+      return `${layer ? layerName(t, grid, layer) : "?"} · ${knobName(t, layer?.dashboard, target.knob)}`;
+    }
+    case "clipDashboard": {
+      const clip = clipOf(grid, target.clip);
+      const layer = grid.layers.find((l) => l.clips?.some((c) => c.id === target.clip));
+      const name = clip ? clipName(t, clip, videos) : "?";
+      return `${layer ? `${layerName(t, grid, layer)} · ` : ""}${name} · ${knobName(t, clip?.dashboard, target.knob)}`;
+    }
     case "layerStop":
     case "layerAutopilot":
     case "layerBypass":
@@ -109,6 +130,8 @@ export function targetUnits(target: VjTarget, grid: VjGrid, catalog: VjEffectCat
     case "groupOpacity":
     case "crossfader":
     case "dashboard":
+    case "layerDashboard":
+    case "clipDashboard":
       return PERCENT;
     case "layerTransition":
       return { min: 0, max: 10, shown: 1, unit: "s", decimals: 1 };

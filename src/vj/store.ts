@@ -69,7 +69,7 @@ interface VjState {
   output: boolean;
 }
 
-const NO_MOD: ModValues = { effects: {}, layers: {}, clips: {}, knobs: {} };
+const NO_MOD: ModValues = { effects: {}, layers: {}, clips: {}, knobs: {}, layerKnobs: {}, clipKnobs: {} };
 
 export type MediaKind = "all" | "video" | "image";
 
