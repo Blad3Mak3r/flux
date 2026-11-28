@@ -3,7 +3,7 @@
 //!
 //! Everything here is pure. [`pads`] reads the grid (and which clips play, which the app knows) and
 //! says what each mapped MIDI pad should look like; [`Pad::value`] turns that into the velocity or
-//! control value the controller wants. The app (`src-tauri/src/control.rs`) owns the output port,
+//! control value the controller wants. The app (`src-tauri/src/control/`) owns the output port,
 //! sends only what changed since the last look and puts every pad out on close.
 //!
 //! Which velocity means which colour is the controller's: [`Lights::preset`] knows the AKAI APC

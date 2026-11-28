@@ -279,7 +279,7 @@ drum patterns, not on a library of real recordings.
 With no offset set, frame N starts exactly where the transport reaches frame N. Each LTC and MTC output can run ahead
 of or behind the transport by an offset of its own (below).
 
-## Output and transport commands (`output.rs`, `transport_commands.rs`)
+## Output and transport commands (`output.rs`, `transport_commands/`)
 
 `output_start(project, onPosition, onLevels, onLive)` opens the devices `project.output` names and starts a stopped transport at
 `project.timecode.start`; it replaces a running output. TS wrappers are in `src/transport/api.ts`.

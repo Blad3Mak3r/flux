@@ -177,7 +177,7 @@ removed. The screens belong to the project (`output.screens`); which display eac
 a display that has a FLUX window on it, a screen opens as a window that can be moved aside, so one screen is never
 covered; on any other display it fills the screen without decorations.
 
-`src-tauri/src/video_output.rs` owns the windows. A thread (`flux-video-screens`) follows the project and opens,
+`src-tauri/src/video_output/` owns the windows. A thread (`flux-video-screens`) follows the project and opens,
 renames or closes a window when a screen is added, renamed or removed or another project opens. Each window's surface is made on the main thread (macOS requires it), and a
 render thread (`flux-video-output`, one per window, all sharing one `VideoDeck`, so a clip is decoded once however many screens show it) starts the GPU device and then, once per display refresh, reads the transport
 (`PositionReader::timeline_frame`), asks the `VideoDeck` for the layers at that frame and draws them with
