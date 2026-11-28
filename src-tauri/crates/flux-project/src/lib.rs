@@ -21,6 +21,7 @@ pub mod recovery;
 pub mod routing;
 pub use outputs::{ClickSettings, LtcSignal, MtcSignal, ShowOutputs, SignalOp, UNASSIGNED_DEVICE};
 pub mod playhead;
+mod serde_util;
 mod session;
 pub mod show;
 mod video_clips;
