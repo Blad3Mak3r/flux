@@ -1,0 +1,94 @@
+/* Vermilion means "live": the playhead is ink while stopped and turns only when playing. */
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ink);
+  pointer-events: none;
+}
+
+.playhead[data-playing="true"] {
+  background: var(--signal);
+}
+
+.playhead::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -5px;
+  width: 12px;
+  height: 9px;
+  background: inherit;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+
+.hover-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  width: 0;
+  border-left: 1px dashed var(--ink-faint);
+  pointer-events: none;
+  /* Its own layer: moving it never repaints the lanes and waveforms under it. */
+  will-change: transform;
+}
+
+.hover-line[hidden] {
+  display: none;
+}
+
+.span-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 4;
+  background: oklch(0.87 0.17 128 / 0.1);
+  border-inline: 1px dashed var(--phosphor-dim);
+  pointer-events: none;
+}
+
+.textarea {
+  width: 100%;
+  min-height: 7em;
+  padding: 6px 8px;
+  resize: vertical;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.4;
+}
+
+.empty-state {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-height: 160px;
+  padding: 24px 28px;
+  color: var(--ink-dim);
+  max-width: 62ch;
+}
+
+.empty-state.on-screen {
+  /* Over the graticule: a panel of its own, so the lines never run through the words. */
+  position: relative;
+  width: fit-content;
+  margin: 24px 28px;
+  min-height: 0;
+  background: var(--panel);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+}
+
+.empty-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}

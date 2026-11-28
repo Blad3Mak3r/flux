@@ -1,0 +1,31 @@
+/* ---- Narrow windows ---- */
+
+@media (max-width: 1180px) {
+  .app .brand {
+    display: none;
+  }
+
+  .key {
+    min-width: 70px;
+    padding-inline: 8px;
+  }
+
+  .lamps li {
+    grid-template-columns: 10px 4.8em 3.4em minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .work {
+    grid-template-columns: minmax(0, 1fr) 264px;
+  }
+
+  .work[data-inspector-collapsed="true"] {
+    grid-template-columns: minmax(0, 1fr) 40px;
+  }
+
+  .faceplate {
+    gap: 24px;
+    padding-inline: 20px;
+  }
+
+}

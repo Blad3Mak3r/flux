@@ -1,0 +1,30 @@
+/* ---- Modulation: the "~" button of a setting, its sub-row, and the mark of the modulated value ---- */
+.vj-mod-b {
+  display: inline-grid; flex: none; place-items: center; width: 24px; height: 24px; padding: 0;
+  color: var(--ink-faint); background: none; border: 0; border-radius: 2px;
+}
+.vj-mod-b:hover:not(:disabled) { color: var(--ink); background: var(--vj-ctl); }
+.vj-mod-b.on { color: var(--phosphor); }
+.vj-mod-b.on.open { background: oklch(from var(--phosphor) l c h / 0.16); box-shadow: inset 0 0 0 1px var(--phosphor-dim); }
+.vj-mod-b .icon { width: 14px; height: 14px; }
+.vj-scrub { position: relative; }
+.vj-scrub .vj-mod-b { width: 22px; margin-right: 1px; }
+.vj-scrub.has-trailing .vj-scrub-l { padding: 0 4px; }
+.vj-scrub.has-trailing .vj-scrub-u { padding: 0 2px 0 1px; }
+.vj-scrub-m { position: absolute; bottom: 0; width: 3px; height: 6px; margin-left: -1px; background: var(--phosphor); pointer-events: none; }
+.vj-scrub.modulated::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--phosphor-dim); opacity: 0.5; pointer-events: none; }
+
+.vj-mod {
+  display: flex; flex-direction: column; gap: 6px; margin: 0 0 2px 16px; padding: 6px 8px;
+  background: var(--vj-well); border-left: 2px solid var(--phosphor-dim); border-radius: 0 2px 2px 0;
+}
+.vj-mod .vj-f { grid-template-columns: 68px minmax(0, 1fr); gap: 8px; }
+.vj-mod .vj-segs button { flex: 1 0 auto; padding: 0 3px; font-size: 11px; }
+.vj-mod .vj-scrub-l { padding: 0 4px; }
+.vj-mod .vj-scrub-u { padding: 0 4px 0 1px; }
+.vj-shape { width: 16px; height: 12px; vertical-align: middle; }
+.vj-mod .vj-segs button .vj-shape { display: block; margin: 0 auto; }
+
+/* A layer fader that is modulated shows a line where the modulated value is now. */
+.vj-fader em { position: absolute; left: 0; right: 0; bottom: calc((100% - 14px) * var(--mv, 0) + 7px); height: 2px; background: var(--phosphor); pointer-events: none; }
+.vj-fader.modulated b { box-shadow: 0 0 0 1px var(--phosphor); }

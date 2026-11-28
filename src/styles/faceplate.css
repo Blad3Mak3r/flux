@@ -1,0 +1,222 @@
+/* ---- Faceplate ---- */
+
+.faceplate {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 40px;
+  padding: 20px 28px;
+  background: var(--panel);
+  border-bottom: 2px solid var(--rule-strong);
+}
+
+.readout {
+  display: grid;
+  gap: 10px;
+  padding: 14px 18px 10px;
+  background: var(--screen);
+  border: 2px solid var(--panel-lo);
+  outline: 1px solid var(--rule);
+}
+
+/* --cell is set from script, in a whole number of device pixels, so no pixel is ever blended. */
+.dot-matrix {
+  display: block;
+  width: calc(var(--cols) * var(--cell));
+  height: calc(7 * var(--cell));
+}
+
+.dot-on {
+  fill: var(--phosphor);
+}
+
+.dot-off {
+  fill: var(--ghost);
+}
+
+.readout-line {
+  display: flex;
+  gap: 18px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.state-word {
+  min-width: 11ch;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.state-word[data-state="playing"] {
+  color: var(--signal);
+}
+
+.state-word[data-state="paused"] {
+  color: var(--amber);
+}
+
+.keys,
+.lamps {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.faceplate-end {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* The show's name heads the plate's right column, in the user's own words: never uppercase. */
+.project-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.project-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.key-row {
+  display: flex;
+  gap: 8px;
+}
+
+.key {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 5px;
+  min-width: 84px;
+  height: 70px;
+  padding-inline: 14px;
+  padding-top: 4px;
+  background: var(--panel-hi);
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 4px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition: background-color 120ms var(--ease);
+}
+
+.key:hover {
+  background: oklch(0.35 0.016 250);
+}
+
+.key[aria-pressed="true"] {
+  background: var(--panel-lo);
+  border-top-width: 4px;
+  border-bottom-width: 1px;
+  padding-top: 0;
+  padding-bottom: 3px;
+}
+
+.key::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  background: var(--lamp-off);
+}
+
+.key[data-lamp="on"]::before {
+  background: var(--ink);
+}
+
+.key[data-tone="live"][data-lamp="on"]::before {
+  background: var(--signal);
+}
+
+.key[data-tone="hold"][data-lamp="on"]::before {
+  background: var(--amber);
+}
+
+.icon {
+  display: block;
+}
+
+.lamps ul {
+  display: grid;
+  gap: 10px;
+}
+
+.lamps li {
+  font-size: 13px;
+}
+
+/* Each row is the live state of one output and the way into its page of Setup. */
+.lamp-row {
+  display: grid;
+  grid-template-columns: 10px 4.4em 6em minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: inherit;
+  text-align: left;
+  width: calc(100% + 12px);
+  transition: background-color 120ms var(--ease);
+}
+
+.lamp-row:hover {
+  background: var(--panel-hi);
+  border-color: var(--rule);
+}
+
+.lamp {
+  width: 10px;
+  height: 10px;
+  background: var(--lamp-off);
+  border: 1px solid var(--rule-strong);
+}
+
+.lamp[data-state="on"] {
+  background: var(--phosphor);
+  border-color: var(--phosphor);
+}
+
+.lamp[data-state="fault"] {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+.lamp-name,
+.setup-row-name {
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.lamp-status {
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.lamp-detail,
+.message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}

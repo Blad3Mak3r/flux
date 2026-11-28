@@ -1,0 +1,303 @@
+/* ---- Launcher and welcome windows ---- */
+
+/* The launcher is a scope screen warming up: slow fields of the signal colours drift under a
+   graticule while a phosphor trace sweeps it, and the sweep stops once the checks are done.
+   Only transforms and opacity animate, so the compositor does the work. */
+.launcher {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 18px;
+  height: 100%;
+  padding: 0 32px;
+  overflow: hidden;
+  background: var(--screen);
+  border: 2px solid var(--rule-strong);
+  user-select: none;
+}
+
+.launcher::before,
+.launcher::after {
+  content: "";
+  position: absolute;
+  inset: -60%;
+  z-index: -2;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.launcher::before {
+  background:
+    radial-gradient(closest-side at 72% 64%, oklch(0.87 0.17 128 / 0.26), transparent),
+    radial-gradient(closest-side at 30% 34%, oklch(0.36 0.05 205 / 0.85), transparent);
+  animation: launcher-drift-a 14s ease-in-out infinite alternate;
+}
+
+.launcher::after {
+  background:
+    radial-gradient(closest-side at 62% 30%, oklch(0.82 0.15 78 / 0.18), transparent),
+    radial-gradient(closest-side at 40% 72%, oklch(0.6 0.12 128 / 0.16), transparent);
+  animation: launcher-drift-b 21s ease-in-out infinite alternate;
+}
+
+@keyframes launcher-drift-a {
+  from {
+    transform: translate3d(-9%, -6%, 0) rotate(0deg);
+  }
+  to {
+    transform: translate3d(7%, 5%, 0) rotate(28deg);
+  }
+}
+
+@keyframes launcher-drift-b {
+  from {
+    transform: translate3d(8%, 4%, 0) rotate(0deg) scale(1);
+  }
+  to {
+    transform: translate3d(-6%, -7%, 0) rotate(-22deg) scale(1.12);
+  }
+}
+
+.launcher-scope {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--grat-major), var(--grat-major)) 0 50% / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, oklch(0.255 0.032 205 / 0.7) 0 1px, transparent 1px 40px),
+    repeating-linear-gradient(0deg, oklch(0.255 0.032 205 / 0.7) 0 1px, transparent 1px 40px);
+}
+
+.launcher-sweep {
+  position: absolute;
+  inset: 0;
+  border-right: 2px solid var(--phosphor);
+  opacity: 0.55;
+  animation: launcher-sweep 2.4s linear infinite;
+  transition: opacity 400ms var(--ease);
+}
+
+.launcher[data-finished] .launcher-sweep {
+  opacity: 0;
+}
+
+@keyframes launcher-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(2px);
+  }
+}
+
+.launcher .brand img {
+  height: 30px;
+}
+
+.launcher .brand {
+  font-size: 22px;
+  gap: 12px;
+}
+
+.launcher .dot-matrix {
+  padding: 10px 14px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+}
+
+.startup {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.startup li {
+  display: grid;
+  grid-template-columns: 10px 9em 6em minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.launcher .message {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.welcome {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  border: 2px solid var(--rule-strong);
+}
+
+.welcome-body {
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  min-height: 0;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.welcome-body section {
+  display: grid;
+  gap: 10px;
+}
+
+.welcome-body > .message {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.recents {
+  display: grid;
+  gap: 6px;
+}
+
+.recovery-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.recovery-detail {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.recovery-path {
+  overflow-wrap: anywhere;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.recovery-detail time {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+  font-size: 12px;
+}
+
+.recovery-actions { flex-wrap: wrap; }
+
+.recent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.recent-open {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-areas: "badge name meta" "badge path meta";
+  align-items: center;
+  column-gap: 16px;
+  min-width: 0;
+  padding: 8px 12px;
+  background: var(--panel-hi);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  text-align: left;
+  transition: background-color 120ms var(--ease);
+}
+
+.welcome-titlebar-spacer {
+  flex: 1 1 0;
+  align-self: stretch;
+}
+
+/* The menu bar's last column is as wide as its first: the window buttons go to its far end. */
+.welcome .menubar .window-controls {
+  justify-self: end;
+}
+
+.project-badge {
+  grid-area: badge;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  background: linear-gradient(135deg, var(--phosphor-dim), var(--graticule-major));
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.recent-open:hover:not(:disabled) {
+  background: oklch(0.35 0.016 250);
+  border-color: var(--rule-strong);
+}
+
+.recent-open:disabled {
+  color: var(--ink-dim);
+}
+
+.recent-name,
+.recent-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-name {
+  grid-area: name;
+  font-weight: 700;
+}
+
+.recent-path {
+  grid-area: path;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.recent-meta {
+  grid-area: meta;
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+/* The state is a word, never only a colour. */
+.recent-state {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: var(--ink-dim);
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--panel-hi);
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}
+
+.dialog-detail {
+  margin-bottom: 8px;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}

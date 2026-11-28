@@ -1,0 +1,133 @@
+/* Bench Instrument. A matte faceplate with silkscreened legends, and a graticule screen.
+   Dark by commitment: the scene is a booth or a stage, so there is no light theme. */
+
+:root {
+  color-scheme: dark;
+
+  /* Faceplate */
+  --panel: oklch(0.255 0.014 250);
+  --panel-hi: oklch(0.31 0.015 250);
+  --panel-lo: oklch(0.2 0.013 250);
+  --rule: oklch(0.36 0.015 250);
+  --rule-strong: oklch(0.46 0.018 250);
+
+  /* Screen */
+  --screen: oklch(0.175 0.024 205);
+  --grat-minor: oklch(0.255 0.032 205);
+  --grat-major: oklch(0.36 0.05 205);
+  --ghost: oklch(0.235 0.03 205);
+
+  /* Ink */
+  --ink: oklch(0.93 0.012 85);
+  --ink-dim: oklch(0.76 0.016 85);
+  --ink-faint: oklch(0.6 0.016 85);
+
+  /* Signals: phosphor reads, amber cues, vermilion is live state only. */
+  --phosphor: oklch(0.87 0.17 128);
+  --phosphor-dim: oklch(0.6 0.12 128);
+  --amber: oklch(0.82 0.15 78);
+  --amber-dim: oklch(0.58 0.11 78);
+  --signal: oklch(0.7 0.2 32);
+  --lamp-off: oklch(0.34 0.012 250);
+
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-measure: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, Consolas, monospace;
+
+  --header-w: 248px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--panel);
+  color: var(--ink);
+  font: 13px/1.4 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  caret-color: var(--phosphor);
+  scrollbar-color: var(--grat-major) var(--panel-lo);
+}
+
+/* A desktop app, not a page: chrome is not selectable and shows the arrow. Only fields and copyable content opt back in. */
+html {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+[contenteditable="true"],
+.selectable,
+.error,
+.error-dialog p,
+.field-note[role="alert"],
+.show-run-notes,
+pre,
+code {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+input,
+textarea {
+  cursor: text;
+}
+
+input:is([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="button"], [type="file"]),
+input:disabled,
+textarea:disabled {
+  cursor: default;
+}
+
+img,
+svg,
+canvas {
+  -webkit-user-drag: none;
+}
+
+::selection {
+  background: var(--phosphor);
+  color: var(--panel-lo);
+}
+
+/* Keyboard focus is a thin inset ink line: it stays inside the control, so it never fights its border or a selection outline. */
+:focus-visible {
+  outline: 1px solid var(--ink-dim);
+  outline-offset: -1px;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+dl,
+dd {
+  margin: 0;
+  padding: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}

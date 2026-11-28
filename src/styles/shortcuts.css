@@ -1,0 +1,59 @@
+/* The shortcuts page: one row per action, its keys a button that records the next combination. */
+.shortcut-group h4 {
+  margin: 16px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.shortcut-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(9em, auto) auto auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.shortcut-keys {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+}
+
+.shortcut-keys[data-recording] {
+  border-color: var(--amber);
+}
+
+.shortcut-keys kbd {
+  font: 12px/1 var(--font-measure);
+  color: var(--ink);
+}
+
+.shortcut-keys kbd + kbd::before {
+  content: "/";
+  margin-right: 4px;
+  color: var(--ink-faint);
+}
+
+.shortcut-hint {
+  color: var(--ink-faint);
+}
+
+.shortcut-error {
+  grid-column: 1 / -1;
+}

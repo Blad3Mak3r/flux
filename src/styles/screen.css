@@ -1,0 +1,349 @@
+/* ---- Screen: ruler, headers, lanes ---- */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--screen);
+  border-right: 1px solid var(--rule-strong);
+}
+
+.screen-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 42px;
+  padding: 0 16px 0 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--rule);
+}
+
+.screen-bar .legend {
+  flex: none;
+}
+
+.timeline-bar { flex-wrap: wrap; height: auto; min-height: 42px; flex-shrink: 0; row-gap: 0; }
+.timeline-bar > * { flex-shrink: 0; min-height: 42px; }
+.timeline-bar .timeline-strip { flex: 1 1 auto; min-width: 100px; min-height: 42px; }
+
+.zoom {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.zoom-corner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: none;
+  align-items: center;
+  padding-inline: 12px;
+  background: var(--panel);
+  box-shadow: 0 1px 0 var(--rule-strong);
+}
+
+.zoom-value {
+  min-width: 4.5ch;
+  text-align: center;
+  font: 12px var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.screen-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Text that does not fit ends in an ellipsis, and slides to show the rest under the pointer. */
+.marquee,
+.timeline-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marquee[data-scrolling="true"] {
+  text-overflow: clip;
+}
+
+.marquee[data-scrolling="true"] .marquee-text {
+  display: inline-block;
+  animation: marquee var(--marquee-time, 3s) ease-in-out 0.5s infinite alternate;
+}
+
+@keyframes marquee {
+  to {
+    transform: translateX(var(--marquee-shift, 0));
+  }
+}
+
+/* The track-header column sits beside the scroller, so the horizontal scrollbar spans the lanes only. */
+.screen-side {
+  display: flex;
+  flex: 0 0 var(--header-w);
+  /* A long track name is cut, never widening the column. */
+  min-width: 0;
+  max-width: var(--header-w);
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--rule-strong);
+}
+
+.screen-headers {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+/* The bottom padding is the lanes' scrollbar, so both columns reach the same last scroll position. */
+.headers-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding-bottom: var(--scrollbar-h);
+}
+
+.screen-scroll {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screen-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background-color: var(--screen);
+}
+
+.graticule {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.graticule path {
+  fill: none;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.graticule-minor {
+  stroke: var(--grat-minor);
+}
+
+.graticule-major {
+  stroke: var(--grat-major);
+}
+
+/* Keep empty space for track creation and equal scroll ranges in both columns. */
+.filler,
+.screen-inner::after {
+  flex: 1 0 64px;
+}
+
+.screen-inner::after {
+  content: "";
+}
+
+.hint {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.ruler-row {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  flex: none;
+  background: var(--panel-lo);
+  box-shadow: 0 1px 0 var(--rule-strong);
+}
+
+.ruler {
+  display: block;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.ruler-ticks {
+  stroke: var(--ink-dim);
+  stroke-width: 1;
+  fill: none;
+}
+
+.ruler-label {
+  fill: var(--ink);
+  font-size: 11px;
+  paint-order: stroke;
+  stroke: var(--panel-lo);
+  stroke-width: 3px;
+}
+
+.ruler-span {
+  fill: var(--phosphor);
+  opacity: 0.18;
+}
+
+.ruler-cursor {
+  stroke: var(--phosphor);
+  stroke-width: 1;
+}
+
+.track-header {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--rule);
+}
+
+.track-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  flex-shrink: 0;
+  cursor: grab;
+}
+
+.track-head-row > .icon-button,
+.track-kind {
+  flex-shrink: 0;
+}
+
+.track-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 24px;
+  flex-shrink: 0;
+}
+
+.track-kind-label {
+  flex: 1;
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+.track-header[data-audio="false"] {
+  gap: 2px;
+  padding-block: 4px;
+}
+
+.track-header > .fader,
+.track-header > .meter {
+  flex-shrink: 0;
+}
+
+/* Reordering: the header follows the pointer, its lane dims, and a line marks where it will land. */
+.track-header[data-dragging="true"] {
+  position: relative;
+  z-index: 3;
+  cursor: grabbing;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
+}
+
+.track-header[data-dragging="true"] .track-head-row {
+  cursor: grabbing;
+}
+
+.lane[data-dragging="true"] {
+  opacity: 0.45;
+}
+
+.drop-line {
+  position: absolute;
+  inset-inline: 0;
+  z-index: 4;
+  height: 2px;
+  margin-top: -1px;
+  background: var(--phosphor);
+  pointer-events: none;
+}
+
+/* Files dragged in from the file explorer: the lane they would join and the time they would start at. */
+.lane[data-drop="true"] {
+  box-shadow: inset 0 0 0 1px var(--phosphor);
+}
+
+.drop-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 0;
+  border-left: 2px solid var(--phosphor);
+  pointer-events: none;
+}
+
+/* The label that follows the pointer while something inside the window is dragged. */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  max-width: 240px;
+  padding: 2px 8px;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  background: var(--panel-hi);
+  color: var(--ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+body.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.track-kind {
+  display: grid;
+  color: var(--ink-dim);
+}
+
+.track-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.track-header[data-muted="true"] .track-name {
+  color: var(--ink-dim);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.track-muted-tag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink);
+}

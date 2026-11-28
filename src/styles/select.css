@@ -1,0 +1,88 @@
+/* The app's own drop-down (`Select`): a field that opens the menu. `:where` keeps it easy to override in each place a select sits. */
+:where(.select) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 6px 0 8px;
+  color: var(--ink);
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.select-chevron {
+  display: grid;
+  flex: none;
+  color: var(--ink-dim);
+}
+
+.select-chevron svg {
+  width: 12px;
+  height: 12px;
+}
+
+.select[aria-expanded="true"] {
+  border-color: var(--phosphor);
+}
+
+/* The list of a select: as wide as its button, and it scrolls instead of running off the window. */
+.menu-list {
+  max-height: min(360px, calc(100vh - 8px));
+  overflow-y: auto;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.mono,
+.measure b,
+.ruler-label,
+.readout-line {
+  font-family: var(--font-measure);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Silkscreened legends: small caps printed on the panel, with a rule running out from them. */
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.legend::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}

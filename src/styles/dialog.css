@@ -1,0 +1,59 @@
+/* ---- Status bar ---- */
+
+.statusbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  height: 34px;
+  padding: 0 18px;
+  background: var(--panel-lo);
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+}
+.message[data-tone="error"] {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+.measure {
+  display: flex;
+  gap: 20px;
+  flex: none;
+  color: var(--ink-dim);
+}
+
+.measure b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ---- Dialog ---- */
+
+.dialog {
+  max-width: 420px;
+  padding: 22px 24px;
+  background: var(--panel);
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+}
+
+.dialog::backdrop {
+  background: oklch(0.1 0.01 250 / 0.7);
+}
+
+.dialog h2 {
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+
+.dialog p {
+  margin-bottom: 18px;
+  color: var(--ink-dim);
+}
+
+.error-dialog {
+  width: min(420px, 92vw);
+  max-height: 88vh;
+  overflow-wrap: anywhere;
+}
