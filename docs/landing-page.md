@@ -29,7 +29,7 @@ launching clips and mixing visuals on the fly. Each section links to its corresp
 | --- | --- |
 | `site/index.html` | The page and English strings, including the mode sections, download links and the inline signal path diagram. |
 | `site/style.css` | The landing layout, dark palette, grid background and screenshot frames. |
-| `site/site.js` | Spanish translations, the EN/ES selector and the demo clock. |
+| `site/site.js` | Spanish translations, the EN/ES selector, the CUE/VJ image comparison and the demo clock. |
 | `site/img/` | FLUX screenshots and the F symbol. The video guide uses copies of some screenshots in `docs/screenshots/`. |
 | `site/fonts/` | Archivo (variable, latin), self-hosted, with its OFL licence. |
 
@@ -77,6 +77,7 @@ Use sample media you can redistribute and match the pixel density when adding a 
 | `outputs-*.jpg` | Two projector windows side by side. |
 | `mapping-*.jpg` | Preferences > Outputs > Video with a slice selected. |
 | `vj-test-card.webp` | VJ LED slice test output. A WebP copy of `docs/screenshots/test-card-led.png`. |
+| `vj-workspace.webp` | VJ workspace screenshot supplied by the project owner, converted to WebP. |
 
 ## Preview locally
 

@@ -54,22 +54,21 @@
       <a href="https://github.com/Blad3Mak3r/flux/releases/latest">v<span data-version>0.2.2</span></a>
       <span>Windows · Linux</span>
     </p>
-    <figure class="hero-figure" data-slide="cue">
+    <figure class="hero-figure">
       <div class="hero-frame">
-        <img src="img/edit-1440.jpg" srcset="img/edit-1440.jpg 1440w, img/edit-2880.jpg 2880w" sizes="(min-width: 1200px) 1080px, 92vw" width="2880" height="1800" fetchpriority="high" alt="FLUX Edit view with audio, video, notes, MIDI and OSC on a timeline" data-i18n-alt="hero_alt">
+        <div class="hero-comparison" id="hero-comparison">
+          <img class="hero-comparison-image" src="img/vj-workspace.webp" width="1920" height="1032" alt="FLUX VJ workspace with visual clips, layers, monitors and effects" data-i18n-alt="hero_vj_alt">
+          <div class="hero-comparison-cue">
+            <img class="hero-comparison-image" src="img/edit-1440.jpg" srcset="img/edit-1440.jpg 1440w, img/edit-2880.jpg 2880w" sizes="(min-width: 1200px) 1080px, 92vw" width="2880" height="1800" fetchpriority="high" alt="FLUX Edit view with audio, video, notes, MIDI and OSC on a timeline" data-i18n-alt="hero_alt">
+          </div>
+          <span class="hero-comparison-label hero-comparison-label-cue" aria-hidden="true">CUE</span>
+          <span class="hero-comparison-label hero-comparison-label-vj" aria-hidden="true">VJ</span>
+          <span class="hero-comparison-divider" aria-hidden="true"><span>‹ &nbsp; ›</span></span>
+          <input class="hero-comparison-range" type="range" min="0" max="100" value="50" aria-label="Compare CUE and VJ views" data-i18n-aria="hero_compare_label">
+        </div>
       </div>
-      <figcaption data-i18n="hero_caption">CUE mode · Timeline of a sample show</figcaption>
+      <figcaption data-i18n="hero_compare_caption">Drag the divider to explore CUE and VJ.</figcaption>
     </figure>
-    <figure class="hero-figure" data-slide="vj" hidden>
-      <div class="hero-frame">
-        <img src="img/vj-test-card.webp" width="1600" height="1000" alt="FLUX VJ output showing LED test patterns for two slices" data-i18n-alt="hero_vj_alt">
-      </div>
-      <figcaption data-i18n="hero_vj_caption">VJ mode · Slice test patterns on a FLUX video output</figcaption>
-    </figure>
-    <div class="hero-selector" role="group" aria-label="Choose a mode to view" data-i18n-aria="hero_selector" hidden>
-      <button type="button" data-show-slide="cue" aria-pressed="true">CUE</button>
-      <button type="button" data-show-slide="vj" aria-pressed="false">VJ</button>
-    </div>
   </div>
 </section>
 
@@ -103,8 +102,8 @@
       </div>
     </div>
     <figure class="fig">
-      <img class="shot" src="img/vj-test-card.webp" width="1600" height="1000" loading="lazy" alt="FLUX VJ test card with two slices, numbered cabinet grids and alignment guides" data-i18n-alt="vj_alt">
-      <figcaption data-i18n="vj_caption">VJ slice test card captured from a FLUX video output.</figcaption>
+      <img class="shot" src="img/vj-workspace.webp" width="1920" height="1032" loading="lazy" alt="FLUX VJ workspace with visual clips, layers, monitors and effects" data-i18n-alt="vj_alt">
+      <figcaption data-i18n="vj_caption">The VJ workspace with clips, layers and visual monitors.</figcaption>
     </figure>
   </div>
   <dl class="specs wide">

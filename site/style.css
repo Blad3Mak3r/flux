@@ -241,10 +241,72 @@ h1 .ph { color: var(--phosphor); }
   border-radius: clamp(8px, 1.25vw, 18px);
   background: #111615;
 }
-.hero-frame img {
-  width: 100%;
-  height: auto;
+.hero-comparison {
+  --position: 50%;
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
   border-radius: clamp(4px, 0.65vw, 10px);
+}
+.hero-comparison-image, .hero-comparison-cue {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.hero-comparison-image { object-fit: cover; object-position: top center; }
+.hero-comparison-cue { clip-path: inset(0 calc(100% - var(--position)) 0 0); }
+.hero-comparison-label {
+  position: absolute;
+  top: 12px;
+  z-index: 1;
+  padding: 4px 9px;
+  background: rgba(9, 11, 11, 0.88);
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.hero-comparison-label-cue { left: 12px; }
+.hero-comparison-label-vj { right: 12px; }
+.hero-comparison-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--position);
+  width: 2px;
+  background: var(--ink);
+  pointer-events: none;
+}
+.hero-comparison-divider span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--stage);
+  color: var(--ink);
+  font-size: 1.3rem;
+  line-height: 1;
+}
+.hero-comparison-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: ew-resize;
+  opacity: 0;
+}
+.hero-comparison:has(.hero-comparison-range:focus-visible) {
+  outline: 3px solid var(--phosphor);
+  outline-offset: 3px;
 }
 .hero-figure figcaption { margin-inline: auto; }
 @media (min-width: 800px) {
@@ -446,13 +508,3 @@ figcaption { margin-top: 14px; font-size: 0.875rem; line-height: 1.5; color: var
   html { scroll-behavior: auto; }
   * { transition: none !important; }
 }
-
-.hero-selector { display: flex; justify-content: center; gap: 8px; margin: 16px auto 0; }
-.hero-selector[hidden], .hero-figure[hidden] { display: none; }
-.hero-selector button {
-  min-width: 64px; min-height: 40px; padding: 8px 16px;
-  color: var(--ink-dim); background: var(--panel-lo); border: 1px solid var(--rule);
-  border-radius: 4px; font: 700 0.875rem var(--ui); cursor: pointer;
-}
-.hero-selector button[aria-pressed="true"] { color: var(--stage); background: var(--phosphor); border-color: var(--phosphor); }
-.hero-selector button:hover { border-color: var(--phosphor); }

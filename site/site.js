@@ -11,18 +11,17 @@ const ES = {
   lead: "Crea líneas de tiempo y ejecuta cues con timecode en CUE. Lanza y mezcla visuales sobre la marcha en VJ. Dos modos en una app de escritorio para espectáculos en directo.",
   download_flux: "Descargar FLUX", explore: "Explorar los modos",
   hero_alt: "Vista Edit de FLUX con audio, vídeo, notas, MIDI y OSC en una línea de tiempo",
-  hero_caption: "Modo CUE · Línea de tiempo de un show de ejemplo",
-  hero_vj_alt: "Salida VJ de FLUX con cartas de ajuste LED para dos slices",
-  hero_vj_caption: "Modo VJ · Cartas de ajuste por slice en una salida de vídeo de FLUX",
-  hero_selector: "Elige un modo para ver",
+  hero_vj_alt: "Interfaz VJ de FLUX con clips visuales, capas, monitores y efectos",
+  hero_compare_label: "Comparar las vistas CUE y VJ",
+  hero_compare_caption: "Arrastra el separador para explorar CUE y VJ.",
   h_modes: "Tres formas de trabajar. Dos modos.",
   mode_timeline: "Monta una línea de tiempo", mode_timeline_p: "Ordena audio, vídeo y cues con un mismo reloj de timecode.",
   mode_live: "Ejecuta los cues", mode_live_p: "Pulsa Ctrl+1 para Edit y Ctrl+2 para Live. En Live ves el cue en marcha, el que está en espera y cuánto falta para el siguiente.",
   mode_vj: "Mezcla visuales en directo", mode_vj_p: "Lanza clips a mano, mezcla capas y envía la composición al escenario.",
   h_vj: "Lanza y mezcla visuales en modo VJ",
   vj_p: "Crea un show VJ para improvisar visuales desde una rejilla de clips. Lanza un clip o una columna entera, mezcla vídeo, imágenes, generadores y entradas en directo por capas y envía la composición a las pantallas.",
-  vj_alt: "Carta de ajuste de FLUX VJ con dos slices, rejillas de módulos numerados y guías de alineación",
-  vj_caption: "Carta de ajuste por slice de VJ capturada de una salida de vídeo de FLUX.",
+  vj_alt: "Interfaz VJ de FLUX con clips visuales, capas, monitores y efectos",
+  vj_caption: "El espacio de trabajo VJ con clips, capas y monitores de vídeo.",
   vj_decks_t: "Decks y capas", vj_decks: "Organiza los clips en decks y mantén las capas globales disponibles al cambiar de deck.",
   vj_mix_t: "Mezcla en directo", vj_mix: "Encadena efectos, elige modos de fusión y mezcla las capas que asignes a cada lado del crossfader A/B.",
   vj_control_t: "Control y tempo", vj_control: "Asigna controles MIDI, OSC, DMX o teclas. Sincroniza el tempo con Ableton Link o reloj MIDI.",
@@ -330,28 +329,9 @@ for (const b of $$(".lang button")) b.addEventListener("click", () => setLang(b.
 const fromBrowser = (navigator.language || "").toLowerCase().startsWith("es") ? "es" : "en";
 setLang(saved.get() || fromBrowser, false);
 
-// Rotate the real product views until the visitor chooses one.
-const heroSelector = $(".hero-selector");
-const heroSlides = $$("[data-slide]");
-const heroButtons = $$("[data-show-slide]", heroSelector);
-let heroIndex = 0;
-let heroTimer;
-
-function showHeroSlide(index) {
-  heroIndex = index;
-  heroSlides.forEach((slide, i) => { slide.hidden = i !== index; });
-  heroButtons.forEach((button, i) => button.setAttribute("aria-pressed", String(i === index)));
-}
-
-heroSelector.hidden = false;
-heroButtons.forEach((button, i) => button.addEventListener("click", () => {
-  clearInterval(heroTimer);
-  showHeroSlide(i);
-}));
-if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
-  heroTimer = setInterval(() => {
-    if (!document.hidden && !heroSelector.contains(document.activeElement)) {
-      showHeroSlide((heroIndex + 1) % heroSlides.length);
-    }
-  }, 6000);
-}
+// Keep the divider aligned with the native range input for mouse, touch and keyboard.
+const heroComparison = $("#hero-comparison");
+const heroRange = $(".hero-comparison-range", heroComparison);
+heroRange.addEventListener("input", () => {
+  heroComparison.style.setProperty("--position", `${heroRange.value}%`);
+});
