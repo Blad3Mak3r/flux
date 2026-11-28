@@ -21,6 +21,7 @@ export const ACTION_TYPES: ActionType[] = [
   "selectTimeline",
   "viewEdit",
   "viewLive",
+  "panic",
 ];
 
 /** The actions that carry a number, and the lowest one they accept (`null`: any but zero, negative goes back). */
@@ -123,4 +124,5 @@ export const OSC_ADDRESSES: { address: string; numbered?: boolean }[] = [
   { address: "/flux/timeline/select", numbered: true },
   { address: "/flux/view/edit" },
   { address: "/flux/view/live" },
+  { address: "/flux/panic" },
 ];

@@ -54,6 +54,8 @@ import {
 import { nominalFps } from "../timecode";
 import { exportDiagnosticsFile, openLogFolder } from "../state/diagnostics";
 import { exportCueSheetFile } from "../state/export";
+import { isShowLocked } from "../live/lockStore";
+import { panic } from "../live/panic";
 import { seek, stop, toggle } from "../transport/playback";
 import { currentFrame } from "../transport/store";
 import { DOCS_URL, ISSUES_URL } from "./links";
@@ -118,16 +120,19 @@ const muteItem = (t: Translate, track: Track): MenuItem => ({
 // ---- Menu bar ----
 
 function fileMenu(t: Translate): MenuItem[] {
+  // A locked show cannot be replaced, closed or imported into; saving it is harmless.
+  const locked = isShowLocked();
   return [
-    { label: t("menu.new"), shortcut: mod("N"), run: () => newDocument(t) },
-    { label: t("menu.open"), shortcut: mod("O"), run: openDocument },
+    { label: t("menu.new"), shortcut: mod("N"), disabled: locked, run: () => newDocument(t) },
+    { label: t("menu.open"), shortcut: mod("O"), disabled: locked, run: openDocument },
     "-",
     { label: t("menu.save"), shortcut: mod("S"), run: () => void saveDocument(false) },
     { label: t("menu.saveAs"), shortcut: mod("⇧+S"), run: () => void saveDocument(true) },
-    { label: t("menu.close"), shortcut: mod("W"), run: closeDocument },
+    { label: t("menu.close"), shortcut: mod("W"), disabled: locked, run: closeDocument },
     "-",
     {
       label: t("menu.import"),
+      disabled: locked,
       submenu: [
         { label: t("menu.audio"), shortcut: "I", run: () => void importAudioFiles() },
         { label: t("menu.video"), run: () => void importVideoFiles() },
@@ -144,7 +149,7 @@ function fileMenu(t: Translate): MenuItem[] {
     "-",
     { label: t("menu.setup"), shortcut: mod(","), run: () => openSetup() },
     ...(hasNativeWindow()
-      ? ["-" as const, { label: t("menu.exit"), run: () => void getCurrentWindow().close() }]
+      ? ["-" as const, { label: t("menu.exit"), disabled: locked, run: () => void getCurrentWindow().close() }]
       : []),
   ];
 }
@@ -152,8 +157,8 @@ function fileMenu(t: Translate): MenuItem[] {
 function editMenu(t: Translate): MenuItem[] {
   const { doc, ui } = state();
   return [
-    { label: t("menu.undo"), shortcut: mod("Z"), disabled: doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
-    { label: t("menu.redo"), shortcut: mod("⇧+Z"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
+    { label: t("menu.undo"), shortcut: mod("Z"), disabled: isShowLocked() || doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
+    { label: t("menu.redo"), shortcut: mod("⇧+Z"), disabled: isShowLocked() || doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
     "-",
     { label: t("menu.split"), shortcut: "S", disabled: ui.view !== "edit" || (ui.selection?.kind !== "clip" && ui.selection?.kind !== "video"), run: () => void splitAtPlayhead() },
     { label: t("menu.delete"), shortcut: "Del", disabled: !ui.selection, run: deleteSelection },
@@ -270,7 +275,7 @@ function viewMenu(t: Translate): MenuItem[] {
   const locked = isPlaying();
   const editing = view === "edit";
   return [
-    { label: t("view.edit"), shortcut: mod("1"), checked: editing, disabled: locked && !editing, run: () => setView("edit") },
+    { label: t("view.edit"), shortcut: mod("1"), checked: editing, disabled: (locked && !editing) || isShowLocked(), run: () => setView("edit") },
     { label: t("view.live"), shortcut: mod("2"), checked: !editing, disabled: locked && editing, run: () => setView("live") },
     "-",
     { label: t("menu.view.timeline"), checked: editing && editSurface === "timeline", disabled: !editing, run: openTimelineEditor },
@@ -298,6 +303,8 @@ function transportMenu(t: Translate): MenuItem[] {
     { label: t("menu.secondForward"), shortcut: "⇧+→", run: by(second) },
     "-",
     { label: t("check.title"), disabled: isPlaying(), run: openShowCheck },
+    "-",
+    { label: t("panic.label"), shortcut: mod("⇧+P"), run: () => void panic(t) },
   ];
 }
 

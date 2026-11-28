@@ -41,7 +41,10 @@ import { watchMediaProgress } from "./media/progress";
 import { watchFileDrops } from "./state/fileDrop";
 import { bindDocumentSync, flushDocumentSync } from "./state/persist";
 import { dispatch, useDoc } from "./state/store";
-import { ask, closeAbout, closeMenu, openMenu, openSetup, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
+import { ask, closeAbout, closeMenu, openMenu, openSetup, say, select, sayError, setView, toggleInspector, toggleSnap, useUi, zoomBy } from "./state/ui";
+import { loadShowLock } from "./live/lock";
+import { panic } from "./live/panic";
+import { isShowLocked } from "./live/lockStore";
 import {
   addNoteAt,
   closeDocument,
@@ -157,6 +160,7 @@ function Shell({ devices }: { devices: Devices }) {
           : key === "," ? "setup"
           : key === "pageup" ? "previousTimeline"
           : key === "pagedown" ? "nextTimeline"
+          : key === "p" && event.shiftKey ? "panic"
           : key === "1" ? "viewEdit"
           : key === "2" ? "viewLive"
           : key === "=" || key === "+" ? "zoomIn"
@@ -164,12 +168,18 @@ function Shell({ devices }: { devices: Devices }) {
           : null;
         if (!action) return;
         event.preventDefault();
+        // A locked show keeps to the show: nothing that edits, opens, closes or leaves Live.
+        if (isShowLocked() && ["undo", "redo", "open", "new", "close", "viewEdit", "previousTimeline", "nextTimeline"].includes(action)) {
+          say("live.lock.blocked");
+          return;
+        }
         if (action === "undo" || action === "redo") dispatch({ type: action });
         else if (action === "save") void saveDocument(false);
         else if (action === "saveAs") void saveDocument(true);
         else if (action === "open") openDocument();
         else if (action === "new") newDocument(t);
         else if (action === "close") closeDocument();
+        else if (action === "panic") void panic(t);
         else if (action === "toggleInspector") toggleInspector();
         else if (action === "setup") openSetup();
         else if (action === "previousTimeline" || action === "nextTimeline") {
@@ -209,8 +219,10 @@ function Shell({ devices }: { devices: Devices }) {
         event.preventDefault();
         renameSelectedTrack();
       } else if (key === "i") {
+        if (isShowLocked()) return say("live.lock.blocked");
         void importAudioFiles();
       } else if (event.key === "Delete" || event.key === "Backspace") {
+        if (isShowLocked()) return say("live.lock.blocked");
         deleteSelection();
       } else if (event.key === "Escape") {
         patchReadout({ spanA: null, spanB: null });
@@ -303,6 +315,9 @@ function Editor() {
   }, [native, t]);
   useEffect(bindTimelineAdvance, []);
   useEffect(bindRemoteControl, []);
+  useEffect(() => {
+    if (native) void loadShowLock();
+  }, [native]);
   useEffect(bindMedia, []);
   useEffect(() => {
     if (native) void startDocument(t, setPhase).then(() => setConnected(true));

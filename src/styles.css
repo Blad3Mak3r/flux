@@ -4468,3 +4468,121 @@ body.dragging {
     animation: none;
   }
 }
+
+/* Live: the lock and the panic of the show. Vermilion is live state, so a locked show wears it. */
+.show-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex: none;
+}
+
+.hold-button {
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* The bar that fills while a hold button is held: letting go early empties it again. */
+.hold-button::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: var(--signal);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 120ms var(--ease);
+}
+
+.hold-button[data-holding="true"]::after {
+  transform: scaleX(1);
+  transition: transform 700ms linear;
+}
+
+.show-lock .icon {
+  flex: none;
+}
+
+.show-lock.hold-button {
+  background: var(--signal);
+  border-color: var(--signal);
+  color: var(--panel-lo);
+}
+
+.show-lock.hold-button::after {
+  background: var(--panel-lo);
+}
+
+.live[data-locked="true"] > .screen-bar {
+  border-bottom: 2px solid var(--signal);
+}
+
+.button.panic {
+  background: transparent;
+  border-color: var(--signal);
+  color: var(--signal);
+}
+
+.button.panic:hover:not(:disabled) {
+  background: oklch(0.3 0.09 32);
+}
+
+.live-search {
+  position: relative;
+  flex: none;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.live-search input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+}
+
+.live-search-results {
+  position: absolute;
+  z-index: 5;
+  inset: 100% 16px auto 16px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--panel-hi);
+  border: 1px solid var(--rule-strong);
+  box-shadow: 0 8px 20px oklch(0 0 0 / 0.4);
+}
+
+.live-search-results button {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.live-search-results button[data-active="true"] {
+  background: oklch(0.35 0.016 250);
+}
+
+.live-search-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-search-none {
+  padding: 8px;
+  color: var(--ink-faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hold-button[data-holding="true"]::after {
+    transition: none;
+  }
+}

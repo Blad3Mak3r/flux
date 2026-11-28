@@ -42,6 +42,8 @@ pub enum ControlAction {
     SelectTimeline(u32),
     ViewEdit,
     ViewLive,
+    /// Stops, then silences the MIDI gear of the project (see `midi_panic`).
+    Panic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -406,6 +408,7 @@ pub fn osc_action(message: &OscMessage) -> Option<ControlAction> {
         "timeline/select" => position(ControlAction::SelectTimeline),
         "view/edit" => Some(ControlAction::ViewEdit),
         "view/live" => Some(ControlAction::ViewLive),
+        "panic" => Some(ControlAction::Panic),
         _ => None,
     }
 }
@@ -745,6 +748,7 @@ mod tests {
             ("/flux/timeline/prev", ControlAction::PrevTimeline),
             ("/flux/view/edit", ControlAction::ViewEdit),
             ("/flux/view/live", ControlAction::ViewLive),
+            ("/flux/panic", ControlAction::Panic),
         ] {
             assert_eq!(action(address, &[]), Some(expected), "{address}");
         }
