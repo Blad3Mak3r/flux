@@ -73,7 +73,7 @@ struct Shared {
     done: AtomicBool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
     pub duration: String,

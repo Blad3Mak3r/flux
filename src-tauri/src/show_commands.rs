@@ -3,6 +3,7 @@ use crate::{
     commands::SharedSession,
     live_commands::cue_list,
     transport_commands::{self, SharedOutput},
+    watch::{Changes, Watches},
 };
 use flux_audio::SharedAudio;
 use flux_core::Clock;
@@ -13,6 +14,8 @@ use flux_engine::{
 use flux_project::{ControlKind, Project, ProjectState, ShowEdit};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, PoisonError};
+use std::time::Duration;
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 pub(crate) fn prepare_plan(
@@ -122,7 +125,7 @@ pub(crate) fn prepare_plan(
     }))
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShowState {
     pub setlist_name: String,
@@ -196,6 +199,22 @@ pub(crate) fn state(output: &SharedOutput) -> Option<ShowState> {
 #[tauri::command]
 pub fn show_state(output: State<'_, SharedOutput>) -> Option<ShowState> {
     state(&output)
+}
+
+/// How often the show is looked at for a change.
+const SHOW_EVERY: Duration = Duration::from_millis(100);
+
+/// Sends the state of the show (`None` while none is prepared) down `on_state` whenever it changes,
+/// until [`crate::watch::watch_stop`].
+#[tauri::command]
+pub fn show_watch(
+    output: State<'_, SharedOutput>,
+    watches: State<'_, Watches>,
+    on_state: Channel<Option<ShowState>>,
+) {
+    let output = Arc::clone(&output);
+    let mut changes = Changes::default();
+    watches.start(on_state, SHOW_EVERY, move || changes.next(state(&output)));
 }
 
 #[tauri::command]
