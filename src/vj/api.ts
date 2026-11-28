@@ -199,7 +199,6 @@ export const vjStop = (layer: string | null) => invoke<GridState>("vj_stop", { l
 /** Puts the crossfader back where the backend starts it. */
 export const vjCrossfaderReset = () => invoke<GridState>("vj_crossfader_reset");
 export const vjCrossfader = (position: number) => invoke<GridState>("vj_crossfader", { position });
-export const vjPlayState = () => invoke<GridState>("vj_play_state");
 /** What the grid sends to the screens now, as a small picture (see `bindOutput`); empty outside a VJ project. */
 export const vjOutputFrame = () => invoke<ArrayBuffer>("vj_output_frame");
 export const vjScreenFrame = (screen: string) => invoke<ArrayBuffer>("vj_screen_frame", { screen });

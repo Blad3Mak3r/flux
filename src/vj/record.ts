@@ -1,5 +1,5 @@
 // Recording the composition to a file: the backend (`src-tauri/src/vj_record.rs`) draws, compresses and writes it; this
-// keeps what it last answered, asks again while it runs, and puts the project it returns on stop (the file added to the
+// keeps what it last sent, and puts the project it returns on stop (the file added to the
 // media) in the history.
 
 import { invoke } from "@tauri-apps/api/core";
@@ -9,6 +9,7 @@ import type { Project } from "../project/types";
 import { dispatch, useDoc } from "../state/store";
 import { say, sayError } from "../state/ui";
 import { checkHap } from "../state/video";
+import { watch } from "../watch";
 
 /** Mirrors `RecordState` in src-tauri/src/vj_record.rs. */
 export interface RecordState {
@@ -33,7 +34,6 @@ const IDLE: RecordState = { recording: false, elapsedMs: 0, frames: 0, dropped: 
 
 export const useRecord = create<RecordState>(() => IDLE);
 
-const REFRESH_MS = 500;
 const fail = (err: unknown) => sayError(errorMessage(err));
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
@@ -42,17 +42,10 @@ let stopping = false;
 /** Keeps the state up to date while the VJ screen is open; a recording that failed on its own is stopped, which says why. */
 export function bindRecordState(): () => void {
   checkHap();
-  const read = () =>
-    void invoke<RecordState>("vj_record_state").then(
-      (state) => {
-        useRecord.setState(state);
-        if (state.recording && state.error && !stopping) void stopRecording();
-      },
-      () => undefined,
-    );
-  read();
-  const timer = window.setInterval(read, REFRESH_MS);
-  return () => window.clearInterval(timer);
+  return watch<RecordState>("vj_record_watch", (state) => {
+    useRecord.setState(state);
+    if (state.recording && state.error && !stopping) void stopRecording();
+  });
 }
 
 export const startRecording = () => void invoke<RecordState>("vj_record_start").then((state) => useRecord.setState(state), fail);

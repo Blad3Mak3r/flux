@@ -3,6 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+import { watch } from "../watch";
 import { errorMessage } from "../project/api";
 import { sayError } from "../state/ui";
 
@@ -27,17 +28,11 @@ export interface Snapshot {
 
 export const useOutput = create<OutputState>(() => ({ disabled: false, testCard: false, displays: 1, fullscreen: null }));
 
-const REFRESH_MS = 1500;
 const fail = (err: unknown) => sayError(errorMessage(err));
 const accept = (state: OutputState) => useOutput.setState(state);
 
-/** Keeps the state up to date while the VJ screen is open. */
-export function bindOutputState(): () => void {
-  const read = () => void invoke<OutputState>("video_output_state").then(accept, () => undefined);
-  read();
-  const timer = window.setInterval(read, REFRESH_MS);
-  return () => window.clearInterval(timer);
-}
+/** Keeps the state up to date while the VJ screen is open: the backend sends it when it changes. */
+export const bindOutputState = () => watch<OutputState>("video_output_watch", accept);
 
 export const toggleDisable = () => void invoke<OutputState>("video_output_toggle", { control: "disable" }).then(accept, fail);
 export const toggleTestCard = () => void invoke<OutputState>("video_output_toggle", { control: "testCard" }).then(accept, fail);

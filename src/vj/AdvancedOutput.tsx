@@ -26,6 +26,7 @@ import type { Mask, Point, Size, Slice, VideoScreen } from "../video/mapping";
 import { TestCardFields } from "./TestCardFields";
 import { closeOutput } from "./menus";
 import { bindOutput, useVj } from "./store";
+import { picture } from "./picture";
 
 type Item = { kind: "screen" } | { kind: "slice"; id: string } | { kind: "mask"; id: string };
 type Stage = "input" | "output";
@@ -82,16 +83,15 @@ function useLivePicture(screenId: string) {
       void invoke<ArrayBuffer>("video_card_preview", { screen: screenId }).then(
         (bytes) => {
           if (stopped) return;
-          const view = new DataView(bytes);
-          if (bytes.byteLength < 4) card.width = 0;
+          const image = picture(bytes);
+          if (!image) card.width = 0;
           else {
-            const [width, height] = [view.getUint16(0, true), view.getUint16(2, true)];
-            card.width = width;
-            card.height = height;
-            card.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(bytes, 4, width * height * 4), width, height), 0, 0);
+            card.width = image.width;
+            card.height = image.height;
+            card.getContext("2d")?.putImageData(image, 0, 0);
             if (source.width === 0) {
-              source.width = width;
-              source.height = height;
+              source.width = image.width;
+              source.height = image.height;
             }
           }
           paint();
