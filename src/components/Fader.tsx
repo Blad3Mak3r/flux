@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent } from "react";
-import { FADER_MAX_DB, FADER_MIN_DB, clampFaderDb, dbToFader, faderToDb, formatDb } from "../audio/level";
+import { FADER_MAX_DB, FADER_MIN_DB, dbToFader, faderToDb, formatDb } from "../audio/level";
 import { useT } from "../i18n";
 
 /** Arrow keys move the fader this much; Shift makes it fine, Page keys coarse. */
@@ -65,7 +65,8 @@ export function Fader({
     // The window seeks and plays on arrow keys; here they belong to the fader.
     event.preventDefault();
     event.stopPropagation();
-    const db = clampFaderDb(next);
+    // Only keeps the thumb on its track; the backend rounds and clamps the gain it stores.
+    const db = Math.min(Math.max(next, FADER_MIN_DB), FADER_MAX_DB);
     onPreview(db);
     if (db !== valueDb) onCommit(db);
   };

@@ -35,10 +35,6 @@ function roundDb(db: number): number {
   return Math.round(db * 10) / 10;
 }
 
-export function clampFaderDb(db: number): number {
-  return Math.min(Math.max(roundDb(db), FADER_MIN_DB), FADER_MAX_DB);
-}
-
 /** "+3.0", "-6.0", "0.0", and "-inf" at the bottom of the fader or below any level. */
 export function formatDb(db: number): string {
   if (!(db > FADER_MIN_DB)) return "-inf";
