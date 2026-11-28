@@ -4529,6 +4529,23 @@ body.dragging {
   background: oklch(0.3 0.09 32);
 }
 
+.dialog.ltc-dialog {
+  min-width: 340px;
+}
+
+.dialog.ltc-dialog .field {
+  margin-bottom: 14px;
+}
+
+.dialog.ltc-dialog .field input[type="number"] {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--screen);
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+}
+
 .live-search {
   position: relative;
   flex: none;

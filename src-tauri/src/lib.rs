@@ -273,6 +273,7 @@ pub fn run() {
             live_commands::show_lock_get,
             live_commands::show_lock_set,
             live_commands::midi_panic,
+            export_commands::ltc_export,
             transport_commands::output_start,
             transport_commands::output_attach,
             transport_commands::output_set_clips,

@@ -16,6 +16,7 @@ pub mod devices;
 pub mod fire;
 pub mod grid_audio;
 pub mod ltc;
+pub mod ltc_wav;
 pub mod metronome;
 pub mod midi_cue;
 pub mod midi_panic;

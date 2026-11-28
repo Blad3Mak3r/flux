@@ -2,6 +2,7 @@ import { bindShow } from "./show/api";
 import { SetlistEditor } from "./show/SetlistEditor";
 import { ControlEditor } from "./show/ControlEditor";
 import { ShowCheckDialog } from "./voice/ShowCheckDialog";
+import { LtcDialog } from "./export/LtcDialog";
 import { AboutDialog } from "./components/AboutDialog";
 import { ErrorDialog } from "./components/ErrorDialog";
 import { bindVoice, protectVoiceWork } from "./voice/store";
@@ -265,6 +266,7 @@ function Shell({ devices }: { devices: Devices }) {
       <StatusBar />
       <SetupDialog devices={devices} />
       <ShowCheckDialog />
+      <LtcDialog />
       <MediaDialog />
       {/* Outside the menu bar, whose button rules would strip the dialog's buttons. */}
       {about ? <AboutDialog onClose={closeAbout} /> : null}
