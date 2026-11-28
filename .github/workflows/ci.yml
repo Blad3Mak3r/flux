@@ -29,6 +29,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:ui
       - run: npm run build
 
   # The docs site (docs/, VitePress). The build fails on a dead link or a markdown page Vue cannot parse.
