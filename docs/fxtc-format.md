@@ -41,8 +41,11 @@ transport's `seek` takes a timecode, `timecode.start` included.
 | `videos[]` | `{ id, name, file, link? }` | The video files (and images) the video tracks and the grid show. `file` is the archive path under `video/`, the key of the asset. Ids share one namespace with `assets` (an audio clip cannot point at a video, nor a video clip at audio), and files are unique across both. A video no clip shows is dropped on save. Absent is an empty list. Added in version 13. |
 | `mode` | `timeline` \| `vj` | The kind of project, chosen when it is created and never changed: a timeline project plays its timelines, a VJ project its VJ grid. Absent is `timeline`. Added in version 14. |
 | `vj` | `{ layers, decks, deck }` | The VJ grid, see [VJ grid](#vj-grid-version-14). Present in a VJ project only; a timeline project with a grid is rejected. Added in version 14. |
-| `timelines[]` | `{ id, name, timecode, tempo, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
-| `timelines[].tempo` | `{ bpm, beatsPerBar, click }` | The beat grid of the timeline, counted from its origin: `bpm` 20 to 400, `beatsPerBar` 1 to 16 (the beat is a quarter note), `click` whether the metronome plays while this timeline runs. Absent in files written before it existed, read as 120 BPM, 4 beats, click off, without a version bump. Which bars the ruler shows is a view setting of the window and is not stored. |
+| `timelines[]` | `{ id, name, timecode, tempo, tempoChanges?, markers?, regions?, tracks }` | Never empty. `id` is unique among the timelines; `name` is free text. |
+| `timelines[].tempo` | `{ bpm, beatsPerBar, beatUnit?, click }` | The beat grid of the timeline, counted from its origin: `bpm` 20 to 400 in quarter notes a minute, `beatsPerBar` 1 to 16, `beatUnit` the note a beat is (1, 2, 4, 8 or 16; absent is 4, a quarter, so `beatsPerBar` 6 with `beatUnit` 8 is a 6/8 bar). It is the first point of the [tempo map](#tempo-map-markers-and-regions), `click` whether the metronome plays while this timeline runs. Absent in files written before it existed, read as 120 BPM, 4 beats, click off, without a version bump. Which bars the ruler shows is a view setting of the window and is not stored. |
+| `timelines[].tempoChanges[]` | `{ id, at, bpm, beatsPerBar, beatUnit? }` | The rest of the tempo map: from `at` (frames from the timeline origin, after 0, strictly increasing) the timeline runs at `bpm` with bars of `beatsPerBar` beats of `beatUnit`. A change starts a new bar and a new beat. Absent or empty is none: the whole timeline follows `tempo`. Ids share the namespace of clip and note ids. Added without a version bump. |
+| `timelines[].markers[]` | `{ id, at, name, color? }` | Named points of the timeline, in order of `at` (frames from the origin). `name` is 1 to 64 characters, `color` is `#rrggbb`. Absent is none. Added without a version bump. |
+| `timelines[].regions[]` | `{ id, start, end, name, color? }` | Named stretches of the timeline, in order of `start`; `end` is after `start`. `name` and `color` as for markers. Absent is none. Added without a version bump. |
 | `timelines[].timecode.frameRate` | `fps24` \| `fps25` \| `fps2997Drop` \| `fps30` | The four rates MTC can express; LTC supports them too. |
 | `timelines[].timecode.start` | number | Frame count of the timeline origin (e.g. 01:00:00:00). |
 | `timelines[].tracks[]` | `{ id, name, muted, gainDb?, color?, kind }` | Track, clip and note ids are unique in the **whole project**, not per timeline. `kind` is tagged by `type`, see below. `gainDb` is the track's fader in dB, audio tracks only; absent is 0 dB, and `-60` or less is silence (the fader's "-inf" end). It multiplies each clip's own `gainDb`. Absent in files written before it existed, without a version bump. `color` is the colour the track is drawn in, `#rrggbb` (six hex digits; anything else is rejected on open and save); absent means the default for its kind (phosphor for audio, amber for notes), also without a version bump. |
@@ -637,3 +640,20 @@ A show copies a preset or a template when it uses one and never refers back to i
 A file with a `version` above the one this build writes (`1`) is refused with an error and left alone, never read half or
 overwritten; an unreadable `vj-presets.json` is an error, not an empty library. A show made from a template is new and
 unsaved; it keeps the template's ids, which are unique within the show as they were.
+
+## Tempo map, markers and regions
+
+A timeline has one tempo map: its `tempo` is the first point (from the origin) and each of `tempoChanges` starts another
+at a later position, in frames at the timeline's rate. Between two points the tempo and the signature are constant, so a
+time converts to quarter notes, beats and bars by adding up the segments. A change always starts a new bar: the beats of
+a segment are counted from where it starts, and a segment that ends in the middle of a beat has that beat cut short.
+Editing puts a change on the bar line closest to where it was asked for, so a file written by Flux holds changes on bars;
+a file edited by hand may not, and still plays as described.
+
+A file written before the tempo map has none of `tempoChanges`, `markers`, `regions` and `beatUnit`, and reads as a map of a
+single point (its `tempo`) with no markers or regions. A timeline that has none of them writes none of them, so its file is
+what an older build understands. There is no version bump: the fields are optional, and an older build that opens a file
+with them ignores them (and drops them when it saves).
+
+The metronome clicks on the beats of the map, the MIDI clock out ticks at the tempo of the map (24 clocks per quarter note,
+whatever `beatUnit` is), and the ruler, the grid and the snap count its bars.
