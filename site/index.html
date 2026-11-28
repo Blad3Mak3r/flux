@@ -54,12 +54,22 @@
       <a href="https://github.com/Blad3Mak3r/flux/releases/latest">v<span data-version>0.2.2</span></a>
       <span>Windows · Linux</span>
     </p>
-    <figure class="hero-figure">
+    <figure class="hero-figure" data-slide="cue">
       <div class="hero-frame">
         <img src="img/edit-1440.jpg" srcset="img/edit-1440.jpg 1440w, img/edit-2880.jpg 2880w" sizes="(min-width: 1200px) 1080px, 92vw" width="2880" height="1800" fetchpriority="high" alt="FLUX Edit view with audio, video, notes, MIDI and OSC on a timeline" data-i18n-alt="hero_alt">
       </div>
       <figcaption data-i18n="hero_caption">CUE mode · Timeline of a sample show</figcaption>
     </figure>
+    <figure class="hero-figure" data-slide="vj" hidden>
+      <div class="hero-frame">
+        <img src="img/vj-test-card.webp" width="1600" height="1000" alt="FLUX VJ output showing LED test patterns for two slices" data-i18n-alt="hero_vj_alt">
+      </div>
+      <figcaption data-i18n="hero_vj_caption">VJ mode · Slice test patterns on a FLUX video output</figcaption>
+    </figure>
+    <div class="hero-selector" role="group" aria-label="Choose a mode to view" data-i18n-aria="hero_selector" hidden>
+      <button type="button" data-show-slide="cue" aria-pressed="true">CUE</button>
+      <button type="button" data-show-slide="vj" aria-pressed="false">VJ</button>
+    </div>
   </div>
 </section>
 

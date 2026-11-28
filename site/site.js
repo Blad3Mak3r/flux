@@ -12,6 +12,9 @@ const ES = {
   download_flux: "Descargar FLUX", explore: "Explorar los modos",
   hero_alt: "Vista Edit de FLUX con audio, vídeo, notas, MIDI y OSC en una línea de tiempo",
   hero_caption: "Modo CUE · Línea de tiempo de un show de ejemplo",
+  hero_vj_alt: "Salida VJ de FLUX con cartas de ajuste LED para dos slices",
+  hero_vj_caption: "Modo VJ · Cartas de ajuste por slice en una salida de vídeo de FLUX",
+  hero_selector: "Elige un modo para ver",
   h_modes: "Tres formas de trabajar. Dos modos.",
   mode_timeline: "Monta una línea de tiempo", mode_timeline_p: "Ordena audio, vídeo y cues con un mismo reloj de timecode.",
   mode_live: "Ejecuta los cues", mode_live_p: "Pulsa Ctrl+1 para Edit y Ctrl+2 para Live. En Live ves el cue en marcha, el que está en espera y cuánto falta para el siguiente.",
@@ -326,3 +329,29 @@ const demo = (() => {
 for (const b of $$(".lang button")) b.addEventListener("click", () => setLang(b.dataset.lang, true));
 const fromBrowser = (navigator.language || "").toLowerCase().startsWith("es") ? "es" : "en";
 setLang(saved.get() || fromBrowser, false);
+
+// Rotate the real product views until the visitor chooses one.
+const heroSelector = $(".hero-selector");
+const heroSlides = $$("[data-slide]");
+const heroButtons = $$("[data-show-slide]", heroSelector);
+let heroIndex = 0;
+let heroTimer;
+
+function showHeroSlide(index) {
+  heroIndex = index;
+  heroSlides.forEach((slide, i) => { slide.hidden = i !== index; });
+  heroButtons.forEach((button, i) => button.setAttribute("aria-pressed", String(i === index)));
+}
+
+heroSelector.hidden = false;
+heroButtons.forEach((button, i) => button.addEventListener("click", () => {
+  clearInterval(heroTimer);
+  showHeroSlide(i);
+}));
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  heroTimer = setInterval(() => {
+    if (!document.hidden && !heroSelector.contains(document.activeElement)) {
+      showHeroSlide((heroIndex + 1) % heroSlides.length);
+    }
+  }, 6000);
+}

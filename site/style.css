@@ -446,3 +446,13 @@ figcaption { margin-top: 14px; font-size: 0.875rem; line-height: 1.5; color: var
   html { scroll-behavior: auto; }
   * { transition: none !important; }
 }
+
+.hero-selector { display: flex; justify-content: center; gap: 8px; margin: 16px auto 0; }
+.hero-selector[hidden], .hero-figure[hidden] { display: none; }
+.hero-selector button {
+  min-width: 64px; min-height: 40px; padding: 8px 16px;
+  color: var(--ink-dim); background: var(--panel-lo); border: 1px solid var(--rule);
+  border-radius: 4px; font: 700 0.875rem var(--ui); cursor: pointer;
+}
+.hero-selector button[aria-pressed="true"] { color: var(--stage); background: var(--phosphor); border-color: var(--phosphor); }
+.hero-selector button:hover { border-color: var(--phosphor); }
