@@ -9,6 +9,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { VideoAsset, VjGrid, VjTarget } from "../project/types";
 import { useDoc } from "../state/store";
+import { useEffectCatalog } from "./effects";
 import { linkKnob, setMapMode, clearMapping, pickTarget, useMap } from "./mapping";
 import { knobsOf, linkable, mappingsByTarget, sourceLabel, targetKey, targetLabel } from "./mapModel";
 
@@ -69,6 +70,7 @@ export function MapLayer({ grid }: { grid: VjGrid }) {
   const on = useMap((state) => state.on);
   const learn = useMap((state) => state.learn);
   const linking = useMap((state) => state.linking);
+  const catalog = useEffectCatalog((state) => state.catalog);
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const [boxes, setBoxes] = useState<Box[]>([]);
   useEffect(() => {
@@ -99,7 +101,7 @@ export function MapLayer({ grid }: { grid: VjGrid }) {
         const source = list[0] ? sourceLabel(list[0].source) : null;
         const name = targetLabel(t, box.target, grid, videos);
         const waiting = learning === key;
-        const off = linking !== null && !linkable(box.target);
+        const off = linking !== null && !linkable(catalog, box.target);
         const knob = linking !== null && linked.has(key);
         const wide = box.w >= 84;
         const narrow = box.w < 40 || box.h < 18;

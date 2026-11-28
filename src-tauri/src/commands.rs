@@ -668,7 +668,7 @@ pub fn vj_preview(
 /// What the inspector and the effects browser are drawn from: how many effects a stack holds, the
 /// categories effects are listed in, and every kind with its category and each setting's range,
 /// unit and default; and what a modulation is made of (shapes, bands, limits and the fields of a
-/// layer and a clip that can be modulated).
+/// layer and a clip that can be modulated); and how each kind of mapping target is driven.
 #[tauri::command]
 pub fn vj_effect_catalog() -> serde_json::Value {
     serde_json::json!({
@@ -676,6 +676,7 @@ pub fn vj_effect_catalog() -> serde_json::Value {
         "categories": flux_project::vj_effects::CATEGORIES,
         "effects": flux_project::vj_effects::catalog(),
         "modulation": flux_project::vj_modulation::catalog(),
+        "targets": flux_project::vj_mapping::target_kinds(),
     })
 }
 

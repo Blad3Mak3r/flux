@@ -6,8 +6,9 @@ import type { VjEffectCatalog } from "./api";
 import type { VideoAsset, VjClip, VjEffect, VjGrid, VjKnob, VjMapping, VjTarget } from "../project/types";
 import type { DashScope } from "./api";
 import { targetKey } from "./mapTarget";
+import type { TargetClass } from "./mapTarget";
 
-export { hasSlot, keyName, linkable, mappable, sourceKind, sourceLabel, targetClass, targetKey } from "./mapTarget";
+export { hasSlot, keyName, mappable, sourceKind, sourceLabel, targetKey } from "./mapTarget";
 export type { SourceKind } from "./mapTarget";
 export type { TargetClass } from "./mapTarget";
 import { effectKey, genericParamKey, paramKey, specOf } from "./effects";
@@ -108,6 +109,14 @@ export function targetLabel(t: Translate, target: VjTarget, grid: VjGrid, videos
   }
 }
 
+const kindOf = (catalog: VjEffectCatalog | null, target: VjTarget) => catalog?.targets.find((k) => k.kind === target.kind);
+
+/** How a source drives a target: a level, a switch it flips or sets, or an action it runs (the backend's say). */
+export const targetClass = (catalog: VjEffectCatalog | null, target: VjTarget): TargetClass => kindOf(catalog, target)?.class ?? "action";
+
+/** Whether a dashboard knob can link the target (the backend's say). */
+export const linkable = (catalog: VjEffectCatalog | null, target: VjTarget): boolean => kindOf(catalog, target)?.linkable ?? false;
+
 /** How a continuous target's number is counted: its range in its own units, and the way it is shown. */
 export interface Units {
   min: number;
@@ -119,6 +128,12 @@ export interface Units {
 }
 
 const PERCENT: Units = { min: 0, max: 1, shown: 100, unit: "%", decimals: 0 };
+
+/** The units of a target whose range the backend gives. */
+function fixed(catalog: VjEffectCatalog | null, target: VjTarget, how: Omit<Units, "min" | "max">): Units | null {
+  const range = kindOf(catalog, target)?.range;
+  return range ? { min: range[0], max: range[1], ...how } : null;
+}
 
 /** The units of a continuous target; `null` while the catalogue it needs has not loaded. */
 export function targetUnits(target: VjTarget, grid: VjGrid, catalog: VjEffectCatalog | null): Units | null {
@@ -134,11 +149,11 @@ export function targetUnits(target: VjTarget, grid: VjGrid, catalog: VjEffectCat
     case "clipDashboard":
       return PERCENT;
     case "layerTransition":
-      return { min: 0, max: 10, shown: 1, unit: "s", decimals: 1 };
+      return fixed(catalog, target, { shown: 1, unit: "s", decimals: 1 });
     case "bpm":
-      return { min: 20, max: 400, shown: 1, unit: "BPM", decimals: 0 };
+      return fixed(catalog, target, { shown: 1, unit: "BPM", decimals: 0 });
     case "clipSpeed":
-      return { min: 0.05, max: 8, shown: 1, unit: "×", decimals: 2 };
+      return fixed(catalog, target, { shown: 1, unit: "×", decimals: 2 });
     case "generatorNumber": {
       const spec = catalog?.modulation.generator[target.name];
       if (!spec) return null;

@@ -10,6 +10,7 @@ import type { VjSource, VjTarget } from "../project/types";
 import { vjLearn } from "./api";
 import type { DashScope } from "./api";
 import { linkable } from "./mapModel";
+import { useEffectCatalog } from "./effects";
 import { edit } from "./store";
 
 /** A dashboard knob being linked. */
@@ -59,7 +60,7 @@ export function escapeMap(): boolean {
 export function pickTarget(target: VjTarget): void {
   const { linking } = useMap.getState();
   if (linking !== null) {
-    if (linkable(target)) void edit({ op: "dashboardLink", scope: linking.scope, knob: linking.knob, target });
+    if (linkable(useEffectCatalog.getState().catalog, target)) void edit({ op: "dashboardLink", scope: linking.scope, knob: linking.knob, target });
     return;
   }
   useMap.setState({ learn: target, learned: null, refused: null });
