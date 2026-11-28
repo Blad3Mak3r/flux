@@ -1,4 +1,5 @@
-// Timecode maths for the UI. Mirrors src-tauri/crates/flux-core/src/timecode.rs: keep the two in step.
+// Timecode display maths for the UI: frames to text, redrawn every frame, so it stays here instead of crossing the IPC.
+// Mirrors src-tauri/crates/flux-core/src/timecode.rs: keep the two in step. Typed text is parsed by the backend (`parse_timecode`).
 // Erasable syntax only, so `node --test` can run it without a build step.
 
 import type { FrameRate } from "./project/types";
@@ -65,20 +66,6 @@ export function framesToTimecode(frames: number, rate: FrameRate): Timecode {
   };
 }
 
-/** Converts timecode to a frame count, or `null` when a field does not exist at `rate`. */
-export function timecodeToFrames(tc: Timecode, rate: FrameRate): number | null {
-  const fps = nominalFps(rate);
-  if (tc.hours < 0 || tc.hours > HOURS_PER_DAY - 1) return null;
-  if (tc.minutes < 0 || tc.minutes > 59 || tc.seconds < 0 || tc.seconds > 59) return null;
-  if (tc.frames < 0 || tc.frames > fps - 1) return null;
-
-  const totalMinutes = tc.hours * 60 + tc.minutes;
-  const nominal = totalMinutes * 60 * fps + tc.seconds * fps + tc.frames;
-  if (!isDropFrame(rate)) return nominal;
-  if (tc.minutes % 10 !== 0 && tc.seconds === 0 && tc.frames < 2) return null;
-  return nominal - 2 * (totalMinutes - Math.floor(totalMinutes / 10));
-}
-
 /** `HH:MM:SS:FF`, with `;` before the frames for drop-frame. */
 export function formatTimecode(tc: Timecode, rate: FrameRate): string {
   const separator = isDropFrame(rate) ? ";" : ":";
@@ -87,25 +74,4 @@ export function formatTimecode(tc: Timecode, rate: FrameRate): string {
 
 export function formatFrames(frames: number, rate: FrameRate): string {
   return formatTimecode(framesToTimecode(frames, rate), rate);
-}
-
-/**
- * Reads `HH:MM:SS:FF` (`:`, `;` or `.` between the fields, or only digits) into a frame count.
- * Fewer fields fill from the right, so `1:30` is one second and thirty frames... at 30 fps; digits
- * alone fill from the right in pairs, as on a hardware keypad.
- */
-export function parseTimecode(text: string, rate: FrameRate): number | null {
-  const trimmed = text.trim();
-  if (!/^[\d:;.]+$/.test(trimmed)) return null;
-  let parts: number[];
-  if (/^\d+$/.test(trimmed)) {
-    const padded = trimmed.padStart(8, "0").slice(-8);
-    parts = padded.match(/\d{2}/g)!.map(Number);
-  } else {
-    const fields = trimmed.split(/[:;.]/).map((field) => (field === "" ? NaN : Number(field)));
-    if (fields.length > 4 || fields.some(Number.isNaN)) return null;
-    parts = [...Array<number>(4 - fields.length).fill(0), ...fields];
-  }
-  const [hours, minutes, seconds, frames] = parts;
-  return timecodeToFrames({ hours, minutes, seconds, frames }, rate);
 }

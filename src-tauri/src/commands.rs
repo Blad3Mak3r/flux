@@ -384,6 +384,12 @@ pub fn tempo_segments(project: Project, timeline: String) -> Vec<BeatSegment> {
         })
 }
 
+/// The frame count that typed timecode text means at `rate`, `None` when it is not a timecode.
+#[tauri::command]
+pub fn parse_timecode(text: String, rate: flux_core::FrameRate) -> Option<u64> {
+    flux_core::Timecode::parse_frames(&text, rate)
+}
+
 /// The frame of the marker before or after `from` on a timeline, `None` when there is none that way.
 #[tauri::command]
 pub fn marker_step_at(project: Project, timeline: String, from: u64, forward: bool) -> Option<u64> {
@@ -668,7 +674,7 @@ pub fn vj_preview(
 /// What the inspector and the effects browser are drawn from: how many effects a stack holds, the
 /// categories effects are listed in, and every kind with its category and each setting's range,
 /// unit and default; and what a modulation is made of (shapes, bands, limits and the fields of a
-/// layer and a clip that can be modulated).
+/// layer and a clip that can be modulated); and how each kind of mapping target is driven.
 #[tauri::command]
 pub fn vj_effect_catalog() -> serde_json::Value {
     serde_json::json!({
@@ -676,6 +682,7 @@ pub fn vj_effect_catalog() -> serde_json::Value {
         "categories": flux_project::vj_effects::CATEGORIES,
         "effects": flux_project::vj_effects::catalog(),
         "modulation": flux_project::vj_modulation::catalog(),
+        "targets": flux_project::vj_mapping::target_kinds(),
     })
 }
 

@@ -1,7 +1,7 @@
 // Run with `npm test`.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { hasSlot, linkable, mappable, sourceKind, sourceLabel, targetClass, targetKey } from "./mapTarget.ts";
+import { hasSlot, mappable, sourceKind, sourceLabel, targetKey } from "./mapTarget.ts";
 
 test("targetKey is the same for the same target whatever the order of its fields", () => {
   assert.equal(
@@ -11,24 +11,9 @@ test("targetKey is the same for the same target whatever the order of its fields
   assert.notEqual(targetKey({ kind: "layerMaster", layer: "a" }), targetKey({ kind: "layerOpacity", layer: "a" }));
 });
 
-test("targetClass tells levels, switches and actions apart", () => {
-  assert.equal(targetClass({ kind: "layerOpacity", layer: "a" }), "continuous");
-  assert.equal(targetClass({ kind: "layerBypass", layer: "a" }), "switch");
-  assert.equal(targetClass({ kind: "stopAll" }), "action");
-  assert.equal(targetClass({ kind: "dashboard", knob: 0 }), "continuous");
-});
-
-test("a knob links levels but not another knob", () => {
-  assert.equal(linkable({ kind: "layerMaster", layer: "a" }), true);
-  assert.equal(linkable({ kind: "dashboard", knob: 1 }), false);
-  assert.equal(linkable({ kind: "stopAll" }), false);
-});
-
-test("the knobs of a layer and of a clip are levels that no knob links, and they follow their slot", () => {
+test("the knobs of a layer and of a clip follow their slot", () => {
   const knobs = [{ kind: "layerDashboard", layer: "a", knob: 2 }, { kind: "clipDashboard", clip: "c", knob: 0 }];
   for (const knob of knobs) {
-    assert.equal(targetClass(knob), "continuous");
-    assert.equal(linkable(knob), false);
     assert.equal(hasSlot(knob), true);
   }
   assert.notEqual(targetKey(knobs[0]), targetKey({ kind: "layerDashboard", layer: "a", knob: 3 }));
@@ -64,8 +49,6 @@ test("only a target with an id has a slot to follow", () => {
   assert.equal(hasSlot({ kind: "dashboard", knob: 1 }), false);
 });
 
-test("group targets are told apart by class and have a slot to follow", () => {
-  assert.equal(targetClass({ kind: "groupMaster", group: "g" }), "continuous");
-  assert.equal(targetClass({ kind: "groupSolo", group: "g" }), "switch");
+test("group targets have a slot to follow", () => {
   assert.equal(hasSlot({ kind: "groupBypass", group: "g" }), true);
 });

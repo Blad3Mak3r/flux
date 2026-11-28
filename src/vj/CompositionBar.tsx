@@ -11,7 +11,8 @@ import type { VjClockSource, VjGrid } from "../project/types";
 import { activeTimeline } from "../state/doc";
 import { useDoc } from "../state/store";
 import { openSetup } from "../state/ui";
-import { formatFrames, parseTimecode } from "../timecode";
+import { parseTimecode } from "../project/api";
+import { formatFrames } from "../timecode";
 import { pause, play, seek, stop } from "../transport/playback";
 import { selectFrame, selectMode, useTransport } from "../transport/store";
 import { vjAnalysisLevels } from "./api";
@@ -160,11 +161,10 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
   }, [internal]);
   const playing = state === "playing";
   const editable = internal && !playing;
-  const bad = draft !== null && parseTimecode(draft, frameRate) === null;
   const commit = () => {
-    const target = draft === null ? null : parseTimecode(draft, frameRate);
-    if (target !== null) seek(target);
+    const text = draft;
     setDraft(null);
+    if (text !== null) void parseTimecode(text, frameRate).then((target) => target !== null && seek(target));
   };
   const shown = internal ? formatFrames(frame, frameRate) : reading ? formatFrames(reading.frame, reading.rate) : "--:--:--:--";
   const signal = signalOf(incoming);
@@ -191,7 +191,6 @@ export function TimecodeClock({ grid }: { grid: VjGrid }) {
           className="vj-tc-v"
           aria-label={t("vj.clock.edit")}
           title={t("vj.clock.edit")}
-          aria-invalid={bad || undefined}
           spellCheck={false}
           value={draft ?? shown}
           onFocus={selectAll}

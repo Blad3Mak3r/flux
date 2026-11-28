@@ -15,22 +15,12 @@ export function snapToSpacing(frame: number, spacing: number, pxPerFrame: number
 
 // ---- Snapping onto items, the playhead and the origin, next to the grid ----
 
-/** A fixed step of the grid: it stays the same at every zoom, unlike the ruler's own lines. */
-export type FixedStep = "frame" | "second" | "beat" | "bar";
+/** A fixed step of the grid: it stays the same at every zoom, unlike the ruler's own lines. Beats and bars follow the tempo map instead. */
+export type FixedStep = "frame" | "second";
 
-/** Frames between the lines of a fixed grid step. Beats are rarely a whole number of frames. */
-export function fixedSpacing(step: FixedStep, tempo: { bpm: number; beatsPerBar: number; fps: number }): number {
-  const beat = (60 / tempo.bpm) * tempo.fps;
-  switch (step) {
-    case "frame":
-      return 1;
-    case "second":
-      return tempo.fps;
-    case "beat":
-      return beat;
-    case "bar":
-      return beat * tempo.beatsPerBar;
-  }
+/** Frames between the lines of a fixed grid step, in a timeline of `fps` real frames a second. */
+export function fixedSpacing(step: FixedStep, fps: number): number {
+  return step === "frame" ? 1 : fps;
 }
 
 /**

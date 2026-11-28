@@ -1,7 +1,7 @@
 // Run with `npm test`. The ruler and the graticule share these positions.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { barTickPositions, beatFrames, frameX, nearestBeatLine, pickTicks, tickPositions } from "./scale.ts";
+import { barTickPositions, frameX, nearestBeatLine, pickTicks, tickPositions } from "./scale.ts";
 
 const RATES = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const ZOOMS = [0.04, 0.1, 0.37, 1.6, 2.5, 7.3, 40];
@@ -42,12 +42,9 @@ test("the ruler's labelled ticks are the graticule's major lines", () => {
   assert.ok(minor.length > 0 && minor.every((f) => !major.includes(f)));
 });
 
-const GRID = { bpm: 120, beatsPerBar: 4, fps: 25 };
-
-test("a beat lasts what the tempo says, in real frames", () => {
-  assert.equal(beatFrames(GRID), 12.5);
-  assert.equal(beatFrames({ bpm: 60, beatsPerBar: 4, fps: 30000 / 1001 }), 30000 / 1001);
-});
+// What the backend answers for 120 BPM in 4/4 at 25 fps: a beat is 12.5 frames.
+const SEGMENT = { startFrame: 0, beatFrames: 12.5, beatsPerBar: 4, beatUnit: 4, bpm: 120, firstBar: 1 };
+const GRID = { segments: [SEGMENT] };
 
 test("bar ticks sit on the exact beat positions, not on whole frames", () => {
   // 120 BPM at 25 fps is 12.5 frames a beat: zoomed in, every beat is labelled bar.beat.
@@ -85,7 +82,7 @@ test("minor ticks are the beats between bar lines, and never repeat a labelled t
 });
 
 test("a bar of three beats counts in threes", () => {
-  const { major } = barTickPositions(40, { bpm: 120, beatsPerBar: 3, fps: 25 }, 2_000);
+  const { major } = barTickPositions(40, { segments: [{ ...SEGMENT, beatsPerBar: 3 }] }, 2_000);
   assert.deepEqual(major.slice(0, 4).map((tick) => tick.label), ["1", "1.2", "1.3", "2"]);
 });
 
@@ -93,7 +90,7 @@ test("the grid covers the whole width, to the last bar", () => {
   const width = 5_000;
   const { major, minor } = barTickPositions(0.5, GRID, width);
   const last = Math.max(...major.map((t) => t.frame), ...minor);
-  assert.ok(last * 0.5 >= width - beatFrames(GRID) * 0.5 * 8 - 1);
+  assert.ok(last * 0.5 >= width - SEGMENT.beatFrames * 0.5 * 8 - 1);
 });
 
 import { visibleRange } from "./scale.ts";
@@ -114,8 +111,8 @@ test("the ticks of a range are the ones of the whole that fall in it, for every 
 });
 
 test("the bar ticks of a range hold every tick of the whole inside it, and nothing but ticks of the whole near it", () => {
-  const grid = { bpm: 117, beatsPerBar: 4, fps: 25 };
-  const beatPx = (zoom) => beatFrames(grid) * zoom;
+  const grid = { segments: [{ ...SEGMENT, bpm: 117, beatFrames: (60 / 117) * 25 }] };
+  const beatPx = (zoom) => grid.segments[0].beatFrames * zoom;
   for (const zoom of [0.1, 1.6, 12]) {
     const width = 120_000;
     const whole = barTickPositions(zoom, grid, width);
@@ -161,19 +158,12 @@ test("a three-hour show at 30 fps fits a 1200 px lane, with labels that stay apa
 // 25 fps. 4/4 at 120 BPM for 100 frames (2 bars of 12.5-frame beats), 3/4 at 60 BPM for 75 frames
 // (1 bar), then 6/8 at 90 BPM, whose beat is an eighth: 60 / 90 * 25 / 2 frames.
 const MAP = {
-  bpm: 120,
-  beatsPerBar: 4,
-  fps: 25,
-  later: [
+  segments: [
+    SEGMENT,
     { startFrame: 100, beatFrames: 25, beatsPerBar: 3, beatUnit: 4, bpm: 60, firstBar: 3 },
     { startFrame: 175, beatFrames: 25 / 3, beatsPerBar: 6, beatUnit: 8, bpm: 90, firstBar: 4 },
   ],
 };
-
-test("a beat lasts as long as the note it is says", () => {
-  assert.equal(beatFrames({ bpm: 120, beatsPerBar: 6, beatUnit: 8, fps: 25 }), 6.25);
-  assert.equal(beatFrames({ bpm: 120, beatsPerBar: 4, fps: 25 }), 12.5);
-});
 
 test("the bar lines follow the tempo and signature changes, numbered across them", () => {
   const { major } = barTickPositions(40, MAP, 12_000);
@@ -209,5 +199,5 @@ test("the closest line of the grid is found in the segment the frame is in, or a
   // Bars of the 6/8 segment last 50 frames.
   assert.equal(near(205, "bar"), 225);
   // With no changes it is the plain grid.
-  assert.equal(nearestBeatLine(34, { bpm: 120, beatsPerBar: 4, fps: 25 }, 40, "beat"), 37.5);
+  assert.equal(nearestBeatLine(34, GRID, 40, "beat"), 37.5);
 });

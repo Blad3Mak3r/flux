@@ -9,7 +9,6 @@ import type { MarksOp } from "../project/api";
 import { currentFrame } from "../transport/store";
 import { seek } from "../transport/playback";
 import { activeTimeline } from "./doc";
-import { segmentsOf } from "../timeline/scale";
 import { selectedIds } from "./selection";
 import { beatGrid } from "./tempoMap";
 import { dispatch, useDoc } from "./store";
@@ -96,8 +95,8 @@ export function deleteSelectedMark(): boolean {
  * signature that are there now, for the editor to change.
  */
 export function addTempoChangeAt(at: number = playhead()): Promise<void> {
-  const grid = beatGrid(activeTimeline(useDoc.getState()));
-  const segments = segmentsOf(grid);
+  const { segments } = beatGrid();
+  if (!segments.length) return Promise.resolve();
   const here = [...segments].reverse().find((segment) => segment.startFrame <= at) ?? segments[0];
   return editMarks({ op: "setTempoAt", at, bpm: here.bpm, beatsPerBar: here.beatsPerBar, beatUnit: here.beatUnit });
 }

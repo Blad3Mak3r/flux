@@ -25,11 +25,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
+mod catalog;
 mod edit;
 mod model;
 mod osc;
 mod react;
 
+pub use self::catalog::{TargetKind, target_kinds};
 pub use self::edit::prune;
 pub(crate) use self::edit::{
     add_mapping, check_knob, drive, drive_knob, finite, link_knob, linkable, rebind,

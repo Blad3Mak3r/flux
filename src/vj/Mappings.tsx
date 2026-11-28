@@ -27,7 +27,7 @@ function Row({ grid, mapping }: { grid: VjGrid; mapping: VjMapping }) {
   const t = useT();
   const videos = useDoc((doc) => doc.project.videos ?? NO_VIDEOS);
   const catalog = useEffectCatalog((state) => state.catalog);
-  const kind = targetClass(mapping.target);
+  const kind = targetClass(catalog, mapping.target);
   const mode = mapping.mode ?? "trigger";
   const invert = mapping.invert === true;
   const set = (changed: Partial<Pick<VjMapping, "min" | "max" | "mode">> & { invert?: boolean }) =>

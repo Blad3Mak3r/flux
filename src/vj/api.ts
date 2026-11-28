@@ -297,6 +297,16 @@ export interface VjModulationCatalog {
   generator: Record<string, VjModField>;
 }
 
+/** How one kind of mapping target is driven, as the backend knows it. */
+export interface VjTargetKind {
+  kind: VjTarget["kind"];
+  class: "continuous" | "switch" | "action";
+  /** A dashboard knob can drive it. */
+  linkable: boolean;
+  /** The range of its number; absent when it depends on the target's own setting. */
+  range?: [number, number];
+}
+
 export interface VjEffectCatalog {
   /** Most effects a stack holds. */
   max: number;
@@ -304,6 +314,8 @@ export interface VjEffectCatalog {
   /** The groups effects are listed in, in order. */
   categories: string[];
   effects: VjEffectSpec[];
+  /** The kinds of mapping target that are not plain actions. */
+  targets: VjTargetKind[];
 }
 
 export const vjEffectCatalog = () => invoke<VjEffectCatalog>("vj_effect_catalog");

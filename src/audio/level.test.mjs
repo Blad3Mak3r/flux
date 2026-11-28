@@ -7,7 +7,6 @@ import {
   FADER_MIN_DB,
   HOLD_MS,
   METER_SEGMENTS,
-  clampFaderDb,
   dbFromLinear,
   dbToFader,
   faderToDb,
@@ -32,12 +31,6 @@ test("dbToFader inverts faderToDb along the whole travel", () => {
     assert.ok(Math.abs(faderToDb(dbToFader(db)) - db) <= 0.1, `${db} dB`);
   }
   assert.ok(dbToFader(-12) < dbToFader(0));
-});
-
-test("clampFaderDb stays in range and to a tenth", () => {
-  assert.equal(clampFaderDb(-100), FADER_MIN_DB);
-  assert.equal(clampFaderDb(40), FADER_MAX_DB);
-  assert.equal(clampFaderDb(-3.14159), -3.1);
 });
 
 test("formatDb prints a sign, one decimal and -inf at the bottom", () => {

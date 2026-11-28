@@ -128,6 +128,51 @@ impl Timecode {
         Ok(nominal - 2 * (total_minutes - total_minutes / 10))
     }
 
+    /// Reads typed text into a frame count: `HH:MM:SS:FF` with `:`, `;` or `.` between the
+    /// fields, fewer fields filling from the right (`1:10` is a second and ten frames), or only
+    /// digits, which fill from the right in pairs as on a hardware keypad. `None` when it is not a
+    /// timecode at `rate`.
+    pub fn parse_frames(text: &str, rate: FrameRate) -> Option<u64> {
+        let text = text.trim();
+        if text.is_empty()
+            || !text
+                .chars()
+                .all(|c| c.is_ascii_digit() || ":;.".contains(c))
+        {
+            return None;
+        }
+        let fields: Vec<u64> = if text.bytes().all(|b| b.is_ascii_digit()) {
+            let padded = format!("{text:0>8}");
+            let digits = &padded.as_bytes()[padded.len() - 8..];
+            digits
+                .chunks(2)
+                .map(|pair| u64::from(pair[0] - b'0') * 10 + u64::from(pair[1] - b'0'))
+                .collect()
+        } else {
+            let fields = text
+                .split([':', ';', '.'])
+                .map(|field| field.parse().ok())
+                .collect::<Option<Vec<u64>>>()?;
+            if fields.len() > 4 {
+                return None;
+            }
+            let mut padded = vec![0; 4 - fields.len()];
+            padded.extend(fields);
+            padded
+        };
+        let [hours, minutes, seconds, frames] = fields[..] else {
+            return None;
+        };
+        Timecode {
+            hours: u8::try_from(hours).ok()?,
+            minutes: u8::try_from(minutes).ok()?,
+            seconds: u8::try_from(seconds).ok()?,
+            frames: u8::try_from(frames).ok()?,
+        }
+        .to_frames(rate)
+        .ok()
+    }
+
     pub fn display(self, rate: FrameRate) -> String {
         let separator = if rate.is_drop_frame() { ';' } else { ':' };
         format!(
@@ -282,5 +327,27 @@ mod tests {
         assert_eq!(timecode.display(FrameRate::Fps2997Drop), "01:02:03;04");
         assert_eq!(timecode.display(FrameRate::Fps25), "01:02:03:04");
         assert_eq!(timecode.to_string(), "01:02:03:04");
+    }
+
+    #[test]
+    fn typed_text_should_parse_with_separators_and_keypad_digits() {
+        let parse = Timecode::parse_frames;
+        assert_eq!(parse("01:00:00:00", FrameRate::Fps25), Some(90_000));
+        assert_eq!(parse("00:01:00;02", FrameRate::Fps2997Drop), Some(1800));
+        assert_eq!(parse("1000000", FrameRate::Fps25), Some(90_000));
+        assert_eq!(parse("1:10", FrameRate::Fps25), Some(35));
+        assert_eq!(parse(" 1.10 ", FrameRate::Fps25), Some(35));
+    }
+
+    #[test]
+    fn typed_text_that_is_not_a_timecode_should_not_parse() {
+        let parse = Timecode::parse_frames;
+        assert_eq!(parse("", FrameRate::Fps25), None);
+        assert_eq!(parse("ab", FrameRate::Fps25), None);
+        assert_eq!(parse("00:00:00:25", FrameRate::Fps25), None);
+        assert_eq!(parse("1:2:3:4:5", FrameRate::Fps25), None);
+        assert_eq!(parse("1::2", FrameRate::Fps25), None);
+        assert_eq!(parse("00:00:00:300", FrameRate::Fps25), None);
+        assert_eq!(parse("00:01:00;01", FrameRate::Fps2997Drop), None);
     }
 }

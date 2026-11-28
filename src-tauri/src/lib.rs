@@ -144,6 +144,7 @@ pub fn run() {
             commands::items_edit,
             commands::marks_edit,
             commands::tempo_segments,
+            commands::parse_timecode,
             commands::marker_step_at,
             commands::items_extent,
             commands::output_signal_edit,
