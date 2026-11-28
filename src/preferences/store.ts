@@ -31,6 +31,8 @@ export interface Preferences {
   metronome: OutputConfig["audio"];
   ltc: Record<string, OutputConfig["ltc"][number]>;
   mtc: Record<string, OutputConfig["mtc"][number]>;
+  /** The MIDI port MIDI clock goes to, for either kind of show; the show says whether it is sent. */
+  midiClock?: OutputConfig["mtc"][number] | null;
   /** The folder Output > Snapshot saves into; none is Pictures/Flux Snapshots. */
   snapshotDir?: string | null;
   /** A snapshot is also added to the project's media. */

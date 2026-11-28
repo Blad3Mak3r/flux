@@ -43,6 +43,26 @@ the audio callback never allocates.
   group to begin at piece 0. `poll(position, send)` calls `send` for every quarter frame whose time has come, and
   skips ahead to the next group if the caller stalls instead of flooding the port with stale pieces.
 
+## MIDI clock (`midi_clock.rs`, `output/midi_clock.rs`)
+
+A project can also send MIDI clock to one port (Preferences > Outputs > MIDI clock; the project says whether, the computer
+says which port). Flux only sends it. `ClockScheduler` is pure: told the transport state, a position in samples and the
+tempo, it says which messages are due: timing clocks (`F8`, 24 per quarter note), Start (`FA`), Continue (`FB`), Stop (`FC`)
+and Song Position Pointer (`F2`, in sixteenths, up to 16383, so about 34 minutes at 120 BPM). Each clock is due at a sample,
+and the next is a tick later than that one, not than the time it was sent, so nothing drifts; a scheduler that was not looked
+at for a quarter second starts over instead of sending a burst.
+
+- **Cue show** (`Mode::Follow`): the position is the transport's, extrapolated like MTC's. The clock counts from the start of
+  the timeline at the active timeline's tempo (`timeline.tempo.bpm`, the one the metronome clicks at), runs while the
+  transport plays, sends Stop on pause or stop, and on play or a locate sends the Song Position Pointer of the next sixteenth
+  and Continue (Start at the very beginning). A tempo change moves the next clock only.
+- **VJ show** (`Mode::Free`): the position is the time, so the clock runs all the time at the show's tempo (the Link session's
+  while Link is on), and Start, Continue and Stop only follow the transport's state.
+
+The tempo reaches the thread through `SharedClock::clock_bpm`, set when the output opens and by `output_set_tempo`. The thread
+is `flux-midi-clock`; it parks until shortly before a clock is due and spins the rest, as `flux-mtc` does, and a port that
+goes away is marked lost and opened again.
+
 ## Transport (`transport.rs`)
 
 The audio device's sample clock is the master. `Transport` holds the position as a **sample count** since the
@@ -247,12 +267,13 @@ No command runs on the main thread, which belongs to the window and its event lo
 | `flux-ltc` | The LTC callback, when LTC plays on a device other than the programme's (it carries the metronome too when that device is the metronome's). Never allocates or waits. |
 | `flux-click` | The metronome callback, when the metronome plays on a device nothing else uses. Never allocates or waits. |
 | `flux-mtc` | MIDI Timecode quarter frames. |
+| `flux-midi-clock` | MIDI clock: timing clocks, Start, Continue, Stop and Song Position (see MIDI clock). |
 | `flux-midi`, `flux-osc` | Fire the events of the MIDI and OSC tracks, one thread per port / destination (see Firing MIDI and OSC cues). |
 | `flux-position`, `flux-live`, `flux-levels` | The three lanes above. |
 | `flux-advance` | With `advance` on: sees the show end and makes the next timeline the active one. |
 | `flux-log` | Writes the log for the output (see [diagnostics.md](diagnostics.md)): transport and device changes, and the fault counters. |
 
-**Nothing logs from `flux-audio`, `flux-ltc`, `flux-click`, `flux-mtc`, `flux-midi` or `flux-osc`**: writing a file waits. Their error callbacks and
+**Nothing logs from `flux-audio`, `flux-ltc`, `flux-click`, `flux-mtc`, `flux-midi-clock`, `flux-midi` or `flux-osc`**: writing a file waits. Their error callbacks and
 send failures only bump atomic counters (`SharedClock::faults`: `xruns`, `stream_errors`, `mtc_errors`, `cue_errors`) and raise the
 `lost` flags, and the `flux-log` lane turns the changes into log lines. A dropout (`ErrorKind::Xrun`) is counted and
 does not mark the device as lost; any other stream error does.

@@ -1,0 +1,11 @@
+[package]
+name = "flux-link"
+version = "0.2.2"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Ableton Link session for the VJ beat clock"
+
+[dependencies]
+# Wraps Ableton's abl_link C API and builds it with CMake. Link is GPL-2.0-or-later, which the
+# GPL-3.0 licence of the app allows.
+rusty_link = "0.4"

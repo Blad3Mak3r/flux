@@ -29,6 +29,7 @@ mod vj_audio;
 mod vj_commands;
 mod vj_control;
 mod vj_layout_commands;
+mod vj_link;
 mod vj_osc_feedback;
 mod vj_presets_commands;
 mod vj_record;
@@ -88,6 +89,7 @@ pub fn run() {
             flux_text::warm();
             analysis::start(app.handle());
             modulation::start(app.handle());
+            vj_link::start(app.handle());
             vj_osc_feedback::start(app.handle());
             let app = app.handle().clone();
             let video = app.clone();

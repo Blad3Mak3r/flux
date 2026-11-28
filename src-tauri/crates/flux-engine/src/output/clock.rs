@@ -85,6 +85,9 @@ pub struct SharedClock {
     pub(super) operator_invalid: AtomicBool,
     /// The sound of the VJ grid, which plays whether the transport does or not.
     pub(super) grid_audio: crate::grid_audio::GridAudio,
+    /// The tempo the MIDI clock runs at, as the bits of an `f64`: the control side moves it while
+    /// the show plays and the clock thread reads it.
+    pub(super) clock_bpm: AtomicU64,
 }
 
 /// What a [`SharedClock`] counts going wrong.
@@ -134,6 +137,7 @@ impl SharedClock {
             operator_health: RwLock::new(None),
             operator_invalid: AtomicBool::new(false),
             grid_audio: crate::grid_audio::GridAudio::default(),
+            clock_bpm: AtomicU64::new(120f64.to_bits()),
             operator_set: Mutex::new(Arc::new(ClipSet::default())),
             operator_subscribers: Mutex::new(Vec::new()),
             pending_plays: AtomicU64::new(0),
@@ -211,6 +215,11 @@ impl SharedClock {
             mtc_errors: mtc_errors.load(Ordering::Relaxed),
             cue_errors: cue_errors.load(Ordering::Relaxed),
         }
+    }
+
+    /// Moves the tempo of the MIDI clock.
+    pub(super) fn set_clock_bpm(&self, bpm: f64) {
+        self.clock_bpm.store(bpm.to_bits(), Ordering::Relaxed);
     }
 
     /// Nanoseconds since this clock was created.

@@ -600,7 +600,7 @@ pub async fn output_reconfigure(
         && running.output.reader().show().is_some()
     {
         return Ok(Reconfigured::Applied {
-            info: running.output.info().clone(),
+            info: Box::new(running.output.info().clone()),
         });
     }
     let prefs = crate::preferences::preferences_get(app, prefs).map_err(OutputError::Stream)?;
@@ -624,7 +624,7 @@ pub async fn output_reconfigure(
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner) = resolved;
                 return Ok(Reconfigured::Applied {
-                    info: running.output.info().clone(),
+                    info: Box::new(running.output.info().clone()),
                 });
             }
         }
@@ -675,7 +675,9 @@ pub async fn output_reconfigure(
                 .output
                 .info()
                 .clone();
-            return Ok(Reconfigured::Applied { info });
+            return Ok(Reconfigured::Applied {
+                info: Box::new(info),
+            });
         }
         done
     })

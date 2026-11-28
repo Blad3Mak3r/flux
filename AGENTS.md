@@ -71,6 +71,7 @@ The logic lives in `src-tauri/crates/`, none of which depends on Tauri:
 | `flux-video` | Video files through FFmpeg: probing, frame-exact decoding on a thread, timecode-to-frame mapping. |
 | `flux-render` | The GPU (wgpu) drawing of video frames on the output window. |
 | `flux-text` | Fonts (`fontdb`, a bundled fallback) and the CPU rasterising of text blocks (`ab_glyph`), for the Text Block generator. |
+| `flux-link` | The Ableton Link session of the VJ beat clock (`rusty_link`, built with CMake and libclang), and the pure mapping of its tempo and phase. |
 | `flux-capture` | Live video inputs (cameras, capture cards) through FFmpeg's libavdevice: listing devices and a thread that keeps the newest picture, for the Live input generator. |
 
 New heavy or native dependencies (e.g. video) go in a crate of their own. The app crate only wires commands to them.

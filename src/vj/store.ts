@@ -75,7 +75,7 @@ const NO_MOD: ModValues = { effects: {}, layers: {}, clips: {}, knobs: {}, layer
 export type MediaKind = "all" | "video" | "image";
 
 export const useVj = create<VjState>()(() => ({
-  play: { playing: [], column: null, crossfader: 0.5, beats: 0, beatsPaused: false },
+  play: { playing: [], column: null, crossfader: 0.5, beats: 0, beatsPaused: false, linkPeers: null },
   importing: [],
   clip: null,
   slot: null,

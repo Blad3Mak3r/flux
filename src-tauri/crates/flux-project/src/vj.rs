@@ -74,6 +74,10 @@ pub struct Vj {
     /// Where the show's timecode clock comes from; absent is [`ClockSource::Internal`].
     #[serde(default, skip_serializing_if = "ClockSource::is_internal")]
     pub clock: ClockSource,
+    /// The show's tempo and beat phase are shared with the other applications of an Ableton Link
+    /// session on the network; absent is off.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub link: bool,
     /// The composition's effects, applied to the final mix of the layers before the output mapping,
     /// the first applied first. Only here the kinds that need the frames before them (feedback,
     /// trails, bloom) are allowed.
@@ -900,6 +904,10 @@ pub enum VjOp {
     SetClock {
         source: ClockSource,
     },
+    /// Joins the Ableton Link session, or leaves it.
+    SetLink {
+        on: bool,
+    },
     /// A new deck with [`DEFAULT_COLUMNS`] empty columns, after the others, which the grid shows.
     AddDeck,
     /// Takes the deck, its columns and their clips away; the last deck stays.
@@ -1234,6 +1242,7 @@ impl Vj {
             deck: deck.id.clone(),
             decks: vec![deck],
             clock: ClockSource::Internal,
+            link: false,
             composition_effects: Vec::new(),
             composition_bypass: false,
             mappings: Vec::new(),
@@ -1533,6 +1542,7 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::GroupSolo { group, on } => vj.group_mut(&group)?.solo = on,
         VjOp::GroupCollapse { group, on } => vj.group_mut(&group)?.collapsed = on,
         VjOp::SetClock { source } => vj.clock = source,
+        VjOp::SetLink { on } => vj.link = on,
         VjOp::SetBpm { bpm } => set_bpm(&mut project.timelines, |_| bpm)?,
         VjOp::NudgeBpm { by } => set_bpm(&mut project.timelines, |now| now + by)?,
         VjOp::ScaleBpm { factor } => set_bpm(&mut project.timelines, |now| now * factor)?,
@@ -2709,6 +2719,15 @@ mod tests {
         run(&mut project, ltc, &mut new_id);
         let json = serde_json::to_string(&project.vj).unwrap();
         assert!(json.contains(r#""clock":"ltc""#), "{json}");
+    }
+
+    #[test]
+    fn link_should_be_kept_in_the_file_only_while_on() {
+        let (mut project, mut new_id) = vj_project();
+        assert!(!serde_json::to_string(&project.vj).unwrap().contains("link"));
+        run(&mut project, VjOp::SetLink { on: true }, &mut new_id);
+        let json = serde_json::to_string(&project.vj).unwrap();
+        assert!(json.contains(r#""link":true"#), "{json}");
     }
 
     #[test]

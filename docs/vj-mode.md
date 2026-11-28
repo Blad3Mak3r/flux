@@ -223,6 +223,34 @@ and the modulations all follow.
 
 The beat count keeps its phase when the tempo changes, so everything that follows the beats stays in step.
 
+### Ableton Link
+
+The **LINK** button at the end of the BPM bar joins an [Ableton Link](https://www.ableton.com/en/link/) session: the other
+applications on the same network that use Link (Ableton Live, Resolume, DJ and music apps, many iOS apps) then share one
+tempo and one beat phase with FLUX, and the number beside the button is how many of them are in the session.
+
+- **Tempo goes both ways.** Change the BPM in FLUX and every peer follows; when a peer changes it, the BPM here follows
+  (a drag on the peer is one step of the undo history).
+- **Phase.** FLUX's beats keep the phase of the session's bar of four, so the beat lights, the beat-based clips and the
+  modulations land on the same beat as the other applications.
+- **Hold and nudge are yours.** While the beats are held or nudged they leave the session's phase, and go back to it when
+  you let go. **RESYNC** does nothing in a session, because the bar is the session's and no peer is moved.
+- Whether the show joins is saved with the project (`vj.link`); it is off in a new show. Start and stop are not shared.
+
+Link finds its peers by broadcasting on the local network, so a firewall that blocks UDP multicast keeps them from
+seeing each other.
+
+### MIDI clock
+
+A VJ show can send **MIDI clock** to a MIDI port so drum machines, synths and software follow its tempo. Turn it on in
+Preferences > Outputs > MIDI clock and choose the port. FLUX only sends it; it never follows an external clock.
+
+- 24 timing clocks per quarter note at the show's tempo, which is the Link session's while Link is on. They go out all the
+  time, from a thread of their own that places each on an absolute time, so a slow moment elsewhere does not delay them.
+- **Start**, **Continue** and **Stop** follow the timecode clock's transport: play from the start sends Start, play after a
+  pause sends Continue, and pause or stop sends Stop.
+- The port is a choice of the computer; whether the show sends is saved with the project (`output.midiClock`).
+
 ## The timecode clock
 
 Next to the tempo is the show's **timecode clock**. Its source is chosen with its tag:

@@ -117,8 +117,24 @@ export function Tempo() {
       <button type="button" className="vj-tap vj-hold" {...mappable({ kind: "bpmPause" })} aria-pressed={paused} title={t("vj.beat.pauseNote")} onClick={() => void beatClock({ op: "pause", on: !paused })}>
         {t("vj.beat.pause")}
       </button>
+      <LinkToggle />
       <RecordIndicator />
     </div>
+  );
+}
+
+/** Joins or leaves the Ableton Link session, with the number of other applications in it while joined. The backend keeps the session. */
+function LinkToggle() {
+  const t = useT();
+  const on = useDoc((doc) => doc.project.vj?.link ?? false);
+  const peers = useVj((vj) => vj.play.linkPeers);
+  const title = on ? t("vj.link.on", { peers: peers ?? 0 }) : t("vj.link.off");
+  return (
+    <button type="button" className="vj-tap vj-hold vj-link" aria-pressed={on} title={title} aria-label={t("vj.link.label")}
+      onClick={() => void edit({ op: "setLink", on: !on })}>
+      {t("vj.link.name")}
+      {on && <b className="vj-link-n" title={t("vj.link.peers", { n: peers ?? 0 })}>{peers ?? 0}</b>}
+    </button>
   );
 }
 

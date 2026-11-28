@@ -29,8 +29,8 @@ use crate::devices;
 use flux_audio::ENGINE_RATE;
 use flux_core::Clock;
 use flux_project::{
-    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, MtcOutput, OscDestination, OutputConfig, ProjectError,
-    Tempo, Timeline,
+    DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, MidiClockOutput, MtcOutput, OscDestination,
+    OutputConfig, ProjectError, Tempo, Timeline,
 };
 
 mod branches;
@@ -39,6 +39,7 @@ mod handle;
 mod info;
 mod ltc_follow;
 mod ltc_render;
+mod midi_clock;
 mod mtc_port;
 mod plan;
 mod spec;
@@ -51,6 +52,7 @@ pub use handle::*;
 pub use info::*;
 pub use ltc_follow::*;
 pub use ltc_render::*;
+use midi_clock::run_midi_clock;
 pub(crate) use mtc_port::*;
 use plan::*;
 use spec::*;

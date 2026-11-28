@@ -8,6 +8,8 @@ pub(super) struct BranchCtx {
     pub(super) rate: FrameRate,
     pub(super) start: u64,
     pub(super) clock: Clock,
+    /// The tempo of the timeline, which the MIDI clock starts at.
+    pub(super) bpm: f64,
 }
 
 impl BranchCtx {
@@ -23,6 +25,7 @@ impl BranchCtx {
             ltc_config,
             rate,
             start: timeline.timecode.start,
+            bpm: timeline.tempo.bpm,
         }
     }
 }
@@ -51,6 +54,51 @@ pub(super) struct MtcBranch {
     stop: Arc<AtomicBool>,
     lost: Arc<AtomicBool>,
     handle: JoinHandle<()>,
+}
+
+/// The thread sending MIDI clock to a port.
+pub(super) struct ClockBranch {
+    want: MidiClockOutput,
+    /// The name of the port that opened.
+    name: String,
+    stop: Arc<AtomicBool>,
+    lost: Arc<AtomicBool>,
+    handle: JoinHandle<()>,
+}
+
+/// Opens the MIDI port `want` names and starts the thread that sends clock to it.
+fn open_midi_clock(
+    want: &MidiClockOutput,
+    clock: Clock,
+    shared: &Arc<SharedClock>,
+) -> Result<ClockBranch, String> {
+    let (_, name, connection) = connect_midi(&want.port_name, want.port_index, MIDI_CLIENT_NAME)?;
+    let (stop, lost) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let link = PortLink {
+        connection,
+        hint: want.port_name.clone(),
+        index: want.port_index,
+    };
+    let mode = if want.free_run {
+        crate::midi_clock::Mode::Free
+    } else {
+        crate::midi_clock::Mode::Follow
+    };
+    let (shared, flags) = (Arc::clone(shared), (Arc::clone(&stop), Arc::clone(&lost)));
+    let handle = thread::Builder::new()
+        .name("flux-midi-clock".into())
+        .spawn(move || run_midi_clock(mode, clock, link, shared, flags.0, flags.1))
+        .map_err(|err| format!("{name}: {err}"))?;
+    Ok(ClockBranch {
+        want: want.clone(),
+        name,
+        stop,
+        lost,
+        handle,
+    })
 }
 
 /// Stops a stream or thread of its own and waits for it.
@@ -98,6 +146,7 @@ pub(super) struct Opened {
     pub(super) mtc: Vec<MtcInfo>,
     pub(super) metronome: Option<MetronomeInfo>,
     pub(super) operator: Option<MetronomeInfo>,
+    pub(super) midi_clock: Option<MtcInfo>,
 }
 
 /// The LTC and click streams on other devices and the MTC threads of a running output. Applying a
@@ -108,6 +157,8 @@ pub(super) struct Branches {
     /// The metronome's stream, when its device carries nothing else.
     click: Option<Follower>,
     pub(super) mtc: Vec<MtcBranch>,
+    /// The thread sending MIDI clock.
+    clock: Option<ClockBranch>,
 }
 
 impl Branches {
@@ -117,6 +168,54 @@ impl Branches {
         }
         for port in self.mtc.drain(..) {
             port.shut();
+        }
+        if let Some(clock) = self.clock.take() {
+            shut(&clock.stop, clock.handle);
+        }
+    }
+
+    /// The thread that sends MIDI clock: kept while the port and mode are the same, replaced
+    /// otherwise, closed when the project sends none. Returns how it ended up.
+    fn apply_midi_clock(
+        &mut self,
+        plan: &Plan,
+        ctx: &BranchCtx,
+        shared: &Arc<SharedClock>,
+        warnings: &mut Vec<String>,
+    ) -> Option<MtcInfo> {
+        let want = plan.midi_clock.as_ref();
+        if let Some(running) = &self.clock
+            && want != Some(&running.want)
+            && let Some(old) = self.clock.take()
+        {
+            shut(&old.stop, old.handle);
+        }
+        let want = want?;
+        if let Some(running) = &self.clock {
+            return Some(MtcInfo {
+                port: running.name.clone(),
+                ok: !running.lost.load(Ordering::Relaxed),
+            });
+        }
+        if want.port_name.is_empty() {
+            return None;
+        }
+        match open_midi_clock(want, ctx.clock, shared) {
+            Ok(branch) => {
+                let info = MtcInfo {
+                    port: branch.name.clone(),
+                    ok: true,
+                };
+                self.clock = Some(branch);
+                Some(info)
+            }
+            Err(reason) => {
+                warnings.push(format!("MIDI clock is off, {reason}"));
+                Some(MtcInfo {
+                    port: want.port_name.clone(),
+                    ok: false,
+                })
+            }
         }
     }
 
@@ -309,11 +408,14 @@ impl Branches {
             }
         });
         let mtc = self.apply_mtc(plan, ctx, shared, warnings, &mut lamps);
+        shared.set_clock_bpm(ctx.bpm);
+        let midi_clock = self.apply_midi_clock(plan, ctx, shared, warnings);
         shared.health().replace(lamps);
         Opened {
             ltc: ltc_info.into_iter().flatten().collect(),
             mtc,
             metronome: metronome_info,
+            midi_clock,
             operator,
         }
     }

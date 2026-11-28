@@ -44,6 +44,8 @@ pub struct OutputInfo {
     /// Where the metronome plays; `None` when the project has no metronome output.
     pub metronome: Option<MetronomeInfo>,
     pub operator: Option<MetronomeInfo>,
+    /// The MIDI port the clock goes to; `None` when the project sends no MIDI clock.
+    pub midi_clock: Option<MtcInfo>,
     /// One entry per MIDI port and OSC destination the cue tracks of the timeline send to.
     pub cues: Vec<CueInfo>,
     /// Things that did not stop the output but the user should know, e.g. a missing MIDI port.
@@ -195,7 +197,7 @@ impl PositionReader {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Reconfigured {
     /// The LTC and MTC outputs now match the project; the programme's stream was not touched.
-    Applied { info: OutputInfo },
+    Applied { info: Box<OutputInfo> },
     /// The change reaches the programme's stream: the output has to be opened again.
     NeedsRestart,
 }
