@@ -9,6 +9,7 @@ import { traceStyle } from "../timeline/palette";
 import { cueMenu } from "../components/menus";
 import { Marquee } from "../components/Marquee";
 import type { Cue, CueStatus } from "./api";
+import { CueSearch } from "./CueSearch";
 import { cueName } from "./names";
 import { useLive } from "./store";
 
@@ -109,6 +110,7 @@ export function CueList({ layout = "table" }: CueListProps) {
         </h2>
         <p className="live-hint">{t("live.hint")}</p>
       </div>
+      <CueSearch />
       <div className="cue-scroll" ref={scroller}>
         {sidebar && cues.length === 0 ? (
           <div className="cue-empty">

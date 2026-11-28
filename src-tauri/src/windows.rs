@@ -207,6 +207,16 @@ pub async fn window_close_editor(
     store: State<'_, SharedRecoveries>,
     voice: State<'_, std::sync::Arc<crate::voice_commands::VoiceState>>,
 ) -> Result<(), String> {
+    // Leaving the editor closes the project: a locked show stays where it is.
+    session
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .ensure_editable()
+        .map_err(|e| match e {
+            // The code of a locked show is a message key the window translates.
+            flux_project::ProjectError::Invalid(code) => code,
+            other => other.to_string(),
+        })?;
     let _voice_transition = voice.begin_transition().map_err(|e| e.to_string())?;
     build(&app, WELCOME, "index.html?view=welcome")?;
     recovery::transition(&session, &store, |s| {

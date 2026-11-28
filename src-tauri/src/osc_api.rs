@@ -383,6 +383,11 @@ impl Server {
             "/flux/v1/transport/play" => self.transport(Command::Play)?,
             "/flux/v1/transport/pause" => self.transport(Command::Pause)?,
             "/flux/v1/transport/stop" => self.transport(Command::Stop)?,
+            "/flux/v1/panic" => {
+                // Stops like Stop does (no output running is fine), then silences the MIDI gear.
+                let _ = self.transport(Command::Stop);
+                return Ok(json!(crate::live_commands::panic_from_app(&self.app)?));
+            }
             "/flux/v1/transport/seek" => {
                 self.transport(Command::Seek(integer(args.first())? as u64))?
             }

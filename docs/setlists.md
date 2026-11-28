@@ -26,6 +26,28 @@ Preparation trades memory for predictable playback: it does not stream/decode th
 inside an audio callback. Leave and prepare again after editing the project or changing hardware
 routes. Prepared audio must fit in available memory.
 
+## Running the show safely
+
+Three tools sit in the Live view for the operator.
+
+- **Lock show** (the lock in the Live bar). While the show is locked the bar shows a vermilion line and nothing can
+  disrupt it: Edit cannot be opened (not by the view switch, Ctrl+1 or a remote control), the project cannot be edited,
+  replaced, closed or quit, and the timelines cannot be switched. Play, Stop, going to a cue and GO keep working. The
+  lock lasts until you unlock it (closing the window is refused while it is on); it is not saved with the project, and
+  the app starts unlocked. Locking is one click; unlocking needs a press and hold of the same button.
+- **Find a cue** (the field above the cue list). Type a number or part of a name, note text or track name; the cues that
+  match are listed, the one whose number you typed first. Enter, or a click, goes to the cue as a double click would.
+  Arrow keys choose, Esc clears.
+- **MIDI panic** (press and hold, in the Live bar or Transport > MIDI panic). It stops the show and silences the MIDI gear
+  of the project: All Sound Off, Reset All Controllers and All Notes Off on all 16 channels of every MIDI port the project's
+  MIDI tracks and MTC outputs use. Ctrl+Shift+P does the same, and it can be learned as a remote-control action or sent as the OSC
+  address `/flux/panic`.
+
+To hand the timecode to a rig that does not play it from FLUX, File > Export > LTC to WAV… saves the active timeline's
+LTC as a mono WAV: from the timeline's start timecode (or, with a pre-roll, that many seconds earlier) to the end of its last
+cue, at the level of the project's first LTC output. A dialog asks for the sample rate (44.1, 48 or 96 kHz), the bit depth
+(16-bit, 24-bit or 32-bit float) and the pre-roll in seconds, defaulting to 48 kHz, 24-bit and none. Details are in [Timecode signals](timecode-signals.md).
+
 A prepared Live has two columns. The left column is the operation of the show: a fixed head with the current
 entry, state, loop turn, GO (and Cancel loop exit while an exit is pending) and a compact line with the next
 entry and duration, then a scrolling body that only shows what has something to say: route problems (ready routes

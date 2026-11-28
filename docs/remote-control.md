@@ -20,7 +20,8 @@ the page shows ("Missing"), never an error.
 | Go to cue `n` | Seeks to the cue with that number (from 1, as the Live view numbers them; a muted cue is still a place). |
 | Move by frames / seconds | Moves the position by a number, negative goes back, held inside the timeline. |
 | Next / previous timeline, Go to timeline `n` | Changes the active timeline, as when a show ends and the next is made ready. Refused while the show plays. |
-| Edit view, Live view | Switches the view, as Ctrl+1 / Ctrl+2. Refused while the show plays. |
+| Edit view, Live view | Switches the view, as Ctrl+1 / Ctrl+2. Refused while the show plays, and while the show is locked (Edit only). |
+| MIDI panic | Stops the transport, then sends All Sound Off, Reset All Controllers and All Notes Off on all 16 channels of every MIDI port the project uses (its MIDI tracks and MTC outputs). It works with no output open and is never refused by the show lock. The window has it as the press-and-hold button of the Live bar, Transport > MIDI panic and **Ctrl+Shift+P** (Cmd+Shift+P on macOS). |
 
 Cue, step and seek actions need an output open (it is the transport's). Without one they are ignored and logged.
 
@@ -44,6 +45,7 @@ Enable it and pick a UDP port (default **9000**). The addresses are fixed:
 | `/flux/timeline/next`, `/flux/timeline/prev` | none |
 | `/flux/timeline/select` | timeline number, from 1 |
 | `/flux/view/edit`, `/flux/view/live` | none |
+| `/flux/panic` | none: MIDI panic |
 
 Numbers can be sent as an integer, a float (rounded) or a string. Actions without a parameter ignore any argument, because
 a button usually sends a `1`. Bundles are accepted and their time tags ignored. In a Stream Deck, use an OSC / UDP plugin
@@ -205,6 +207,7 @@ the app closed) the lit pads are put out.
 | Next / previous cue, Go to cue `n`, Move by | there is somewhere to go (the output is open) | |
 | Next / previous timeline, Go to timeline `n` | that timeline exists and the show is not playing | |
 | Edit view, Live view | never written: the view belongs to the window | |
+| MIDI panic | never written: it is a one-shot, not a state | |
 
 An action with no output open is out. A **program change** has no "off", so a pad learned as one is never lit; use a
 note or a control change.

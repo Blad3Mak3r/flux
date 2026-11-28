@@ -11,6 +11,10 @@ import { NextCue } from "./NextCue";
 import { Notes } from "./Notes";
 import { Running } from "./Running";
 import { useLive } from "./store";
+import { HoldButton } from "./HoldButton";
+import { setShowLock } from "./lock";
+import { useShowLock } from "./lockStore";
+import { panic } from "./panic";
 import { TimelineStrip } from "../components/TimelineStrip";
 
 /**
@@ -25,18 +29,57 @@ export function Live() {
   const setlistName = useShow((s) => s.state?.setlistName);
   const prepared = setlistName !== undefined;
   const playing = useTransport((transport) => selectMode(transport) === "playing");
+  const locked = useShowLock((lock) => lock.locked);
 
   return (
-    <section className="live" data-playing={playing} data-prepared={prepared} aria-labelledby="live-legend">
+    <section className="live" data-playing={playing} data-prepared={prepared} data-locked={locked} aria-labelledby="live-legend">
       <div className="screen-bar">
         <h2 id="live-legend" className="legend">
           {t("live.legend")}
         </h2>
         {prepared ? <span className="live-setlist-name" title={setlistName}>{setlistName}</span> : <TimelineStrip />}
         <button type="button" className="button" disabled={playing} onClick={openShowCheck}>{t("check.title")}</button>
+        <ShowControls />
       </div>
       {prepared ? <PreparedBody /> : <PlainBody />}
     </section>
+  );
+}
+
+/**
+ * The lock and the panic of the show. Locked, the backend refuses to change, open or close the
+ * project, and the window cannot leave Live; unlocking and panic both need a press and hold, so
+ * neither happens by accident.
+ */
+function ShowControls() {
+  const t = useT();
+  const locked = useShowLock((lock) => lock.locked);
+  return (
+    <div className="show-controls">
+      {locked ? (
+        <HoldButton className="button show-lock" title={t("live.lock.unlockHint")} onHold={() => void setShowLock(false)}>
+          <LockIcon locked />
+          {t("live.lock.locked")}
+        </HoldButton>
+      ) : (
+        <button type="button" className="button show-lock" title={t("live.lock.lockHint")} onClick={() => void setShowLock(true)}>
+          <LockIcon locked={false} />
+          {t("live.lock.lock")}
+        </button>
+      )}
+      <HoldButton className="button panic" title={t("panic.hint")} onHold={() => void panic(t)}>
+        {t("panic.label")}
+      </HoldButton>
+    </div>
+  );
+}
+
+function LockIcon({ locked }: { locked: boolean }) {
+  return (
+    <svg className="icon" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <rect x="3" y="7" width="10" height="7" rx="1" />
+      <path d={locked ? "M5 7V5a3 3 0 0 1 6 0v2" : "M5 7V5a3 3 0 0 1 5.6-1.5"} />
+    </svg>
   );
 }
 

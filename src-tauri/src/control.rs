@@ -803,6 +803,12 @@ impl Dispatcher {
             ControlAction::SelectTimeline(place) => {
                 self.timeline(&output, Pick::Place(place as usize));
             }
+            ControlAction::Panic => {
+                self.transport(&output, Command::Stop, false);
+                if let Err(err) = crate::live_commands::panic_from_app(&self.app) {
+                    log::warn!("remote control: panic failed: {err}");
+                }
+            }
             ControlAction::ViewEdit => self.tell(WindowAction::ViewEdit),
             ControlAction::ViewLive => self.tell(WindowAction::ViewLive),
         }
