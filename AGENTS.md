@@ -55,7 +55,6 @@ lane write it. See [docs/diagnostics.md](docs/diagnostics.md).
   formatting for display.
 - A new operation is a backend command that takes the project, applies the change and returns the new state, which the
   UI shows with the `apply` action (so it enters the undo history). Follow `timeline_*`, `clip_edit` and `cue_edit`.
-  The pure edits in `src/state/edit.ts` predate this rule: do not grow them with new logic.
 
 ## Backend workspace (`src-tauri/`)
 
