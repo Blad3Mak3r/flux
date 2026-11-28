@@ -399,6 +399,49 @@ fn mtc_needs_a_present_port() {
 }
 
 #[test]
+fn a_dmx_track_needs_a_destination_with_a_valid_host() {
+    let track = |destination: Option<&str>, scenes: usize| TrackKind::Dmx {
+        destination: destination.map(Into::into),
+        scenes: (0..scenes)
+            .map(|i| flux_project::DmxScene {
+                id: format!("s{i}"),
+                at: 0,
+                name: String::new(),
+                fade: 0,
+                release_others: false,
+                channels: vec![],
+            })
+            .collect(),
+    };
+    let node = |host: &str| flux_project::DmxDestination {
+        id: "d1".into(),
+        name: "Node".into(),
+        protocol: flux_project::DmxProtocol::Artnet,
+        host: host.into(),
+    };
+    let check = |kind, dmx| {
+        let out = OutputConfig {
+            dmx,
+            ..Default::default()
+        };
+        hardware_codes(&cue_project(kind), &out, &fake_hardware())
+    };
+    assert_eq!(check(track(Some("d1"), 1), vec![node("10.0.0.5")]), []);
+    assert_eq!(
+        check(track(None, 1), vec![node("10.0.0.5")]),
+        [(IssueCode::DmxDestinationMissing, true)]
+    );
+    assert_eq!(
+        check(track(Some("d1"), 1), vec![node("bad host!")]),
+        [(IssueCode::DmxDestinationInvalid, true)]
+    );
+    assert_eq!(
+        check(track(None, 0), vec![]),
+        [(IssueCode::EmptyTrack, false)]
+    );
+}
+
+#[test]
 fn outputs_on_the_same_channel_or_port_collide() {
     let hw = fake_hardware();
     let p = Project::new("Show", FrameRate::Fps25);

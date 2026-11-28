@@ -13,6 +13,7 @@ pub mod cue_search;
 pub mod cue_sheet;
 pub mod cues;
 pub mod devices;
+pub mod dmx;
 pub mod fire;
 pub mod grid_audio;
 pub mod ltc;

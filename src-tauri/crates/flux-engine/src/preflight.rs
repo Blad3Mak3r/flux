@@ -22,6 +22,8 @@ pub enum IssueCode {
     MidiPortMissing,
     OscDestinationMissing,
     OscDestinationInvalid,
+    DmxDestinationMissing,
+    DmxDestinationInvalid,
     LtcUnavailable,
     MtcUnavailable,
     LtcCollision,
@@ -40,6 +42,7 @@ pub enum Area {
     Operator,
     Midi,
     Osc,
+    Dmx,
     Outputs,
 }
 
@@ -368,6 +371,20 @@ pub fn check_hardware(project: &Project, output: &OutputConfig, hardware: &Hardw
                         Some(_) => None,
                     };
                     (Area::Osc, events.is_empty(), problem)
+                }
+                TrackKind::Dmx {
+                    destination,
+                    scenes,
+                } => {
+                    let found = destination
+                        .as_deref()
+                        .and_then(|id| output.dmx.iter().find(|d| d.id == id));
+                    let problem = match found {
+                        None => Some(IssueCode::DmxDestinationMissing),
+                        Some(d) if !valid_host(&d.host) => Some(IssueCode::DmxDestinationInvalid),
+                        Some(_) => None,
+                    };
+                    (Area::Dmx, scenes.is_empty(), problem)
                 }
                 _ => continue,
             };
