@@ -389,8 +389,14 @@ mod tests {
     #[test]
     fn every_effect_should_have_its_words_in_english_and_in_spanish() {
         let catalogues = [
-            ("en", include_str!("../../../../../src/i18n/en.ts")),
-            ("es", include_str!("../../../../../src/i18n/es.ts")),
+            (
+                "en",
+                include_str!("../../../../../src/i18n/en/vj-effects.ts"),
+            ),
+            (
+                "es",
+                include_str!("../../../../../src/i18n/es/vj-effects.ts"),
+            ),
         ];
         for (language, text) in catalogues {
             let has = |key: &str| text.contains(&format!("\n  \"{key}\": "));
