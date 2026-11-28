@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "node --test \"src/**/*.test.mjs\" \"scripts/**/*.test.mjs\"",
+    "test:ui": "vitest run",
     "docs:dev": "npm --prefix docs run dev",
     "docs:build": "npm --prefix docs run build"
   },
@@ -25,10 +26,15 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.13",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "31.0.1",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "5.1.2"
   }
 }
