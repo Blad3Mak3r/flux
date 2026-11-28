@@ -473,6 +473,13 @@ The switch in front of each screen turns the output to it on or off, as in Resol
 open (it does not jump around) but shows black, and its row is dimmed. The main screen can be turned off too. It is also in
 the screen's properties, and it is part of the show, so it is undone like any other edit.
 
+## Clip size
+
+The **S / M / L** control in the Grid panel's header sets how big the clips of the grid are drawn, as Resolume's clip
+size does: **Small** (88 px wide), **Medium** (116 px, a 80 px picture over a 24 px name bar) and **Large** (160 px, a
+taller picture). It is kept on this computer with the dock layouts, not in the show, and stays when another layout is
+applied.
+
 ## Keys
 
 A VJ show binds only the keys Resolume has by default, with the same function ([Resolume's shortcuts](https://resolume.com/support/en/shortcuts)).

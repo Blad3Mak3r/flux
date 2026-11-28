@@ -28,7 +28,7 @@ import {
   vjModulationValues,
   vjStop,
 } from "./api";
-import type { DockNode, DockTarget, GridState, LayoutState, ModValues, MonitorKind, VjBeatOp, VjOp } from "./api";
+import type { DockNode, ClipSize, DockTarget, GridState, LayoutState, ModValues, MonitorKind, VjBeatOp, VjOp } from "./api";
 
 /** A video file being copied into the project, shown where it will land until it is there. */
 export interface Importing {
@@ -251,6 +251,7 @@ export const layoutSetMonitor = (id: string, kind: MonitorKind) => laid(() => vj
 export const layoutApply = (id: string) => laid(() => vjLayout("apply", { id }));
 export const layoutSave = (name: string) => laid(() => vjLayout("save", { name }));
 export const layoutDelete = (id: string) => laid(() => vjLayout("delete", { id }));
+export const layoutSetClipSize = (size: ClipSize) => laid(() => vjLayout("set_clip_size", { size }));
 export const layoutReset = () => laid(() => vjLayout("reset"));
 
 /** Brings the tab of `panel` forward when it is open and hidden behind another; a closed one opens only with `open`. */

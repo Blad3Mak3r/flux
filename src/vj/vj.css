@@ -177,20 +177,26 @@
 
 .vj-grid {
   --vj-header: 276px;
+  /* The clip size: the width of a column and the height of a row (a picture over a 24 px name bar). */
+  --vj-clip-w: 116px;
+  --vj-row-h: 104px;
   flex: 1;
   min-height: 0;
   overflow: auto;
   padding-right: 6px;
 }
 
+.vj-grid[data-size="small"] { --vj-clip-w: 88px; }
+.vj-grid[data-size="large"] { --vj-clip-w: 160px; --vj-row-h: 128px; }
+
 .vj-row {
   display: grid;
   /* Fixed columns as in Resolume (a 120 px pitch): the ones that do not fit scroll, the room left over stays empty. */
-  grid-template-columns: var(--vj-header) repeat(var(--columns), 116px);
+  grid-template-columns: var(--vj-header) repeat(var(--columns), var(--vj-clip-w));
   gap: 4px;
   width: max-content;
   min-width: 100%;
-  height: 104px;
+  height: var(--vj-row-h);
   margin-top: 4px;
 }
 

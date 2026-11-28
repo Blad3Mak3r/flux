@@ -230,8 +230,11 @@ export interface DockLayout {
   root: DockNode;
   monitors: { id: string; kind: MonitorKind }[];
 }
+export type ClipSize = "small" | "medium" | "large";
 export interface LayoutState {
   current: DockLayout;
+  /** How big the grid's clips are drawn; kept per machine. */
+  clipSize: ClipSize;
   saved: { id: string; name: string }[];
   factory: { id: "default" | "performance" | "monitors" }[];
   /** The least `[width, height]` in px of every split, tab group and `"deck"`. */

@@ -52,11 +52,12 @@ import {
   selectLayer,
   showMedia,
   loadLayout,
+  layoutSetClipSize,
   stopLayer,
   useVj,
 } from "./store";
 import type { MediaKind } from "./store";
-import type { MonitorKind, VjOp } from "./api";
+import type { ClipSize, MonitorKind, VjOp } from "./api";
 import { Dock } from "./Dock";
 import { Monitor } from "./Monitor";
 import { GENERATORS, swatch } from "./generators";
@@ -150,6 +151,7 @@ const transitionEdit = (layer: VjLayer, value: string): VjOp =>
   value === "random"
     ? { op: "layerTransitionEffect", layer: layer.id, effect: layer.transitionEffect ?? "alpha", random: true }
     : { op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend };
+const CLIP_SIZES: ClipSize[] = ["small", "medium", "large"];
 const AUTOPILOTS: VjAutopilot[] = ["off", "next", "previous", "random"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
@@ -757,6 +759,7 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
   const liveColumn = deck.columns.findIndex((column) => column.id === lit);
   const sideNames = (side: VjSide) => grid.layers.filter((l) => l.crossfade === side).map((l) => layerName(t, grid, l)).join(", ");
   const columns = { "--columns": deck.columns.length } as CSSProperties;
+  const clipSize = useVj((vj) => vj.layout?.clipSize ?? "medium");
   // An effect dropped on the composition bar goes to the composition's stack.
   const composition = useCompositionDrop();
   const mapping = useMap((state) => state.on);
@@ -766,13 +769,15 @@ function DeckPanel({ grid }: { grid: VjGrid }) {
         <h2>{t("vj.grid")}</h2>
         {mapping && <MapBar grid={grid} />}
         <div className="vj-tools">
+          <Segments options={CLIP_SIZES} value={clipSize} label={(o) => t(`vj.clipSize.${o}.short`)} title={(o) => t(`vj.clipSize.${o}`)}
+            onPick={(size) => void layoutSetClipSize(size)} />
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addLayer", global: false })}><PlusIcon />{t("vj.layer.add")}</button>
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addLayer", global: true })}><GlobeIcon />{t("vj.layer.addGlobal")}</button>
           <button type="button" className="vj-tb" onClick={() => void edit({ op: "addColumn" })}><PlusIcon />{t("vj.column.add")}</button>
         </div>
       </header>
       <div className="vj-pb">
-        <div className="vj-grid" style={columns}>
+        <div className="vj-grid" style={columns} data-size={clipSize}>
           <div className="vj-row head">
             <div className="vj-corner">{t("vj.summary", { layers: grid.layers.length, columns: deck.columns.length })}</div>
             {deck.columns.map((column, at) => <ColumnHead key={column.id} column={column} at={at} live={at === liveColumn} />)}

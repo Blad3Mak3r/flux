@@ -46,6 +46,23 @@ const MONITOR_PREFIX: &str = "monitor:";
 /// A panel: a fixed kind by its name, or `monitor:<uuid>`.
 pub type PanelId = String;
 
+/// How big the clips of the grid are drawn (Resolume's clip size). Kept per machine with the
+/// layouts, not in a layout: it stays when another layout is applied.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClipSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl ClipSize {
+    fn is_medium(&self) -> bool {
+        *self == Self::Medium
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Dir {
@@ -757,10 +774,12 @@ pub struct FactoryInfo {
 
 /// What the UI shows: the current layout and the names it can switch to.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct State {
     pub current: Layout,
     pub saved: Vec<SavedInfo>,
     pub factory: Vec<FactoryInfo>,
+    pub clip_size: ClipSize,
     /// The least `(width, height)` in px of every split, tab group and `"deck"`, so the UI clamps
     /// a splitter drag without knowing the rules.
     pub mins: BTreeMap<String, (u32, u32)>,
@@ -814,6 +833,8 @@ pub struct Store {
     pub current: Layout,
     #[serde(default)]
     pub saved: Vec<Saved>,
+    #[serde(default, skip_serializing_if = "ClipSize::is_medium")]
+    pub clip_size: ClipSize,
 }
 
 impl Default for Store {
@@ -822,6 +843,7 @@ impl Default for Store {
             version: VERSION,
             current: Layout::default(),
             saved: Vec::new(),
+            clip_size: ClipSize::default(),
         }
     }
 }
@@ -875,6 +897,7 @@ impl Store {
                 })
                 .collect(),
             factory: FACTORY.iter().map(|id| FactoryInfo { id }).collect(),
+            clip_size: self.clip_size,
         }
     }
 
@@ -1288,5 +1311,34 @@ mod tests {
         newer.version = VERSION + 1;
         std::fs::write(&path, serde_json::to_string(&newer).unwrap()).unwrap();
         assert_eq!(Store::load(&path).unwrap().saved.len(), 0);
+    }
+
+    #[test]
+    fn the_clip_size_is_kept_with_the_store_and_survives_applying_a_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vj-layout.json");
+        let mut s = Store::default();
+        assert_eq!(s.state().clip_size, ClipSize::Medium);
+        s.clip_size = ClipSize::Large;
+        s.save(&path).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(json["clipSize"], "large");
+        let mut back = Store::load(&path).unwrap();
+        assert_eq!(back.state().clip_size, ClipSize::Large);
+        back.apply("performance").unwrap();
+        assert_eq!(back.state().clip_size, ClipSize::Large);
+        // The default is not written, and an older file has none.
+        back.clip_size = ClipSize::Medium;
+        assert!(
+            serde_json::to_value(&back)
+                .unwrap()
+                .get("clipSize")
+                .is_none()
+        );
+        assert_eq!(
+            Store::parse(&serde_json::to_string(&back).unwrap()).clip_size,
+            ClipSize::Medium
+        );
     }
 }
