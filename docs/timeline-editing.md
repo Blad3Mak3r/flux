@@ -65,3 +65,43 @@ fill the view. With nothing selected it fits the whole active timeline.
 
 Only the items near the screen are drawn, so a timeline with thousands of notes stays smooth when you scroll and zoom.
 An item you are dragging or have selected always stays.
+
+## Keyboard shortcuts
+
+Every key of the timeline can be changed in **Preferences > Application > Keyboard shortcuts** (Ctrl/Cmd+,). Click the keys of
+an action and press the new combination (Esc cancels). **Clear** leaves an action without a key, **Reset** gives it back
+its default, and **Reset all** restores every default. A key that another action already uses is refused, with the name
+of that action: clear or change that one first. The menus and tooltips always show the keys in use.
+
+The changes are kept on this computer, not in the project. They apply to a timeline show; a VJ show keeps Resolume's
+shortcuts. `Mod` below is Ctrl, or Cmd on macOS. Keys marked *editor* only work in the Edit view, and keys marked *lock*
+are refused while the show is locked.
+
+| Group | Action | Default |
+| --- | --- | --- |
+| Transport | Play / pause | Space |
+| Transport | Stop and go to start | Home |
+| Transport | One frame back / forward | Left / Right |
+| Transport | One second back / forward | Shift+Left / Shift+Right |
+| Transport | Panic | Mod+Shift+P |
+| Project | New, Open, Close (*lock*) | Mod+N, Mod+O, Mod+W |
+| Project | Save, Save as | Mod+S, Mod+Shift+S |
+| Project | Open Preferences | Mod+, |
+| Project | Add audio (*lock*) | I |
+| Edit | Undo (*lock*) | Mod+Z |
+| Edit | Redo (*lock*) | Mod+Shift+Z, Mod+Y |
+| Edit | Select all (*editor*) | Mod+A |
+| Edit | Delete selection (*lock*) | Delete, Backspace |
+| Edit | Deselect | Esc |
+| Edit | Split clip at playhead (*editor*) | S |
+| Edit | Add note (*editor*) | N |
+| Edit | Rename track (*editor*) | F2 |
+| Edit | Snap on / off (*editor*) | G |
+| Edit | Change ripple mode (*editor*) | Alt+P |
+| Timeline | Add marker, add region from selection (*editor*) | M, R |
+| Timeline | Previous / next marker (*editor*) | Alt+Left / Alt+Right |
+| Timeline | Previous / next timeline (*lock*) | Mod+PageUp / Mod+PageDown |
+| View | Edit view (*lock*), Live view | Mod+1, Mod+2 |
+| View | Zoom in, zoom out | Mod+=, Mod+- |
+| View | Zoom to fit (*editor*) | Mod+0 |
+| View | Show / hide Inspector | Mod+B |
