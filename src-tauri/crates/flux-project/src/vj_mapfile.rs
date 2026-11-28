@@ -249,6 +249,14 @@ fn rewrite(
             clip: clip(id)?,
             name: name.clone(),
         },
+        T::ClipDashboard { clip: id, knob } => T::ClipDashboard {
+            clip: clip(id)?,
+            knob: *knob,
+        },
+        T::LayerDashboard { layer: id, knob } => T::LayerDashboard {
+            layer: layer(id)?,
+            knob: *knob,
+        },
         T::ColumnLaunch { column: id } => T::ColumnLaunch {
             column: column(id)?,
         },
@@ -292,7 +300,10 @@ pub(crate) enum Kind {
 pub(crate) fn kind_of(target: &Target) -> Kind {
     use Target as T;
     match target {
-        T::ClipLaunch { .. } | T::ClipSpeed { .. } | T::GeneratorNumber { .. } => Kind::Clip,
+        T::ClipLaunch { .. }
+        | T::ClipSpeed { .. }
+        | T::GeneratorNumber { .. }
+        | T::ClipDashboard { .. } => Kind::Clip,
         T::ColumnLaunch { .. } => Kind::Column,
         T::DeckSelect { .. } => Kind::Deck,
         T::GroupBypass { .. }
@@ -307,7 +318,8 @@ pub(crate) fn kind_of(target: &Target) -> Kind {
         | T::LayerMaster { .. }
         | T::LayerVolume { .. }
         | T::LayerOpacity { .. }
-        | T::LayerTransition { .. } => Kind::Layer,
+        | T::LayerTransition { .. }
+        | T::LayerDashboard { .. } => Kind::Layer,
         _ => Kind::Plain,
     }
 }
@@ -657,6 +669,7 @@ mod tests {
         apply(
             &mut project,
             VjOp::DashboardLink {
+                scope: Default::default(),
                 knob: 3,
                 target,
                 min: Some(0.1),
@@ -666,6 +679,7 @@ mod tests {
         apply(
             &mut project,
             VjOp::RenameKnob {
+                scope: Default::default(),
                 knob: 3,
                 name: "Fade".into(),
             },
