@@ -8,6 +8,7 @@ import { useT } from "../i18n";
 import { TimelineStrip } from "./TimelineStrip";
 import { FollowToggle } from "./FollowToggle";
 import { SnapControl } from "./SnapControl";
+import { RippleControl } from "./RippleControl";
 import { TempoBar } from "./TempoBar";
 import type { Timeline as TimelineData } from "../project/types";
 import { menuAtPointer, select, setZoom, useUi, zoomBy } from "../state/ui";
@@ -17,20 +18,22 @@ import { useDoc, useTimeline } from "../state/store";
 import { nominalFps, realFps } from "../timecode";
 import { GUESS_SECONDS, clipLength, videoClipLength } from "../timeline/clip";
 import type { VideoProbe } from "../video/api";
-import { RULER_H, patchReadout, setViewport, useReadout } from "../timeline/layout";
+import { RULER_H, patchReadout, setScroller, setViewport, useReadout } from "../timeline/layout";
 import { dropIndex, dropLineY } from "../timeline/reorder";
 import { DEFAULT_PX_PER_FRAME, frameX } from "../timeline/scale";
 import type { BeatGrid } from "../timeline/scale";
 import { reorderTrack } from "../state/actions";
 import { snapFrame } from "../state/snap";
+import { zoomToFit } from "../state/items";
+import { pickInBox, selectedItems } from "../state/selection";
 import { useFileDrop } from "../state/fileDrop";
 import { seek } from "../transport/playback";
 import { Graticule } from "./Graticule";
 import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { TrackHeader, TrackLane, laneHeight } from "./TrackRow";
-import { ZoomInIcon, ZoomOutIcon } from "./icons";
-import { addTracksMenu, emptyMenu } from "./menus";
+import { ZoomFitIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
+import { MOD_KEY, addTracksMenu, emptyMenu } from "./menus";
 
 const ZOOM_STEP = 1.25;
 /** Room past the last item, so there is always somewhere to drop the next one. */
@@ -145,6 +148,14 @@ export function Timeline() {
   // The track being dragged by its header, and the index it would take if dropped now. The header
   // itself follows the pointer through its own style (`dy` changes every move; this state only on a new slot).
   const [drag, setDrag] = useState<{ id: string; to: number } | null>(null);
+  // The box being dragged over the empty part of the lanes, in pixels of the lanes' own area.
+  const inner = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+
+  useEffect(() => {
+    setScroller(scroller.current);
+    return () => setScroller(null);
+  }, []);
 
   useEffect(() => {
     const box = scroller.current;
@@ -236,6 +247,42 @@ export function Timeline() {
   const dragFrom = drag ? timeline.tracks.findIndex((track) => track.id === drag.id) : -1;
   const dropY = drag && drag.to !== dragFrom ? dropLineY(timeline.tracks.map(laneHeight), dragFrom, drag.to) : null;
 
+  // A press on the empty part of the lanes clears the selection, and dragging from it picks what the
+  // box touches, on any track; with Ctrl/Cmd or Shift the box adds to the selection.
+  const startBox = (event: PointerEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    const area = inner.current;
+    if (event.button !== 0 || !area || !(target === event.currentTarget || target === area || target.classList.contains("lane"))) return;
+    const base = event.ctrlKey || event.metaKey || event.shiftKey ? selectedItems() : [];
+    if (base.length === 0) select(null);
+    const origin = area.getBoundingClientRect();
+    const [x0, y0] = [event.clientX - origin.left, event.clientY - origin.top];
+    let moved = false;
+    const onMove = (move: globalThis.PointerEvent) => {
+      const [x1, y1] = [move.clientX - origin.left, move.clientY - origin.top];
+      if (!moved && Math.hypot(x1 - x0, y1 - y0) < 4) return;
+      moved = true;
+      setBox({ x0, y0, x1, y1 });
+      const [top, bottom] = [origin.top + Math.min(y0, y1), origin.top + Math.max(y0, y1)];
+      const tracks = [...area.querySelectorAll<HTMLElement>(".lane[data-drop-track]")]
+        .filter((lane) => {
+          const rect = lane.getBoundingClientRect();
+          return rect.top <= bottom && rect.bottom >= top;
+        })
+        .map((lane) => lane.dataset.dropTrack ?? "");
+      pickInBox(Math.min(x0, x1) / pxPerFrame, Math.max(x0, x1) / pxPerFrame, tracks, base);
+    };
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+      setBox(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  };
+
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
     const left = event.currentTarget.getBoundingClientRect().left;
     patchReadout({ hover: Math.max(0, snapFrame(Math.round((event.clientX - left) / pxPerFrame))) });
@@ -251,6 +298,7 @@ export function Timeline() {
         <TimelineStrip />
         <TempoBar />
         <SnapControl />
+        <RippleControl />
         <FollowToggle />
       </div>
 
@@ -279,6 +327,15 @@ export function Timeline() {
                 title={t("timeline.zoomIn")}
               >
                 <ZoomInIcon />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => void zoomToFit()}
+                aria-label={t("timeline.zoomFit")}
+                title={`${t("timeline.zoomFit")} (${MOD_KEY}+0)`}
+              >
+                <ZoomFitIcon />
               </button>
             </div>
             <button type="button" className="controls-lane-label" onClick={() => openShowControls()}><LoopIcon />{t("show.loopsWaits")}</button>
@@ -316,11 +373,12 @@ export function Timeline() {
               headers.current.scrollTop = event.currentTarget.scrollTop;
             }
           }}
-          onPointerDown={(event) => event.target === event.currentTarget && select(null)}
+          onPointerDown={startBox}
           onContextMenu={(event) => menuAtPointer(event, emptyMenu(t))}
         >
           <div
             className="screen-inner"
+            ref={inner}
             style={{ width: laneWidth }}
             data-drop-timeline
             onPointerMove={onPointerMove}
@@ -364,6 +422,12 @@ export function Timeline() {
             <HoverLine pxPerFrame={pxPerFrame} />
             <DropLine pxPerFrame={pxPerFrame} />
             <SnapGuideLine pxPerFrame={pxPerFrame} />
+            {box && (
+              <div
+                className="select-box"
+                style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
+              />
+            )}
             <Playhead start={start} pxPerFrame={pxPerFrame} scroller={scroller} />
           </div>
         </div>

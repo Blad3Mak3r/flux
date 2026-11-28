@@ -17,8 +17,8 @@ use crate::transport_commands::{SharedOutput, is_playing, release};
 use flux_audio::{ENGINE_RATE, SharedAudio};
 use flux_core::Clock;
 use flux_project::{
-    AudioAsset, ClipOp, CueEdited, CueOp, Document, FrameRate, ItemOp, Project, ProjectError,
-    ProjectState, Result, Session,
+    AudioAsset, ClipOp, CueEdited, CueOp, Document, Extent, FrameRate, ItemOp, ItemsOp, Lengths,
+    Project, ProjectError, ProjectState, Result, Session,
 };
 
 pub type SharedSession = Arc<Mutex<Session>>;
@@ -298,6 +298,88 @@ pub async fn item_edit(
         s.item_edit(op)
     })
     .await
+}
+
+/// How long the media of the clips of the active timeline lasts, in frames of it, for those that
+/// play all of their media. What cannot be read counts as lasting nothing.
+fn clip_lengths(session: &SharedSession, audio: &SharedAudio) -> Result<Lengths> {
+    let (audio_assets, videos, rate) = session
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .length_assets()?;
+    let clock = Clock::new(ENGINE_RATE, rate);
+    let mut lengths = Lengths::default();
+    for asset in audio_assets {
+        if let Some(samples) = samples_of(session, audio, &asset) {
+            lengths
+                .audio
+                .insert(asset.id, clock.samples_to_frames(samples));
+        }
+    }
+    for video in videos {
+        if let Some(frames) = crate::video_commands::timeline_frames_of(session, &video, rate) {
+            lengths.video.insert(video.id, frames);
+        }
+    }
+    Ok(lengths)
+}
+
+/// Moves or removes many items of the active timeline at once, with ripple if asked (see
+/// [`ItemsOp`]); the answer is the project with the edit made.
+#[tauri::command]
+pub async fn items_edit(
+    session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
+    project: Project,
+    op: ItemsOp,
+) -> Result<ProjectState> {
+    let (session, audio) = (Arc::clone(&session), Arc::clone(&audio));
+    tauri::async_runtime::spawn_blocking(move || {
+        session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .update(project);
+        let lengths = if op.needs_lengths() {
+            clip_lengths(&session, &audio)?
+        } else {
+            Lengths::default()
+        };
+        let result = session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .items_edit(op, &lengths);
+        if let Err(err) = &result {
+            log::warn!("project command failed: {err}");
+        }
+        result
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// The stretch of the active timeline that the items `ids` cover, or all its content when none are
+/// given; `None` when there is nothing. The window turns it into a zoom.
+#[tauri::command]
+pub async fn items_extent(
+    session: State<'_, SharedSession>,
+    audio: State<'_, SharedAudio>,
+    project: Project,
+    ids: Vec<String>,
+) -> Result<Option<Extent>> {
+    let (session, audio) = (Arc::clone(&session), Arc::clone(&audio));
+    tauri::async_runtime::spawn_blocking(move || {
+        session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .update(project);
+        let lengths = clip_lengths(&session, &audio)?;
+        session
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .items_extent(&ids, &lengths)
+    })
+    .await
+    .map_err(|err| ProjectError::Io(io::Error::other(err)))?
 }
 
 /// Edits the MIDI and OSC tracks and the OSC destinations (see [`CueOp`]); the answer is the project

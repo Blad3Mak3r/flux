@@ -149,3 +149,11 @@ test("the visible range is the view plus a screenful each side, in chunks, insid
   assert.deepEqual(visibleRange(0, 1500, 800), { from: 0, to: 800 });
   assert.deepEqual(visibleRange(100_000, 1500, 100_000), { from: 98_304, to: 100_000 });
 });
+
+test("a three-hour show at 30 fps fits a 1200 px lane, with labels that stay apart", async () => {
+  const { clampZoom } = await import("./scale.ts");
+  const zoom = clampZoom(1200 / (3 * 3600 * 30));
+  assert.ok(zoom * 3 * 3600 * 30 <= 1200 + 1);
+  const ticks = pickTicks(zoom, "fps30");
+  assert.ok(ticks.major * zoom >= 96 && ticks.major * zoom < 1200 / 2);
+});

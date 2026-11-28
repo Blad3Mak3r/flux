@@ -4,7 +4,7 @@ import { setCollapsed } from "../state/ui";
 import { useFileDrop } from "../state/fileDrop";
 import { addOrder, operatorEdit, useVoice } from "../voice/store";
 import type { VoiceOrder } from "../project/types";
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
 import { useT } from "../i18n";
 import type { ClipOp } from "../project/api";
@@ -17,7 +17,9 @@ import { editClip, editVideoClip } from "../state/clips";
 import { activeTimeline } from "../state/doc";
 import { snapBlockStart, snapFrame, snapTargets } from "../state/snap";
 import { useDoc } from "../state/store";
-import { menuAtPointer, rename, select, setSnapGuide, useUi } from "../state/ui";
+import { isSelected, menuAtPointer, rename, select, setSnapGuide, useUi } from "../state/ui";
+import { moveItems } from "../state/items";
+import { groupStart, pickedIds, selectRange, setGroupDelta, toggleItem, trackIds, useGroupDrag } from "../state/selection";
 import { addNoteAt } from "../state/workflows";
 import type { Selected } from "../state/ui";
 import { AUDIO_LANE_H, NOTES_LANE_H } from "../timeline/layout";
@@ -27,6 +29,7 @@ import { fadePoints } from "../audio/fade";
 import { traceStyle } from "../timeline/palette";
 import type { SnapTarget } from "../timeline/snap";
 import { frameX } from "../timeline/scale";
+import { useVisibleRange } from "../timeline/useVisibleRange";
 import { previewTrackGain } from "../transport/playback";
 import { ClipWave } from "./ClipWave";
 import { EnvelopeLayer, addEnvelopePoint } from "./EnvelopeLayer";
@@ -156,9 +159,10 @@ export const TrackHeader = memo(function TrackHeader({
 
 /**
  * Drag an item sideways in whole frames; commit once on release so undo takes one step. `length` is
- * how many frames it lasts, so that its end can land on something as well as its start.
+ * how many frames it lasts, so that its end can land on something as well as its start. When the item
+ * is one of several selected, the whole group moves with it and the backend moves them in one step.
  */
-function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number, onClick?: () => void) {
+function useDrag(id: string, kind: Selected["kind"], position: number, length: number, pxPerFrame: number, track: Track, onClick?: () => void) {
   // A clip or a note is moved by the window's own edit; a MIDI or OSC event by the backend.
   const move =
     kind === "operator"
@@ -169,28 +173,63 @@ function useDrag(id: string, kind: Selected["kind"], position: number, length: n
           ? (id: string, at: number) => editVideoClip(id, "move", at)
           : moveTo;
   const [delta, setDelta] = useState(0);
-  const origin = useRef<{ x: number; position: number; targets: SnapTarget[] } | null>(null);
+  // The group's drag is shared, so every selected item follows the one held.
+  const grouped = useUi((ui) => ui.picked.has(id));
+  const groupDelta = useGroupDrag((drag) => (grouped ? drag.delta : 0));
+  const origin = useRef<{ x: number; position: number; targets: SnapTarget[]; floor: number; group: boolean; click: "collapse" | "toggle" | null } | null>(null);
+
+  // Moves the item by `by` frames; with a group or ripple on, the backend moves them.
+  const commit = (by: number) => {
+    const ui = useUi.getState();
+    if (ui.picked.has(id) || (ui.ripple !== "off" && kind !== "operator")) void moveItems(ui.picked.has(id) ? pickedIds() : [id], by);
+    else void move(id, Math.max(0, position + by));
+  };
 
   const handlers = {
     onPointerDown(event: PointerEvent<HTMLElement>) {
       if (event.button !== 0) return;
       event.currentTarget.setPointerCapture(event.pointerId);
-      origin.current = { x: event.clientX, position, targets: snapTargets([id]) };
-      select({ kind, id });
+      const item = { kind, id } as const;
+      let click: "collapse" | "toggle" | null = null;
+      if (kind !== "operator" && event.shiftKey) {
+        selectRange(track, item);
+        origin.current = null;
+        return;
+      }
+      if (kind !== "operator" && (event.ctrlKey || event.metaKey)) {
+        if (isSelected(useUi.getState(), id)) click = "toggle";
+        else toggleItem(item);
+      } else if (kind !== "operator" && useUi.getState().picked.has(id)) click = "collapse";
+      else select(item);
+      const group = useUi.getState().picked.has(id);
+      const ids = group ? pickedIds() : [id];
+      origin.current = { x: event.clientX, position, targets: snapTargets(ids), floor: group ? groupStart(ids) : position, group, click };
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
-      if (!origin.current) return;
-      const frames = Math.round((event.clientX - origin.current.x) / pxPerFrame);
+      const o = origin.current;
+      if (!o) return;
+      const frames = Math.round((event.clientX - o.x) / pxPerFrame);
       // With the magnet on, the item's start or end lands on the closest grid line, item or the
-      // playhead when it is near one.
-      const target = Math.max(0, snapBlockStart(origin.current.position + frames, length, origin.current.targets, { alt: event.altKey }));
-      setDelta(target - origin.current.position);
+      // playhead when it is near one. The group stops where its first item reaches the start.
+      const target = snapBlockStart(o.position + frames, length, o.targets, { alt: event.altKey });
+      const by = Math.max(target - o.position, o.group ? -o.floor : -o.position);
+      if (o.group) setGroupDelta(by);
+      else setDelta(by);
     },
     onPointerUp() {
-      if (origin.current && delta !== 0) void move(id, origin.current.position + delta);
-      else if (origin.current) onClick?.(); // A press that never moved: a click.
+      const o = origin.current;
       origin.current = null;
       setSnapGuide(null);
+      if (!o) return;
+      const by = o.group ? useGroupDrag.getState().delta : delta;
+      if (by !== 0) commit(by);
+      else {
+        // A press that never moved: a click.
+        if (o.click === "collapse") select({ kind, id });
+        else if (o.click === "toggle") toggleItem({ kind, id });
+        onClick?.();
+      }
+      setGroupDelta(0);
       setDelta(0);
     },
     onKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -198,11 +237,11 @@ function useDrag(id: string, kind: Selected["kind"], position: number, length: n
       if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
         event.preventDefault();
         event.stopPropagation();
-        void move(id, Math.max(0, position + (event.key === "ArrowLeft" ? -step : step)));
+        commit(event.key === "ArrowLeft" ? -step : step);
       }
     },
   };
-  return { shown: position + delta, handlers };
+  return { shown: position + (grouped ? groupDelta : delta), handlers };
 }
 
 type HandleProps = ReturnType<typeof useHandle>["handlers"];
@@ -318,14 +357,14 @@ function ClipBlock({
   const t = useT();
   // Each clip asks the stores for its own slice: a selection or a decoded waveform elsewhere
   // does not re-render it.
-  const selected = useUi((ui) => ui.selection?.id === clip.id);
+  const selected = useUi((ui) => isSelected(ui, clip.id));
   const renaming = useUi((ui) => ui.renaming?.kind === "clip" && ui.renaming.id === clip.id);
   const labelRef = useRef<HTMLSpanElement>(null);
   const audio = useDoc((doc) => doc.audio[clip.asset]);
   const offline = useMedia((media) => media.offline.has(clip.asset));
   const bpm = useDoc((doc) => doc.project.assets.find((asset) => asset.id === clip.asset)?.bpm);
   const length = clipLength(clip, audio, fps, guessLength);
-  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame, offline ? () => focusMedia(clip.asset) : undefined);
+  const { shown, handlers: pointer } = useDrag(clip.id, "clip", clip.start, length, pxPerFrame, track, offline ? () => focusMedia(clip.asset) : undefined);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame);
@@ -349,7 +388,7 @@ function ClipBlock({
       data-muted={muted}
       style={{ left: frameX(left, pxPerFrame), width, height }}
       onContextMenu={(event) => {
-        select({ kind: "clip", id: clip.id });
+        if (!isSelected(useUi.getState(), clip.id)) select({ kind: "clip", id: clip.id });
         menuAtPointer(event, audioMenu(t, track, clip));
       }}
       // The clip holds the pointer while it is pressed, so a double click lands here and not on what
@@ -453,12 +492,14 @@ function ClipBlock({
 
 /** A video clip: moved by dragging it, trimmed by its edges, faded by the squares at its top corners, cut with S at the playhead. The backend makes each edit. */
 function VideoBlock({
+  track,
   clip,
   guessLength,
   rowHeight,
   fps,
   pxPerFrame,
 }: {
+  track: Track;
   clip: VideoClip;
   guessLength: number;
   rowHeight: number;
@@ -466,12 +507,12 @@ function VideoBlock({
   pxPerFrame: number;
 }) {
   const t = useT();
-  const selected = useUi((ui) => ui.selection?.id === clip.id);
+  const selected = useUi((ui) => isSelected(ui, clip.id));
   const probe = useDoc((doc) => doc.video[clip.asset]);
   const offline = useMedia((media) => media.offline.has(clip.asset));
   const name = useDoc((doc) => clip.name ?? doc.project.videos?.find((video) => video.id === clip.asset)?.name ?? clip.asset);
   const length = videoClipLength(clip, probe, fps, guessLength);
-  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame, offline ? () => focusMedia(clip.asset) : undefined);
+  const { shown, handlers: pointer } = useDrag(clip.id, "video", clip.start, length, pxPerFrame, track, offline ? () => focusMedia(clip.asset) : undefined);
   const end = clip.start + length;
   const trimStart = useHandle(clip.id, "trimStart", clip.start, pxPerFrame, true);
   const trimEnd = useHandle(clip.id, "trimEnd", end, pxPerFrame, true);
@@ -611,8 +652,8 @@ function VideoThumbTiles({
  */
 function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPerFrame: number }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, note.length ?? 0, pxPerFrame);
-  const selected = useUi((ui) => ui.selection?.id === note.id);
+  const { shown, handlers: pointer } = useDrag(note.id, "note", note.at, note.length ?? 0, pxPerFrame, track);
+  const selected = useUi((ui) => isSelected(ui, note.id));
   const empty = note.text.trim() === "";
   const timed = note.length !== undefined;
   // A note with no length is a label at a point: its first line. One with a length is a box with room for more.
@@ -628,7 +669,7 @@ function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPe
       data-timed={timed}
       style={{ left: frameX(shown, pxPerFrame) }}
       onContextMenu={(event) => {
-        select({ kind: "note", id: note.id });
+        if (!isSelected(useUi.getState(), note.id)) select({ kind: "note", id: note.id });
         menuAtPointer(event, noteMenu(t, track, note));
       }}
       {...pointer}
@@ -651,8 +692,8 @@ function NoteBlock({ track, note, pxPerFrame }: { track: Track; note: Note; pxPe
  */
 function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEvent | OscEvent; pxPerFrame: number }) {
   const t = useT();
-  const { shown, handlers: pointer } = useDrag(event.id, "event", event.at, 0, pxPerFrame);
-  const selected = useUi((ui) => ui.selection?.id === event.id);
+  const { shown, handlers: pointer } = useDrag(event.id, "event", event.at, 0, pxPerFrame, track);
+  const selected = useUi((ui) => isSelected(ui, event.id));
   const osc = "address" in event;
   const tag = t(osc ? "event.tag.osc" : (`event.tag.${event.message.type}` as const));
   return (
@@ -666,7 +707,7 @@ function EventBlock({ track, event, pxPerFrame }: { track: Track; event: MidiEve
       data-kind={osc ? "osc" : "midi"}
       style={{ left: frameX(shown, pxPerFrame) }}
       onContextMenu={(menu) => {
-        select({ kind: "event", id: event.id });
+        if (!isSelected(useUi.getState(), event.id)) select({ kind: "event", id: event.id });
         menuAtPointer(menu, eventMenu(t, track, event.id, event.at));
       }}
       {...pointer}
@@ -686,7 +727,7 @@ function OrderBlock({ track, order, fps, pxPerFrame }: { track: Track; order: Vo
   const audio = useDoc((s) => order.generated ? s.audio[order.generated.asset] : undefined);
   const width = view?.start != null && view.length ? Math.max(24, view.length * pxPerFrame) : undefined;
   const selected = useUi((ui) => ui.selection?.id === order.id);
-  const { shown, handlers } = useDrag(order.id, "operator", order.at, 0, pxPerFrame);
+  const { shown, handlers } = useDrag(order.id, "operator", order.at, 0, pxPerFrame, track);
   return <div className="operator-order" role="button" tabIndex={0} aria-pressed={selected}
     data-selected={selected} data-muted={track.muted} data-status={view?.status ?? "ungenerated"} data-range={view?.start != null}
     style={{ left: frameX(view?.start ?? order.at, pxPerFrame), transform: `translateX(${(shown - order.at) * pxPerFrame}px)`, width }}
@@ -721,6 +762,20 @@ export const TrackLane = memo(function TrackLane({
 }) {
   const t = useT();
   const height = laneHeight(track);
+  // Only what is near the screen is mounted: a long show has thousands of items, a canvas per clip.
+  const range = useVisibleRange(Number.POSITIVE_INFINITY);
+  const audioInfo = useDoc((doc) => doc.audio);
+  const videoInfo = useDoc((doc) => doc.video);
+  // The selected items stay mounted, so a drag that carries them out of the range is not cut short.
+  // Only this lane's own selection counts (as one string, which compares by value), so a selection
+  // elsewhere does not redraw it.
+  const keptKey = useUi((ui) => {
+    if (!ui.selection && ui.picked.size === 0) return "";
+    return trackIds(track).filter((id) => isSelected(ui, id)).join("|");
+  });
+  const kept = useMemo(() => new Set(keptKey.split("|")), [keptKey]);
+  const near = (id: string, start: number, length: number) =>
+    kept.has(id) || (frameX(start + length, pxPerFrame) >= range.from && frameX(start, pxPerFrame) <= range.to);
   // Files from the file explorer are over this lane.
   const dropping = useFileDrop((drop) => drop.timeline?.track === track.id);
   // A double click on the empty part of a notes, MIDI or OSC lane adds one there.
@@ -755,7 +810,7 @@ export const TrackLane = memo(function TrackLane({
     >
       {track.kind.type === "operator" && track.kind.orders.length === 0 && <button className="button operator-add" type="button" onClick={() => void addOrder(track.id, 0)}>{t("voice.addOrder")}</button>}
       {track.kind.type === "audio"
-        ? track.kind.clips.map((clip) => (
+        ? track.kind.clips.filter((clip) => near(clip.id, clip.start, clipLength(clip, audioInfo[clip.asset], fps, guessLength))).map((clip) => (
             <ClipBlock
               key={clip.id}
               track={track}
@@ -770,16 +825,16 @@ export const TrackLane = memo(function TrackLane({
             />
           ))
         : track.kind.type === "notes"
-          ? track.kind.notes.map((note) => (
+          ? track.kind.notes.filter((note) => near(note.id, note.at, note.length ?? 0)).map((note) => (
               <NoteBlock key={note.id} track={track} note={note} pxPerFrame={pxPerFrame} />
             ))
           : track.kind.type === "operator"
             ? track.kind.orders.map((order) => <OrderBlock key={order.id} track={track} order={order} fps={fps} pxPerFrame={pxPerFrame} />)
           : track.kind.type === "video"
-            ? track.kind.clips.map((clip) => (
-                <VideoBlock key={clip.id} clip={clip} guessLength={guessLength} rowHeight={height} fps={fps} pxPerFrame={pxPerFrame} />
+            ? track.kind.clips.filter((clip) => near(clip.id, clip.start, videoClipLength(clip, videoInfo[clip.asset], fps, guessLength))).map((clip) => (
+                <VideoBlock key={clip.id} track={track} clip={clip} guessLength={guessLength} rowHeight={height} fps={fps} pxPerFrame={pxPerFrame} />
               ))
-          : track.kind.events.map((event) => (
+          : track.kind.events.filter((event) => near(event.id, event.at, 0)).map((event) => (
               <EventBlock key={event.id} track={track} event={event} pxPerFrame={pxPerFrame} />
             ))}
     </div>

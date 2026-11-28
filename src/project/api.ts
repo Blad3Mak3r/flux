@@ -132,6 +132,25 @@ export type ItemOp =
 
 export const itemEdit = (project: Project, op: ItemOp) => invoke<ProjectState>("item_edit", { project, op });
 
+/** What ripple editing shifts when items are moved or deleted. */
+export type Ripple = "off" | "track" | "all";
+
+/** What can be done to several items at once; the backend clamps at the start and ripples (see `project/bulk_ops.rs`). */
+export type ItemsOp =
+  | { op: "move"; ids: string[]; delta: number; ripple: Ripple }
+  | { op: "remove"; ids: string[]; ripple: Ripple };
+
+/** Moves or removes many items of the active timeline at once; answers with the project as it is now. */
+export const itemsEdit = (project: Project, op: ItemsOp) => invoke<ProjectState>("items_edit", { project, op });
+
+/** The stretch of the active timeline, in frames from its start, that some items (or all of it, with no ids) cover. */
+export interface Extent {
+  from: number;
+  to: number;
+}
+
+export const itemsExtent = (project: Project, ids: string[]) => invoke<Extent | null>("items_extent", { project, ids });
+
 /** Which kind of cue track an operation is about. */
 export type CueTrackKind = "midi" | "osc";
 
