@@ -19,6 +19,8 @@ import { MenuBar } from "./components/MenuBar";
 import { StatusBar } from "./components/StatusBar";
 import { Timeline } from "./components/Timeline";
 import { Live } from "./live/Live";
+import type { Action } from "./keymap/actions";
+import { actionOf } from "./keymap/keys";
 import { vjKeyDown } from "./vj/menus";
 import { forwardKeyDown, forwardKeyUp, releaseKeys } from "./vj/keys";
 import { useVj } from "./vj/store";
@@ -148,114 +150,60 @@ function Shell({ devices }: { devices: Devices }) {
         return;
       }
       if (event.key === " " && event.target instanceof Element && event.target.closest("button, summary, [role='button']")) return;
-      const mod = event.ctrlKey || event.metaKey;
-      const key = event.key.toLowerCase();
+      const found = actionOf(event);
+      if (!found) return;
+      // Live only follows the show: what places things belongs to the editor.
+      if (found.editOnly && useUi.getState().view !== "edit") return;
+      event.preventDefault();
+      // A locked show keeps to the show: nothing that edits, opens, closes or leaves Live.
+      if (found.locked && isShowLocked()) return say("live.lock.blocked");
       const fps = nominalFps(activeTimeline(useDoc.getState()).timecode.frameRate);
       const seekBy = (frames: number) => seek(currentFrame() + frames);
-
-      if (mod) {
-        const action =
-          key === "z" ? (event.shiftKey ? "redo" : "undo")
-          : key === "y" ? "redo"
-          : key === "s" ? (event.shiftKey ? "saveAs" : "save")
-          : key === "o" ? "open"
-          : key === "n" ? "new"
-          : key === "w" ? "close"
-          : key === "b" ? "toggleInspector"
-          : key === "," ? "setup"
-          : key === "pageup" ? "previousTimeline"
-          : key === "pagedown" ? "nextTimeline"
-          : key === "p" && event.shiftKey ? "panic"
-          : key === "1" ? "viewEdit"
-          : key === "2" ? "viewLive"
-          : key === "=" || key === "+" ? "zoomIn"
-          : key === "-" ? "zoomOut"
-          : key === "0" ? "zoomFit"
-          : key === "a" ? "selectAll"
-          : null;
-        if (!action) return;
-        event.preventDefault();
-        // A locked show keeps to the show: nothing that edits, opens, closes or leaves Live.
-        if (isShowLocked() && ["undo", "redo", "open", "new", "close", "viewEdit", "previousTimeline", "nextTimeline"].includes(action)) {
-          say("live.lock.blocked");
-          return;
-        }
-        if (action === "undo" || action === "redo") dispatch({ type: action });
-        else if (action === "save") void saveDocument(false);
-        else if (action === "saveAs") void saveDocument(true);
-        else if (action === "open") openDocument();
-        else if (action === "new") newDocument(t);
-        else if (action === "close") closeDocument();
-        else if (action === "panic") void panic(t);
-        else if (action === "toggleInspector") toggleInspector();
-        else if (action === "setup") openSetup();
-        else if (action === "previousTimeline" || action === "nextTimeline") {
-          void stepTimeline(action === "previousTimeline" ? -1 : 1);
-        } else if (action === "viewEdit" || action === "viewLive") setView(action === "viewEdit" ? "edit" : "live");
-        else if (action === "zoomFit") {
-          if (useUi.getState().view === "edit") void zoomToFit();
-        } else if (action === "selectAll") {
-          if (useUi.getState().view === "edit") selectAll();
-        } else zoomBy(action === "zoomIn" ? ZOOM_STEP : 1 / ZOOM_STEP);
-        return;
-      }
-
-      if (event.key === " ") {
-        event.preventDefault();
-        void toggle();
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        void stop();
-      } else if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-        // Markers belong to the timeline: Live only follows the show.
-        if (useUi.getState().view !== "edit") return;
-        event.preventDefault();
-        void stepMarker(event.key === "ArrowRight");
-      } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        event.preventDefault();
-        seekBy((event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? fps : 1));
-      } else if (key === "m" || key === "r") {
-        // Like notes, markers and regions are placed in the editor only.
-        if (useUi.getState().view !== "edit") return;
-        event.preventDefault();
-        if (key === "m") void addMarkerAtPlayhead(t);
-        else void addRegionFromSelection(t);
-      } else if (key === "n") {
-        // Live only reads the show; notes are written in the editor.
-        if (useUi.getState().view !== "edit") return;
-        event.preventDefault();
-        addNoteAt(t);
-      } else if (key === "s") {
-        // Like notes, clips are cut in the editor only.
-        if (useUi.getState().view !== "edit") return;
-        event.preventDefault();
-        void splitAtPlayhead();
-      } else if (key === "p" && event.altKey) {
-        // Like the magnet, ripple is for placing things.
-        if (useUi.getState().view !== "edit") return;
-        event.preventDefault();
-        cycleRipple();
-      } else if (key === "g") {
-        // The magnet is for placing things: Live only reads the show.
-        if (useUi.getState().view !== "edit") return;
-        event.preventDefault();
-        toggleSnap();
-      } else if (event.key === "F2") {
-        // Names are typed in the editor; Live only reads the show.
-        if (useUi.getState().view !== "edit") return;
-        event.preventDefault();
-        renameSelectedTrack();
-      } else if (key === "i") {
-        if (isShowLocked()) return say("live.lock.blocked");
-        void importAudioFiles();
-      } else if (event.key === "Delete" || event.key === "Backspace") {
-        if (isShowLocked()) return say("live.lock.blocked");
-        if (!deleteSelectedMark()) deleteSelection();
-      } else if (event.key === "Escape") {
-        patchReadout({ spanA: null, spanB: null });
-        selectMark(null);
-        select(null);
-      }
+      const run: Record<Action, () => void> = {
+        playPause: () => void toggle(),
+        stop: () => void stop(),
+        frameBack: () => seekBy(-1),
+        frameForward: () => seekBy(1),
+        secondBack: () => seekBy(-fps),
+        secondForward: () => seekBy(fps),
+        panic: () => void panic(t),
+        new: () => newDocument(t),
+        open: openDocument,
+        save: () => void saveDocument(false),
+        saveAs: () => void saveDocument(true),
+        close: closeDocument,
+        setup: () => openSetup(),
+        importAudio: () => void importAudioFiles(),
+        undo: () => dispatch({ type: "undo" }),
+        redo: () => dispatch({ type: "redo" }),
+        selectAll: selectAll,
+        delete: () => {
+          if (!deleteSelectedMark()) deleteSelection();
+        },
+        deselect: () => {
+          patchReadout({ spanA: null, spanB: null });
+          selectMark(null);
+          select(null);
+        },
+        split: () => void splitAtPlayhead(),
+        addNote: () => addNoteAt(t),
+        renameTrack: renameSelectedTrack,
+        toggleSnap: toggleSnap,
+        cycleRipple: cycleRipple,
+        addMarker: () => void addMarkerAtPlayhead(t),
+        addRegion: () => void addRegionFromSelection(t),
+        previousMarker: () => void stepMarker(false),
+        nextMarker: () => void stepMarker(true),
+        previousTimeline: () => void stepTimeline(-1),
+        nextTimeline: () => void stepTimeline(1),
+        viewEdit: () => setView("edit"),
+        viewLive: () => setView("live"),
+        zoomIn: () => zoomBy(ZOOM_STEP),
+        zoomOut: () => zoomBy(1 / ZOOM_STEP),
+        zoomFit: () => void zoomToFit(),
+        toggleInspector: toggleInspector,
+      };
+      run[found.id]();
     };
     // Space activates a focused button on key-up; keep it from also firing a click.
     const onKeyUp = (event: KeyboardEvent) => {

@@ -29,7 +29,7 @@ import { MidiEventPanel, OscEventPanel } from "./CueEventPanel";
 import { FADE_CURVES } from "../audio/fade";
 import { SelectField, TextAreaField, TextField, TimecodeField } from "./fields";
 import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
-import { MOD_KEY } from "./menus";
+import { useKeyHint } from "../keymap/keys";
 
 /** The colour of the track an item sits on. Each swatch is named, so colour is never the only cue. */
 function TrackColorField({
@@ -353,7 +353,8 @@ export function Inspector() {
   const timeline = useTimeline();
   const audio = useDoc((doc) => doc.audio);
   const t = useT();
-  const toggleLabel = `${t(collapsed ? "inspector.expand" : "inspector.collapse")} (${MOD_KEY}+B)`;
+  const hint = useKeyHint("toggleInspector");
+  const toggleLabel = `${t(collapsed ? "inspector.expand" : "inspector.collapse")}${hint ? ` (${hint})` : ""}`;
   const toggle = (
     <button
       type="button"

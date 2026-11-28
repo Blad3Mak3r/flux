@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Locale } from "../i18n/messages";
 import type { OutputConfig, Project } from "../project/types";
 import { errorMessage } from "../project/api";
+import type { ActionView } from "../keymap/keys";
 
 export interface AudioChoice { id: string; name: string | null; users: number }
 
@@ -38,6 +39,8 @@ export interface Preferences {
   /** A snapshot is also added to the project's media. */
   snapshotMedia?: boolean;
   recordingsDir?: string | null;
+  /** The keys of every action of a cue show, as the backend works them out. */
+  keymap?: ActionView[];
   revision: number;
   warning?: string | null;
 }
@@ -105,11 +108,11 @@ export function initPreferences(): Promise<void> {
   })());
 }
 
-export async function changePreferences(change: object): Promise<void> {
+export async function changePreferences(change: object, report = true): Promise<void> {
   try {
     accept(await invoke<Preferences>("preferences_change", { change }));
   } catch (err) {
-    sayError(errorMessage(err));
+    if (report) sayError(errorMessage(err));
     throw err;
   }
 }
