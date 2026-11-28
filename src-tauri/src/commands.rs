@@ -17,8 +17,9 @@ use crate::transport_commands::{SharedOutput, is_playing, release};
 use flux_audio::{ENGINE_RATE, SharedAudio};
 use flux_core::Clock;
 use flux_project::{
-    AudioAsset, ClipOp, CueEdited, CueOp, Document, Extent, FrameRate, ItemOp, ItemsOp, Lengths,
-    Project, ProjectError, ProjectState, Result, Session,
+    AudioAsset, BeatSegment, ClipOp, CueEdited, CueOp, Document, Extent, FrameRate, ItemOp,
+    ItemsOp, Lengths, MarksOp, Project, ProjectError, ProjectState, Result, Session, TempoMap,
+    marker_step,
 };
 
 pub type SharedSession = Arc<Mutex<Session>>;
@@ -355,6 +356,38 @@ pub async fn items_edit(
     })
     .await
     .map_err(|err| ProjectError::Io(io::Error::other(err)))?
+}
+
+/// Edits the markers, regions and tempo changes of the active timeline (see [`MarksOp`]); the answer
+/// is the project with the edit made, or the reason it was refused.
+#[tauri::command]
+pub async fn marks_edit(
+    session: State<'_, SharedSession>,
+    project: Project,
+    op: MarksOp,
+) -> Result<ProjectState> {
+    run(&session, move |s| {
+        s.update(project);
+        s.marks_edit(op)
+    })
+    .await
+}
+
+/// The segments of a timeline's tempo map, in frames, for the ruler and the grid to draw.
+#[tauri::command]
+pub fn tempo_segments(project: Project, timeline: String) -> Vec<BeatSegment> {
+    project
+        .timeline(&timeline)
+        .map_or_else(Vec::new, |timeline| {
+            let (num, den) = timeline.timecode.frame_rate.fraction();
+            TempoMap::of(timeline).beat_segments(num as f64 / den as f64)
+        })
+}
+
+/// The frame of the marker before or after `from` on a timeline, `None` when there is none that way.
+#[tauri::command]
+pub fn marker_step_at(project: Project, timeline: String, from: u64, forward: bool) -> Option<u64> {
+    marker_step(project.timeline(&timeline)?, from, forward)
 }
 
 /// The stretch of the active timeline that the items `ids` cover, or all its content when none are

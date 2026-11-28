@@ -14,6 +14,7 @@ import { deleteSelection, deleteTrack, muteTrack, renameSelectedTrack, reorderTr
 import { activeTimeline } from "../state/doc";
 import { splitAtPlayhead } from "../state/clips";
 import { zoomToFit } from "../state/items";
+import { addMarkerAtPlayhead, addRegionFromSelection, stepMarker } from "../state/marks";
 import { selectAll } from "../state/selection";
 import { findItem } from "../state/edit";
 import { dispatch, useDoc } from "../state/store";
@@ -102,6 +103,7 @@ export function snapMenu(t: Translate): MenuItem[] {
     source("grid"),
     source("items"),
     source("playhead"),
+    source("markers"),
     "-",
     { heading: t("snap.grid") },
     ...GRID_STEPS.map((step): MenuItem => ({
@@ -322,6 +324,11 @@ function transportMenu(t: Translate): MenuItem[] {
     { label: t("menu.frameForward"), shortcut: "→", run: by(() => 1) },
     { label: t("menu.secondBack"), shortcut: "⇧+←", run: by(() => -second()) },
     { label: t("menu.secondForward"), shortcut: "⇧+→", run: by(second) },
+    "-",
+    { label: t("marks.menu.addMarkerAtPlayhead"), shortcut: "M", run: () => void addMarkerAtPlayhead(t) },
+    { label: t("marks.menu.previousMarker"), shortcut: "Alt+←", run: () => void stepMarker(false) },
+    { label: t("marks.menu.nextMarker"), shortcut: "Alt+→", run: () => void stepMarker(true) },
+    { label: t("marks.menu.regionFromSelection"), shortcut: "R", run: () => void addRegionFromSelection(t) },
     "-",
     { label: t("check.title"), disabled: isPlaying(), run: openShowCheck },
     "-",

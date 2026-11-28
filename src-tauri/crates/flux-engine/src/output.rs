@@ -30,7 +30,7 @@ use flux_audio::ENGINE_RATE;
 use flux_core::Clock;
 use flux_project::{
     DEFAULT_LTC_LEVEL, FrameRate, LtcOutput, MidiClockOutput, MtcOutput, OscDestination,
-    OutputConfig, ProjectError, Tempo, Timeline,
+    OutputConfig, ProjectError, Tempo, TempoChange, TempoMap, Timeline,
 };
 
 mod branches;

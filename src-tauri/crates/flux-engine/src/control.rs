@@ -37,6 +37,9 @@ pub enum ControlAction {
     Stop,
     NextCue,
     PrevCue,
+    /// The marker after or before the position.
+    NextMarker,
+    PrevMarker,
     /// The cue with this number, from 1.
     GotoCue(u32),
     /// Moves by this many frames, back when negative.
@@ -292,6 +295,31 @@ pub fn goto_cue_frame(cues: &[Cue], number: u32) -> Option<u64> {
     cues.iter()
         .find(|cue| cue.number == number)
         .map(|cue| cue.frame)
+}
+
+/// The frame the marker actions go to: the marker after or before `position`, which counts the
+/// timeline's `start` offset like the markers' own frames (from the origin) do not. `None` for any
+/// other action, or when there is no marker that way.
+pub fn marker_target(
+    action: ControlAction,
+    position: u64,
+    markers: &[flux_project::Marker],
+    start: u64,
+) -> Option<u64> {
+    let forward = match action {
+        ControlAction::NextMarker => true,
+        ControlAction::PrevMarker => false,
+        _ => return None,
+    };
+    let from = position.checked_sub(start);
+    let at = markers.iter().map(|m| m.at);
+    if forward {
+        // Before the origin, every marker is after the position.
+        at.filter(|&at| from.is_none_or(|from| at > from)).min()
+    } else {
+        at.filter(|&at| from.is_some_and(|from| at < from)).max()
+    }
+    .map(|at| start + at)
 }
 
 /// `position` moved by `delta` frames, held inside `first..=last`.

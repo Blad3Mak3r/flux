@@ -33,8 +33,17 @@ export function fixedSpacing(step: FixedStep, tempo: { bpm: number; beatsPerBar:
   }
 }
 
-/** What a position can be pulled onto: the grid's lines, the edges of clips and notes, the playhead, frame 0. */
-export type SnapSource = "grid" | "items" | "playhead" | "origin";
+/**
+ * What a position can be pulled onto: the grid's lines, the edges of clips and notes, the playhead,
+ * frame 0, the markers and the edges of regions.
+ */
+export type SnapSource = "grid" | "items" | "playhead" | "origin" | "markers";
+
+/** The lines of the grid: a step in frames between uniform lines, or a function that finds the one nearest a frame. */
+export type GridLines = number | ((frame: number) => number);
+
+const nearestLine = (frame: number, lines: GridLines): number =>
+  typeof lines === "function" ? lines(frame) : Math.round(frame / lines) * lines;
 
 /** A frame, counted from the timeline origin, that is not on the grid but is worth landing on. */
 export interface SnapTarget {
@@ -58,9 +67,15 @@ export interface SnapItem {
 /** Every target, ordered by frame; two on one frame keep the first one's source. */
 export function collectTargets(
   items: readonly SnapItem[],
-  options: { exclude?: ReadonlySet<string>; playhead?: number | null; sources: ReadonlySet<SnapSource> },
+  options: {
+    exclude?: ReadonlySet<string>;
+    playhead?: number | null;
+    /** Frames of the markers and the edges of the regions, which are targets when `markers` is a source. */
+    marks?: readonly number[];
+    sources: ReadonlySet<SnapSource>;
+  },
 ): SnapTarget[] {
-  const { exclude, playhead, sources } = options;
+  const { exclude, playhead, marks, sources } = options;
   const found: SnapTarget[] = [];
   if (sources.has("origin")) found.push({ frame: 0, source: "origin" });
   if (sources.has("playhead") && playhead !== null && playhead !== undefined && playhead >= 0) {
@@ -73,6 +88,7 @@ export function collectTargets(
       if (item.end !== undefined && item.end > item.start) found.push({ frame: item.end, source: "items" });
     }
   }
+  if (sources.has("markers")) for (const frame of marks ?? []) found.push({ frame, source: "markers" });
   found.sort((a, b) => a.frame - b.frame);
   return found.filter((target, index) => index === 0 || target.frame !== found[index - 1].frame);
 }
@@ -104,15 +120,15 @@ export function nearestTarget(frame: number, targets: readonly SnapTarget[]): { 
 export function snapPoint(
   frame: number,
   targets: readonly SnapTarget[],
-  spacing: number | null,
+  spacing: GridLines | null,
   pxPerFrame: number,
 ): Snapped {
   const reach = SNAP_PX / pxPerFrame;
   const near = nearestTarget(frame, targets);
   const item = near && near.distance <= reach ? near : null;
   let line: number | null = null;
-  if (spacing !== null && spacing > 0) {
-    const nearest = Math.round(frame / spacing) * spacing;
+  if (spacing !== null && (typeof spacing === "function" || spacing > 0)) {
+    const nearest = nearestLine(frame, spacing);
     if (Math.abs(nearest - frame) <= reach) line = Math.round(nearest);
   }
   if (item && (line === null || item.distance <= Math.abs(line - frame))) {
@@ -130,7 +146,7 @@ export function snapMove(
   start: number,
   length: number,
   targets: readonly SnapTarget[],
-  spacing: number | null,
+  spacing: GridLines | null,
   pxPerFrame: number,
 ): Snapped & { start: number; guide: number | null } {
   const head = snapPoint(start, targets, spacing, pxPerFrame);

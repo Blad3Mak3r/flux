@@ -1,5 +1,5 @@
 use super::*;
-use crate::midi_clock::{ClockScheduler, Mode};
+use crate::midi_clock::{ClockScheduler, Mode, Pulse};
 
 /// Sends MIDI clock to a port: the clocks fall due on the position the audio callback publishes
 /// (a cue show) or on the time (a VJ show), and each is sent when its sample is reached, the last
@@ -40,8 +40,12 @@ pub(super) fn run_midi_clock<L: MidiLink>(
                 false,
             ),
         };
-        let bpm = f64::from_bits(shared.clock_bpm.load(Ordering::Relaxed));
-        scheduler.step(snapshot.state, position, moved, bpm, |message| {
+        let map = shared.clock_map();
+        let pulse = match (&map, mode) {
+            (Some(map), Mode::Follow) => Pulse::Map(map),
+            _ => Pulse::Constant(f64::from_bits(shared.clock_bpm.load(Ordering::Relaxed))),
+        };
+        scheduler.step(snapshot.state, position, moved, pulse, |message| {
             let (bytes, len) = message.bytes();
             port.send(&bytes[..len], now);
         });

@@ -1,10 +1,10 @@
 // The magnet as the editor uses it: on or off, and onto the lines the ruler is drawing now, the
 // edges of the clips and notes, the playhead and the origin.
 
-import { realFps } from "../timecode";
 import { collectTargets, fixedSpacing, snapMove, snapPoint } from "../timeline/snap";
-import type { SnapItem, SnapSource, SnapTarget } from "../timeline/snap";
-import { lineSpacing } from "../timeline/scale";
+import type { GridLines, SnapItem, SnapSource, SnapTarget } from "../timeline/snap";
+import { lineSpacing, nearestBeatLine } from "../timeline/scale";
+import { beatGrid } from "./tempoMap";
 import { currentFrame } from "../transport/store";
 import { activeTimeline } from "./doc";
 import { trackItems } from "./selection";
@@ -16,15 +16,16 @@ import { setSnapGuide, useUi } from "./ui";
  * Automatic follows the ruler: beats and bars in the bars view, timecode ticks in the time view, so
  * a finer zoom snaps finer. The other steps stay the same at every zoom.
  */
-function gridSpacing(): number | null {
+function gridSpacing(): GridLines | null {
   const { ruler, zoom, gridStep, snapSources } = useUi.getState();
   if (!snapSources.grid) return null;
-  const { timecode, tempo } = activeTimeline(useDoc.getState());
-  const fps = realFps(timecode.frameRate);
-  const beat = { bpm: tempo.bpm, beatsPerBar: tempo.beatsPerBar, fps };
-  return gridStep === "auto"
-    ? lineSpacing(zoom, timecode.frameRate, ruler === "bars" ? beat : null)
-    : fixedSpacing(gridStep, beat);
+  const timeline = activeTimeline(useDoc.getState());
+  const { timecode } = timeline;
+  const beat = beatGrid(timeline);
+  // Beats and bars follow the tempo map, so their lines are not a fixed step apart.
+  if (gridStep === "beat" || gridStep === "bar") return (frame) => nearestBeatLine(frame, beat, zoom, gridStep);
+  if (gridStep === "auto" && ruler === "bars") return (frame) => nearestBeatLine(frame, beat, zoom, "auto");
+  return gridStep === "auto" ? lineSpacing(zoom, timecode.frameRate, null) : fixedSpacing(gridStep, beat);
 }
 
 /** Whether the magnet works for this gesture: it is on, and Alt, held, turns it the other way. */
@@ -39,15 +40,22 @@ const timelineItems = (): SnapItem[] => activeTimeline(useDoc.getState()).tracks
  * the playhead being moved).
  */
 export function snapTargets(exclude: readonly string[] = [], skip: readonly SnapSource[] = []): SnapTarget[] {
-  const { items, playhead } = useUi.getState().snapSources;
-  const { timecode } = activeTimeline(useDoc.getState());
+  const { items, playhead, markers } = useUi.getState().snapSources;
+  const { timecode, markers: marks = [], regions = [] } = activeTimeline(useDoc.getState());
   const sources = new Set<SnapSource>();
   if (items) sources.add("items").add("origin");
   if (playhead) sources.add("playhead");
+  if (markers) sources.add("markers");
   for (const source of skip) sources.delete(source);
+  // A marker or a region being dragged is left out, so it does not snap onto itself.
+  const skipped = new Set(exclude);
   return collectTargets(timelineItems(), {
-    exclude: new Set(exclude),
+    exclude: skipped,
     playhead: currentFrame() - timecode.start,
+    marks: [
+      ...marks.filter((m) => !skipped.has(m.id)).map((m) => m.at),
+      ...regions.filter((r) => !skipped.has(r.id)).flatMap((r) => [r.start, r.end]),
+    ],
     sources,
   });
 }

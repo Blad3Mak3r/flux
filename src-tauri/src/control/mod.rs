@@ -22,7 +22,8 @@ use crate::vj_commands::SharedGrid;
 use crate::vj_control::{SharedLearn, VjRunner};
 use flux_engine::control::KeyMsg;
 use flux_engine::control::{
-    Binding, ControlAction, Feedback, MidiTrigger, action_for, dedup, osc_action, seek_target,
+    Binding, ControlAction, Feedback, MidiTrigger, action_for, dedup, marker_target, osc_action,
+    seek_target,
 };
 use flux_engine::control_in::{ARTNET_UDP_PORT, ArtnetListener, Input, ListenError, MidiListener};
 use flux_engine::control_light::{Facts, Lamps, LightPort, by_port};

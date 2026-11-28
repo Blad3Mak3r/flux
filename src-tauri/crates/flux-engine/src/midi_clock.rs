@@ -9,7 +9,7 @@
 //! position passes the sample it belongs to, and the next one is a tick's length after that one,
 //! not after the time the previous was sent, so nothing accumulates.
 
-use flux_project::{MAX_BPM, MIN_BPM};
+use flux_project::{MAX_BPM, MIN_BPM, TempoMap};
 
 use crate::transport::TransportState;
 
@@ -74,6 +74,43 @@ pub fn samples_per_tick(rate: u32, bpm: f64) -> f64 {
     f64::from(rate) * 60.0 / (bpm * TICKS_PER_BEAT)
 }
 
+/// The tempo the clocks follow: one that does not change, or the map of the timeline.
+#[derive(Debug, Clone, Copy)]
+pub enum Pulse<'a> {
+    Constant(f64),
+    Map(&'a TempoMap),
+}
+
+impl Pulse<'_> {
+    /// Quarter notes a minute at `sample`.
+    fn bpm_at(&self, rate: u32, sample: f64) -> f64 {
+        match self {
+            Self::Constant(bpm) => *bpm,
+            Self::Map(map) => map.bpm_at(sample / f64::from(rate)),
+        }
+    }
+
+    /// The first sixteenth the position has not passed: its number (the Song Position Pointer) and
+    /// the sample it falls on.
+    fn next_sixteenth(&self, rate: u32, position: u64) -> (f64, f64) {
+        match self {
+            Self::Constant(bpm) => {
+                let per_tick = samples_per_tick(rate, *bpm);
+                let beats = (position as f64 / per_tick / TICKS_PER_POSITION as f64).ceil();
+                (beats, beats * TICKS_PER_POSITION as f64 * per_tick)
+            }
+            Self::Map(map) => {
+                let quarters = map.quarters_at(position as f64 / f64::from(rate));
+                let beats = (quarters * 4.0 - 1e-9).ceil().max(0.0);
+                (
+                    beats,
+                    map.seconds_at_quarters(beats / 4.0) * f64::from(rate),
+                )
+            }
+        }
+    }
+}
+
 /// Which clocks and transport messages are due.
 #[derive(Debug, Clone)]
 pub struct ClockScheduler {
@@ -106,10 +143,9 @@ impl ClockScheduler {
         state: TransportState,
         position: u64,
         moved: bool,
-        bpm: f64,
+        pulse: Pulse<'_>,
         mut emit: impl FnMut(Message),
     ) {
-        let per_tick = samples_per_tick(self.rate, bpm);
         let was = self.last;
         self.last = state;
         match (self.mode, state) {
@@ -117,8 +153,8 @@ impl ClockScheduler {
                 if was != TransportState::Playing || moved {
                     // The first clock is the first sixteenth the position has not passed, and the
                     // pointer says which one it is.
-                    let beats = (position as f64 / per_tick / TICKS_PER_POSITION as f64).ceil();
-                    self.next = beats * TICKS_PER_POSITION as f64 * per_tick;
+                    let (beats, next) = pulse.next_sixteenth(self.rate, position);
+                    self.next = next;
                     self.ticking = true;
                     let at = beats as u16;
                     if was == TransportState::Playing {
@@ -160,7 +196,7 @@ impl ClockScheduler {
         }
         while self.next <= position as f64 {
             emit(Message::Clock);
-            self.next += per_tick;
+            self.next += samples_per_tick(self.rate, pulse.bpm_at(self.rate, self.next));
         }
     }
 
@@ -183,7 +219,8 @@ mod tests {
         moved: bool,
     ) -> Vec<Message> {
         let mut out = Vec::new();
-        scheduler.step(state, position, moved, 120.0, |message| out.push(message));
+        let pulse = Pulse::Constant(120.0);
+        scheduler.step(state, position, moved, pulse, |message| out.push(message));
         out
     }
 
@@ -275,7 +312,8 @@ mod tests {
         run(&mut scheduler, TransportState::Playing, 0, true);
         let mut out = Vec::new();
         // 240: a clock every 500 samples, from the one that went out at 1000.
-        scheduler.step(TransportState::Playing, 1_000, false, 240.0, |m| {
+        let pulse = Pulse::Constant(240.0);
+        scheduler.step(TransportState::Playing, 1_000, false, pulse, |m| {
             out.push(m);
         });
         assert_eq!(out, [Message::Clock]);
@@ -303,5 +341,62 @@ mod tests {
         );
         // A move of the transport says nothing: the clock is the time.
         assert!(run(&mut scheduler, TransportState::Playing, 6_200, true).is_empty());
+    }
+
+    /// 120 BPM for the first second of a 25 fps timeline, then 60 BPM.
+    fn slowing() -> TempoMap {
+        let mut timeline = flux_project::Timeline::new("t", flux_project::FrameRate::Fps25);
+        timeline.tempo_changes.push(flux_project::TempoChange {
+            id: "c".into(),
+            at: 25,
+            bpm: 60.0,
+            beats_per_bar: 4,
+            beat_unit: 4,
+        });
+        TempoMap::of(&timeline)
+    }
+
+    #[test]
+    fn the_clocks_should_slow_down_where_the_map_does() {
+        let map = slowing();
+        let mut scheduler = ClockScheduler::new(RATE, Mode::Follow);
+        let mut at = Vec::new();
+        for position in (0..=143_900u64).step_by(100) {
+            let moved = position == 0;
+            scheduler.step(
+                TransportState::Playing,
+                position,
+                moved,
+                Pulse::Map(&map),
+                |message| {
+                    if message == Message::Clock {
+                        at.push(position);
+                    }
+                },
+            );
+        }
+        // 48 clocks a second at 120 BPM, 24 at 60: a clock every 1000 samples, then every 2000.
+        assert_eq!(at.len(), 96);
+        assert_eq!(at[47], 47_000);
+        assert_eq!(at[48], 48_000);
+        assert_eq!(at[49], 50_000);
+    }
+
+    #[test]
+    fn playing_from_the_middle_of_the_map_should_point_at_its_next_sixteenth() {
+        let map = slowing();
+        let mut scheduler = ClockScheduler::new(RATE, Mode::Follow);
+        let mut sent = Vec::new();
+        // 2 quarters pass in the first second, then one a second: 60 100 is at 2.25 quarters, and
+        // the sixteenth after it is the tenth, at 2.5 quarters, 1.5 s.
+        scheduler.step(
+            TransportState::Playing,
+            60_100,
+            true,
+            Pulse::Map(&map),
+            |m| sent.push(m),
+        );
+        assert_eq!(sent, [Message::Position(10), Message::Continue]);
+        assert_eq!(scheduler.next_due(), Some(72_000));
     }
 }

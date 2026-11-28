@@ -363,8 +363,13 @@ pub fn output_set_track_gain(
 /// edit is heard at once. No output, or none with a metronome, is not an error: the next output
 /// reads the tempo from the project.
 #[tauri::command(async)]
-pub fn output_set_tempo(state: State<'_, SharedOutput>, tempo: Tempo) {
+pub fn output_set_tempo(
+    state: State<'_, SharedOutput>,
+    tempo: Tempo,
+    changes: Vec<flux_project::TempoChange>,
+    frame_rate: flux_project::FrameRate,
+) {
     if let Some(running) = lock(&state).as_ref() {
-        running.output.set_tempo(tempo);
+        running.output.set_tempo(tempo, &changes, frame_rate);
     }
 }

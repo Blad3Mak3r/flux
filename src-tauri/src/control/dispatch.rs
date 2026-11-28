@@ -116,6 +116,8 @@ impl Dispatcher {
             }
             ControlAction::NextCue
             | ControlAction::PrevCue
+            | ControlAction::NextMarker
+            | ControlAction::PrevMarker
             | ControlAction::GotoCue(_)
             | ControlAction::StepFrames(_)
             | ControlAction::StepSeconds(_) => self.seek(&output, action),
@@ -172,7 +174,17 @@ impl Dispatcher {
             return;
         };
         let fps = timecode.frame_rate.nominal_fps();
-        match seek_target(action, position.frame, cues.cues(), timecode.start, fps) {
+        let markers = self
+            .app
+            .state::<SharedSession>()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .active_timeline_copy()
+            .map(|timeline| timeline.markers)
+            .unwrap_or_default();
+        let target = marker_target(action, position.frame, &markers, timecode.start)
+            .or_else(|| seek_target(action, position.frame, cues.cues(), timecode.start, fps));
+        match target {
             Some(frame) => {
                 if let Err(err) = crate::voice_commands::send_transport(
                     &self.app.state::<Arc<crate::voice_commands::VoiceState>>(),

@@ -5,7 +5,7 @@ TCP is independently enabled on the same numeric port. The listen address is ins
 defaults to `0.0.0.0`, and can be set to `127.0.0.1` for local-only operation. No project stores
 network listener settings. This is a trusted local show-control network interface, without login.
 
-Existing `/flux/play`, `/flux/pause`, `/flux/toggle`, `/flux/stop`, cue navigation, timeline
+Existing `/flux/play`, `/flux/pause`, `/flux/toggle`, `/flux/stop`, cue and marker navigation (`/flux/marker/next`, `/flux/marker/prev`), timeline
 navigation, relative seek and view addresses retain their meaning. `/flux/go`, `/flux/devamp`
 and `/flux/devamp/cancel` are additional fire-and-forget controls for simple buttons. So is
 `/flux/panic`, which stops the transport and silences the MIDI gear of the project (all sound off, reset
