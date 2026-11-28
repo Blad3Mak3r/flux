@@ -24,6 +24,8 @@ pub mod playhead;
 mod serde_util;
 mod session;
 pub mod show;
+#[cfg(test)]
+mod test_util;
 mod video_clips;
 pub mod vj;
 pub mod vj_effects;
