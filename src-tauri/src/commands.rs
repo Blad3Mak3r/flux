@@ -384,6 +384,12 @@ pub fn tempo_segments(project: Project, timeline: String) -> Vec<BeatSegment> {
         })
 }
 
+/// The frame count that typed timecode text means at `rate`, `None` when it is not a timecode.
+#[tauri::command]
+pub fn parse_timecode(text: String, rate: flux_core::FrameRate) -> Option<u64> {
+    flux_core::Timecode::parse_frames(&text, rate)
+}
+
 /// The frame of the marker before or after `from` on a timeline, `None` when there is none that way.
 #[tauri::command]
 pub fn marker_step_at(project: Project, timeline: String, from: u64, forward: bool) -> Option<u64> {

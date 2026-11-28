@@ -176,6 +176,9 @@ export const marksEdit = (project: Project, op: MarksOp) => invoke<ProjectState>
 export const tempoSegments = (project: Project, timeline: string) =>
   invoke<BeatSegment[]>("tempo_segments", { project, timeline });
 
+/** The frame count typed timecode text means at `rate`, or `null` when it is not a timecode. */
+export const parseTimecode = (text: string, rate: FrameRate) => invoke<number | null>("parse_timecode", { text, rate });
+
 /** The frame of the marker before or after `from`, or `null` when there is none that way. */
 export const markerStep = (project: Project, timeline: string, from: number, forward: boolean) =>
   invoke<number | null>("marker_step_at", { project, timeline, from, forward });

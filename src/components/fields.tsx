@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import type { FrameRate } from "../project/types";
 import { Select } from "./Select";
-import { formatFrames, parseTimecode } from "../timecode";
+import { parseTimecode } from "../project/api";
+import { formatFrames } from "../timecode";
 
 /** A labelled control. The label is a real <label>, so clicking it focuses the input. */
 export function Field({
@@ -47,7 +48,7 @@ export function TextField({
   value: string;
   onCommit: (value: string) => void;
   /** Return an error message to refuse the value. */
-  validate?: (value: string) => string | null;
+  validate?: (value: string) => string | null | Promise<string | null>;
   error?: string | null;
   hint?: string;
   inputMode?: "text" | "numeric" | "decimal";
@@ -56,9 +57,9 @@ export function TextField({
   const [draft, setDraft] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  const commit = () => {
+  const commit = async () => {
     if (draft === null) return;
-    const refusal = validate?.(draft) ?? null;
+    const refusal = (await validate?.(draft)) ?? null;
     if (refusal) {
       setProblem(refusal);
       return;
@@ -167,11 +168,8 @@ export function TimecodeField({
       hint={hint}
       monospace
       inputMode="numeric"
-      validate={(text) => (parseTimecode(text, rate) === null ? t("field.timecodeInvalid") : null)}
-      onCommit={(text) => {
-        const parsed = parseTimecode(text, rate);
-        if (parsed !== null) onCommit(parsed);
-      }}
+      validate={async (text) => ((await parseTimecode(text, rate)) === null ? t("field.timecodeInvalid") : null)}
+      onCommit={(text) => void parseTimecode(text, rate).then((parsed) => parsed !== null && onCommit(parsed))}
     />
   );
 }
