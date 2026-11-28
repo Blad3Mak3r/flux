@@ -1,27 +1,38 @@
-// FLUX landing: language selector, section index, and the Fig. 1 demo clock.
+// FLUX landing: language selector and demo clock.
 // English lives in the HTML (it reads fine without JS); Spanish is swapped in from ES below.
 "use strict";
 
 const ES = {
-  title: "FLUX: construye el show, ejecuta el show, confía en el reloj",
-  desc: "FLUX es una app de escritorio que convierte canciones, eventos y cues en un único proyecto con un reloj maestro de timecode: salida LTC y MTC, cues MIDI y OSC, vídeo en varias pantallas y una vista Live para la cabina.",
-  skip: "Saltar al contenido", rev: "Hoja de datos, rev.", docs: "Documentación", download: "Descargar",
-  lang_label: "Idioma", toc_label: "Secciones",
-  toc_general: "General", toc_outputs: "Salidas", toc_edit: "Edición", toc_live: "Directo", toc_video: "Vídeo", toc_setlists: "Setlists",
-  toc_remote: "Control remoto", toc_project: "Archivo de proyecto", toc_specs: "Especificaciones", toc_order: "Descarga",
-  h1a: "Construye el show.", h1b: "Ejecuta el show.", h1c: "Confía en el reloj.",
-  lead: "Una app de escritorio que convierte canciones, eventos y cues en un único proyecto con un reloj maestro de timecode: el modelo de cues de QLab sobre una línea de tiempo al estilo REAPER.",
+  title: "FLUX — Control de shows y visuales en directo",
+  desc: "Monta shows en una línea de tiempo, usa timecode LTC o MTC y mezcla visuales en directo en modo VJ. FLUX es una app de escritorio para Windows y Linux.",
+  skip: "Saltar al contenido", docs: "Documentación", download: "Descargar",
+  lang_label: "Idioma", nav_label: "Navegación principal",
+  h1a: "Control del show.", h1b: "Visuales en directo.",
+  lead: "Crea líneas de tiempo y ejecuta cues con timecode en CUE. Lanza y mezcla visuales sobre la marcha en VJ. Dos modos en una app de escritorio para espectáculos en directo.",
+  download_flux: "Descargar FLUX", explore: "Explorar los modos",
+  hero_alt: "Vista Edit de FLUX con audio, vídeo, notas, MIDI y OSC en una línea de tiempo",
+  hero_vj_alt: "Interfaz VJ de FLUX con clips visuales, capas, monitores y efectos",
+  hero_compare_label: "Comparar las vistas CUE y VJ",
+  hero_compare_caption: "Arrastra el separador para explorar CUE y VJ.",
+  h_modes: "Tres formas de trabajar. Dos modos.",
+  mode_timeline: "Monta una línea de tiempo", mode_timeline_p: "Ordena audio, vídeo y cues con un mismo reloj de timecode.",
+  mode_live: "Ejecuta los cues", mode_live_p: "Pulsa Ctrl+1 para Edit y Ctrl+2 para Live. En Live ves el cue en marcha, el que está en espera y cuánto falta para el siguiente.",
+  mode_vj: "Mezcla visuales en directo", mode_vj_p: "Lanza clips a mano, mezcla capas y envía la composición al escenario.",
+  h_vj: "Lanza y mezcla visuales en modo VJ",
+  vj_p: "Crea un show VJ para improvisar visuales desde una rejilla de clips. Lanza un clip o una columna entera, mezcla vídeo, imágenes, generadores y entradas en directo por capas y envía la composición a las pantallas.",
+  vj_alt: "Interfaz VJ de FLUX con clips visuales, capas, monitores y efectos",
+  vj_caption: "El espacio de trabajo VJ con clips, capas y monitores de vídeo.",
+  vj_decks_t: "Decks y capas", vj_decks: "Organiza los clips en decks y mantén las capas globales disponibles al cambiar de deck.",
+  vj_mix_t: "Mezcla en directo", vj_mix: "Encadena efectos, elige modos de fusión y mezcla las capas que asignes a cada lado del crossfader A/B.",
+  vj_control_t: "Control y tempo", vj_control: "Asigna controles MIDI, OSC, DMX o teclas. Sincroniza el tempo con Ableton Link o reloj MIDI.",
+  vj_mapping_t: "Mapping de vídeo", vj_mapping: "Envía la mezcla a varias pantallas con slices, bordes suaves, máscaras y cartas de ajuste por slice.",
+  vj_guide: "Leer la guía de VJ", timeline_guide: "Leer la guía de edición", setlist_guide: "Leer la guía de setlists",
   o_version: "Versión", o_platforms: "Plataformas", o_platforms_v: "Windows, Linux", o_format: "Archivo de proyecto",
-  download_flux: "Descargar FLUX", o_note: "Abre la última versión en GitHub. Desarrollo temprano; todavía no hay versión para macOS.",
+  h_timecode_demo: "Prueba el reloj de timecode",
   start_line: "INICIO 01:00:00:00", k_stop: "Stop", k_play: "Play", k_pause: "Pausa",
   rate_legend: "Velocidad de fotogramas", jump: "Ir a 01:00:58:00",
-  fig1: "Un reloj de demostración sintético que corre en esta página. No es la app y nada sale de tu navegador.",
+  fig1: "Simulación de timecode en el navegador.",
   tc_label: "Visor de timecode de demostración", transport_label: "Transporte",
-  who_label: "Para quién es FLUX",
-  why: "Las herramientas basadas en cues ejecutan cues sin una línea de tiempo real. Las de línea de tiempo te dan la línea de tiempo sin control del show. FLUX junta ambas cosas, y el timecode sale del mismo proyecto que guarda el audio y los cues, así que lo que ves en pantalla y lo que sale hacia el equipo no pueden discrepar.",
-  w1: "Técnicos de show", w1d: "Operadores de luces, vídeo y sonido que sincronizan equipos con timecode, en una cabina oscura, bajo presión, leyendo la pantalla desde el otro lado de la sala.",
-  w2: "Músicos", w2d: "Intérpretes con pistas de acompañamiento que necesitan el audio y los cues del show bloqueados entre sí.",
-  w3: "Diseñadores de show", w3d: "Quienes preparan el show con antelación en el estudio, con espacio para pensar.",
   h_outputs: "Un reloj, todas las salidas",
   outputs_p: "El reloj de muestras de la interfaz de audio lo mueve todo. La reproducción, LTC, MTC y los cues se leen de la misma posición, así que la hora que ves es la hora que envías.",
   s_ltc: "Timecode lineal a través de una interfaz de audio.", s_mtc: "Timecode MIDI a través de un puerto MIDI.",
@@ -34,24 +45,24 @@ const ES = {
   f_ltc: "interfaz de audio", f_mtc: "puerto MIDI", f_audio: "Audio", f_audio_s: "audio del programa",
   f_cueout: "Cues", f_cueout_s: "MIDI y OSC", f_remote: "Remoto",
   f_remote_s: "MIDI, OSC",
+  scroll_diagram: "Desplázate horizontalmente para ver todo el diagrama.",
   fig2: "Camino de la señal. La línea discontinua mueve el reloj; nunca lo alimenta.",
-  h_edit: "Constrúyelo en una línea de tiempo",
-  edit_alt: "Vista Edit de FLUX reproduciendo: el timecode y el transporte arriba, y debajo una pista de audio con su forma de onda, una pista de vídeo con miniaturas, notas del operador, cues de MIDI Show Control y cues OSC bajo un cabezal en movimiento",
-  fig3: "La vista Edit reproduciendo un show de ejemplo: audio, vídeo, notas, MIDI y OSC en una misma línea de tiempo. Una captura real de la app.",
+  h_edit: "Monta el show en la línea de tiempo",
+  edit_p: "Organiza el audio, el vídeo y los cues juntos, desde la intro hasta la última canción.",
   e1_t: "Líneas de tiempo", e1: "Varias por proyecto, cada una con sus pistas, su velocidad de fotogramas y su desfase de inicio.",
   e2_t: "Pistas", e2: "Audio, vídeo, notas, MIDI y OSC.",
   e3_t: "Audio", e3: "Importa wav, aiff, flac, mp3 y ogg, mezclados con el reloj del dispositivo de audio, con detección de tempo y clic de metrónomo.",
   e4_t: "Voz del operador", e4: "Escribe diálogos y asocia voz generada (ElevenLabs, con tu propia clave de API) o audio importado y grabado. La voz generada se archiva en el proyecto, así que suena sin conexión.",
   e5_t: "Enrutado", e5: "Envía cada pista a un destino con nombre o a Silencio. Cada ordenador asigna los destinos a sus propias interfaces y canales.",
-  h_live: "Ejecútalo desde la cabina",
-  live_p: "Pasa de Edit a Live con un solo control (Ctrl+1, Ctrl+2). Live es de solo lectura salvo para ir a un cue, y está hecho para leerse desde el otro lado de la sala.",
+  h_live: "Ejecuta los cues desde la cabina",
+  live_p: "Pulsa Ctrl+1 para Edit y Ctrl+2 para Live. En Live ves el cue en marcha, el que está en espera y cuánto falta para el siguiente.",
   live_alt: "Vista Live de FLUX: un timecode grande con el transporte arriba, el cue en marcha con su cuenta atrás a la izquierda y la lista de cues a la derecha",
   fig4: "La vista Live ejecutando un setlist preparado del mismo show. Una captura real de la app.",
-  l1_t: "El tiempo primero", l1: "Un timecode que se lee de un vistazo, con el estado del transporte escrito en palabras y no solo en color.",
+  l1_t: "El tiempo primero", l1: "Un timecode que se lee de un vistazo, con el estado del transporte escrito al lado.",
   l2_t: "El cue en marcha", l2: "El cue que suena con su cuenta atrás, lo que está en espera y las notas del operador.",
-  l3_t: "Toda la lista de cues", l3: "El backend deriva los cues y su estado, así que la pantalla solo dibuja lo que sabe el motor.",
+  l3_t: "Toda la lista de cues", l3: "Sigue todo el orden del show con el cue actual y los siguientes señalados.",
   h_video: "Llévalo a las pantallas",
-  video_p: "Las pistas de vídeo reproducen sus clips fotograma a fotograma con el mismo reloj que el timecode, con su sonido en el enrutado. Cada pantalla es una ventana en un monitor o proyector propio: corta la imagen en slices, ancla cada slice a la superficie donde cae, funde dos proyectores en una sola imagen y deja a oscuras lo que no debe iluminarse, como en un media server.",
+  video_p: "Haz mapping del vídeo de la línea de tiempo o de una composición VJ en monitores y proyectores. Divide la imagen en slices, ajusta cada uno a su superficie, funde los proyectores que se solapan y aplica máscaras donde haga falta.",
   outputs_alt: "Dos salidas de proyector una al lado de la otra: cada una muestra su mitad de la imagen y se funde a negro donde se solapan, y la izquierda tiene un rectángulo enmascarado",
   fig5v: "Dos salidas de proyector del show de ejemplo. Cada una se funde donde se solapa con la otra, así que las dos forman una sola imagen, y la izquierda enmascara una puerta del escenario. Ventanas de salida reales de la app.",
   mapping_alt: "El editor de mapping: la imagen con un slice a la izquierda, la pantalla con las esquinas del slice a la derecha y campos con el slice en píxeles y su borde suave",
@@ -72,26 +83,26 @@ const ES = {
   osc_cap: "Algunas de las direcciones OSC fijas", osc_addr: "Dirección", osc_does: "Hace",
   osc_play: "Reproducir", osc_stop: "Parar y volver al inicio", osc_go: "Ejecutar la acción GO",
   osc_next: "Ir al siguiente cue", osc_goto: "Ir al cue número n", osc_view: "Cambiar a la vista Live",
-  h_project: "Un show es un solo archivo",
-  project_p: 'Un proyecto <span class="m">.flx</span> es un zip con <span class="m">project.json</span> y el audio y el vídeo que usan las pistas, así que un show se abre en otro equipo y simplemente funciona. Los proyectos <span class="m">.fxtc</span> antiguos siguen abriéndose.',
-  tree_label: "Contenido de un archivo .flx", tree1: "líneas de tiempo, pistas, salidas", tree2: "los archivos que reproducen las pistas", tree3: "los vídeos que muestran las pantallas",
+  h_project: "Archivos de proyecto y medios",
+  project_p: 'Elige CUE o VJ al crear un proyecto <span class="m">.flx</span>. FLUX guarda el show en el proyecto y enlaza los medios del disco por defecto. Usa Archivo → Medios para volver a enlazar los archivos o reunirlos al mover un show. Los proyectos <span class="m">.fxtc</span> antiguos siguen abriéndose.',
+  tree_label: "Contenido de un archivo .flx", tree1: "datos del show y enlaces a medios", tree2: "audio incrustado, si lo hay", tree3: "vídeo o imágenes incrustados, si los hay",
   fig5: "Estructura de un archivo de proyecto.",
   h_specs: "Especificaciones y estado",
   sp4_t: "Audio importable", sp8_t: "Vídeo importable",
   sp5_t: "Plataformas", sp5: "Windows (instalador), Linux (AppImage, DEB, RPM).",
   sp6_t: "Idiomas", sp6: "Inglés y español.",
   sp7_t: "Diagnóstico", sp7: "Un registro rotativo y un zip con un clic con los registros y un informe del sistema y los dispositivos, desde el menú Ayuda.",
-  st_on: "Disponible hoy",
+  st_on: "Funciones",
   st1: "Proyectos .flx con varias líneas de tiempo", st2: "Pistas de audio y notas, detección de tempo, metrónomo",
   st3: "Generación de LTC y MTC, con un transporte completo", st4: "Pistas de cues MIDI y OSC", st5: "Vista Live y setlists con GO",
   st6: "Pistas de voz del operador", st7: "Control remoto MIDI y OSC, con pads iluminados",
   st8: "Pistas de vídeo en varias pantallas, con slices, bordes suaves y máscaras",
+  st9: "Lanzamiento de clips, mezcla por capas y mapping de VJ",
   st_off: "Aún no construido",
   sn2: "Cues Art-Net", sn3: "Seguir un timecode externo", sn5: "Versiones para macOS",
   h_order: "Consigue FLUX",
   order_p: "FLUX está en desarrollo temprano. Elige el instalador para tu sistema en la página de la última versión: el instalador de Windows, o el AppImage, DEB o RPM de Linux.",
   source: "Ejecútalo desde el código", docs_all: "Lee la documentación", issues: "Informa de un problema",
-  foot: "Construye el show. Ejecuta el show. Confía en el reloj.",
   license: "Con licencia GNU General Public License v3.0 o posterior.",
   // Used by the demo clock
   w_stopped: "PARADO", w_playing: "REPRODUCIENDO", w_paused: "EN PAUSA",
@@ -313,20 +324,14 @@ const demo = (() => {
   return { refreshText };
 })();
 
-// ------------------------------------------------------------ section index
-(() => {
-  const links = new Map($$(".toc a").map((a) => [a.getAttribute("href").slice(1), a]));
-  const sections = [...links.keys()].map((id) => document.getElementById(id)).filter(Boolean);
-  if (!sections.length || !("IntersectionObserver" in window)) return;
-  const set = (id) => { for (const [k, a] of links) k === id ? a.setAttribute("aria-current", "true") : a.removeAttribute("aria-current"); };
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) set(e.target.id);
-  }, { rootMargin: "-20% 0px -70% 0px" });
-  sections.forEach((s) => io.observe(s));
-  set("general");
-})();
-
 // ---------------------------------------------------------------- start
 for (const b of $$(".lang button")) b.addEventListener("click", () => setLang(b.dataset.lang, true));
 const fromBrowser = (navigator.language || "").toLowerCase().startsWith("es") ? "es" : "en";
 setLang(saved.get() || fromBrowser, false);
+
+// Keep the divider aligned with the native range input for mouse, touch and keyboard.
+const heroComparison = $("#hero-comparison");
+const heroRange = $(".hero-comparison-range", heroComparison);
+heroRange.addEventListener("input", () => {
+  heroComparison.style.setProperty("--position", `${heroRange.value}%`);
+});
