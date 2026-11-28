@@ -13,6 +13,7 @@ impl Vj {
     /// Whether anything of the grid is modulated.
     pub fn is_modulated(&self) -> bool {
         self.dashboard.iter().any(|k| k.modulation.is_some())
+            || crate::vj_dashboard::scoped(self).any(|(_, _, k)| k.modulation.is_some())
             || self
                 .composition_effects
                 .iter()
@@ -44,6 +45,9 @@ impl Vj {
         self.dashboard.iter().any(|k| {
             k.modulation
                 .is_some_and(|m| matches!(m.source, Source::Audio { .. }))
+        }) || crate::vj_dashboard::scoped(self).any(|(_, _, k)| {
+            k.modulation
+                .is_some_and(|m| matches!(m.source, Source::Audio { .. }))
         }) || stack(&self.composition_effects)
             || self.layers.iter().any(|l| {
                 audio(&l.modulation)
@@ -65,6 +69,9 @@ impl Vj {
                     .get(k)
                     .is_some_and(|k| k.modulation.is_some())
             });
+        }
+        if crate::vj_dashboard::has_key(self, head) {
+            return field == "value";
         }
         let has = |m: &BTreeMap<String, Modulation>| m.contains_key(field);
         let in_stack =
@@ -206,17 +213,28 @@ pub fn modulate_into(
             crate::vj_mapping::drive_knob(drawn, at, value);
         }
     }
+    for (scope, at, knob) in crate::vj_dashboard::scoped(vj) {
+        if let Some(m) = &knob.modulation {
+            let value = modulator.value(&crate::vj_dashboard::key(&scope, at), m, clock, bands);
+            crate::vj_dashboard::drive(drawn, &scope, at, value);
+        }
+    }
 }
 
 /// The modulated values of a grid at an instant, for the inspector to mark on its controls: by
 /// effect id and setting, by layer id and field, by clip id and field.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Values {
     pub effects: BTreeMap<String, BTreeMap<String, f32>>,
     pub layers: BTreeMap<String, BTreeMap<String, f32>>,
     pub clips: BTreeMap<String, BTreeMap<String, f32>>,
     /// The modulated knobs of the dashboard, by place.
     pub knobs: BTreeMap<usize, f32>,
+    /// The modulated knobs of a layer's dashboard, by layer id and place.
+    pub layer_knobs: BTreeMap<String, BTreeMap<usize, f32>>,
+    /// The modulated knobs of a clip's dashboard, by clip id and place.
+    pub clip_knobs: BTreeMap<String, BTreeMap<usize, f32>>,
 }
 
 /// Every modulated value of `vj` at `clock`.
@@ -278,6 +296,16 @@ pub fn values(vj: &Vj, modulator: &mut Modulator, clock: Clock, bands: Bands) ->
             let value = modulator.value(&format!("k:{at}:value"), m, clock, bands);
             out.knobs.insert(at, value);
         }
+    }
+    for (scope, at, knob) in crate::vj_dashboard::scoped(vj) {
+        let Some(m) = &knob.modulation else { continue };
+        let value = modulator.value(&crate::vj_dashboard::key(&scope, at), m, clock, bands);
+        let (map, id) = match scope {
+            crate::vj_dashboard::Scope::Layer { layer } => (&mut out.layer_knobs, layer),
+            crate::vj_dashboard::Scope::Clip { clip } => (&mut out.clip_knobs, clip),
+            crate::vj_dashboard::Scope::Composition => continue,
+        };
+        map.entry(id).or_default().insert(at, value);
     }
     out
 }
@@ -447,5 +475,69 @@ mod tests {
         near(out.layers[0].opacity, 0.5);
         assert_eq!(vj.dashboard[2].value, 0.0, "the stored knob is as it was");
         assert_eq!(vj.layers[0].opacity, 1.0, "and so is what it drives");
+    }
+
+    #[test]
+    fn a_layer_and_a_clip_knob_should_be_modulated_shown_and_known_to_the_pruning() {
+        use crate::vj_dashboard::Scope;
+        use crate::vj_mapping::Target;
+        let mut vj = grid_with_clip();
+        let layer = vj.layers[0].id.clone();
+        let on_layer = Scope::Layer {
+            layer: layer.clone(),
+        };
+        let on_clip = Scope::Clip { clip: "c".into() };
+        crate::vj_dashboard::link(
+            &mut vj,
+            &on_layer,
+            1,
+            Target::LayerOpacity {
+                layer: layer.clone(),
+            },
+            Some(0.2),
+            Some(0.8),
+        )
+        .unwrap();
+        crate::vj_dashboard::link(
+            &mut vj,
+            &on_clip,
+            0,
+            Target::ClipSpeed { clip: "c".into() },
+            Some(1.0),
+            Some(2.0),
+        )
+        .unwrap();
+        let saw = lfo(Shape::SawUp, beats(1.0), 0.0, 0.0, 1.0);
+        crate::vj_dashboard::modulate(&mut vj, &on_layer, 1, Some(saw)).unwrap();
+        crate::vj_dashboard::modulate(&mut vj, &on_clip, 0, Some(saw)).unwrap();
+        assert!(vj.is_modulated());
+        assert!(vj.has_modulation_key(&format!("lk:{layer}:1:value")));
+        assert!(vj.has_modulation_key("ck:c:0:value"));
+        assert!(!vj.has_modulation_key("ck:c:1:value"));
+        let out = modulate(
+            &vj,
+            &mut Modulator::default(),
+            at(0.0, 0.5),
+            Bands::default(),
+        );
+        near(out.layers[0].opacity, 0.5);
+        near(out.layers[0].clips[0].speed, 1.5);
+        assert_eq!(vj.layers[0].opacity, 1.0, "the stored grid is as it was");
+        let shown = values(
+            &vj,
+            &mut Modulator::default(),
+            at(0.0, 0.25),
+            Bands::default(),
+        );
+        near(shown.layer_knobs[&layer][&1], 0.25);
+        near(shown.clip_knobs["c"][&0], 0.25);
+        let target: ModTarget = serde_json::from_str(r#"{"clip":"c","knob":3}"#).unwrap();
+        assert_eq!(
+            target,
+            ModTarget::ClipKnob {
+                clip: "c".into(),
+                knob: 3
+            }
+        );
     }
 }

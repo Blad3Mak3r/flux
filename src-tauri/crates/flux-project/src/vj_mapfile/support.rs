@@ -121,6 +121,7 @@ pub fn mapped() -> Project {
     apply(
         &mut project,
         VjOp::DashboardLink {
+            scope: Default::default(),
             knob: 3,
             target,
             min: Some(0.1),
@@ -130,6 +131,7 @@ pub fn mapped() -> Project {
     apply(
         &mut project,
         VjOp::RenameKnob {
+            scope: Default::default(),
             knob: 3,
             name: "Fade".into(),
         },

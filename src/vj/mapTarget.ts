@@ -8,16 +8,16 @@ export type TargetClass = "continuous" | "switch" | "action";
 const SWITCHES = new Set<VjTarget["kind"]>(["layerBypass", "layerSolo", "groupBypass", "groupSolo", "effectBypass", "bpmPause"]);
 const CONTINUOUS = new Set<VjTarget["kind"]>([
   "layerMaster", "layerVolume", "layerOpacity", "layerTransition", "groupMaster", "groupOpacity", "crossfader", "bpm",
-  "clipSpeed", "effectParam", "generatorNumber", "dashboard",
+  "clipSpeed", "effectParam", "generatorNumber", "dashboard", "layerDashboard", "clipDashboard",
 ]);
 
 /** How a source drives a target: a level, a switch it flips or sets, or an action it runs. */
 export const targetClass = (target: VjTarget): TargetClass =>
   CONTINUOUS.has(target.kind) ? "continuous" : SWITCHES.has(target.kind) ? "switch" : "action";
 
-/** A dashboard knob links to a continuous target other than the crossfader-free ones that make a loop. */
+/** A dashboard knob links to a continuous target other than another knob, which would make a loop. */
 export const linkable = (target: VjTarget): boolean =>
-  targetClass(target) === "continuous" && target.kind !== "dashboard";
+  targetClass(target) === "continuous" && !/ashboard$/.test(target.kind);
 
 /** Equal for the same target: its kind, then its other fields in name order. */
 export function targetKey(target: VjTarget): string {

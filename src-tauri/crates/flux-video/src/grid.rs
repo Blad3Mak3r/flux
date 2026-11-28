@@ -737,6 +737,7 @@ mod tests {
             position: [0.0, 0.0],
             effects: Vec::new(),
             modulation: Default::default(),
+            dashboard: Vec::new(),
         }
     }
 
@@ -760,6 +761,7 @@ mod tests {
             group: None,
             effects: Vec::new(),
             modulation: Default::default(),
+            dashboard: Vec::new(),
             clips,
         }
     }

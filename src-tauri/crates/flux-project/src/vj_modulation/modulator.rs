@@ -151,8 +151,13 @@ mod tests {
     #[test]
     fn a_knob_should_follow_the_sound_and_be_known_to_the_pruning() {
         let mut vj = modulated_knob(0.0, 1.0);
-        crate::vj_mapping::modulate_knob(&mut vj, 2, Some(audio(Band::Low, 1.0, 0.0, 0.0)))
-            .unwrap();
+        crate::vj_dashboard::modulate(
+            &mut vj,
+            &Default::default(),
+            2,
+            Some(audio(Band::Low, 1.0, 0.0, 0.0)),
+        )
+        .unwrap();
         assert!(vj.has_audio_modulation());
         assert!(vj.has_modulation_key("k:2:value"));
         assert!(!vj.has_modulation_key("k:3:value"));

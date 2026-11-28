@@ -29,6 +29,7 @@ pub mod show;
 mod test_util;
 mod video_clips;
 pub mod vj;
+pub mod vj_dashboard;
 pub mod vj_effects;
 pub mod vj_feedback;
 mod vj_file;

@@ -167,7 +167,17 @@ pub enum ModTarget {
         clip: String,
         field: String,
     },
-    /// A knob of the dashboard, 0 to 1.
+    /// A knob of a layer's dashboard, 0 to 1.
+    LayerKnob {
+        layer: String,
+        knob: usize,
+    },
+    /// A knob of a clip's dashboard, 0 to 1.
+    ClipKnob {
+        clip: String,
+        knob: usize,
+    },
+    /// A knob of the composition dashboard, 0 to 1. Last: it would also read the two above.
     Knob {
         knob: usize,
     },
@@ -254,7 +264,7 @@ mod tests {
         let mut modulator = Modulator::default();
         let shown = values(&vj, &mut modulator, at(0.0, 0.25), Bands::default());
         near(shown.knobs[&2], 0.25);
-        crate::vj_mapping::modulate_knob(&mut vj, 2, None).unwrap();
+        crate::vj_dashboard::modulate(&mut vj, &Default::default(), 2, None).unwrap();
         assert!(!vj.is_modulated());
     }
 

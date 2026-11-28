@@ -21,8 +21,9 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::events::OscArg;
-use crate::model::{MAX_BPM, MIN_BPM, Project};
+use crate::model::{MAX_BPM, MIN_BPM};
 use crate::vj::{MAX_SPEED, MAX_TRANSITION, MIN_SPEED, Vj, VjOp};
+use crate::vj_dashboard::Scope;
 use crate::{ProjectError, Result};
 
 /// Most mappings a grid keeps.
@@ -355,6 +356,16 @@ pub enum Target {
     Dashboard {
         knob: usize,
     },
+    /// A knob of a layer's dashboard, 0 to 1 (see [`crate::vj_dashboard`]).
+    LayerDashboard {
+        layer: String,
+        knob: usize,
+    },
+    /// A knob of a clip's dashboard, 0 to 1.
+    ClipDashboard {
+        clip: String,
+        knob: usize,
+    },
 }
 
 /// How a target is driven.
@@ -386,7 +397,9 @@ impl Target {
             | Self::ClipSpeed { .. }
             | Self::EffectParam { .. }
             | Self::GeneratorNumber { .. }
-            | Self::Dashboard { .. } => Class::Continuous,
+            | Self::Dashboard { .. }
+            | Self::LayerDashboard { .. }
+            | Self::ClipDashboard { .. } => Class::Continuous,
             _ => Class::Action,
         }
     }
@@ -419,6 +432,8 @@ impl Target {
                 .find_effect(effect)
                 .is_some_and(|e| e.kind.number_range(param).is_some()),
             Self::Dashboard { knob } => *knob < KNOBS,
+            Self::LayerDashboard { layer: id, knob } => *knob < KNOBS && layer(id),
+            Self::ClipDashboard { clip, knob } => *knob < KNOBS && vj.find_clip(clip).is_some(),
             _ => true,
         }
     }
@@ -436,7 +451,9 @@ impl Target {
             | Self::GroupMaster { .. }
             | Self::GroupOpacity { .. }
             | Self::Crossfader
-            | Self::Dashboard { .. } => Some((0.0, 1.0)),
+            | Self::Dashboard { .. }
+            | Self::LayerDashboard { .. }
+            | Self::ClipDashboard { .. } => Some((0.0, 1.0)),
             Self::LayerTransition { .. } => Some((0.0, MAX_TRANSITION)),
             Self::Bpm => Some((MIN_BPM as f32, MAX_BPM as f32)),
             Self::ClipSpeed { .. } => Some((MIN_SPEED, MAX_SPEED)),
@@ -540,22 +557,28 @@ pub struct Link {
 }
 
 impl Link {
-    fn at(&self, knob: f32) -> f32 {
+    pub(crate) fn at(&self, knob: f32) -> f32 {
         self.min + (self.max - self.min) * knob.clamp(0.0, 1.0)
     }
 }
 
 /// Whether a knob can drive `target`: a number stored with the grid (not the runtime crossfader,
 /// and not another knob).
-fn linkable(target: &Target) -> bool {
+pub(crate) fn linkable(target: &Target) -> bool {
     target.class() == Class::Continuous
-        && !matches!(target, Target::Crossfader | Target::Dashboard { .. })
+        && !matches!(
+            target,
+            Target::Crossfader
+                | Target::Dashboard { .. }
+                | Target::LayerDashboard { .. }
+                | Target::ClipDashboard { .. }
+        )
 }
 
 // ---------------------------------------------------------------------------------------------
 // Editing
 
-fn finite(value: f32) -> Result<f32> {
+pub(crate) fn finite(value: f32) -> Result<f32> {
     if value.is_finite() {
         Ok(value)
     } else {
@@ -792,19 +815,6 @@ pub(crate) fn set_mapping_fine(vj: &mut Vj, id: &str, fine: Option<u16>) -> Resu
     Ok(())
 }
 
-/// The knob `knob`, made if the dashboard is not that long yet.
-fn knob_mut(vj: &mut Vj, knob: usize) -> Result<&mut Knob> {
-    if knob >= KNOBS {
-        return Err(ProjectError::Invalid(format!(
-            "the dashboard has {KNOBS} knobs"
-        )));
-    }
-    if vj.dashboard.len() <= knob {
-        vj.dashboard.resize_with(knob + 1, Knob::default);
-    }
-    Ok(&mut vj.dashboard[knob])
-}
-
 pub(crate) fn link_knob(
     vj: &mut Vj,
     knob: usize,
@@ -812,41 +822,7 @@ pub(crate) fn link_knob(
     min: Option<f32>,
     max: Option<f32>,
 ) -> Result<()> {
-    if !linkable(&target) {
-        return Err(ProjectError::Invalid(
-            "a knob drives a number of the grid".into(),
-        ));
-    }
-    let (lo, hi) = target
-        .range(vj)
-        .ok_or_else(|| ProjectError::Invalid(format!("there is nothing to link: {target:?}")))?;
-    let link = Link {
-        min: finite(min.unwrap_or(lo))?.clamp(lo, hi),
-        max: finite(max.unwrap_or(hi))?.clamp(lo, hi),
-        target,
-    };
-    let knob = knob_mut(vj, knob)?;
-    if let Some(old) = knob.links.iter_mut().find(|l| l.target == link.target) {
-        *old = link;
-    } else if knob.links.len() >= MAX_LINKS {
-        return Err(ProjectError::Invalid(format!(
-            "a knob drives at most {MAX_LINKS} numbers"
-        )));
-    } else {
-        knob.links.push(link);
-    }
-    Ok(())
-}
-
-/// Sets or takes away the modulation of a knob, brought into 0 to 1.
-pub(crate) fn modulate_knob(
-    vj: &mut Vj,
-    knob: usize,
-    modulation: Option<crate::vj_modulation::Modulation>,
-) -> Result<()> {
-    let modulation = modulation.map(|m| m.tidy(0.0, 1.0)).transpose()?;
-    knob_mut(vj, knob)?.modulation = modulation;
-    Ok(())
+    crate::vj_dashboard::link(vj, &Scope::Composition, knob, target, min, max)
 }
 
 /// Sets the number `target` names directly in `vj`, as a knob's link does in the drawn copy of a
@@ -913,46 +889,11 @@ pub(crate) fn drive(vj: &mut Vj, target: &Target, value: f32) {
 
 /// Moves what the knob `index` of `vj` is linked to, as if it stood at `value`.
 pub(crate) fn drive_knob(vj: &mut Vj, index: usize, value: f32) {
-    let Some(knob) = vj.dashboard.get_mut(index) else {
-        return;
-    };
-    knob.value = value.clamp(0.0, 1.0);
-    let moves: Vec<(Target, f32)> = knob
-        .links
-        .iter()
-        .map(|link| (link.target.clone(), link.at(value)))
-        .collect();
-    for (target, v) in moves {
-        drive(vj, &target, v);
-    }
-}
-
-pub(crate) fn unlink_knob(vj: &mut Vj, knob: usize, target: &Target) -> Result<()> {
-    knob_mut(vj, knob)?.links.retain(|l| &l.target != target);
-    Ok(())
+    crate::vj_dashboard::drive(vj, &Scope::Composition, index, value);
 }
 
 pub(crate) fn rename_knob(vj: &mut Vj, knob: usize, name: Option<String>) -> Result<()> {
-    knob_mut(vj, knob)?.name = name;
-    Ok(())
-}
-
-/// Turns the knob and moves what it is linked to, as one edit. A link that cannot move (its
-/// target is gone) is skipped; pruning takes it away at the next removal.
-pub(crate) fn turn_knob(project: &mut Project, knob: usize, value: f32) -> Result<()> {
-    let value = finite(value)?.clamp(0.0, 1.0);
-    let links = {
-        let knob = knob_mut(&mut project.vj, knob)?;
-        knob.value = value;
-        knob.links.clone()
-    };
-    for link in links {
-        if let Some(op) = value_op(&project.vj, &link.target, link.at(value)) {
-            // The ops of a link make no ids, and `String::new` keeps the recursion one type deep.
-            crate::vj::apply(project, op, String::new)?;
-        }
-    }
-    Ok(())
+    crate::vj_dashboard::rename(vj, &Scope::Composition, knob, name)
 }
 
 /// Takes away the mappings and links whose target is gone.
@@ -967,6 +908,7 @@ pub fn prune(vj: &mut Vj) {
         knob.links.retain(|link| link.target.exists(vj));
     }
     vj.dashboard = dashboard;
+    crate::vj_dashboard::prune(vj);
 }
 
 /// Checks the mappings and the dashboard: known targets, ranges, ids, modes.
@@ -1240,7 +1182,23 @@ pub fn value_op(vj: &Vj, target: &Target, value: f32) -> Option<VjOp> {
                 generator,
             }
         }
-        Target::Dashboard { knob } => VjOp::DashboardValue { knob: *knob, value },
+        Target::Dashboard { knob } => VjOp::DashboardValue {
+            scope: Scope::Composition,
+            knob: *knob,
+            value,
+        },
+        Target::LayerDashboard { layer, knob } => VjOp::DashboardValue {
+            scope: Scope::Layer {
+                layer: layer.clone(),
+            },
+            knob: *knob,
+            value,
+        },
+        Target::ClipDashboard { clip, knob } => VjOp::DashboardValue {
+            scope: Scope::Clip { clip: clip.clone() },
+            knob: *knob,
+            value,
+        },
         _ => return None,
     })
 }
@@ -1364,6 +1322,12 @@ fn place(segment: &str) -> Option<usize> {
     segment.parse::<usize>().ok()?.checked_sub(1)
 }
 
+/// The knob an address segment `link3` names, from 0.
+fn knob_at(segment: &str) -> Option<usize> {
+    let knob = place(segment.strip_prefix("link")?)?;
+    (knob < KNOBS).then_some(knob)
+}
+
 /// The deck layer's or global layer's clip at the place `column` (from 0) of the deck shown.
 fn clip_at(vj: &Vj, layer: usize, column: usize) -> Option<String> {
     let layer = vj.layers.get(layer)?;
@@ -1406,6 +1370,8 @@ fn clip_at(vj: &Vj, layer: usize, column: usize) -> Option<String> {
 /// | `/composition/decks/next`, `/composition/decks/prev` | 1 | next or previous deck |
 /// | `/composition/disconnectall` | 1 | stops every layer |
 /// | `/composition/dashboard/link{k}` | 0 to 1 | turns knob `k` |
+/// | `/composition/layers/{n}/dashboard/link{k}` | 0 to 1 | turns knob `k` of the layer's dashboard |
+/// | `/composition/layers/{n}/clips/{m}/dashboard/link{k}` | 0 to 1 | turns knob `k` of the clip's dashboard |
 ///
 /// The tempo addresses also work without `/composition`. A button address with no value is a
 /// press, with a value above 0 too, and with 0 a release.
@@ -1458,6 +1424,14 @@ pub fn osc_command(vj: &Vj, address: &str, args: &[OscArg]) -> Option<(Target, C
         ["layers", n, "transition", "duration"] => fader(Target::LayerTransition {
             layer: layer_id(n)?,
         }),
+        ["layers", n, "dashboard", link] => fader(Target::LayerDashboard {
+            layer: layer_id(n)?,
+            knob: knob_at(link)?,
+        }),
+        ["layers", n, "clips", m, "dashboard", link] => fader(Target::ClipDashboard {
+            clip: clip_at(vj, place(n)?, place(m)?)?,
+            knob: knob_at(link)?,
+        }),
         ["layers", n, "bypassed"] => switch(Target::LayerBypass {
             layer: layer_id(n)?,
         }),
@@ -1498,11 +1472,9 @@ pub fn osc_command(vj: &Vj, address: &str, args: &[OscArg]) -> Option<(Target, C
         ["decks", "next"] => button(Target::DeckNext),
         ["decks", "prev"] => button(Target::DeckPrev),
         ["disconnectall"] => button(Target::StopAll),
-        ["dashboard", link] => {
-            let knob = place(link.strip_prefix("link")?)?;
-            (knob < KNOBS).then_some(())?;
-            fader(Target::Dashboard { knob })
-        }
+        ["dashboard", link] => fader(Target::Dashboard {
+            knob: knob_at(link)?,
+        }),
         _ => None,
     }
 }
@@ -1999,6 +1971,7 @@ mod tests {
             apply(
                 project,
                 VjOp::DashboardLink {
+                    scope: Default::default(),
                     knob: 2,
                     target: Target::LayerOpacity {
                         layer: layer.into(),
@@ -2020,6 +1993,7 @@ mod tests {
         apply(
             &mut project,
             VjOp::DashboardValue {
+                scope: Default::default(),
                 knob: 2,
                 value: 0.5,
             },
@@ -2041,6 +2015,7 @@ mod tests {
         let mut project = show();
         let id = layer(&project, 0).id.clone();
         let link = |target| VjOp::DashboardLink {
+            scope: Default::default(),
             knob: 0,
             target,
             min: None,
@@ -2053,6 +2028,7 @@ mod tests {
             apply(
                 &mut project,
                 VjOp::DashboardValue {
+                    scope: Default::default(),
                     knob: KNOBS,
                     value: 0.5
                 }

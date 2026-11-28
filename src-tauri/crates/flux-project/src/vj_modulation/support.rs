@@ -89,6 +89,6 @@ pub fn modulated_knob(min: f32, max: f32) -> Vj {
     )
     .unwrap();
     let m = lfo(Shape::SawUp, beats(1.0), 0.0, min, max);
-    crate::vj_mapping::modulate_knob(&mut vj, 2, Some(m)).unwrap();
+    crate::vj_dashboard::modulate(&mut vj, &Default::default(), 2, Some(m)).unwrap();
     vj
 }

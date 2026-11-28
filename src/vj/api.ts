@@ -117,14 +117,17 @@ export type VjOp =
   | { op: "setMappingFollow"; mapping: string; follow: VjFollow }
   | { op: "setMapping"; mapping: string; min: number; max: number; invert: boolean; mode: VjButtonMode }
   /** Turns a dashboard knob (0 to 1) and moves what it is linked to. */
-  | { op: "dashboardValue"; knob: number; value: number }
+  | { op: "dashboardValue"; scope?: DashScope; knob: number; value: number }
   /** Links a number to a knob; a bound left out is the target's own. */
-  | { op: "dashboardLink"; knob: number; target: VjTarget; min?: number; max?: number }
-  | { op: "dashboardUnlink"; knob: number; target: VjTarget }
-  | { op: "renameKnob"; knob: number; name: string };
+  | { op: "dashboardLink"; scope?: DashScope; knob: number; target: VjTarget; min?: number; max?: number }
+  | { op: "dashboardUnlink"; scope?: DashScope; knob: number; target: VjTarget }
+  | { op: "renameKnob"; scope?: DashScope; knob: number; name: string };
+
+/** Whose dashboard an op is on; absent is the composition's. */
+export type DashScope = { kind: "layer"; layer: string } | { kind: "clip"; clip: string };
 
 /** What a modulation is set on: a numeric setting of an effect, or a field of a layer or a clip. */
-export type ModTarget = { effect: string; param: string } | { layer: string; field: string } | { clip: string; field: string } | { knob: number };
+export type ModTarget = { effect: string; param: string } | { layer: string; field: string } | { clip: string; field: string } | { knob: number } | { layer: string; knob: number } | { clip: string; knob: number };
 
 /** The font families a text block can use. */
 export const vjFonts = () => invoke<VjFont[]>("vj_fonts");
@@ -312,6 +315,10 @@ export interface ModValues {
   clips: Record<string, Record<string, number>>;
   /** The modulated knobs of the dashboard, by place. */
   knobs: Record<string, number>;
+  /** The modulated knobs of a layer's dashboard, by layer id and place. */
+  layerKnobs: Record<string, Record<string, number>>;
+  /** The modulated knobs of a clip's dashboard, by clip id and place. */
+  clipKnobs: Record<string, Record<string, number>>;
 }
 
 /** The colours a pad gets on the controller of `port` before the user changes them, and the name of its colour table (`apc`), if its values are colours. */

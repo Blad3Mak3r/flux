@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::generator::Generator;
 use crate::model::{MAX_BPM, MAX_CLIP_NAME, MIN_BPM, Project, Timeline, VideoFit};
+pub use crate::vj_dashboard::Scope;
 pub use crate::vj_effects::{
     Effect, EffectKind, EffectSpec, EffectTarget, MAX_EFFECTS, MirrorAxis, ParamSpec, Sync,
 };
@@ -238,6 +239,10 @@ pub struct Layer {
     /// field. The stored value is the one the fader stands at.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub modulation: BTreeMap<String, Modulation>,
+    /// The layer's dashboard: up to [`crate::vj_mapping::KNOBS`] knobs, each driving the numbers
+    /// of the layer it is linked to (see [`crate::vj_dashboard`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dashboard: Vec<Knob>,
     /// At most one per column of each deck (per slot on a global layer), in no particular order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clips: Vec<Clip>,
@@ -280,6 +285,7 @@ impl Layer {
             group: None,
             effects: Vec::new(),
             modulation: BTreeMap::new(),
+            dashboard: Vec::new(),
             clips: Vec::new(),
         }
     }
@@ -541,6 +547,9 @@ pub struct Clip {
     /// field.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub modulation: BTreeMap<String, Modulation>,
+    /// The clip's dashboard, as the layer's; it goes wherever the clip is moved.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dashboard: Vec<Knob>,
 }
 
 fn is_fit(fit: &VideoFit) -> bool {
@@ -1135,6 +1144,9 @@ pub enum VjOp {
     },
     /// Turns a knob of the dashboard to `value` (0 to 1) and moves every number linked to it.
     DashboardValue {
+        /// Whose dashboard; absent is the composition's.
+        #[serde(default)]
+        scope: Scope,
         knob: usize,
         value: f32,
     },
@@ -1142,16 +1154,22 @@ pub enum VjOp {
     /// `min` and at 1 gives `max`. A bound left out is the target's own, so a new link covers its
     /// whole range.
     DashboardLink {
+        #[serde(default)]
+        scope: Scope,
         knob: usize,
         target: Target,
         min: Option<f32>,
         max: Option<f32>,
     },
     DashboardUnlink {
+        #[serde(default)]
+        scope: Scope,
         knob: usize,
         target: Target,
     },
     RenameKnob {
+        #[serde(default)]
+        scope: Scope,
         knob: usize,
         name: String,
     },
@@ -1830,21 +1848,24 @@ pub fn apply(project: &mut Project, op: VjOp, mut new_id: impl FnMut() -> String
         VjOp::SetMappingFine { mapping, fine } => {
             crate::vj_mapping::set_mapping_fine(vj, &mapping, fine)?;
         }
-        VjOp::DashboardValue { knob, value } => {
-            crate::vj_mapping::turn_knob(project, knob, value)?;
+        VjOp::DashboardValue { scope, knob, value } => {
+            crate::vj_dashboard::turn(project, &scope, knob, value)?;
         }
         VjOp::DashboardLink {
+            scope,
             knob,
             target,
             min,
             max,
-        } => crate::vj_mapping::link_knob(vj, knob, target, min, max)?,
-        VjOp::DashboardUnlink { knob, target } => {
-            crate::vj_mapping::unlink_knob(vj, knob, &target)?;
-        }
-        VjOp::RenameKnob { knob, name } => {
+        } => crate::vj_dashboard::link(vj, &scope, knob, target, min, max)?,
+        VjOp::DashboardUnlink {
+            scope,
+            knob,
+            target,
+        } => crate::vj_dashboard::unlink(vj, &scope, knob, &target)?,
+        VjOp::RenameKnob { scope, knob, name } => {
             let name = typed_name(&name)?;
-            crate::vj_mapping::rename_knob(vj, knob, name)?;
+            crate::vj_dashboard::rename(vj, &scope, knob, name)?;
         }
     }
     project.vj.tidy_groups();
@@ -1877,6 +1898,7 @@ pub(crate) fn new_clip(id: String, asset: String, generator: Option<Generator>) 
         position: [0.0, 0.0],
         effects: Vec::new(),
         modulation: BTreeMap::new(),
+        dashboard: Vec::new(),
     }
 }
 
@@ -1907,8 +1929,17 @@ fn take_clip(vj: &mut Vj, layer: &str, which: impl Fn(&Clip) -> bool) -> Option<
 
 /// Sets or takes away the modulation `target` names, brought into the range of the setting.
 fn set_modulation(vj: &mut Vj, target: ModTarget, modulation: Option<Modulation>) -> Result<()> {
-    if let ModTarget::Knob { knob } = target {
-        return crate::vj_mapping::modulate_knob(vj, knob, modulation);
+    match target {
+        ModTarget::Knob { knob } => {
+            return crate::vj_dashboard::modulate(vj, &Scope::Composition, knob, modulation);
+        }
+        ModTarget::LayerKnob { layer, knob } => {
+            return crate::vj_dashboard::modulate(vj, &Scope::Layer { layer }, knob, modulation);
+        }
+        ModTarget::ClipKnob { clip, knob } => {
+            return crate::vj_dashboard::modulate(vj, &Scope::Clip { clip }, knob, modulation);
+        }
+        _ => {}
     }
     let (map, key, (lo, hi)) = match target {
         ModTarget::Effect { effect, param } => {
@@ -1927,7 +1958,9 @@ fn set_modulation(vj: &mut Vj, target: ModTarget, modulation: Option<Modulation>
                 .ok_or_else(|| ProjectError::Invalid(format!("{field} cannot be modulated")))?;
             (&mut clip.modulation, field, range)
         }
-        ModTarget::Knob { .. } => unreachable!("a knob is handled above"),
+        ModTarget::Knob { .. } | ModTarget::LayerKnob { .. } | ModTarget::ClipKnob { .. } => {
+            unreachable!("a knob is handled above")
+        }
     };
     match modulation {
         Some(modulation) => {
@@ -2095,6 +2128,7 @@ pub(crate) fn validate<'a>(
         }
     }
     crate::vj_mapping::validate(vj)?;
+    crate::vj_dashboard::validate(vj)?;
     Ok(())
 }
 
