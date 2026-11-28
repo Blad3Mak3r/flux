@@ -1,7 +1,7 @@
 // Run with `npm test`. The ruler and the graticule share these positions.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { barTickPositions, beatFrames, frameX, pickTicks, tickPositions } from "./scale.ts";
+import { barTickPositions, beatFrames, frameX, nearestBeatLine, pickTicks, tickPositions } from "./scale.ts";
 
 const RATES = ["fps24", "fps25", "fps2997Drop", "fps30"];
 const ZOOMS = [0.04, 0.1, 0.37, 1.6, 2.5, 7.3, 40];
@@ -156,4 +156,58 @@ test("a three-hour show at 30 fps fits a 1200 px lane, with labels that stay apa
   assert.ok(zoom * 3 * 3600 * 30 <= 1200 + 1);
   const ticks = pickTicks(zoom, "fps30");
   assert.ok(ticks.major * zoom >= 96 && ticks.major * zoom < 1200 / 2);
+});
+
+// 25 fps. 4/4 at 120 BPM for 100 frames (2 bars of 12.5-frame beats), 3/4 at 60 BPM for 75 frames
+// (1 bar), then 6/8 at 90 BPM, whose beat is an eighth: 60 / 90 * 25 / 2 frames.
+const MAP = {
+  bpm: 120,
+  beatsPerBar: 4,
+  fps: 25,
+  later: [
+    { startFrame: 100, beatFrames: 25, beatsPerBar: 3, beatUnit: 4, bpm: 60, firstBar: 3 },
+    { startFrame: 175, beatFrames: 25 / 3, beatsPerBar: 6, beatUnit: 8, bpm: 90, firstBar: 4 },
+  ],
+};
+
+test("a beat lasts as long as the note it is says", () => {
+  assert.equal(beatFrames({ bpm: 120, beatsPerBar: 6, beatUnit: 8, fps: 25 }), 6.25);
+  assert.equal(beatFrames({ bpm: 120, beatsPerBar: 4, fps: 25 }), 12.5);
+});
+
+test("the bar lines follow the tempo and signature changes, numbered across them", () => {
+  const { major } = barTickPositions(40, MAP, 12_000);
+  const frames = major.map((tick) => tick.frame);
+  const labels = major.map((tick) => tick.label);
+  // Beats at 40 px a frame are far apart: every beat is labelled.
+  assert.deepEqual(frames.slice(0, 9), [0, 12.5, 25, 37.5, 50, 62.5, 75, 87.5, 100]);
+  assert.deepEqual(labels.slice(0, 9), ["1", "1.2", "1.3", "1.4", "2", "2.2", "2.3", "2.4", "3"]);
+  // The 3/4 bar has three beats, 25 frames apart, and the next segment starts on its own beat.
+  assert.deepEqual(frames.slice(8, 12), [100, 125, 150, 175]);
+  assert.deepEqual(labels.slice(8, 12), ["3", "3.2", "3.3", "4"]);
+  assert.ok(Math.abs(frames[12] - (175 + 25 / 3)) < 1e-9);
+  assert.equal(labels[12], "4.2");
+  // No tick is repeated where a segment ends and the next starts.
+  assert.equal(new Set(frames).size, frames.length);
+});
+
+test("only the visible part of a map with changes is drawn", () => {
+  const all = barTickPositions(40, MAP, 12_000);
+  const part = barTickPositions(40, MAP, 12_000, { from: 4_000, to: 6_000 });
+  assert.ok(part.major.length < all.major.length);
+  assert.ok(part.major.every((tick) => tick.frame * 40 >= 4_000 - 40 * 25 && tick.frame * 40 <= 6_000 + 40 * 25));
+});
+
+test("the closest line of the grid is found in the segment the frame is in, or at the start of the next", () => {
+  const near = (frame, step) => nearestBeatLine(frame, MAP, 40, step);
+  assert.equal(near(14, "beat"), 12.5);
+  assert.equal(near(30, "bar"), 50);
+  // Closer to the 3/4 segment's start than to the last beat before it.
+  assert.equal(near(99, "beat"), 100);
+  assert.equal(near(130, "beat"), 125);
+  assert.equal(near(170, "bar"), 175);
+  // Bars of the 6/8 segment last 50 frames.
+  assert.equal(near(205, "bar"), 225);
+  // With no changes it is the plain grid.
+  assert.equal(nearestBeatLine(34, { bpm: 120, beatsPerBar: 4, fps: 25 }, 40, "beat"), 37.5);
 });

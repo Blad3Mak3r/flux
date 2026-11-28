@@ -17,6 +17,7 @@ the page shows ("Missing"), never an error.
 | Play, Pause, Play or pause | Moves the transport. Play with no output open lets the window open it and play. |
 | Stop | Stops and goes back to the start of the timeline. |
 | Next cue, Previous cue | Seeks to the first unmuted cue after the position, or the last before it. "Previous" within one second of a cue goes to the cue before it. |
+| Next marker, Previous marker | Seeks to the marker after or before the position (markers of the active timeline, see [Editing the timeline](timeline-editing.md)). Nothing happens when there is none that way. |
 | Go to cue `n` | Seeks to the cue with that number (from 1, as the Live view numbers them; a muted cue is still a place). |
 | Move by frames / seconds | Moves the position by a number, negative goes back, held inside the timeline. |
 | Next / previous timeline, Go to timeline `n` | Changes the active timeline, as when a show ends and the next is made ready. Refused while the show plays. |
@@ -39,6 +40,7 @@ Enable it and pick a UDP port (default **9000**). The addresses are fixed:
 | Address | Argument |
 | --- | --- |
 | `/flux/play`, `/flux/pause`, `/flux/toggle`, `/flux/stop` | none |
+| `/flux/marker/next`, `/flux/marker/prev` | none |
 | `/flux/cue/next`, `/flux/cue/prev` | none |
 | `/flux/cue/goto` | cue number, from 1 |
 | `/flux/seek/frames`, `/flux/seek/seconds` | number, negative goes back |

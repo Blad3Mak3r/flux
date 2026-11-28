@@ -38,6 +38,7 @@ pub(crate) fn prepare_plan(
             entries.push(PreparedEntry {
                 entry: entry.clone(),
                 timeline: timeline.clone(),
+                tempo: Arc::clone(&known.tempo),
                 clips: Arc::clone(&known.clips),
                 end: known.end,
                 cues: known.cues.clone(),
@@ -99,6 +100,7 @@ pub(crate) fn prepare_plan(
         entries.push(PreparedEntry {
             entry: entry.clone(),
             timeline: timeline.clone(),
+            tempo: Arc::new(flux_project::TempoMap::of(timeline)),
             clips: Arc::new(programme.set),
             end,
             cues,

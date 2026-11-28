@@ -330,13 +330,14 @@ impl Output {
         warnings
     }
 
-    /// Follows an edit of the active timeline's tempo or click switch while the show runs.
+    /// Follows an edit of the active timeline's tempo map or click switch while the show runs.
     /// The metronome and the MIDI clock follow it; either does nothing when the project has none.
-    pub fn set_tempo(&self, tempo: Tempo) {
-        self.reader.shared.set_clock_bpm(tempo.bpm);
+    pub fn set_tempo(&self, tempo: Tempo, changes: &[TempoChange], rate: FrameRate) {
+        let map = TempoMap::new(tempo, changes, rate);
         if let Some(metronome) = &self.metronome {
-            metronome.set(tempo);
+            metronome.set_map(map.clone());
         }
+        self.reader.shared.set_clock_map(map);
     }
 
     /// The device the programme plays on, to find out whether it is back after it was unplugged.

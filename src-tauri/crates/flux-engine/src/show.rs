@@ -16,6 +16,8 @@ pub struct PreparedEntry {
     pub cues: crate::cues::CueList,
     pub entry: SetlistEntry,
     pub timeline: Timeline,
+    /// The tempo map of `timeline`, which the metronome follows while the entry plays.
+    pub tempo: Arc<flux_project::TempoMap>,
     pub clips: Arc<ClipSet>,
     pub end: u64,
 }
@@ -390,6 +392,7 @@ mod tests {
         let cues = crate::cues::CueList::build(&project, &timeline, |_| None);
         let entry = PreparedEntry {
             cues,
+            tempo: Arc::new(flux_project::TempoMap::of(&timeline)),
             timeline,
             entry: SetlistEntry {
                 id: "e".into(),

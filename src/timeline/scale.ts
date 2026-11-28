@@ -1,4 +1,4 @@
-import type { FrameRate } from "../project/types";
+import type { BeatSegment as ProjectBeatSegment, FrameRate } from "../project/types";
 import { nominalFps } from "../timecode.ts";
 
 export const MIN_PX_PER_FRAME = 0.003;
@@ -100,8 +100,28 @@ export function tickPositions(pxPerFrame: number, rate: FrameRate, width: number
 export interface BeatGrid {
   bpm: number;
   beatsPerBar: number;
+  /** The note a beat is: 4 a quarter, 8 an eighth; absent is 4. */
+  beatUnit?: number;
   /** Real frames per second of the timeline, so a beat lasts what the music says. */
   fps: number;
+  /** The stretches after the first, where the tempo map changes, as the backend derived them. */
+  later?: readonly BeatSegment[];
+}
+
+/** A stretch of the beat grid with one tempo and one signature. */
+export type BeatSegment = ProjectBeatSegment;
+
+/** The stretches of the grid, the first one being the timeline's own tempo. */
+export function segmentsOf(grid: BeatGrid): readonly BeatSegment[] {
+  const first: BeatSegment = {
+    startFrame: 0,
+    beatFrames: beatFrames(grid),
+    beatsPerBar: grid.beatsPerBar,
+    beatUnit: grid.beatUnit ?? 4,
+    bpm: grid.bpm,
+    firstBar: 1,
+  };
+  return grid.later?.length ? [first, ...grid.later] : [first];
 }
 
 /** A labelled tick on the bar ruler. */
@@ -121,9 +141,8 @@ export interface BarTickPositions {
  * Beats between labelled ticks (`step`) and between unlabelled ones (`minorStep`, `null` for none):
  * every beat when there is room, else whole bars, doubling until labels cannot crowd.
  */
-function barSteps(pxPerFrame: number, grid: BeatGrid): { step: number; minorStep: number | null } {
-  const beatPx = beatFrames(grid) * pxPerFrame;
-  const perBar = grid.beatsPerBar;
+function barSteps(pxPerFrame: number, beat: number, perBar: number): { step: number; minorStep: number | null } {
+  const beatPx = beat * pxPerFrame;
   let step = 1;
   if (beatPx < MIN_MAJOR_PX) {
     step = perBar;
@@ -144,7 +163,7 @@ function barSteps(pxPerFrame: number, grid: BeatGrid): { step: number; minorStep
  */
 export function lineSpacing(pxPerFrame: number, rate: FrameRate, grid: BeatGrid | null): number {
   if (grid) {
-    const { step, minorStep } = barSteps(pxPerFrame, grid);
+    const { step, minorStep } = barSteps(pxPerFrame, beatFrames(grid), grid.beatsPerBar);
     return beatFrames(grid) * (minorStep ?? step);
   }
   const ticks = pickTicks(pxPerFrame, rate);
@@ -152,7 +171,25 @@ export function lineSpacing(pxPerFrame: number, rate: FrameRate, grid: BeatGrid 
 }
 
 /** Frames one beat lasts; not a whole number, which is why positions here are never rounded. */
-export const beatFrames = (grid: BeatGrid): number => (60 / grid.bpm) * grid.fps;
+export const beatFrames = (grid: BeatGrid): number => ((60 / grid.bpm) * grid.fps * 4) / (grid.beatUnit ?? 4);
+
+/**
+ * The line of the grid closest to a frame, for the magnet: a multiple of the step from where the
+ * segment the frame is in starts, or where the next one starts when that is closer. `step` is
+ * `"beat"`, `"bar"` or `"auto"`, the lines the ruler draws at this zoom.
+ */
+export function nearestBeatLine(frame: number, grid: BeatGrid, pxPerFrame: number, step: "auto" | "beat" | "bar"): number {
+  const segments = segmentsOf(grid);
+  let at = segments.length - 1;
+  while (at > 0 && segments[at].startFrame > frame) at--;
+  const segment = segments[at];
+  const end = segments[at + 1]?.startFrame;
+  const auto = barSteps(pxPerFrame, segment.beatFrames, segment.beatsPerBar);
+  const beats = step === "beat" ? 1 : step === "bar" ? segment.beatsPerBar : (auto.minorStep ?? auto.step);
+  const spacing = segment.beatFrames * beats;
+  const line = segment.startFrame + Math.round((frame - segment.startFrame) / spacing) * spacing;
+  return end !== undefined && (line >= end || end - frame < Math.abs(line - frame)) ? end : line;
+}
 
 /**
  * Every bar line and beat up to `width` pixels (or inside `range`), from the origin, spaced like `tickPositions` so
@@ -165,19 +202,27 @@ export function barTickPositions(
   width: number,
   range?: PixelRange,
 ): BarTickPositions {
-  const beat = beatFrames(grid);
-  const perBar = grid.beatsPerBar;
-  const { step, minorStep } = barSteps(pxPerFrame, grid);
-
-  const beats = Math.ceil(Math.min(width, range?.to ?? width) / pxPerFrame / beat);
-  const firstBeat = Math.max(0, Math.floor((range?.from ?? 0) / pxPerFrame / beat));
+  const segments = segmentsOf(grid);
+  const last = Math.ceil(Math.min(width, range?.to ?? width) / pxPerFrame);
+  const first = Math.max(0, Math.floor((range?.from ?? 0) / pxPerFrame));
   const major: BarTick[] = [];
   const minor: number[] = [];
-  for (let n = firstBeat; n <= beats; n++) {
-    const bar = Math.floor(n / perBar) + 1;
-    const inBar = n % perBar;
-    if (n % step === 0) major.push({ frame: n * beat, label: inBar === 0 ? String(bar) : `${bar}.${inBar + 1}` });
-    else if (minorStep !== null && n % minorStep === 0) minor.push(n * beat);
-  }
+  segments.forEach((segment, at) => {
+    const end = segments[at + 1]?.startFrame ?? Infinity;
+    if (end < first || segment.startFrame > last) return;
+    const { beatFrames: beat, beatsPerBar: perBar } = segment;
+    const { step, minorStep } = barSteps(pxPerFrame, beat, perBar);
+    const from = Math.max(0, Math.floor((first - segment.startFrame) / beat));
+    const to = Math.ceil((Math.min(last, end) - segment.startFrame) / beat);
+    for (let n = from; n <= to; n++) {
+      const frame = segment.startFrame + n * beat;
+      // The next segment starts its own beat here.
+      if (at + 1 < segments.length && frame >= end) break;
+      const bar = segment.firstBar + Math.floor(n / perBar);
+      const inBar = n % perBar;
+      if (n % step === 0) major.push({ frame, label: inBar === 0 ? String(bar) : `${bar}.${inBar + 1}` });
+      else if (minorStep !== null && n % minorStep === 0) minor.push(frame);
+    }
+  });
   return { major, minor };
 }

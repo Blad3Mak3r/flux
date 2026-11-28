@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useT } from "../i18n";
-import { MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/types";
+import { BEAT_UNITS, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/types";
+import { addTempoChangeAt, editMarks } from "../state/marks";
 import { setTimelineTempo } from "../state/actions";
 import { useDoc, useTimeline } from "../state/store";
 import { openSetup, setRulerMode, useUi } from "../state/ui";
@@ -86,10 +87,31 @@ export function TempoBar() {
       >
         {BEAT_COUNTS.map((beats) => (
           <option key={beats} value={beats}>
-            {beats}/4
+            {beats}
           </option>
         ))}
       </Select>
+      <span className="tempo-unit" aria-hidden="true">
+        /
+      </span>
+      <Select
+        className="beats-select"
+        aria-label={t("marks.tempo.unit")}
+        title={t("marks.tempo.unit")}
+        value={tempo.beatUnit ?? 4}
+        onChange={(unit) =>
+          void editMarks({ op: "setTempoAt", at: 0, bpm: tempo.bpm, beatsPerBar: tempo.beatsPerBar, beatUnit: Number(unit) })
+        }
+      >
+        {BEAT_UNITS.map((unit) => (
+          <option key={unit} value={unit}>
+            {unit}
+          </option>
+        ))}
+      </Select>
+      <button type="button" className="button" title={t("marks.tempo.add.hint")} onClick={() => void addTempoChangeAt()}>
+        {t("marks.tempo.add")}
+      </button>
       <button
         type="button"
         className="follow-toggle click-toggle"

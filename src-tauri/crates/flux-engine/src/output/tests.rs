@@ -788,6 +788,7 @@ fn show_entry(
     let project = flux_project::Project::new("Test", FrameRate::Fps25);
     crate::show::PreparedEntry {
         cues: crate::cues::CueList::build(&project, &timeline, |_| None),
+        tempo: Arc::new(flux_project::TempoMap::of(&timeline)),
         timeline,
         entry: flux_project::SetlistEntry {
             id: id.into(),
@@ -2088,6 +2089,7 @@ fn click_out(bpm: f64, click: bool, channels: Vec<usize>) -> ClickOut {
             Tempo {
                 bpm,
                 beats_per_bar: 4,
+                beat_unit: 4,
                 click,
             },
             0.0,
@@ -2160,6 +2162,7 @@ fn render_should_not_click_while_the_click_is_off_or_the_show_is_not_playing() {
     shared.set(Tempo {
         bpm: 120.0,
         beats_per_bar: 4,
+        beat_unit: 4,
         click: true,
     });
     tx.send(Message::Transport(Command::Seek(0))).unwrap();
@@ -2231,6 +2234,7 @@ fn follower_should_keep_its_own_count_across_buffers_while_in_step() {
         Tempo {
             bpm: 120.0,
             beats_per_bar: 4,
+            beat_unit: 4,
             click: true,
         },
         0.0,

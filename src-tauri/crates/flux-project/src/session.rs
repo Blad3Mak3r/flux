@@ -551,6 +551,11 @@ impl Session {
         self.change(|project, active| item_ops::apply(project, active, op))
     }
 
+    /// Edits the markers, regions and tempo changes of the active timeline (see [`MarksOp`]).
+    pub fn marks_edit(&mut self, op: crate::MarksOp) -> Result<ProjectState> {
+        self.change(|project, active| crate::marks::apply(project, active, op))
+    }
+
     /// Moves or removes many items of the active timeline at once, with ripple if asked (see
     /// [`ItemsOp`]); `lengths` is what [`Session::length_assets`] asked for.
     pub fn items_edit(&mut self, op: ItemsOp, lengths: &Lengths) -> Result<ProjectState> {

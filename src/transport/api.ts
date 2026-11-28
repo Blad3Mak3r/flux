@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { LiveState } from "../live/api";
-import type { OutputConfig, Project, Tempo, Timeline } from "../project/types";
+import type { FrameRate, OutputConfig, Project, Tempo, TempoChange, Timeline } from "../project/types";
 
 // Mirrors src-tauri/crates/flux-engine/src/output.rs and src-tauri/src/transport_commands.rs.
 
@@ -166,9 +166,9 @@ export function setTrackGain(trackId: string, gainDb: number): Promise<void> {
   return invoke("output_set_track_gain", { trackId, gainDb });
 }
 
-/** Moves the metronome of a running output to the active timeline's tempo and click switch. */
-export function setTempo(tempo: Tempo): Promise<void> {
-  return invoke("output_set_tempo", { tempo });
+/** Moves the metronome and the MIDI clock of a running output to the active timeline's tempo map and click switch. */
+export function setTempo(tempo: Tempo, changes: TempoChange[], frameRate: FrameRate): Promise<void> {
+  return invoke("output_set_tempo", { tempo, changes, frameRate });
 }
 
 export function stopOutput(): Promise<void> {

@@ -35,6 +35,27 @@ Ripple editing makes the later items follow an edit. Choose the mode with the Ri
 
 The mode is remembered on this computer.
 
+## Markers, regions and the tempo map
+
+Under the ruler is a lane for markers, regions and tempo changes. Everything in it is one step of undo and is kept in
+order by the backend, which also names new ones (Marker 1, Region 2, ...), refuses a blank name and keeps each tempo change
+on a bar.
+
+- **Markers** are named points. **M** (or Transport > Add marker at playhead) adds one at the playhead; drag it to move
+  it, double-click it to rename, right-click for its colour and Delete, and press Delete when it is picked.
+  **Alt+Left** and **Alt+Right** go to the previous and next marker (Transport menu too). Markers and the edges of regions
+  are targets of the magnet (Snap > Markers and regions) and have a dashed line across the tracks.
+- **Regions** are named stretches. Drag in the empty lane to draw one, or select some clips or notes and press **R**
+  (Transport > Region from selection) to cover them. Drag a region to move it, drag its edges to resize it, double-click to
+  rename. Regions are only marked and navigated for now: Flux has no loop playback, so a region does not loop.
+- **Tempo changes** start a new tempo and time signature from a bar. The tempo bar holds the first point (BPM, beats per bar
+  and the note a beat is); **+ Change** or the lane's context menu adds a change at the bar nearest the playhead (or where
+  you right-clicked), with the tempo in force there. Pick a change to edit its BPM and signature or delete it, and drag it to
+  another bar. Set the ruler to **Bars** to count bars and beats across the changes; the grid, the snap (Beat and Bar steps
+  too) and the metronome follow the same map, also after a seek, and the MIDI clock out follows its tempo.
+
+Markers and regions are shown in the editor only; the Live view does not show them yet.
+
 ## Zoom to fit
 
 The button beside the zoom controls, View > Zoom to fit, or Ctrl/Cmd+0 zooms and scrolls so that the selected items

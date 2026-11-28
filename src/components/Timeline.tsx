@@ -1,4 +1,6 @@
 import { CONTROL_RAIL_H, ControlLayer } from "../show/ControlLayer";
+import { MARKER_RAIL_H, MarkLines, MarkerLane } from "../marks/MarkerLane";
+import { beatGrid, useBeatMap } from "../state/tempoMap";
 import { openSetlists, openShowControls } from "../state/ui";
 import { ListIcon, LoopIcon } from "./icons";
 import { useVoice } from "../voice/store";
@@ -135,12 +137,15 @@ export function Timeline() {
   const pxPerFrame = useUi((ui) => ui.zoom);
   const bars = useUi((ui) => ui.ruler === "bars");
   const { frameRate, start } = timeline.timecode;
-  const { bpm, beatsPerBar } = timeline.tempo;
+  const { bpm, beatsPerBar, beatUnit } = timeline.tempo;
   const exactFps = realFps(frameRate);
+  const later = useBeatMap((map) => map.later);
+  const hasChanges = Boolean(timeline.tempoChanges?.length);
   // Kept by identity while nothing it is made of changes, so the ticks are not redrawn for nothing.
   const grid = useMemo<BeatGrid | null>(
-    () => (bars ? { bpm, beatsPerBar, fps: exactFps } : null),
-    [bars, bpm, beatsPerBar, exactFps],
+    () => (bars ? beatGrid(timeline, later) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the grid is made of exactly these
+    [bars, bpm, beatsPerBar, beatUnit, exactFps, later, hasChanges],
   );
   const fps = nominalFps(frameRate);
   const guessLength = GUESS_SECONDS * fps;
@@ -305,7 +310,7 @@ export function Timeline() {
       <div className="screen-body" style={{ "--scrollbar-h": `${scrollbarHeight}px` } as CSSProperties}>
         {/* Outside the horizontal scroller, so its scrollbar spans the lanes only. */}
         <div className="screen-side">
-          <div className="zoom-corner" style={{ height: RULER_H + CONTROL_RAIL_H }}>
+          <div className="zoom-corner" style={{ height: RULER_H + MARKER_RAIL_H + CONTROL_RAIL_H }}>
             <div className="zoom">
               <button
                 type="button"
@@ -338,6 +343,7 @@ export function Timeline() {
                 <ZoomFitIcon />
               </button>
             </div>
+            <div className="marks-lane-label">{t("marks.lane")}</div>
             <button type="button" className="controls-lane-label" onClick={() => openShowControls()}><LoopIcon />{t("show.loopsWaits")}</button>
           </div>
 
@@ -386,7 +392,7 @@ export function Timeline() {
           >
             <Graticule width={laneWidth} pxPerFrame={pxPerFrame} rate={frameRate} grid={grid} />
 
-            <div className="ruler-row" style={{ height: RULER_H + CONTROL_RAIL_H }}>
+            <div className="ruler-row" style={{ height: RULER_H + MARKER_RAIL_H + CONTROL_RAIL_H }}>
               <Ruler
                 width={laneWidth}
                 pxPerFrame={pxPerFrame}
@@ -395,6 +401,7 @@ export function Timeline() {
                 grid={grid}
                 onSeek={(relative) => seek(start + relative)}
               />
+              <MarkerLane pxPerFrame={pxPerFrame} width={laneWidth} />
               <ControlLayer controls={timeline.controls} pxPerFrame={pxPerFrame} rate={frameRate} />
             </div>
 
@@ -409,7 +416,7 @@ export function Timeline() {
                 dragging={drag?.id === track.id}
               />
             ))}
-            {dropY !== null && <div className="drop-line" style={{ top: RULER_H + CONTROL_RAIL_H + dropY }} />}
+            {dropY !== null && <div className="drop-line" style={{ top: RULER_H + MARKER_RAIL_H + CONTROL_RAIL_H + dropY }} />}
 
             {timeline.tracks.length === 0 && (
               <div className="empty-state on-screen">
@@ -418,6 +425,7 @@ export function Timeline() {
               </div>
             )}
 
+            <MarkLines pxPerFrame={pxPerFrame} top={RULER_H + MARKER_RAIL_H + CONTROL_RAIL_H} />
             <SpanShade pxPerFrame={pxPerFrame} />
             <HoverLine pxPerFrame={pxPerFrame} />
             <DropLine pxPerFrame={pxPerFrame} />

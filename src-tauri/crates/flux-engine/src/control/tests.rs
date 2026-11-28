@@ -267,6 +267,8 @@ fn the_fixed_addresses_should_map_to_their_actions() {
         ("/flux/stop", ControlAction::Stop),
         ("/flux/cue/next", ControlAction::NextCue),
         ("/flux/cue/prev", ControlAction::PrevCue),
+        ("/flux/marker/next", ControlAction::NextMarker),
+        ("/flux/marker/prev", ControlAction::PrevMarker),
         ("/flux/timeline/next", ControlAction::NextTimeline),
         ("/flux/timeline/prev", ControlAction::PrevTimeline),
         ("/flux/view/edit", ControlAction::ViewEdit),
@@ -463,4 +465,24 @@ fn a_step_should_stay_inside_the_timeline() {
     assert_eq!(step(1990, 25, 1000, 2000), 2000, "not past the end");
     assert_eq!(step(u64::MAX, i64::MAX, 0, 10), 10);
     assert_eq!(step(5, 1, 10, 3), 10, "an empty range stays at the first");
+}
+
+#[test]
+fn the_marker_actions_should_go_to_the_neighbour_marker_and_count_the_start_offset() {
+    let marker = |id: &str, at| flux_project::Marker {
+        id: id.into(),
+        at,
+        name: id.into(),
+        color: None,
+    };
+    let markers = [marker("b", 200), marker("a", 50)];
+    let at = |action, position| marker_target(action, position, &markers, 1000);
+    assert_eq!(at(ControlAction::NextMarker, 1000), Some(1050));
+    assert_eq!(at(ControlAction::NextMarker, 1050), Some(1200));
+    assert_eq!(at(ControlAction::NextMarker, 1200), None);
+    assert_eq!(at(ControlAction::PrevMarker, 1200), Some(1050));
+    assert_eq!(at(ControlAction::PrevMarker, 1050), None);
+    assert_eq!(at(ControlAction::PrevMarker, 900), None);
+    assert_eq!(at(ControlAction::NextMarker, 900), Some(1050));
+    assert_eq!(at(ControlAction::NextCue, 1000), None);
 }
