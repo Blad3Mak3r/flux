@@ -11,7 +11,7 @@ import type { MessageKey } from "../i18n";
 import { changePreferences, usePreferences } from "../preferences/store";
 import { vjAnalysisLevels } from "../vj/api";
 import type { AnalysisLevels } from "../vj/api";
-import { RowStatus } from "./pages";
+import { RowStatus } from "./rows";
 import { Select } from "../components/Select";
 
 interface Input {

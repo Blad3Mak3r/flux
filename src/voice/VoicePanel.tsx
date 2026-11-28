@@ -13,7 +13,7 @@ import { useDoc } from "../state/store";
 import { useTransport, selectMode } from "../transport/store";
 import type { Devices } from "../devices/useDevices";
 import type { Timeline, Track, VoiceOrder } from "../project/types";
-import { AudioRoute } from "../setup/pages";
+import { AudioRoute } from "../setup/AudioPages";
 import { addOrder, freezeVoices, generateOrder, operatorEdit, useVoice, voiceError, importRecording, stopListening } from "./store";
 
 export function VoicePage({ devices }: { devices: Devices }) {

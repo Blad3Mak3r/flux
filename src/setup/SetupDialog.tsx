@@ -20,7 +20,9 @@ import { ControlPage } from "./ControlPage";
 import { DmxPage } from "./DmxPage";
 import { AnalysisPage } from "./AnalysisPage";
 import { TimecodeInPage } from "./TimecodeInPage";
-import { AudioOutputsPage, AudioPage, GeneralPage, GraphicsPage, LtcPage, MetronomePage, MidiClockPage, MtcPage, OscPage, ProjectPage, TimelinePage } from "./pages";
+import { AudioOutputsPage, AudioPage, MetronomePage } from "./AudioPages";
+import { LtcPage, MidiClockPage, MtcPage, OscPage } from "./OutputPages";
+import { GeneralPage, GraphicsPage, ProjectPage, TimelinePage } from "./ShowPages";
 
 function Page({ section, devices }: { section: SetupSection; devices: Devices }) {
   switch (section) {
