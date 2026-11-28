@@ -58,6 +58,11 @@ pub struct Preferences {
     pub snapshot_media: bool,
     /// The folder the VJ recording saves into; absent is `Videos/FLUX`.
     pub recordings_dir: Option<String>,
+    /// The keys the user changed in a cue show; see `flux_project::keymap`.
+    pub shortcuts: flux_project::keymap::Overrides,
+    /// The keys every action has now: what the window looks key presses up in. Worked out when sent.
+    #[serde(skip_deserializing, skip_serializing_if = "Vec::is_empty")]
+    pub keymap: Vec<flux_project::keymap::ActionView>,
     #[serde(skip_deserializing)]
     pub revision: u64,
     #[serde(skip_deserializing)]

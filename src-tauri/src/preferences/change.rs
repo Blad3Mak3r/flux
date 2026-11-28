@@ -47,6 +47,15 @@ pub enum Change {
         #[serde(default)]
         only_if_unset: bool,
     },
+    /// Gives an action one key, or none. Refused when another action has the key.
+    Shortcut {
+        action: String,
+        key: Option<String>,
+    },
+    /// Back to the default keys of an action, or of all.
+    ShortcutReset {
+        action: Option<String>,
+    },
     Offset {
         kind: String,
         slot: u32,
@@ -132,6 +141,14 @@ impl Preferences {
                 if !only_if_unset || self.locale.is_none() {
                     self.locale = Some(locale);
                 }
+            }
+            Change::Shortcut { action, key } => {
+                flux_project::keymap::set(&mut self.shortcuts, &action, key.as_deref())
+                    .map_err(|e| e.to_string())?;
+            }
+            Change::ShortcutReset { action } => {
+                flux_project::keymap::reset(&mut self.shortcuts, action.as_deref())
+                    .map_err(|e| e.to_string())?;
             }
             Change::Offset { kind, slot, text } => {
                 let offset: i32 = text.trim().parse().map_err(|_| "invalid latency offset")?;

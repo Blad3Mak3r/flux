@@ -4,19 +4,21 @@ title: FLUX Docs
 
 # FLUX documentation
 
-FLUX is a desktop app that turns songs, events and cues into one project with a master timecode clock: QLab's cue
-model on a REAPER-style timeline. It generates LTC (through an audio interface) and MTC (through a MIDI port), fires
-MIDI and OSC cues from the same clock, and has a Live view for running the show from the booth.
+FLUX is a desktop app for running cues and mixing visuals at live shows. Choose **File > New cue show** or
+**File > New VJ show** when you create the project. Each project opens in its own mode.
 
-New here? The [landing page](https://blad3mak3r.github.io/flux/) shows what FLUX does, and the latest installers are on the
-[Releases page](https://github.com/Blad3Mak3r/flux/releases/latest). FLUX is in early development, so these guides
-describe what the app does today.
+| Mode | Workflows |
+| --- | --- |
+| **CUE** | Lay out audio, video, notes and MIDI or OSC cues in the [timeline](/timeline-editing). Use the [Live view and setlists](/setlists) to run the show with GO and send LTC and MTC from the master clock. |
+| **VJ** | [Launch and mix visuals live](/vj-mode) with a clip grid, layers, decks, effects and a crossfader. |
+
+The [landing page](https://blad3mak3r.github.io/flux/) shows both modes. Download installers from the
+[latest release](https://github.com/Blad3Mak3r/flux/releases/latest).
 
 ## Use FLUX
 
 | Guide | Covers |
 | --- | --- |
-| [Setlists and show operation](/setlists) | Preparing and running a setlist, GO and transitions. |
 | [Video and projection mapping](/video-output) | Video clips, output screens, slices, soft edges and masks. |
 | [Remote control](/remote-control) | MIDI controllers and OSC as a remote. |
 | [Per-track audio outputs](/audio-routing) | Per-track destinations and per-computer interfaces. |

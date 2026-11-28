@@ -18,6 +18,14 @@ pub fn analysis_source(app: &AppHandle) -> AnalysisSource {
         .unwrap_or_default()
 }
 
+impl Preferences {
+    /// What the window is sent: these preferences with the keys every action has now.
+    pub(super) fn sent(mut self) -> Self {
+        self.keymap = flux_project::keymap::view(&self.shortcuts);
+        self
+    }
+}
+
 #[tauri::command]
 pub fn preferences_get(app: AppHandle, state: State<'_, Store>) -> Result<Preferences, String> {
     let mut guard = state.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -30,7 +38,8 @@ pub fn preferences_get(app: AppHandle, state: State<'_, Store>) -> Result<Prefer
                     ..Default::default()
                 })
         })
-        .clone())
+        .clone()
+        .sent())
 }
 
 #[tauri::command]
@@ -48,6 +57,7 @@ pub fn preferences_change(
     save(&path, &next)?;
     next.revision = current.revision + 1;
     *current = next.clone();
+    let next = next.sent();
     let _ = app.emit("preferences-changed", &next);
     Ok(next)
 }

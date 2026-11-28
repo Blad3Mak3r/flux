@@ -37,6 +37,7 @@ pub(super) fn save(path: &Path, prefs: &Preferences) -> Result<(), String> {
     let tmp = path.with_extension("json.tmp");
     let mut stored = prefs.clone();
     stored.warning = None;
+    stored.keymap.clear();
     let bytes = serde_json::to_vec_pretty(&stored).map_err(|e| e.to_string())?;
     fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
     fs::rename(&tmp, path).map_err(|e| {
@@ -71,6 +72,7 @@ pub(super) fn validate(p: &Preferences) -> Result<(), String> {
         return Err("invalid analysis input".into());
     }
     flux_project::operator::validate_voice(p.voice.as_deref()).map_err(|e| e.to_string())?;
+    flux_project::keymap::validate(&p.shortcuts).map_err(|e| e.to_string())?;
     if p.ltc.keys().chain(p.mtc.keys()).any(|s| *s == 0) {
         return Err("invalid output slot".into());
     }

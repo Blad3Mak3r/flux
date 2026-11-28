@@ -35,7 +35,8 @@ import { Playhead } from "./Playhead";
 import { Ruler } from "./Ruler";
 import { TrackHeader, TrackLane, laneHeight } from "./TrackRow";
 import { ZoomFitIcon, ZoomInIcon, ZoomOutIcon } from "./icons";
-import { MOD_KEY, addTracksMenu, emptyMenu } from "./menus";
+import { useKeyHint } from "../keymap/keys";
+import { addTracksMenu, emptyMenu } from "./menus";
 
 const ZOOM_STEP = 1.25;
 /** Room past the last item, so there is always somewhere to drop the next one. */
@@ -125,6 +126,7 @@ function DropLine({ pxPerFrame }: { pxPerFrame: number }) {
 
 export function Timeline() {
   const t = useT();
+  const zoomFitHint = useKeyHint("zoomFit");
   const scroller = useRef<HTMLDivElement>(null);
   const headers = useRef<HTMLDivElement>(null);
   const [viewWidth, setViewWidth] = useState(900);
@@ -338,7 +340,7 @@ export function Timeline() {
                 className="icon-button"
                 onClick={() => void zoomToFit()}
                 aria-label={t("timeline.zoomFit")}
-                title={`${t("timeline.zoomFit")} (${MOD_KEY}+0)`}
+                title={zoomFitHint ? `${t("timeline.zoomFit")} (${zoomFitHint})` : t("timeline.zoomFit")}
               >
                 <ZoomFitIcon />
               </button>

@@ -392,3 +392,49 @@ fn the_analysis_source_should_default_to_the_grid_and_round_trip() {
     });
     assert!(validate(&prefs).is_err());
 }
+
+#[test]
+fn shortcuts_round_trip_and_refuse_a_key_in_use() {
+    let mut prefs = Preferences::default();
+    let change = |json: &str| serde_json::from_str::<Change>(json).unwrap();
+    prefs
+        .apply(change(
+            r#"{"op":"shortcut","action":"addMarker","key":"k"}"#,
+        ))
+        .unwrap();
+    let error = prefs
+        .apply(change(
+            r#"{"op":"shortcut","action":"addRegion","key":"K"}"#,
+        ))
+        .unwrap_err();
+    assert_eq!(error, "conflict:addMarker");
+    let dir = std::env::temp_dir().join(format!("flux-keys-{}", std::process::id()));
+    let path = dir.join("preferences.json");
+    save(&path, &prefs.clone().sent()).unwrap();
+    let loaded = load(&path);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(loaded.warning, None);
+    assert_eq!(loaded.shortcuts, prefs.shortcuts);
+    let keys = |p: Preferences| {
+        p.sent()
+            .keymap
+            .into_iter()
+            .find(|a| a.id == "addMarker")
+            .unwrap()
+            .keys
+    };
+    assert_eq!(keys(loaded), ["K"]);
+    prefs
+        .apply(change(r#"{"op":"shortcutReset","action":null}"#))
+        .unwrap();
+    assert_eq!(keys(prefs), ["M"]);
+}
+
+#[test]
+fn every_action_the_window_uses_is_in_the_table() {
+    let ts = include_str!("../../../src/keymap/actions.ts");
+    let used: std::collections::BTreeSet<&str> = ts.split('"').skip(1).step_by(2).collect();
+    let table: std::collections::BTreeSet<&str> =
+        flux_project::keymap::ACTIONS.iter().map(|a| a.id).collect();
+    assert_eq!(used, table);
+}
