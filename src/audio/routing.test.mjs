@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { docReducer, initialDoc } from "../state/doc.ts";
-import { emptyProject } from "../state/edit.ts";
+import { docReducer, initialDoc, placeholderProject } from "../state/doc.ts";
 
 test("one backend routing edit restores destinations and every track assignment through undo and redo", () => {
-  const project = emptyProject("Show", "fps25");
+  const project = placeholderProject("Show");
   const id = "5fda6c22-87d3-40e9-9710-589f8c1ef8f0";
   project.output.audio = [{ id, name: "Monitors" }];
   project.timelines[0].tracks = [{ id: "audio", name: "Music", muted: false, audioOutput: { type: "output", id }, kind: { type: "audio", clips: [] } }];

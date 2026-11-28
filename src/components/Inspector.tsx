@@ -9,7 +9,7 @@ import { OrderPanel } from "../voice/VoicePanel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n";
 import type { FadeCurve, Project, Timeline, Track, VideoAsset, VideoFit } from "../project/types";
-import { deleteSelection, edit, nameClip, nameTrack, setTimelineTempo } from "../state/actions";
+import { deleteSelection, nameClip, nameTrack, setTimelineTempo } from "../state/actions";
 import { editItem } from "../state/items";
 import { detectTempo } from "../state/audio";
 import type { AssetAudio } from "../state/doc";
@@ -17,14 +17,7 @@ import { useDoc, useTimeline } from "../state/store";
 import { toggleInspector, useUi } from "../state/ui";
 import type { Selected } from "../state/ui";
 import { MAX_BPM, MIN_BPM, VIDEO_FITS } from "../project/types";
-import {
-  findItem,
-  setAssetBpm,
-  setNoteLength,
-  setTrackColor,
-  updateClip,
-  updateNote,
-} from "../state/edit";
+import { findItem } from "../state/selection";
 import { TRACK_COLORS } from "../timeline/palette";
 import { MidiEventPanel, OscEventPanel } from "./CueEventPanel";
 import { DmxScenePanel } from "./DmxPanel";
@@ -34,19 +27,9 @@ import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "./icons";
 import { useKeyHint } from "../keymap/keys";
 
 /** The colour of the track an item sits on. Each swatch is named, so colour is never the only cue. */
-function TrackColorField({
-  project,
-  timeline,
-  track,
-  onEdit,
-}: {
-  project: Project;
-  timeline: string;
-  track: Track;
-  onEdit: (project: Project) => void;
-}) {
+function TrackColorField({ track }: { track: Track }) {
   const t = useT();
-  const pick = (color: string | null) => onEdit(setTrackColor(project, timeline, track.id, color));
+  const pick = (color: string | null) => void editItem({ op: "setTrackColor", id: track.id, color });
   return (
     <fieldset className="color-field">
       <legend>{t("track.color")}</legend>
@@ -99,14 +82,12 @@ function SelectionPanel({
   timeline,
   selection,
   audio,
-  onEdit,
   onDelete,
 }: {
   project: Project;
   timeline: Timeline;
   selection: Selected | null;
   audio: Record<string, AssetAudio>;
-  onEdit: (project: Project) => void;
   onDelete: () => void;
 }) {
   const t = useT();
@@ -127,7 +108,7 @@ function SelectionPanel({
       <TrackNameField track={track} />
       <TrackRouteField track={track} />
       {track.kind.type === "operator" && <VoiceSelector scope="track" trackId={track.id} value={track.kind.voice} />}
-      <TrackColorField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
+      <TrackColorField track={track} />
       <button className="button danger" type="button" onClick={onDelete}>{t("inspector.delete")}</button>
     </div>;
   }
@@ -210,7 +191,7 @@ function SelectionPanel({
           label={t("clip.start")}
           frame={start + clip.start}
           rate={frameRate}
-          onCommit={(frame) => onEdit(updateClip(project, timeline.id, clip.id, { start: Math.max(0, frame - start) }))}
+          onCommit={(frame) => void editItem({ op: "moveItem", id: clip.id, at: frame - start })}
         />
         <TextField
           label={t("clip.gain")}
@@ -218,7 +199,7 @@ function SelectionPanel({
           inputMode="decimal"
           monospace
           validate={(text) => (Number.isFinite(Number(text)) && text.trim() !== "" ? null : t("field.numberInvalid"))}
-          onCommit={(text) => onEdit(updateClip(project, timeline.id, clip.id, { gainDb: Number(text) }))}
+          onCommit={(text) => void editItem({ op: "setClipGain", id: clip.id, gainDb: Number(text) })}
         />
         {[
           { label: t("clip.fadeInCurve"), key: "fadeInCurve", length: clip.fadeIn },
@@ -271,7 +252,7 @@ function SelectionPanel({
                   : t("tempo.bpm.invalid", { min: MIN_BPM, max: MAX_BPM });
               }}
               onCommit={(text) =>
-                onEdit(setAssetBpm(project, asset.id, text.trim() === "" ? null : parseDecimal(text)))
+                void editItem({ op: "setAssetBpm", id: asset.id, bpm: text.trim() === "" ? null : parseDecimal(text) })
               }
             />
             <div className="button-row">
@@ -289,7 +270,7 @@ function SelectionPanel({
             </div>
           </>
         )}
-        <TrackColorField project={project} timeline={timeline.id} track={track} onEdit={onEdit} />
+        <TrackColorField track={track} />
         <button type="button" className="button danger" onClick={onDelete}>
           <TrashIcon />
           {t("inspector.delete")}
@@ -335,22 +316,22 @@ function SelectionPanel({
         label={t("note.text")}
         value={note.text}
         autoFocus={note.text === ""}
-        onCommit={(text) => onEdit(updateNote(project, timeline.id, note.id, { text }))}
+        onCommit={(text) => void editItem({ op: "setNoteText", id: note.id, text })}
       />
       <TimecodeField
         label={t("note.at")}
         frame={start + note.at}
         rate={frameRate}
-        onCommit={(frame) => onEdit(updateNote(project, timeline.id, note.id, { at: Math.max(0, frame - start) }))}
+        onCommit={(frame) => void editItem({ op: "moveItem", id: note.id, at: frame - start })}
       />
       <TimecodeField
         label={t("note.length")}
         hint={t("note.length.hint")}
         frame={note.length ?? 0}
         rate={frameRate}
-        onCommit={(frames) => onEdit(setNoteLength(project, timeline.id, note.id, frames))}
+        onCommit={(frames) => void editItem({ op: "setNoteLength", id: note.id, length: frames })}
       />
-      <TrackColorField project={project} timeline={timeline.id} track={found.track} onEdit={onEdit} />
+      <TrackColorField track={found.track} />
       <button type="button" className="button danger" onClick={onDelete}>
         <TrashIcon />
         {t("inspector.delete")}
@@ -397,7 +378,7 @@ export function Inspector() {
         <h2 className="inspector-title">{t("inspector.tab.selection")}</h2>
       </div>
       <div className="panel">
-        <SelectionPanel project={project} timeline={timeline} selection={selection} audio={audio} onEdit={edit} onDelete={deleteSelection} />
+        <SelectionPanel project={project} timeline={timeline} selection={selection} audio={audio} onDelete={deleteSelection} />
       </div>
     </aside>
   );

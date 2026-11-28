@@ -16,7 +16,7 @@ import { splitAtPlayhead } from "../state/clips";
 import { zoomToFit } from "../state/items";
 import { addMarkerAtPlayhead, addRegionFromSelection, stepMarker } from "../state/marks";
 import { selectAll } from "../state/selection";
-import { findItem } from "../state/edit";
+import { findItem } from "../state/selection";
 import { dispatch, useDoc } from "../state/store";
 import { isPlaying } from "../transport/store";
 import {

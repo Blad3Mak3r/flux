@@ -1,15 +1,45 @@
-// Picking several items at once. Which items are picked is window state; what is done to them
-// (move, delete, ripple) is the backend's, asked for in `items.ts`.
+// Picking several items at once, and finding what is picked. Which items are picked is window
+// state; what is done to them (move, delete, ripple) is the backend's, asked for in `items.ts`.
 
 import { create } from "zustand";
 import { realFps, nominalFps } from "../timecode";
 import { GUESS_SECONDS, clipLength, videoClipLength } from "../timeline/clip";
-import type { Track } from "../project/types";
+import type { AudioClip, DmxScene, MidiEvent, Note, OscEvent, Project, Track } from "../project/types";
 import { useVoice } from "../voice/store";
 import { activeTimeline } from "./doc";
 import { useDoc } from "./store";
 import { isSelected, select, selectMany, useUi } from "./ui";
 import type { Selected } from "./ui";
+
+export type Found =
+  | { kind: "clip"; track: Track; clip: AudioClip }
+  | { kind: "note"; track: Track; note: Note }
+  | { kind: "midiEvent"; track: Track; event: MidiEvent }
+  | { kind: "oscEvent"; track: Track; event: OscEvent }
+  | { kind: "dmxScene"; track: Track; scene: DmxScene };
+
+/** Finds a clip or a note by its id, which is unique in the whole project. */
+export function findItem(project: Project, id: string): Found | null {
+  for (const track of project.timelines.flatMap((t) => t.tracks)) {
+    if (track.kind.type === "audio") {
+      const clip = track.kind.clips.find((c) => c.id === id);
+      if (clip) return { kind: "clip", track, clip };
+    } else if (track.kind.type === "notes") {
+      const note = track.kind.notes.find((n) => n.id === id);
+      if (note) return { kind: "note", track, note };
+    } else if (track.kind.type === "midi") {
+      const event = track.kind.events.find((e) => e.id === id);
+      if (event) return { kind: "midiEvent", track, event };
+    } else if (track.kind.type === "osc") {
+      const event = track.kind.events.find((e) => e.id === id);
+      if (event) return { kind: "oscEvent", track, event };
+    } else if (track.kind.type === "dmx") {
+      const scene = track.kind.scenes.find((s) => s.id === id);
+      if (scene) return { kind: "dmxScene", track, scene };
+    }
+  }
+  return null;
+}
 
 /** An item of a lane as far as picking and the magnet care: where it starts and ends (`end` is absent for a point). */
 export interface LaneItem extends Selected {

@@ -37,8 +37,8 @@ useUi.subscribe((ui, before) => {
 /** Asks for `op`. Resolves when the answer is shown; a refusal is said on the status line. */
 export async function editMarks(op: MarksOp): Promise<void> {
   try {
-    const { project, active } = await marksEdit(useDoc.getState().project, op);
-    dispatch({ type: "apply", project, active });
+    const { project, active, changed } = await marksEdit(useDoc.getState().project, op);
+    if (changed) dispatch({ type: "apply", project, active });
   } catch (error) {
     sayError(errorMessage(error));
   }
