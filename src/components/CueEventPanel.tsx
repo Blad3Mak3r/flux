@@ -1,3 +1,4 @@
+import { parseDecimal } from "../format";
 import { setFirstTurnOnly } from "../state/cues";
 import { useEffect, useState } from "react";
 import { listMidiPorts } from "../devices/api";
@@ -309,7 +310,7 @@ function OscArgRow({ arg, number, onChange, onRemove }: { arg: OscArg; number: n
           onBlur={(event) => {
             const text = event.target.value;
             if (arg.type === "string") return text === arg.value ? undefined : onChange({ type: "string", value: text });
-            const value = Number(text.replace(",", "."));
+            const value = parseDecimal(text);
             if (Number.isFinite(value) && value !== arg.value) onChange({ ...arg, value: arg.type === "int" ? Math.round(value) : value });
             else event.target.value = String(arg.value);
           }}

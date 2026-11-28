@@ -1,0 +1,97 @@
+/* Cells */
+/* A slot is a picture over a name bar, as in Resolume; an empty one keeps both: the picture stops the layer, the bar selects the slot. */
+.vj-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: var(--vj-well);
+  border-radius: 2px;
+}
+
+.vj-slot-pic { flex: 1; min-height: 0; background: var(--vj-black); border-radius: 2px 2px 0 0; }
+.vj-slot .vj-pick { position: static; flex: none; height: 24px; background: var(--vj-row); }
+.vj-slot-pic:hover { background: var(--vj-well); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.vj-slot::after { content: ""; position: absolute; inset: 0; border-radius: 2px; pointer-events: none; }
+.vj-slot.over::after { box-shadow: inset 0 0 0 2px var(--ink-dim); }
+.vj-slot.sel::after { box-shadow: inset 0 0 0 2px var(--phosphor); }
+
+.vj-clip {
+  position: relative;
+  overflow: hidden;
+  background: var(--vj-black);
+  border-radius: 2px;
+  user-select: none;
+}
+
+.vj-pic { position: absolute; inset: 0 0 24px; overflow: hidden; }
+/* The picture fits inside the area, at 16:9, on black. */
+.vj-clip .vj-thumb { position: absolute; left: 0; right: 0; top: 50%; aspect-ratio: 16 / 9; transform: translateY(-50%); filter: saturate(0.92) brightness(0.9); }
+.vj-clip.on-air .vj-thumb { filter: none; }
+.vj-shade { display: none; }
+.vj-pick { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 0 6px; height: 24px; background: var(--vj-row); cursor: default; }
+.vj-pick:hover { background: var(--vj-ctl); box-shadow: inset 0 1px 0 var(--phosphor); }
+.vj-clip.on-air .vj-pick { color: oklch(0.16 0.03 32); background: var(--signal); box-shadow: none; }
+
+.vj-cn {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font-size: 11px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vj-clip.on-air .vj-cn, .vj-clip.on-air .vj-cm { color: oklch(0.16 0.03 32); }
+.vj-cm { flex: none; color: var(--ink-faint); font: 10px var(--font-measure); }
+.vj-clip::after { content: ""; position: absolute; inset: 0; border-radius: 2px; pointer-events: none; box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.06); }
+.vj-clip.sel::after { box-shadow: inset 0 0 0 2px var(--phosphor); }
+.vj-clip.on-air::after { box-shadow: inset 0 0 0 1px var(--signal); }
+.vj-clip.on-air.sel::after { box-shadow: inset 0 0 0 2px var(--phosphor); }
+.vj-clip.over::after { box-shadow: inset 0 0 0 2px var(--ink-dim); }
+
+.vj-air {
+  position: absolute;
+  left: 4px;
+  top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+  padding: 0 6px 0 3px;
+  color: oklch(0.16 0.03 32);
+  font: 600 10.5px var(--font-measure);
+  background: var(--signal);
+  border-radius: 2px;
+}
+
+.vj-air .icon { width: 12px; height: 12px; }
+.vj-clip .vj-bar { height: 3px; }
+
+/* Decks */
+.vj-decks { display: flex; flex: none; align-items: center; gap: 3px; height: 36px; padding: 4px 6px 0 0; }
+.vj-deck-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; }
+
+.vj-deck {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 12px;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12.5px;
+  background: var(--vj-well);
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-deck.on { color: var(--ink); font-weight: 600; background: var(--vj-ctl-hi); }
+.vj-deck.add { padding: 0 8px; color: var(--ink-faint); }
+.vj-deck .icon { width: 12px; height: 12px; }
+.vj-count { color: var(--ink-faint); font-size: 10.5px; font-weight: 400; }
+.vj-tips { color: var(--ink-faint); white-space: nowrap; }
+/* A tip is a nicety: below this width the status bar keeps its room for the real messages. */
+@media (max-width: 1399px) { .vj-tips { display: none; } }

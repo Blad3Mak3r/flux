@@ -1,0 +1,215 @@
+/* ---- Setup dialog ---- */
+
+.dialog.setup {
+  width: 780px;
+  max-width: 92vw;
+  height: 580px;
+  max-height: 88vh;
+  padding: 0;
+}
+
+.dialog.setup[open] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.setup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 20px;
+  height: 44px;
+  background: var(--panel-lo);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.dialog.setup h2 {
+  margin: 0;
+}
+
+.setup-body {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 0;
+}
+
+.setup-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0 12px;
+  overflow: auto;
+  border-right: 1px solid var(--rule);
+}
+
+.setup-group-pages {
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+}
+
+/* A group header folds its pages: smaller and engraved, so it never reads as a page itself. */
+.setup-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding: 0 14px 0 8px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.setup-group-head svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  transition: transform 120ms ease-out;
+}
+
+.setup-group-head[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.setup-group-head:hover {
+  color: var(--ink);
+}
+
+/* Folded over the open page: the header keeps its lit lamp so the selection is never lost. */
+.setup-group-lamp {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  background: var(--phosphor);
+}
+
+.setup-group-pages button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 14px 0 26px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-dim);
+  font-weight: 600;
+  text-align: left;
+}
+
+/* The marker is a square lamp, as everywhere else on the faceplate. */
+.setup-group-pages button > span:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 10px;
+  vertical-align: 1px;
+  background: var(--lamp-off);
+}
+
+.setup-group-pages button:hover:not([aria-disabled="true"]) {
+  background: var(--panel-hi);
+  color: var(--ink);
+}
+
+.setup-group-pages button[aria-current="page"] {
+  background: var(--panel-lo);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.setup-group-pages button[aria-current="page"] > span:first-child::before {
+  background: var(--phosphor);
+}
+
+/* Planned but not built: dimmed like a disabled control, and it says why in words. */
+.setup-group-pages button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tag {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-page {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 18px 22px 24px;
+  overflow: auto;
+}
+
+.setup-page h3 {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.setup-fields {
+  display: grid;
+  gap: 14px;
+  max-width: 460px;
+}
+
+.dialog.setup p {
+  margin: 0;
+}
+
+.setup-intro {
+  color: var(--ink-dim);
+}
+
+/* The screens of the video output, one tab each; the dot is lit while its window is open. */
+.screen-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.screen-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--panel-lo);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+}
+
+.screen-tab:hover {
+  color: var(--ink);
+}
+
+.screen-tab[aria-pressed="true"] {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+
+.screen-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rule-strong);
+}
+
+.screen-tab[data-open="true"] .screen-dot {
+  background: var(--phosphor);
+}

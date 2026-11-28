@@ -22,7 +22,7 @@ import {
   withValue,
 } from "../control/model";
 import { errorMessage } from "../project/api";
-import { RowStatus } from "./pages";
+import { RowStatus } from "./rows";
 import { portChoices, portKey, portLabel, splitPortKey } from "./outputs";
 import { Select } from "../components/Select";
 

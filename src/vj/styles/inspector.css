@@ -1,0 +1,118 @@
+/* Inspector */
+.vj-insp { display: grid; grid-template-columns: 200px minmax(0, 1fr); align-content: start; gap: 14px 18px; height: 100%; padding: 14px 24px 14px 14px; overflow: auto; }
+.vj-insp.single { grid-template-columns: minmax(0, 1fr); }
+.vj-ithumb { width: 200px; aspect-ratio: 16 / 9; border-radius: 1px; box-shadow: 0 0 0 2px var(--phosphor); }
+.vj-fields { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.vj-f { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 10px; }
+.vj-f > span:first-child { color: var(--ink-faint); font-size: 12px; line-height: 1.25; overflow-wrap: anywhere; }
+
+.vj-input {
+  height: 28px;
+  min-width: 0;
+  padding: 0 9px;
+  color: var(--ink);
+  font: 12.5px var(--font-ui);
+  background: var(--vj-well);
+  border: 0;
+  border-radius: 2px;
+  outline: 0;
+  box-shadow: inset 0 0 0 1px var(--vj-line);
+}
+
+.vj-input:focus { box-shadow: inset 0 0 0 1px var(--phosphor); }
+.vj-segs,
+.tc-modes { display: flex; gap: 2px; padding: 2px; background: var(--vj-well); border-radius: 2px; }
+
+.vj-segs button {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  overflow: hidden;
+  color: var(--ink-dim);
+  font: 12px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-segs button.on { color: var(--ink); background: var(--vj-ctl-hi); }
+
+/* In a panel header the segments take the width of their words, like the buttons beside them. */
+.vj-ph .vj-segs { flex: none; margin-right: 4px; }
+.vj-ph .vj-segs button { flex: none; height: 20px; padding: 0 8px; }
+
+/* ---- Effects ---- */
+.vj-fx { display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid var(--vj-line); }
+.vj-fx.over { box-shadow: inset 0 0 0 1px var(--phosphor); }
+.vj-fx-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.vj-fx-head h3 { display: flex; align-items: baseline; gap: 8px; margin: 0; color: var(--ink-dim); font: 600 12px var(--font-ui); }
+.vj-fx-count { font: 10.5px var(--font-measure); }
+.vj-select.vj-fx-add { width: 168px; }
+.vj-fx-empty { margin: 0; font-size: 12px; }
+.vj-fx-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.vj-fx-item { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 6px 0 10px; border-bottom: 1px solid oklch(0.29 0.014 250 / 0.6); }
+.vj-fx-item.folded { padding-bottom: 6px; }
+.vj-fx-item.drop-before::before, .vj-fx-item.drop-after::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; background: var(--phosphor); }
+.vj-fx-item.drop-before::before { top: -1px; }
+.vj-fx-item.drop-after::after { bottom: -1px; }
+.vj-fx-h { display: flex; align-items: center; gap: 2px; }
+.vj-fx-g { display: inline-grid; flex: none; place-items: center; width: 16px; height: 24px; color: var(--ink-faint); cursor: grab; }
+.vj-fx-g:hover { color: var(--ink-dim); }
+.vj-fx-g .icon { width: 12px; height: 12px; }
+.vj-fx-n {
+  display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; height: 24px; padding: 0; overflow: hidden;
+  color: var(--ink); font: 600 12.5px var(--font-ui); text-align: left; background: none; border: 0;
+}
+.vj-fx-n span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vj-fx-n .icon { flex: none; width: 12px; height: 12px; color: var(--ink-faint); }
+.vj-fx-n:hover .icon { color: var(--ink); }
+.vj-fx-b { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; color: var(--ink-dim); background: none; border: 0; border-radius: 2px; }
+.vj-fx-b:hover:not(:disabled) { color: var(--ink); background: var(--vj-ctl); }
+.vj-fx-b:disabled { color: var(--ink-faint); cursor: default; opacity: 0.5; }
+.vj-fx-b[aria-pressed="true"] { color: oklch(0.25 0.05 70); background: var(--amber); }
+.vj-fx-b .icon { width: 14px; height: 14px; }
+.vj-fx-p { display: flex; flex-direction: column; gap: 8px; padding-left: 16px; }
+.vj-fx-item.off .vj-fx-n, .vj-fx-item.off .vj-fx-p { opacity: 0.45; }
+
+/* A switch: a small slot with a slider, phosphor when on. */
+.vj-sw { position: relative; flex: none; width: 30px; height: 16px; padding: 0; background: var(--vj-well); border: 1px solid var(--rule-strong); border-radius: 2px; }
+.vj-sw i { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; background: var(--ink-faint); border-radius: 1px; }
+.vj-sw.on { border-color: var(--phosphor-dim); }
+.vj-sw.on i { left: 16px; background: var(--phosphor); }
+
+/* The count of effects on a clip or a layer. */
+.vj-fxb { flex: none; padding: 0 4px; color: var(--phosphor); font: 600 9.5px var(--font-measure); letter-spacing: 0.04em; line-height: 14px; background: oklch(0.1 0.01 250 / 0.7); border: 1px solid var(--phosphor-dim); border-radius: 2px; }
+.vj-clip .vj-fxb { position: absolute; top: 4px; right: 4px; z-index: 1; }
+.vj-lname .vj-fxb { margin-left: 2px; }
+.vj-ap { flex: none; padding: 0 4px; color: var(--phosphor); font: 600 9.5px var(--font-measure); letter-spacing: 0.04em; line-height: 14px; border: 1px solid var(--phosphor-dim); border-radius: 2px; }
+/* The composition's effects: their count, and the switch that bypasses them all. */
+.vj-cfx { display: inline-flex; align-items: center; gap: 4px; }
+.vj-cfx .vj-fxb { }
+.vj-cfx.off .vj-fxb { color: var(--ink-faint); border-color: var(--rule-strong); }
+.vj-comp.over, .vj-panel.over { box-shadow: inset 0 0 0 1px var(--phosphor); }
+.vj-lh.over { box-shadow: inset 0 0 0 2px var(--phosphor); }
+
+/* The effects browser. */
+.vj-fxl { display: flex; flex-direction: column; gap: 14px; height: 100%; padding: 12px; overflow: auto; }
+.vj-fxs h3 { margin: 0 0 6px; color: var(--ink-dim); font: 600 11px var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; }
+.vj-fxg { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 6px; }
+.vj-fxc {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 6px 8px; color: var(--ink-dim);
+  background: var(--vj-row); border: 1px solid var(--vj-line); border-radius: 2px; cursor: grab;
+}
+.vj-fxc:hover { color: var(--ink); background: var(--vj-ctl); }
+.vj-fxc:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+.vj-fxc b { display: flex; align-items: center; gap: 6px; color: var(--ink); font: 600 12.5px var(--font-ui); }
+.vj-fxc span { overflow: hidden; font-size: 11.5px; line-height: 1.3; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.vj-fxt { color: var(--phosphor-dim); font-style: normal; font-weight: 400; }
+/* An effect that only works on the composition. */
+.vj-fxo { padding: 0 4px; color: var(--ink-dim); font: 600 9px var(--font-measure); font-style: normal; letter-spacing: 0.05em; line-height: 13px; text-transform: uppercase; border: 1px solid currentcolor; border-radius: 2px; opacity: 0.85; }
+
+.vj-meta { display: grid; grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; margin: 0; padding-top: 4px; border-top: 1px solid var(--vj-line); }
+.vj-meta div { display: flex; min-width: 0; justify-content: space-between; align-items: center; gap: 12px; height: 30px; font-size: 12px; border-bottom: 1px solid oklch(0.29 0.014 250 / 0.6); }
+.vj-meta dt { flex: none; color: var(--ink-faint); }
+.vj-meta dd { min-width: 0; margin: 0; color: var(--ink-dim); text-align: right; }
+.vj-meta dd .marquee, .vj-m figcaption .marquee, .vj-dim.marquee { display: block; }
+.vj-meta > .media-file { grid-column: 1 / -1; margin-bottom: 0; }

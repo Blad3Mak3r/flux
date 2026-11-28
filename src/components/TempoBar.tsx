@@ -1,3 +1,4 @@
+import { parseDecimal } from "../format";
 import { useState } from "react";
 import { useT } from "../i18n";
 import { BEAT_UNITS, MAX_BEATS_PER_BAR, MAX_BPM, MIN_BPM } from "../project/types";
@@ -18,7 +19,7 @@ function BpmInput({ bpm }: { bpm: number }) {
 
   const commit = () => {
     if (draft === null) return;
-    const value = Number(draft.replace(",", "."));
+    const value = parseDecimal(draft);
     if (draft.trim() === "" || !Number.isFinite(value) || value < MIN_BPM || value > MAX_BPM) {
       setInvalid(true);
       return;

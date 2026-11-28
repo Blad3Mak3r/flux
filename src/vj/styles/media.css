@@ -1,0 +1,84 @@
+/* Media */
+.vj-mg { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); align-content: start; gap: 14px 10px; height: 100%; padding: 12px; overflow: auto; }
+.vj-m { display: flex; flex-direction: column; gap: 6px; margin: 0; cursor: grab; }
+.vj-m.busy { cursor: default; }
+.vj-m .vj-thumb { position: relative; aspect-ratio: 16 / 9; border-radius: 1px; }
+.vj-d { position: absolute; right: 4px; bottom: 4px; padding: 0 4px; color: var(--ink-dim); font-size: 10.5px; background: oklch(0 0 0 / 0.6); border-radius: 2px; }
+.vj-m figcaption { display: flex; justify-content: space-between; gap: 6px; min-width: 0; color: var(--ink-dim); font-size: 12px; }
+.vj-m figcaption span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vj-c { flex: none; color: var(--ink-faint); font-size: 10.5px; }
+.vj-m.using figcaption span:first-child::after { content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 6px; vertical-align: 2px; background: var(--signal); border-radius: 50%; }
+
+/* A video still being imported or read, or one that cannot be read */
+.vj-slot.busy { position: relative; color: var(--ink-dim); box-shadow: inset 0 0 0 1px var(--rule-strong); }
+.vj-slot.busy .vj-cn { position: absolute; left: 7px; right: 7px; bottom: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; }
+.vj-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  color: var(--ink);
+  font-size: 11px;
+  white-space: nowrap;
+  background: oklch(0 0 0 / 0.7);
+  border-radius: 2px;
+  transform: translate(-50%, -50%);
+}
+.vj-state.failed { color: var(--amber); }
+/* A clip whose file is gone: dim, striped, and labelled in the fault colour. */
+.vj-state.offline { color: var(--signal); font-weight: 700; border: 1px solid var(--signal); }
+.vj-clip.offline .vj-thumb { filter: grayscale(1) brightness(0.45); }
+.vj-clip.offline { background-image: repeating-linear-gradient(135deg, transparent 0 8px, oklch(0.7 0.2 32 / 0.16) 8px 16px); }
+.vj-spin {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid oklch(1 0 0 / 0.25);
+  border-top-color: var(--phosphor);
+  border-radius: 50%;
+  animation: vj-spin 0.8s linear infinite;
+}
+@keyframes vj-spin { to { transform: rotate(360deg); } }
+
+/* Long names end in an ellipsis and slide under the pointer (the shared Marquee). */
+.vj-deck { max-width: 200px; min-width: 0; }
+.vj-dname { min-width: 0; }
+.vj-ph .vj-tools { min-width: 0; }
+
+/* Transform: three numbers set by dragging their label, as in Resolume. */
+.vj-scrubs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.vj-scrub { display: flex; align-items: center; min-width: 0; background: var(--vj-well); border-radius: 2px; }
+.vj-scrub-l {
+  flex: none;
+  padding: 0 6px;
+  color: var(--ink-faint);
+  font-size: 11px;
+  line-height: 24px;
+  white-space: nowrap;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+.vj-scrub-l:hover { color: var(--ink); }
+.vj-scrub .vj-input { min-width: 0; width: 100%; padding: 0 2px; text-align: right; background: none; }
+.vj-scrub-u { flex: none; padding: 0 8px 0 3px; color: var(--ink-faint); font-size: 11px; }
+
+/* A generator's colour: the swatch opens the picker, the hex beside it reads it */
+.vj-colour { display: inline-flex; align-items: center; gap: 8px; height: 24px; padding: 0 8px 0 3px; background: var(--vj-well); border-radius: 2px; }
+.vj-colour input { width: 26px; height: 18px; padding: 0; background: none; border: 0; }
+.vj-colour input::-webkit-color-swatch-wrapper { padding: 0; }
+.vj-colour input::-webkit-color-swatch { border: 1px solid oklch(1 0 0 / 0.16); border-radius: 1px; }
+.vj-colour span { color: var(--ink-dim); font-size: 11.5px; }
+.vj-colour:hover span { color: var(--ink); }
+/* A text block's text: several lines, taller as it is dragged by its corner, never wider than its column. */
+.vj-textbox { height: auto; min-height: 56px; padding: 6px 9px; line-height: 1.35; resize: vertical; }
+/* Previous line, the one shown, next line: the buttons of the segments around a readout. */
+.vj-linestep { align-items: center; }
+.vj-linestep button { flex: none; width: 32px; }
+.vj-linestep button:hover { color: var(--ink); background: var(--vj-ctl-hi); }
+.vj-advance .vj-segs button:first-child { flex: 1.6; }
+.vj-linestep span { flex: 1; color: var(--ink-dim); font-size: 11.5px; text-align: center; }
+.vj-scrubs.one { grid-template-columns: minmax(0, 1fr); max-width: 160px; }

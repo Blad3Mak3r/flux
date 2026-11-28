@@ -1,10 +1,10 @@
 // What the File menu and the keyboard do to the open document. They read the latest state when
 // they run, so none of them closes over a project that has since changed.
 
+import { fail } from "./fail";
 import { protectVoiceWork } from "../voice/store";
 import type { Translate } from "../i18n/messages";
 import {
-  errorMessage,
   importAudio,
   importVideo,
   pickVideoPaths,
@@ -27,7 +27,7 @@ import { activeTimeline, isDirty } from "./doc";
 import { addAudioClip, addNote, emptyProject } from "./edit";
 import { edit } from "./actions";
 import { dispatch, useDoc } from "./store";
-import { ask, resetView, say, sayError, select } from "./ui";
+import { ask, resetView, say, select } from "./ui";
 
 /** The project of a window with no backend to ask (outside the desktop app). */
 const offlineProject = (t: Translate): ProjectState => {
@@ -36,7 +36,6 @@ const offlineProject = (t: Translate): ProjectState => {
 };
 
 const basename = (path: string) => path.split(/[\\/]/).pop() ?? path;
-const fail = (err: unknown) => sayError(errorMessage(err));
 
 /** Replace the document, asking first when there is work to lose. */
 const replaceDoc = async (action: () => Promise<void> | void) => {

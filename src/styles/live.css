@@ -1,0 +1,267 @@
+/* A prepared show: no page scroll. Operation on the left, the cue sidebar always visible on the right. */
+.live[data-prepared="true"] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.live-show {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(380px, 40%, 520px);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.live-ops {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.live-ops-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.live-ops-scroll > .audio-routing-status { padding: 8px 16px; border-bottom: 1px solid var(--rule); }
+.live-ops-scroll > .live-panel, .live-ops-scroll > .live-notes { border-top: 1px solid var(--rule); }
+.live-ops-scroll > .live-panel:first-child, .live-ops-scroll > .audio-routing-status + .live-panel { border-top: 0; }
+.live-ops-scroll .live-next { border-right: 0; }
+.live-ops-scroll .legend::after { display: none; }
+.live-ops-scroll .live-panel { min-height: 0; gap: 8px; padding-block: 12px; }
+.live-ops-scroll .live-notes { gap: 8px; padding-block: 12px; }
+.live-ops-scroll .live-countdown .measure { font-size: clamp(30px, 3.4vw, 40px); }
+.live-ops-scroll .live-name { font-size: 18px; font-weight: 600; }
+.live-ops-scroll .live-note-text { font-size: 17px; font-weight: 500; }
+.live-ops-scroll .live-left { font-size: 20px; font-weight: 500; }
+
+/* What the operator reads first. It gives way to the cue list, which keeps room for a few rows. */
+.live-head {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.live-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+}
+
+.live-panel {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 120px;
+  padding: 14px 20px 16px;
+}
+
+.live-next {
+  border-right: 1px solid var(--rule-strong);
+}
+
+.live-quiet {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-dim);
+  font-size: 18px;
+}
+
+.live-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+/* A cue is drawn in its track's colour, or in amber (events) or phosphor (audio). */
+.live-next-body,
+.live-run,
+.cue-row {
+  --cue-c: var(--trace, var(--phosphor));
+  --cue-c-dim: var(--trace-dim, var(--phosphor-dim));
+}
+
+.cue-row[data-kind="note"] {
+  --cue-c: var(--trace, var(--amber));
+  --cue-c-dim: var(--trace-dim, var(--amber-dim));
+}
+
+.live-next-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+}
+
+.live-next-cue {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.live-next-cue .live-number {
+  grid-row: span 2;
+}
+
+.live-number {
+  min-width: 2.2em;
+  padding: 4px 6px;
+  border: 1px solid var(--amber-dim);
+  color: var(--amber);
+  font-family: var(--font-measure);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.live-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.live-countdown {
+  display: grid;
+  flex: none;
+  justify-items: end;
+  gap: 2px;
+  color: var(--amber);
+}
+
+.live-countdown-label {
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.live-countdown .measure {
+  font-size: clamp(36px, 4.6vw, 56px);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.live-running-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 11.5em;
+  overflow-y: auto;
+}
+
+.live-run {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 6px;
+}
+
+.live-run .live-number,
+.live-note .live-number {
+  border-color: var(--cue-c-dim);
+  color: var(--cue-c);
+  font-size: 14px;
+}
+
+.live-left {
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.live-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: var(--ghost);
+  border: 1px solid var(--grat-major);
+}
+
+.live-bar div {
+  height: 100%;
+  background: var(--cue-c);
+}
+
+.live-cues {
+  display: flex;
+  flex: 1 0 150px;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.live-cues-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 32px;
+  padding: 0 16px;
+}
+
+.live-cues-bar .legend {
+  flex: 1;
+}
+
+.live-hint {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+/* The notes on show: the text itself is what the operator reads, so it is the largest thing here. */
+.live-notes {
+  display: grid;
+  gap: 10px;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--rule-strong);
+}
+
+.live-notes-list {
+  display: grid;
+  gap: 10px;
+  max-height: 9.5em;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.live-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 12px;
+  --cue-c: var(--trace, var(--amber));
+  --cue-c-dim: var(--trace-dim, var(--amber-dim));
+}
+.live-note-text {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.live-note-left {
+  color: var(--ink-dim);
+  font-size: 14px;
+  white-space: nowrap;
+}

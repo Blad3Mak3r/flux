@@ -1,0 +1,41 @@
+/* Reduced motion: every rule that stops an animation or a transition, in one place and last. */
+@media (prefers-reduced-motion: reduce) {
+  .editor-loading-panel progress {
+    visibility: hidden;
+  }
+
+  .setup-group-head svg {
+    transition: none;
+  }
+
+  .marquee[data-scrolling="true"] .marquee-text {
+    animation: none;
+  }
+
+  .launcher::before,
+  .launcher::after {
+    animation: none;
+  }
+
+  .launcher-sweep {
+    display: none;
+  }
+
+  * {
+    transition: none !important;
+  }
+
+  .about-update[data-step="checking"] .lamp {
+    animation: none;
+  }
+
+  .media-progress.unknown > span {
+    width: 100%;
+    opacity: 0.5;
+    animation: none;
+  }
+
+  .hold-button[data-holding="true"]::after {
+    transition: none;
+  }
+}

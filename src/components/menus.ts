@@ -125,6 +125,28 @@ export function rippleMenu(t: Translate): MenuItem[] {
   }));
 }
 
+/** Where a menu reads its shortcut hints from: the timeline's keymap or the VJ screen's fixed keys. */
+export type ShortcutOf = (action: "save" | "saveAs" | "undo" | "redo") => string | undefined;
+
+/** Save and Save as, the same in the menu bar of a cue show and of a VJ show. */
+export const saveItems = (t: Translate, shortcut: ShortcutOf): MenuItem[] => [
+  { label: t("menu.save"), shortcut: shortcut("save"), run: () => void saveDocument(false) },
+  { label: t("menu.saveAs"), shortcut: shortcut("saveAs"), run: () => void saveDocument(true) },
+];
+
+/** Undo and Redo; both wait while the show is locked. */
+export const undoRedoItems = (t: Translate, shortcut: ShortcutOf, locked = false): MenuItem[] => {
+  const { past, future } = useDoc.getState();
+  return [
+    { label: t("menu.undo"), shortcut: shortcut("undo"), disabled: locked || past.length === 0, run: () => dispatch({ type: "undo" }) },
+    { label: t("menu.redo"), shortcut: shortcut("redo"), disabled: locked || future.length === 0, run: () => dispatch({ type: "redo" }) },
+  ];
+};
+
+/** The Exit row, after a rule, in a window that can close itself. */
+export const exitItems = (t: Translate, disabled = false): MenuItem[] =>
+  hasNativeWindow() ? ["-", { label: t("menu.exit"), disabled, run: () => void getCurrentWindow().close() }] : [];
+
 const renameTrackItem = (t: Translate, track: Track): MenuItem => ({
   label: t("menu.renameTrack"),
   run: () => rename({ kind: "track", id: track.id }),
@@ -144,8 +166,7 @@ function fileMenu(t: Translate): MenuItem[] {
     { label: t("menu.new"), shortcut: keyHint("new"), disabled: locked, run: () => newDocument(t) },
     { label: t("menu.open"), shortcut: keyHint("open"), disabled: locked, run: openDocument },
     "-",
-    { label: t("menu.save"), shortcut: keyHint("save"), run: () => void saveDocument(false) },
-    { label: t("menu.saveAs"), shortcut: keyHint("saveAs"), run: () => void saveDocument(true) },
+    ...saveItems(t, keyHint),
     { label: t("menu.close"), shortcut: keyHint("close"), disabled: locked, run: closeDocument },
     "-",
     {
@@ -167,17 +188,14 @@ function fileMenu(t: Translate): MenuItem[] {
     },
     "-",
     { label: t("menu.setup"), shortcut: keyHint("setup"), run: () => openSetup() },
-    ...(hasNativeWindow()
-      ? ["-" as const, { label: t("menu.exit"), disabled: locked, run: () => void getCurrentWindow().close() }]
-      : []),
+    ...exitItems(t, locked),
   ];
 }
 
 function editMenu(t: Translate): MenuItem[] {
-  const { doc, ui } = state();
+  const { ui } = state();
   return [
-    { label: t("menu.undo"), shortcut: keyHint("undo"), disabled: isShowLocked() || doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
-    { label: t("menu.redo"), shortcut: keyHint("redo"), disabled: isShowLocked() || doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
+    ...undoRedoItems(t, keyHint, isShowLocked()),
     "-",
     { label: t("menu.split"), shortcut: keyHint("split"), disabled: ui.view !== "edit" || (ui.selection?.kind !== "clip" && ui.selection?.kind !== "video"), run: () => void splitAtPlayhead() },
     { label: t("menu.delete"), shortcut: keyHint("delete"), disabled: !ui.selection, run: deleteSelection },

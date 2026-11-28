@@ -1,0 +1,6 @@
+/* Reduced motion: every rule that stops an animation or a transition, in one place and last. */
+@media (prefers-reduced-motion: reduce) {
+  .vj-spin { animation: none; }
+
+  .vj-beat .vj-beat-flash { animation: none; }
+}

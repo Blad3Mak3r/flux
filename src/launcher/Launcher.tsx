@@ -1,5 +1,5 @@
+import { fail } from "../state/fail";
 import { ErrorDialog } from "../components/ErrorDialog";
-import { sayError } from "../state/ui";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import { DotMatrix } from "../components/DotMatrix";
@@ -7,7 +7,6 @@ import { BrandMark } from "../components/BrandMark";
 import { hasNativeWindow } from "../components/WindowControls";
 import { I18nProvider, useT } from "../i18n";
 import type { MessageKey } from "../i18n";
-import { errorMessage } from "../project/api";
 import { showWelcome, startupRun } from "../welcome/api";
 import type { Step, StepId } from "../welcome/api";
 
@@ -53,7 +52,7 @@ function Launcher() {
         if (Array.isArray(report)) report.forEach(apply);
         setFinished(true);
         await sleep(Math.max(0, MIN_VISIBLE_MS - (Date.now() - begun)));
-        await showWelcome().catch((err) => sayError(errorMessage(err)));
+        await showWelcome().catch((err) => fail(err));
       })();
     }
 

@@ -1,0 +1,46 @@
+/* ---- Live: the timeline as it is run on stage ---- */
+
+.work[data-view="live"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* The switch sits in the middle of the menu bar: a recessed slot with the chosen view raised in it. */
+.menubar .view-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+
+.menubar .view-switch button {
+  height: 28px;
+  min-width: 84px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 2px;
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.menubar .view-switch button[aria-pressed="true"] {
+  background: var(--panel-hi);
+  box-shadow: inset 0 -2px 0 var(--phosphor);
+  color: var(--ink);
+}
+
+.menubar[data-view="live"] .view-switch {
+  background: oklch(0.22 0.06 32);
+  border-color: oklch(1 0 0 / 0.16);
+}
+
+.menubar[data-view="live"] .view-switch button[aria-pressed="true"],
+.menubar[data-view="live"] .view-switch button[aria-pressed="true"]:hover {
+  background: var(--signal);
+  box-shadow: none;
+  color: var(--panel-lo);
+}

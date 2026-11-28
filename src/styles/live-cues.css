@@ -1,0 +1,338 @@
+/* Header and rows share one set of columns, so the legends sit over what they name. */
+.cue-head,
+.cue-row {
+  display: grid;
+  grid-template-columns: 44px 124px 26px minmax(0, 1fr) minmax(0, 180px) 116px 116px;
+  align-items: center;
+  column-gap: 12px;
+  padding: 0 16px;
+}
+
+.cue-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scroll-padding-top: 24px;
+}
+
+/* Inside the scroller, so a scrollbar narrows header and rows alike and the legends stay over their columns. */
+.cue-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 24px;
+  background: var(--panel-lo);
+  border-block: 1px solid var(--rule);
+  color: var(--ink-dim);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cue-head .cue-cue {
+  grid-column: span 2;
+}
+
+.cue-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cue-row {
+  position: relative;
+  width: 100%;
+  height: 38px;
+  background-color: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--grat-minor);
+  border-radius: 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.cue-row:hover {
+  background-color: var(--ghost);
+}
+
+.cue-row .cue-number {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.cue-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cue-title.marquee {
+  display: block;
+}
+
+.cue-name,
+.cue-track {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cue-row .cue-track {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+.cue-row .cue-time,
+.cue-row .cue-length {
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+
+.cue-row .cue-time {
+  color: var(--ink);
+}
+
+/* The kind is told by the fill, as on the timeline: solid audio, hatched note. */
+.cue-kind {
+  height: 14px;
+  border: 1px solid var(--cue-c-dim);
+  background-color: color-mix(in oklch, var(--cue-c) 40%, var(--screen));
+}
+
+.cue-kind[data-kind="note"] {
+  background-color: var(--screen);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklch, var(--cue-c) 55%, transparent) 0 2px,
+    transparent 2px 5px
+  );
+}
+
+.cue-kind[data-kind="midi"] {
+  background-color: var(--cue-c-dim);
+}
+
+.cue-kind[data-kind="osc"] {
+  background-color: var(--screen);
+  border-style: dashed;
+}
+
+/* Upright bars, like the frames of a film strip. */
+.cue-kind[data-kind="video"] {
+  background-color: var(--screen);
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--cue-c) 55%, transparent) 0 3px,
+    transparent 3px 5px
+  );
+}
+
+/* Lamps say the state by shape as well as colour: filled, hollow or dashed, beside a printed word. */
+.cue-state .lamp {
+  flex: none;
+}
+
+.lamp[data-status="next"] {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
+.lamp[data-status="running"] {
+  background: var(--phosphor);
+  border-color: var(--phosphor);
+}
+
+.live[data-playing="true"] .lamp[data-status="running"] {
+  background: var(--signal);
+  border-color: var(--signal);
+}
+
+.lamp[data-status="done"] {
+  background: transparent;
+  border-color: var(--ink-faint);
+}
+
+.lamp[data-status="muted"] {
+  background: transparent;
+  border: 1px dashed var(--ink-faint);
+}
+
+.cue-row[data-status="next"] {
+  outline: 1px solid var(--amber);
+  outline-offset: -1px;
+}
+
+.cue-row[data-status="next"] .cue-state {
+  color: var(--amber);
+}
+
+.cue-row[data-status="next"] .cue-name,
+.cue-row[data-status="running"] .cue-name {
+  font-weight: 700;
+}
+
+.cue-row[data-status="running"] {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--cue-c) 22%, transparent) var(--progress, 0%),
+    transparent var(--progress, 0%)
+  );
+}
+
+.cue-row[data-status="done"],
+.cue-row[data-status="done"] .cue-time,
+.cue-row[data-status="muted"],
+.cue-row[data-status="muted"] .cue-time {
+  color: var(--ink-faint);
+}
+
+.cue-row[data-status="muted"] {
+  outline: 1px dashed var(--rule-strong);
+  outline-offset: -1px;
+}
+
+.cue-row[data-status="muted"] .cue-name {
+  text-decoration: line-through;
+}
+
+.cue-row[data-status="done"] .cue-kind,
+.cue-row[data-status="muted"] .cue-kind {
+  opacity: 0.55;
+}
+
+/* One quiet, thin scrollbar for every Live scroller, so nested lists do not stack heavy bars. */
+.live-ops-scroll, .cue-scroll, .show-running-order ol, .show-run-notes, .live-running-list, .live-notes-list { scrollbar-width: thin; }
+
+/* The sidebar layout: the same rows, stacked in three lines to fit a narrow column that never scrolls away. */
+.live-cues[data-layout="sidebar"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--rule-strong);
+}
+
+.live-cues[data-layout="sidebar"] .live-cues-bar {
+  flex: none;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--rule-strong);
+  background: var(--panel-lo);
+}
+
+.live-cues[data-layout="sidebar"] .live-hint {
+  min-width: 0;
+  text-align: right;
+}
+
+.live-cues[data-layout="sidebar"] .cue-scroll {
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.live-cues[data-layout="sidebar"] .cue-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "number name name"
+    ". state time"
+    "kind track length";
+  align-items: center;
+  column-gap: 12px;
+  row-gap: 3px;
+  height: auto;
+  min-height: 72px;
+  padding-block: 8px;
+  line-height: 1.25;
+}
+
+.live-cues[data-layout="sidebar"] .cue-number { grid-area: number; }
+.live-cues[data-layout="sidebar"] .cue-name { grid-area: name; display: grid; gap: 2px; min-width: 0; white-space: normal; line-height: 1.25; }
+.live-cues[data-layout="sidebar"] .cue-state { grid-area: state; }
+.live-cues[data-layout="sidebar"] .cue-time { grid-area: time; white-space: nowrap; }
+.live-cues[data-layout="sidebar"] .cue-kind { grid-area: kind; width: 28px; height: 12px; }
+.live-cues[data-layout="sidebar"] .cue-track { grid-area: track; min-width: 0; }
+.live-cues[data-layout="sidebar"] .cue-length { grid-area: length; white-space: nowrap; }
+
+.live-cues[data-layout="sidebar"] .cue-row[data-status="done"] .cue-track,
+.live-cues[data-layout="sidebar"] .cue-row[data-status="done"] .cue-length,
+.live-cues[data-layout="sidebar"] .cue-row[data-status="muted"] .cue-track,
+.live-cues[data-layout="sidebar"] .cue-row[data-status="muted"] .cue-length {
+  color: var(--ink-faint);
+}
+
+.live-cues[data-layout="sidebar"] .voice-live-state {
+  overflow: visible;
+}
+
+.cue-empty {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 24px 16px;
+  color: var(--ink-dim);
+}
+
+/* A short window gives the list the room: the panels and the countdown shrink first. */
+@media (max-height: 700px) {
+  .live-panel {
+    min-height: 0;
+    gap: 6px;
+    padding-block: 8px 8px;
+  }
+
+  .live-running-list {
+    gap: 8px;
+    max-height: none;
+  }
+
+  .live-left {
+    font-size: 20px;
+  }
+
+  .live-notes {
+    gap: 6px;
+    padding-block: 8px;
+  }
+
+  .live-countdown .measure {
+    font-size: clamp(30px, 3.6vw, 40px);
+  }
+
+  .live-name {
+    font-size: 18px;
+  }
+
+  .cue-row {
+    height: 34px;
+  }
+
+  .live-note-text {
+    font-size: 18px;
+  }
+
+  .live-notes-list {
+    max-height: 6.5em;
+  }
+}
+
+@media (max-width: 1179px) {
+  .live-panel {
+    padding-inline: 12px;
+  }
+
+  .cue-head,
+  .cue-row {
+    column-gap: 10px;
+    padding-inline: 12px;
+  }
+}

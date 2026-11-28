@@ -12,7 +12,7 @@ import { changePreferences, usePreferences } from "../preferences/store";
 import { formatFrames } from "../timecode";
 import { listTimecodeMidiInputs, useTimecodeIn } from "../vj/timecodeIn";
 import type { TimecodeInSource } from "../vj/timecodeIn";
-import { RowStatus } from "./pages";
+import { RowStatus } from "./rows";
 import { Select } from "../components/Select";
 
 interface Input {

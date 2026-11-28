@@ -1,0 +1,59 @@
+/* The VJ screen: a panel system on a darker ground (see the approved mockup in the project files).
+   Phosphor marks what is selected, vermilion what is on air, and each layer fader has a colour of
+   its own: master amber, audio green, video cyan, transition violet. */
+
+.app[data-vj] {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.work[data-view="vj"],
+.work[data-view="vj"][data-inspector-collapsed="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.vj-app {
+  --vj-ground: oklch(0.135 0.01 250);
+  --vj-panel: oklch(0.2 0.013 250);
+  --vj-head: oklch(0.225 0.014 250);
+  --vj-row: oklch(0.235 0.014 250);
+  --vj-global: oklch(0.265 0.032 262);
+  --vj-global-ink: oklch(0.8 0.08 255);
+  --vj-well: oklch(0.165 0.011 250);
+  --vj-ctl: oklch(0.28 0.014 250);
+  --vj-ctl-hi: oklch(0.33 0.015 250);
+  --vj-line: oklch(0.29 0.014 250);
+  --vj-black: oklch(0.12 0.02 205);
+  --vj-master: oklch(0.82 0.13 78);
+  --vj-audio: oklch(0.8 0.15 135);
+  --vj-video: oklch(0.78 0.11 210);
+  --vj-transition: oklch(0.74 0.13 295);
+  --vj-group: oklch(0.255 0.034 175);
+  --vj-group-ink: oklch(0.8 0.09 175);
+
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  min-height: 0;
+  min-width: 0;
+  background: var(--vj-ground);
+}
+
+/* Keyboard focus on a small VJ control: a phosphor line just outside it. */
+.vj-fader:focus-visible,
+.vj-meter:focus-visible,
+.vj-mod-b:focus-visible,
+.vj-rec button:focus-visible {
+  outline: 1px solid var(--phosphor);
+  outline-offset: 1px;
+}
+
+.vj-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vj-panel);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.035);
+}

@@ -1,0 +1,227 @@
+/* ---- The grid ---- */
+
+.vj-deck-panel .vj-pb { display: flex; flex-direction: column; }
+
+.vj-grid {
+  --vj-header: 276px;
+  /* The clip size: the width of a column and the height of a row (a picture over a 24 px name bar). */
+  --vj-clip-w: 116px;
+  --vj-row-h: 104px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.vj-grid[data-size="small"] { --vj-clip-w: 88px; }
+.vj-grid[data-size="large"] { --vj-clip-w: 160px; --vj-row-h: 128px; }
+
+.vj-row {
+  display: grid;
+  /* Fixed columns as in Resolume (a 120 px pitch): the ones that do not fit scroll, the room left over stays empty. */
+  grid-template-columns: var(--vj-header) repeat(var(--columns), var(--vj-clip-w));
+  gap: 4px;
+  width: max-content;
+  min-width: 100%;
+  height: var(--vj-row-h);
+  margin-top: 4px;
+}
+
+.vj-row.head { position: sticky; top: 0; z-index: 2; height: 24px; margin: 0; background: var(--vj-panel); }
+.vj-row.split { margin-top: 8px; position: relative; }
+.vj-row.split::before { content: ""; position: absolute; inset: -5px 0 auto; height: 1px; background: oklch(0.8 0.08 255 / 0.4); }
+
+.vj-corner { display: flex; align-items: center; padding-left: 12px; color: var(--ink-faint); font-size: 12px; }
+
+.vj-col {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 8px;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-col:hover { color: var(--ink); background: var(--vj-ctl); }
+.vj-col .vj-num { color: var(--ink-faint); font-size: 11px; }
+.vj-col span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vj-col.on-air { color: var(--ink); }
+.vj-col.on-air .vj-num { color: var(--signal); }
+.vj-col.on-air::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--signal); }
+
+/* Layer header: eject, bypass and solo over the blend, faders M A V, the clip on air, then T and
+   its effect; the name and crossfader side underneath. */
+.vj-lh {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px 58px 58px minmax(0, 1fr) 30px;
+  grid-template-rows: minmax(0, 1fr) 20px;
+  gap: 4px;
+  padding: 4px 4px 3px 6px;
+  background: var(--vj-row);
+  border-radius: 0 2px 2px 0;
+}
+
+.vj-lh.global { background: var(--vj-global); }
+.vj-lh.playing::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--signal); }
+
+.vj-eject {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--ink-dim);
+  background: var(--vj-ctl);
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-lh.playing .vj-eject { color: var(--ink); background: var(--vj-ctl-hi); }
+.vj-eject .icon { width: 14px; height: 14px; }
+
+.vj-bsb,
+.vj-tempo,
+.vj-fxw { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.vj-bs { display: grid; flex: 1; grid-template-columns: 1fr 1fr; gap: 3px; }
+
+.vj-bs button {
+  padding: 0;
+  color: var(--ink-dim);
+  font: 600 12px var(--font-ui);
+  background: var(--vj-ctl);
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-bs button.bypass { color: oklch(0.25 0.05 70); background: var(--amber); }
+.vj-bs button.solo { color: oklch(0.22 0.05 128); background: var(--phosphor); }
+
+.vj-select {
+  width: 100%;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  color: var(--ink-dim);
+  font: 11px var(--font-ui);
+  background: var(--vj-well);
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-select .select-chevron svg { width: 9px; height: 9px; }
+.vj-select.short { padding: 0 1px; font-size: 9.5px; justify-content: center; }
+.vj-select.short .select-chevron { display: none; }
+.vj-select.wide { height: 28px; font-size: 12.5px; }
+
+.vj-faders { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.vj-faders.two { grid-template-columns: repeat(2, 1fr); }
+.vj-tcol { display: flex; grid-column: 5; grid-row: 1 / 3; flex-direction: column; gap: 4px; }
+.vj-tcol .vj-fader { flex: 1; }
+
+.vj-fader {
+  --c: var(--vj-master);
+  position: relative;
+  overflow: hidden;
+  background: var(--vj-well);
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px oklch(0 0 0 / 0.25);
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.vj-fader[data-letter="A"] { --c: var(--vj-audio); }
+.vj-fader[data-letter="V"] { --c: var(--vj-video); }
+.vj-fader[data-letter="T"] { --c: var(--vj-transition); }
+
+.vj-fader i {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc((100% - 14px) * var(--v) + 7px);
+  background: color-mix(in oklch, var(--c) 32%, transparent);
+}
+
+/* Where the transition is while it runs: a line rising through the filled part of the T fader. */
+.vj-fader u {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(((100% - 14px) * var(--v) + 7px) * var(--p, 0));
+  height: 2px;
+  background: oklch(0.97 0.02 300);
+  box-shadow: 0 0 4px var(--c);
+  pointer-events: none;
+}
+
+.vj-fader b {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc((100% - 14px) * var(--v));
+  display: grid;
+  place-items: center;
+  height: 14px;
+  color: oklch(0.18 0.02 250);
+  font: 700 10px var(--font-ui);
+  background: var(--c);
+  border-radius: 1px;
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.5);
+}
+
+.vj-thumb {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--vj-black);
+  background-repeat: no-repeat;
+}
+
+.vj-now { border-radius: 1px; box-shadow: 0 0 0 1px var(--signal); }
+/* Nothing playing is an etched, dashed outline with a dim camera mark and no fill, so it is not the black of an empty slot. */
+.vj-now.empty { display: grid; place-items: center; background: none; box-shadow: none; outline: 1px dashed var(--ink-faint); outline-offset: -1px; }
+.vj-nonow { color: var(--ink-faint); opacity: 0.7; line-height: 0; }
+.vj-nonow .icon, .vj-nonow svg { width: 18px; height: 18px; }
+
+.vj-time {
+  position: absolute;
+  right: 3px;
+  bottom: 5px;
+  padding: 0 3px;
+  color: var(--ink);
+  font-size: 10px;
+  background: oklch(0 0 0 / 0.6);
+  border-radius: 1px;
+}
+
+.vj-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: oklch(0 0 0 / 0.5); }
+.vj-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--signal); }
+.vj-tbar { position: absolute; left: 0; right: 0; top: 0; height: 3px; background: oklch(0 0 0 / 0.5); }
+.vj-tbar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--vj-transition); }
+
+.vj-lname { display: flex; grid-column: 1 / 5; align-items: center; gap: 6px; min-width: 0; padding-left: 2px; }
+.vj-lname .vj-num { color: var(--ink-faint); font-size: 10.5px; }
+.vj-nm { flex: 0 1 auto; font-size: 12.5px; font-weight: 600; }
+.vj-global { display: flex; color: var(--vj-global-ink); }
+.vj-global .icon { width: 12px; height: 12px; }
+.vj-clipname { flex: 1 1 0; min-width: 0; overflow: hidden; color: var(--ink-dim); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.vj-clipname::before { content: "·"; margin-right: 6px; color: var(--ink-faint); }
+.vj-clipname.idle { color: var(--ink-faint); }
+.vj-ab { display: flex; flex: none; margin-left: auto; overflow: hidden; background: var(--vj-well); border-radius: 2px; }
+
+.vj-ab button {
+  width: 17px;
+  height: 16px;
+  padding: 0;
+  color: var(--ink-faint);
+  font: 700 10px var(--font-ui);
+  background: none;
+  border: 0;
+}
+
+.vj-ab button.on { color: var(--ink); background: var(--vj-ctl-hi); }

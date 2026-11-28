@@ -139,11 +139,23 @@ mod tests {
 
     #[test]
     fn a_free_clock_should_tick_at_the_tempo_without_drifting() {
-        // 120 BPM: a clock every 20.833 ms. The mean over the run is what a drift would move.
+        // 120 BPM: a clock every 20.833 ms. The slope of a line fitted through every clock is
+        // what a drift would move; unlike first-to-last, one clock a busy runner sends late
+        // barely moves it.
         let at = clocks(120.0, Duration::from_millis(1200));
         assert!(at.len() > 40, "{} clocks", at.len());
-        let span = at.last().unwrap().duration_since(at[0]).as_secs_f64() * 1000.0;
-        let mean = span / (at.len() - 1) as f64;
+        let ms: Vec<f64> = at
+            .iter()
+            .map(|t| t.duration_since(at[0]).as_secs_f64() * 1000.0)
+            .collect();
+        let n = ms.len() as f64;
+        let mean_index = (n - 1.0) / 2.0;
+        let mean_ms = ms.iter().sum::<f64>() / n;
+        let (covariance, variance) = ms.iter().enumerate().fold((0.0, 0.0), |(c, v), (i, y)| {
+            let x = i as f64 - mean_index;
+            (c + x * (y - mean_ms), v + x * x)
+        });
+        let mean = covariance / variance;
         assert!((mean - 20.8333).abs() < 0.25, "mean interval {mean} ms");
     }
 

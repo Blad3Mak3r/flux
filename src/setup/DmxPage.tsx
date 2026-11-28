@@ -6,7 +6,7 @@ import { addDmxDestination, removeDmxDestination, updateDmxDestination } from ".
 import { useDoc } from "../state/store";
 import type { CueInfo } from "../transport/api";
 import { useTransport } from "../transport/store";
-import { OutputRow, rowState } from "./pages";
+import { OutputRow, rowState } from "./rows";
 
 const NO_DESTINATIONS: DmxDestination[] = [];
 const NO_CUES: CueInfo[] = [];

@@ -1,0 +1,171 @@
+/* ---- Map mode: MIDI and OSC ---- */
+
+.vj-tb.on,
+.vj-mp-inv.on { color: var(--ink); background: var(--vj-ctl-hi); box-shadow: inset 0 -2px 0 var(--phosphor); }
+.vj-tb kbd { padding: 0 4px; color: var(--ink-faint); font: inherit; font-family: var(--font-measure); font-size: 10px; border: 1px solid var(--vj-line); border-radius: 2px; }
+.vj-deck.step { padding: 0 8px; color: var(--ink-faint); }
+.vj-map-w { display: inline-flex; }
+
+/* The outlines sit over the controls; a dashed one is free, a solid one is mapped, and the one waiting is thick with its word. */
+.vj-map { position: fixed; inset: 0; z-index: 40; pointer-events: none; }
+.vj-map-o {
+  position: fixed;
+  display: block;
+  min-width: 0;
+  padding: 0;
+  overflow: visible;
+  background: oklch(0.16 0.012 250 / 0.4);
+  border: 1px dashed var(--ink-faint);
+  border-radius: 2px;
+  pointer-events: auto;
+}
+.vj-map-o:hover { border-color: var(--ink); background: oklch(0.2 0.013 250 / 0.55); }
+.vj-map-o.mapped { border: 1px solid var(--phosphor); background: oklch(0.87 0.17 128 / 0.1); }
+.vj-map-o.linked { border: 2px solid var(--phosphor); }
+.vj-map-o.learning { border: 2px solid var(--amber); background: oklch(0.82 0.15 78 / 0.14); }
+.vj-map-o.off { opacity: 0.3; pointer-events: none; }
+.vj-map-t {
+  position: absolute;
+  left: 0;
+  top: 0;
+  max-width: 100%;
+  padding: 0 3px;
+  overflow: hidden;
+  color: var(--phosphor);
+  font-family: var(--font-measure);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  background: var(--panel-lo);
+  border-radius: 0 0 2px 0;
+}
+.vj-map-o.narrow.mapped::after, .vj-map-o.narrow.learning::after { content: ""; position: absolute; left: 2px; top: 2px; width: 6px; height: 6px; background: var(--phosphor); }
+.vj-map-o.narrow.learning::after { background: var(--amber); }
+.vj-map-o.learning .vj-map-t { color: var(--panel-lo); font-weight: 700; background: var(--amber); }
+
+.vj-mapbar { display: flex; flex: 1; align-items: center; gap: 12px; min-width: 0; font-size: 12px; }
+.vj-mapbar strong { color: var(--amber); font-size: 11px; letter-spacing: 0.08em; }
+.vj-mapbar-s { flex: 1; min-width: 0; overflow: hidden; color: var(--ink-dim); white-space: nowrap; text-overflow: ellipsis; }
+.vj-map-in { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-dim); font-family: var(--font-measure); font-size: 11px; text-transform: uppercase; white-space: nowrap; }
+.vj-map-in i { width: 8px; height: 8px; background: var(--lamp-off); }
+.vj-map-in.listening i { background: var(--phosphor); }
+.vj-map-in.missing i { background: var(--amber); }
+.vj-map-in.error i { background: var(--signal); }
+
+/* The list of mappings. */
+.vj-mp { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.vj-mp-bar { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--vj-line); font-size: 12px; }
+.vj-mp-list { flex: 1; margin: 0; padding: 0; overflow: auto; list-style: none; }
+.vj-mp-row { display: grid; grid-template-columns: minmax(90px, 0.8fr) minmax(0, 1.6fr) 28px; grid-template-areas: "src tgt del" "opt opt opt"; align-items: center; gap: 4px 10px; padding: 6px 10px; border-bottom: 1px solid var(--vj-line); }
+.vj-mp-row > .vj-mp-src { grid-area: src; }
+.vj-mp-row > .vj-mp-tgt { grid-area: tgt; }
+.vj-mp-row > .vj-mp-opt { grid-area: opt; }
+.vj-mp-row > .vj-mp-del { grid-area: del; }
+.vj-mp-row.head { grid-template-areas: "src tgt del"; position: sticky; top: 0; z-index: 1; min-height: 24px; color: var(--ink-faint); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; background: var(--vj-head); }
+.vj-mp-src { overflow: hidden; color: var(--phosphor); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.vj-mp-tgt { min-width: 0; overflow: hidden; color: var(--ink); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.vj-mp-opt { display: flex; align-items: center; gap: 6px; }
+.vj-mp-inv { height: 22px; padding: 0 8px; color: var(--ink-dim); font: inherit; font-size: 11px; background: var(--vj-ctl); border: 0; border-radius: 2px; }
+.vj-mp-del { display: grid; place-items: center; width: 24px; height: 24px; color: var(--ink-faint); background: none; border: 0; border-radius: 2px; }
+.vj-mp-del:hover { color: var(--ink); background: var(--vj-ctl); }
+.vj-mp-del .icon { width: 14px; height: 14px; }
+
+/* The dashboard of the composition. */
+.vj-dash { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--vj-line); }
+.vj-sub { margin: 0; color: var(--ink-dim); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.vj-knobs { display: grid; grid-template-columns: repeat(8, minmax(44px, 1fr)); gap: 6px; }
+.vj-dash.scoped .vj-knobs { grid-template-columns: repeat(4, minmax(44px, 1fr)); max-width: 260px; }
+.vj-knob { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 2px; background: var(--vj-well); border-radius: 2px; }
+.vj-knob.picked { box-shadow: inset 0 -2px 0 var(--phosphor); }
+.vj-knob-dial { width: 44px; height: 44px; cursor: ns-resize; touch-action: none; }
+.vj-knob-dial svg { display: block; width: 100%; height: 100%; }
+.vj-knob-rail { fill: none; stroke: var(--vj-line); stroke-width: 3; }
+.vj-knob-arc { fill: none; stroke: var(--phosphor); stroke-width: 3; }
+.vj-knob-cap { fill: var(--vj-ctl-hi); stroke: var(--vj-line); }
+.vj-knob-ptr { stroke: var(--ink); stroke-width: 2; stroke-linecap: square; }
+.vj-knob b { color: var(--ink); font-size: 11px; font-weight: 600; }
+.vj-knob-n { max-width: 100%; overflow: hidden; color: var(--ink-faint); font-size: 10px; white-space: nowrap; text-overflow: ellipsis; }
+.vj-knob.linked .vj-knob-n::before { content: "\2192 "; color: var(--phosphor); }
+.vj-dash-head { display: flex; align-items: center; gap: 8px; }
+.vj-dash-head .vj-input { flex: 1; min-width: 0; }
+.vj-link { display: grid; grid-template-columns: minmax(0, 1fr) 28px; grid-template-areas: "tgt del" "opt opt"; align-items: center; gap: 4px 10px; padding: 6px 0; border-bottom: 1px solid var(--vj-line); }
+.vj-link > .vj-mp-tgt { grid-area: tgt; }
+.vj-link > .vj-mp-opt { grid-area: opt; }
+.vj-link > .vj-mp-del { grid-area: del; }
+.vj-mp-opt .vj-scrub, .vj-link .vj-scrub { flex: none; width: 132px; }
+.vj-mp-opt .vj-segs button { flex: none; padding: 0 12px; overflow: visible; }
+
+/* ---- Mappings: filter, 16-bit field, parked rows, the import question ---- */
+.vj-mp-tools { gap: 8px; }
+.vj-mp-files { display: flex; gap: 6px; }
+.vj-mp-fine,
+.vj-light { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-dim); font-size: 11px; }
+.vj-mp-fine input { width: 38px; height: 22px; padding: 0 4px; color: var(--ink); font-family: var(--font-measure); font-size: 11px; background: var(--vj-well); border: 0; border-radius: 2px; text-align: right; }
+.vj-mp-row.parked .vj-mp-tgt { color: var(--amber); font-style: italic; }
+.dialog.vj-import { width: min(640px, 94vw); max-width: none; }
+.vj-import-list { max-height: 44vh; margin: 0 0 16px; padding: 0; overflow: auto; list-style: none; border: 1px solid var(--rule); }
+.vj-import-list li { display: grid; grid-template-columns: minmax(70px, 0.7fr) minmax(0, 1fr) 14px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--rule); font-size: 12px; }
+.vj-import-list li:last-child { border-bottom: 0; }
+.vj-import-list li.kept .vj-import-now { color: var(--ink-faint); text-decoration: line-through; }
+.vj-import-src { overflow: hidden; color: var(--phosphor); white-space: nowrap; text-overflow: ellipsis; }
+.vj-import-was, .vj-import-now { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.vj-import-was { color: var(--ink-dim); }
+.vj-import-actions { flex-wrap: wrap; }
+.vj-mp-tools .vj-segs, .vj-mp-opt .vj-segs { flex: none; }
+.vj-mp-tools .vj-segs button, .vj-mp-opt .vj-segs button { flex: none; padding: 0 8px; }
+.vj-mp-opt { flex-wrap: wrap; }
+.vj-mapbar-s[title] { cursor: help; }
+.vj-import-list .vj-segs { flex: none; }
+.vj-import-list .vj-segs button { flex: none; padding: 0 8px; }
+
+/* The test card of a slice in the Advanced Output's inspector. */
+.tc { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin: 14px 0 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--rule); }
+.tc > legend { float: left; width: 100%; margin: 0 0 10px; padding: 0; color: var(--ink-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; }
+.tc > legend + * { clear: both; }
+.tc .vj-f { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
+.tc .vj-segs button { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 11.5px; }
+.tc-show { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.tc-chip { height: 24px; padding: 0 9px; color: var(--ink-dim); font: 600 11.5px var(--font-ui); background: var(--vj-well); border: 0; border-radius: 2px; cursor: pointer; }
+.tc-chip:hover { color: var(--ink); }
+.tc-chip[aria-pressed="true"] { color: var(--phosphor); background: oklch(0.3 0.04 128); box-shadow: inset 0 0 0 1px var(--phosphor-dim); }
+.tc-layers,
+.vj-fxp { display: flex; flex-wrap: wrap; gap: 4px; }
+.tc-modes button { flex: 1 1 0; display: flex; align-items: center; justify-content: center; min-width: 0; height: 22px; padding: 0; color: var(--ink-dim); font-size: 11.5px; background: none; border: 0; border-radius: 2px; cursor: pointer; }
+.tc-modes button.on { background: var(--vj-ctl-hi); box-shadow: inset 0 0 0 1px var(--phosphor-dim); }
+.tc-modes button:first-child { flex: 2.2 1 0; }
+.tc-modes i { width: 14px; height: 14px; border-radius: 1px; box-shadow: 0 0 0 1px oklch(1 0 0 / 0.25); }
+.tc-size { display: flex; align-items: center; gap: 6px; }
+.tc-size > span { color: var(--ink-faint); font-size: 12px; }
+.tc-size .field { flex: 1 1 0; min-width: 0; }
+.tc-select { min-width: 0; flex: 1; height: 24px; color: var(--ink); font: 500 11.5px var(--font-ui); background: var(--vj-well); border: 0; border-radius: 2px; }
+.tc-base { display: flex; align-items: center; gap: 6px; }
+.tc-range { width: 100%; accent-color: var(--phosphor); }
+/* The colours of the pads of a controller (Mappings tab). */
+.vj-mp-pads { justify-content: flex-start; gap: 12px; }
+.vj-lights { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.vj-light input, .vj-light .select { height: 22px; padding: 0 4px; color: var(--ink); font-family: var(--font-measure); font-size: 11px; background: var(--vj-well); border: 0; border-radius: 2px; }
+.vj-light input { width: 44px; text-align: right; }
+.vj-light .select { border-left: 6px solid var(--ink-faint); }
+.vj-light.c1 .select, .vj-light.c2 .select { border-left-color: #3ec46d; }
+.vj-light.c3 .select, .vj-light.c4 .select { border-left-color: #e0503f; }
+.vj-light.c5 .select, .vj-light.c6 .select { border-left-color: var(--amber); }
+.vj-knob.modulated .vj-knob-arc { stroke: var(--amber); }
+
+/* Presets under an effect of the browser, and the dialogs of presets and templates. */.vj-name-actions { margin-top: 16px; }
+.vj-fxp-b { max-width: 100%; padding: 2px 7px; overflow: hidden; color: var(--phosphor); font: 500 11px var(--font-ui); white-space: nowrap; text-overflow: ellipsis; background: transparent; border: 1px solid var(--rule); border-radius: 3px; cursor: pointer; }
+.vj-fxp-b:hover { background: var(--vj-ctl); border-color: var(--phosphor); }
+.vj-fxm { margin: 4px 0 8px; }
+.dialog.vj-name { width: min(380px, 94vw); }
+.dialog.vj-lib { width: min(560px, 94vw); max-width: none; }
+.vj-lib-list { max-height: 46vh; margin: 8px 0 16px; padding: 0; overflow: auto; list-style: none; border: 1px solid var(--rule); }
+.vj-lib-list:empty { display: none; }
+.vj-lib-list li { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--rule); font-size: 12.5px; }
+.vj-lib-list li:last-child { border-bottom: 0; }
+.vj-lib-list strong { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.vj-lib-empty { margin: 8px 0 16px; }
+
+/* The switch in front of a screen: off, the screen's row and its slices are dimmed. */
+.vj-ao-head { padding-left: 6px; gap: 6px; }
+.vj-ao-screens > li[data-off="true"] .vj-ao-row,
+.vj-ao-screens > li[data-off="true"] > ul { opacity: 0.45; }

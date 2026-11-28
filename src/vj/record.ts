@@ -2,12 +2,12 @@
 // keeps what it last sent, and puts the project it returns on stop (the file added to the
 // media) in the history.
 
+import { fail } from "../state/fail";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
-import { errorMessage } from "../project/api";
 import type { Project } from "../project/types";
 import { dispatch, useDoc } from "../state/store";
-import { say, sayError } from "../state/ui";
+import { say } from "../state/ui";
 import { checkHap } from "../state/video";
 import { watch } from "../watch";
 
@@ -34,7 +34,6 @@ const IDLE: RecordState = { recording: false, elapsedMs: 0, frames: 0, dropped: 
 
 export const useRecord = create<RecordState>(() => IDLE);
 
-const fail = (err: unknown) => sayError(errorMessage(err));
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 let stopping = false;

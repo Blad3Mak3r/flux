@@ -1,0 +1,136 @@
+/* A group: a header row over its layers, which sit in a rail of the group's tint; the trigger per column launches
+   the group's layers alone. A group can be folded to its header, as a layer to its row. */
+.vj-row.group { height: 66px; }
+.vj-row.group.folded { height: 28px; }
+.vj-lh.group { grid-template-columns: 26px 58px 58px minmax(0, 1fr); background: var(--vj-group); box-shadow: inset 3px 0 var(--vj-group-ink); }
+.vj-lh.group.folded { grid-template-columns: 46px minmax(0, 1fr); }
+.vj-lh.group.folded .vj-bs button { height: 20px; }
+.vj-lh.group .vj-num { color: var(--vj-group-ink); }
+.vj-lh.group.selected { outline: 1px solid var(--vj-group-ink); outline-offset: -1px; }
+.vj-lh.group.over, .vj-lh.picked { outline: 2px solid var(--phosphor); outline-offset: -2px; }
+.vj-row.in-group .vj-lh { margin-left: 8px; box-shadow: -8px 0 0 var(--vj-group), -8px 0 0 3px var(--vj-group-ink); }
+.vj-gcell {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--vj-group-ink);
+  background: var(--vj-group);
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.vj-gcell:hover { color: var(--ink); background: var(--vj-ctl-hi); }
+.vj-gcell:focus-visible, .vj-go:focus-visible { outline: 2px solid var(--phosphor); outline-offset: -2px; }
+.vj-gcell .icon { width: 14px; height: 14px; }
+.vj-row.group.folded .vj-gcell { background: oklch(0.2 0.02 175); }
+
+/* A collapsed layer: one thin row, as in Resolume. Its clips keep a strip of their picture and name. */
+.vj-row.folded { height: 28px; }
+.vj-lh.folded { grid-template-columns: 22px 46px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: center; padding: 2px 4px 2px 6px; }
+.vj-lh.folded .vj-eject { height: 22px; }
+.vj-lh.folded .vj-eject .icon { width: 12px; height: 12px; }
+.vj-lh.folded .vj-bs button { height: 20px; }
+.vj-lh.folded .vj-lname { grid-column: auto; }
+.vj-row.folded .vj-cm { display: none; }
+.vj-row.folded .vj-pic { inset: 0; }
+.vj-row.folded .vj-clip .vj-thumb { top: 0; bottom: 0; height: 100%; aspect-ratio: auto; transform: none; }
+.vj-row.folded .vj-shade { display: block; }
+.vj-row.folded .vj-pick, .vj-row.folded .vj-slot .vj-pick { left: 28px; height: 100%; background: none; }
+.vj-row.folded .vj-slot { flex-direction: row; }
+.vj-row.folded .vj-slot-pic { flex: none; width: 28px; border-radius: 2px 0 0 2px; }
+.vj-row.folded .vj-slot .vj-pick { flex: 1; position: static; }
+.vj-row.folded .vj-clip.on-air .vj-pick { background: none; }
+.vj-row.folded .vj-clip.on-air .vj-cn { color: var(--ink); }
+.vj-go { position: absolute; z-index: 2; left: 0; top: 0; bottom: 0; width: 28px; padding: 0; background: oklch(0.1 0.01 250 / 0.55); border: 0; }
+.vj-go::before { content: ""; position: absolute; inset: 8px; border: 2px solid var(--ink-dim); border-radius: 1px; }
+.vj-go:hover::before { border-color: var(--phosphor); }
+.vj-go.on::before { background: var(--phosphor); border-color: var(--phosphor); }
+.vj-row.folded .vj-air { left: auto; right: 4px; top: 50%; height: 16px; transform: translateY(-50%); }
+.vj-row.folded .vj-cn { line-height: 28px; color: var(--ink); text-shadow: 0 1px 2px oklch(0 0 0 / 0.6); }
+/* The time badge keeps its width at the right: the name ends before it. */
+.vj-row.folded .vj-clip.on-air .vj-pick { padding-right: 52px; }
+.vj-row.folded .vj-air .icon { display: none; }
+
+.vj-fold {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: -4px;
+  padding: 0;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-fold:hover { color: var(--ink); background: var(--vj-ctl); }
+.vj-fold .icon { width: 12px; height: 12px; }
+.vj-row.folded .vj-shade { background: linear-gradient(90deg, oklch(0 0 0 / 0.65), oklch(0 0 0 / 0.15)); }
+
+/* Tempo: the BPM typed or nudged, halved, doubled and tapped. */
+.vj-bpm { display: flex; align-items: center; gap: 6px; }
+.vj-lbl { color: var(--ink-faint); font: 600 11px var(--font-ui); letter-spacing: 0.08em; }
+
+.vj-bpm-v, .vj-tc-v {
+  height: 30px;
+  padding: 0 8px;
+  color: var(--vj-master);
+  font: 600 16px var(--font-measure);
+  font-variant-numeric: tabular-nums;
+  background: var(--vj-well);
+  border: 1px solid var(--vj-line);
+  border-radius: 2px;
+}
+
+.vj-bpm-v { width: 76px; text-align: right; }
+.vj-bpm-v:focus, input.vj-tc-v:focus { outline: none; border-color: var(--phosphor); }
+.vj-bpm-k { display: flex; gap: 2px; }
+
+.vj-bpm-k button, .vj-tap, .vj-tc-keys button {
+  height: 26px;
+  min-width: 26px;
+  padding: 0 6px;
+  color: var(--ink-dim);
+  font: 600 12px var(--font-ui);
+  background: var(--vj-ctl);
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-bpm-k button:hover, .vj-tap:hover, .vj-tc-keys button:hover { color: var(--ink); background: var(--vj-ctl-hi); }
+.vj-tap { min-width: 44px; color: var(--vj-master); letter-spacing: 0.06em; text-transform: uppercase; }
+.vj-tap:active { color: oklch(0.2 0.03 78); background: var(--vj-master); }
+
+/* The beat in its bar and the flash of each beat: phosphor while the beats run, dim while held. */
+.vj-beat { display: flex; align-items: center; gap: 3px; }
+.vj-beat i { display: block; width: 6px; height: 14px; background: var(--vj-ctl); border-radius: 1px; }
+.vj-beat .vj-beat-flash { width: 14px; background: var(--phosphor); animation: vj-flash 0.22s ease-out forwards; }
+.vj-beat .vj-beat-n.on { background: var(--phosphor); }
+.vj-beat.held .vj-beat-flash { animation: none; background: var(--vj-ctl); }
+.vj-beat.held .vj-beat-n.on { background: var(--ink-faint); }
+@keyframes vj-flash { from { opacity: 1; } to { opacity: 0.25; } }
+.vj-hold[aria-pressed="true"] { color: oklch(0.2 0.03 78); background: var(--vj-master); }
+/* The number of other applications in the Link session, beside the word. */
+.vj-link-n { margin-left: 6px; font: 600 12px var(--font-measure); font-variant-numeric: tabular-nums; }
+
+/* Timecode: its source, the clock, and the transport keys of the internal one. */
+.vj-tc { display: flex; align-items: center; gap: 8px; min-width: 0; justify-self: center; }
+.vj-tc .vj-tc-src { flex: none; }
+.vj-tc .vj-tc-src button { flex: none; height: 22px; padding: 0 8px; font-size: 11px; font-weight: 600; }
+.vj-tc-v { display: inline-grid; align-items: center; width: 134px; color: var(--ink); text-align: center; }
+output.vj-tc-v { color: var(--ink-faint); }
+.vj-tc[data-state="playing"] .vj-tc-v { color: var(--signal); }
+.vj-tc-v[aria-invalid="true"] { border-color: var(--signal); }
+.vj-tc-rate { color: var(--ink-faint); font-size: 11px; white-space: nowrap; }
+.vj-tc-keys { display: flex; gap: 2px; }
+.vj-tc-keys button { display: grid; place-items: center; width: 30px; }
+.vj-tc-keys button .icon { width: 14px; height: 14px; }
+.vj-tc-keys button.on { color: oklch(0.16 0.03 32); background: var(--signal); }
+.vj-tc-in { display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--vj-video); font: 600 11px var(--font-ui); letter-spacing: 0.06em; text-transform: uppercase; background: none; border: 1px solid oklch(0.78 0.11 210 / 0.4); border-radius: 2px; line-height: 22px; }
+.vj-tc-in:hover { background: var(--vj-ctl); }
+.vj-tc-in[data-signal="missing"], .vj-tc-in[data-signal="error"], .vj-tc-in[data-signal="unset"] { color: var(--ink-dim); border-color: var(--rule); }
+/* Incoming timecode: bright while it runs, dim while it is parked. */
+.vj-tc[data-signal="running"] output.vj-tc-v { color: var(--vj-video); }
+.vj-tc[data-signal="stopped"] output.vj-tc-v { color: var(--ink); }

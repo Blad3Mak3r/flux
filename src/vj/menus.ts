@@ -1,17 +1,16 @@
 // The menu bar and the keys of a VJ show. It has no timeline, transport or tracks: its menus act on
 // the grid (composition, decks, layers, clips) and its output, and its keys launch and stop clips.
 
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { fail } from "../state/fail";
 import type { MessageKey, Translate } from "../i18n/messages";
-import { errorMessage, pickMediaPaths } from "../project/api";
+import { pickMediaPaths } from "../project/api";
 import type { VjClip, VjGrid, VjGroup, VjLayer, VjSide } from "../project/types";
 import { dispatch, useDoc } from "../state/store";
-import { openSetup, sayError } from "../state/ui";
+import { openSetup } from "../state/ui";
 import type { MenuItem } from "../state/ui";
 import { closeDocument, newDocument, openDocument, saveDocument } from "../state/workflows";
-import { hasNativeWindow } from "../components/WindowControls";
 import { stop, toggle } from "../transport/playback";
-import { helpMenu } from "../components/menus";
+import { exitItems, helpMenu, saveItems, undoRedoItems } from "../components/menus";
 import { openMedia } from "../media/store";
 import { escapeMap, toggleMapMode, useMap } from "./mapping";
 import { acceleratorOf, shortcutOf } from "./shortcuts";
@@ -31,8 +30,6 @@ import { FIXED_PANELS, kindTitle, panelTitle } from "./Dock";
 import { MAX_MONITORS } from "./api";
 import type { MonitorKind } from "./api";
 import { groupName } from "./names";
-
-const fail = (err: unknown) => sayError(errorMessage(err));
 
 const grid = (): VjGrid | undefined => useDoc.getState().project.vj;
 
@@ -154,8 +151,7 @@ function fileMenu(t: Translate): MenuItem[] {
     { label: t("vj.menu.newFromTemplate"), run: () => managePresets("templates") },
     { label: t("menu.open"), shortcut: acceleratorOf("open"), run: openDocument },
     "-",
-    { label: t("menu.save"), shortcut: acceleratorOf("save"), run: () => void saveDocument(false) },
-    { label: t("menu.saveAs"), shortcut: acceleratorOf("saveAs"), run: () => void saveDocument(true) },
+    ...saveItems(t, acceleratorOf),
     { label: t("menu.close"), run: closeDocument },
     "-",
     { label: t("vj.menu.importMedia"), run: () => void importMedia() },
@@ -163,18 +159,14 @@ function fileMenu(t: Translate): MenuItem[] {
     { label: t("vj.menu.saveTemplate"), run: () => saveTemplate(t) },
     "-",
     { label: t("menu.setup"), run: () => openSetup() },
-    ...(hasNativeWindow()
-      ? ["-" as const, { label: t("menu.exit"), run: () => void getCurrentWindow().close() }]
-      : []),
+    ...exitItems(t),
   ];
 }
 
 function editMenu(t: Translate): MenuItem[] {
-  const doc = useDoc.getState();
   const clip = selectedClip();
   return [
-    { label: t("menu.undo"), shortcut: acceleratorOf("undo"), disabled: doc.past.length === 0, run: () => dispatch({ type: "undo" }) },
-    { label: t("menu.redo"), shortcut: acceleratorOf("redo"), disabled: doc.future.length === 0, run: () => dispatch({ type: "redo" }) },
+    ...undoRedoItems(t, acceleratorOf),
     "-",
     { label: t("vj.clip.remove"), disabled: !clip, run: removeSelected },
     { label: t("menu.deselect"), disabled: !clip, run: () => useVj.setState({ clip: null, slot: null }) },

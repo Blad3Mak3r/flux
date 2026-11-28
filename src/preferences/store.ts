@@ -1,10 +1,9 @@
-import { sayError } from "../state/ui";
+import { fail } from "../state/fail";
 import { create } from "zustand";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { Locale } from "../i18n/messages";
 import type { OutputConfig, Project } from "../project/types";
-import { errorMessage } from "../project/api";
 import type { ActionView } from "../keymap/keys";
 
 export interface AudioChoice { id: string; name: string | null; users: number }
@@ -101,7 +100,7 @@ export function initPreferences(): Promise<void> {
         localStorage.removeItem("flux.locale");
       }
     } catch (err) {
-      sayError(errorMessage(err));
+      fail(err);
     } finally {
       usePreferences.setState({ ready: true });
     }
@@ -112,7 +111,7 @@ export async function changePreferences(change: object, report = true): Promise<
   try {
     accept(await invoke<Preferences>("preferences_change", { change }));
   } catch (err) {
-    if (report) sayError(errorMessage(err));
+    if (report) fail(err);
     throw err;
   }
 }

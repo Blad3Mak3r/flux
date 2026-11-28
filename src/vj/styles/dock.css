@@ -1,0 +1,121 @@
+/* ---- The dock: splits, tab groups and the deck ---- */
+
+/* A window too small for every panel's minimum scrolls here instead of crushing them. */
+.vj-dock { flex: 1; min-height: 0; overflow: auto; }
+.vj-dock-in { display: flex; width: 100%; height: 100%; }
+.vj-dock-in > * { flex: 1; min-width: 0; min-height: 0; }
+.vj-dn { display: flex; min-width: 0; min-height: 0; }
+.vj-dn > * { flex: 1; min-width: 0; min-height: 0; }
+.vj-split { display: flex; }
+.vj-split.row { flex-direction: row; }
+.vj-split.column { flex-direction: column; }
+.vj-sash { position: relative; background: transparent; touch-action: none; }
+/* The gap is 4px; the hit area reaches 4px past it on each side so the splitter is easy to catch. */
+.vj-sash::before { content: ""; position: absolute; inset: 0; z-index: 2; }
+.vj-split.row > .vj-sash::before { inset: 0 -4px; }
+.vj-split.column > .vj-sash::before { inset: -4px 0; }
+.vj-split.row > .vj-sash { cursor: col-resize; }
+.vj-split.column > .vj-sash { cursor: row-resize; }
+.vj-sash:hover { background: var(--phosphor-dim); }
+.vj-sash:active, .vj-sash:focus-visible { background: var(--phosphor); outline: 0; }
+.vj-deck-slot, .vj-group { position: relative; display: flex; flex-direction: column; }
+.vj-deck-slot > .vj-panel { flex: 1; }
+.vj-dbody { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+
+/* The strip of tabs is the group's title and the handle to move it. */
+.vj-dtabs {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  height: 28px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  user-select: none;
+  background: var(--vj-head);
+  border-bottom: 1px solid var(--vj-ground);
+}
+
+.vj-dtabs::-webkit-scrollbar { display: none; }
+
+.vj-dtab {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 0 4px 0 12px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  cursor: grab;
+}
+
+.vj-dtab:hover { color: var(--ink-dim); background: var(--vj-ctl); }
+.vj-dtab.on { color: var(--ink); font-weight: 600; background: var(--vj-panel); }
+.vj-dtab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--phosphor); }
+.vj-dtab-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.vj-dtab-x {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--ink-faint);
+  background: none;
+  border: 0;
+  border-radius: 2px;
+  opacity: 0;
+}
+
+.vj-dtab-x .icon { width: 10px; height: 10px; }
+.vj-dtab:hover .vj-dtab-x, .vj-dtab:focus-within .vj-dtab-x, .vj-dtab.on .vj-dtab-x:focus-visible { opacity: 1; }
+.vj-dtab-x:hover { color: var(--ink); background: var(--vj-ctl-hi); }
+
+/* Where a dragged tab would land: the half of the target it takes, or all of it for a tab group's centre. */
+.vj-drop { position: absolute; z-index: 5; pointer-events: none; background: oklch(0.87 0.17 128 / 0.14); outline: 2px solid var(--phosphor); outline-offset: -2px; }
+.vj-drop.center { inset: 0; }
+.vj-drop.left { inset: 0 50% 0 0; }
+.vj-drop.right { inset: 0 0 0 50%; }
+.vj-drop.top { inset: 0 0 50% 0; }
+.vj-drop.bottom { inset: 50% 0 0 0; }
+.vj-drop-mark { position: absolute; z-index: 5; width: 2px; margin-left: -1px; pointer-events: none; background: var(--phosphor); }
+
+/* A monitor's footer: what it shows, then its gear. */
+.vj-mfoot { display: flex; flex: none; align-items: center; gap: 8px; height: 28px; padding: 0 4px 0 12px; color: var(--ink-dim); font-size: 12px; background: var(--vj-head); border-top: 1px solid var(--vj-ground); }
+.vj-mlabel { flex: 1; min-width: 0; }
+.vj-gear { padding: 0 4px; }
+
+.vj-ph {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 8px 0 12px;
+  background: var(--vj-head);
+  border-bottom: 1px solid var(--vj-ground);
+}
+
+.vj-ph h2 { margin: 0; font-size: 12.5px; font-weight: 600; }
+.vj-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; color: var(--ink-dim); font-size: 12px; }
+.vj-pb { position: relative; flex: 1; min-height: 0; }
+.vj-dim { color: var(--ink-faint); }
+.vj-mono, .vj-num, .vj-time, .vj-count, .vj-d, .vj-c { font-family: var(--font-measure); font-variant-numeric: tabular-nums; }
+.vj-empty { margin: 0; padding: 16px; color: var(--ink-faint); }
+
+.vj-tb {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  border: 0;
+  border-radius: 2px;
+}
+
+.vj-tb:hover { color: var(--ink); background: var(--vj-ctl); }
+.vj-tb .icon { width: 14px; height: 14px; }

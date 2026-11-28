@@ -1,19 +1,17 @@
 // What the user does on the media page. The backend finds, relinks and copies; the project it
 // answers with enters the undo history, and what can be read now is read.
 
+import { fail } from "../state/fail";
 import { listen } from "@tauri-apps/api/event";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { errorMessage } from "../project/api";
 import type { Project } from "../project/types";
 import { analyse } from "../state/audio";
 import { dispatch, useDoc } from "../state/store";
-import { say, sayError } from "../state/ui";
+import { say } from "../state/ui";
 import { probeVideos } from "../state/video";
 import { COLLECT_PROGRESS, mediaCollect, mediaRelink, mediaSearchFolder, pickFolder, pickMediaFile } from "./api";
 import type { CollectProgress, MediaItem } from "./api";
 import { refreshMedia, useMedia } from "./store";
-
-const fail = (err: unknown) => sayError(errorMessage(err));
 
 /** Runs a backend search, relink or copy: the project it answers with enters the undo history. */
 async function run<T extends { state: { project: Project; active: string } }>(work: () => Promise<T>): Promise<T | undefined> {
