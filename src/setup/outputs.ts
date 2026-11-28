@@ -12,7 +12,7 @@ export const SETUP_GROUPS = [
   { id: "audio", sections: ["audio", "audioOutputs", "metronome", "operator", "analysis"] },
   { id: "outputs", sections: ["video", "snapshots", "recordings", "ltc", "mtc", "midiClock", "osc"] },
   { id: "control", sections: ["timecodeIn", "controlMidi", "controlOsc", "controlArtnet", "http"] },
-  { id: "app", sections: ["graphics", "general"] },
+  { id: "app", sections: ["graphics", "shortcuts", "general"] },
 ] as const;
 export type SetupGroup = (typeof SETUP_GROUPS)[number]["id"];
 export type SetupSection = (typeof SETUP_GROUPS)[number]["sections"][number];
@@ -21,10 +21,10 @@ export type SetupSection = (typeof SETUP_GROUPS)[number]["sections"][number];
 export const SETUP_SECTIONS: readonly SetupSection[] = SETUP_GROUPS.flatMap((group) => group.sections);
 
 /**
- * The pages a VJ show leaves out: it has no timeline, timecode, click or voice operator, and its video
+ * The pages a VJ show leaves out: it has no timeline, timecode, click or voice operator (nor the keys of one: its own are Resolume's), and its video
  * output is set up in its own Advanced Output.
  */
-const NOT_VJ: readonly SetupSection[] = ["timeline", "metronome", "operator", "ltc", "mtc", "osc", "video"];
+const NOT_VJ: readonly SetupSection[] = ["shortcuts", "timeline", "metronome", "operator", "ltc", "mtc", "osc", "video"];
 
 /** The pages only a VJ show has: Flux is otherwise the master clock and reads no timecode, and only a VJ grid is modulated by sound. */
 const ONLY_VJ: readonly SetupSection[] = ["timecodeIn", "analysis", "snapshots", "recordings"];
