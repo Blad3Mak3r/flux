@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FLUX: build the show, run the show, trust the clock</title>
-<meta name="description" content="FLUX is a desktop app that turns songs, events and cues into one project with a master timecode clock: LTC and MTC out, MIDI and OSC cues, video on several screens, and a Live view for the booth.">
+<title>FLUX — Show control and live visuals</title>
+<meta name="description" content="Build shows on a timeline, run cues to LTC or MTC, and mix visuals live in VJ mode. FLUX is a desktop app for Windows and Linux.">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#1f2328">
+<meta name="theme-color" content="#090b0b">
 <meta property="og:type" content="website">
-<meta property="og:title" content="FLUX: build the show, run the show, trust the clock">
-<meta property="og:description" content="Songs, events and cues in one project with a master timecode clock. LTC and MTC out, MIDI and OSC cues, a Live view for the booth.">
+<meta property="og:title" content="FLUX — Show control and live visuals">
+<meta property="og:description" content="Build timelines, run cues, and play visuals live. FLUX brings show control and VJ performance into one desktop app.">
 <meta property="og:url" content="https://blad3mak3r.github.io/flux/">
 <meta property="og:image" content="https://blad3mak3r.github.io/flux/img/edit-1440.jpg">
 <meta name="twitter:card" content="summary_large_image">
@@ -22,101 +22,119 @@
 <a class="skip" href="#general" data-i18n="skip">Skip to content</a>
 
 <header class="bar">
-  <a class="brand" href="#general" aria-label="FLUX">
-    <img src="img/flux-symbol.svg" alt="" width="28" height="28">
-    <span>FLUX</span>
-  </a>
-  <span class="rev"><span data-i18n="rev">Data sheet, rev.</span> <span data-version>0.2.2</span></span>
-  <nav class="links" aria-label="Project">
-    <a href="docs/" data-i18n="docs">Docs</a>
-    <a href="https://github.com/Blad3Mak3r/flux">GitHub</a>
-  </nav>
-  <div class="lang" role="group" aria-label="Language" data-i18n-aria="lang_label">
-    <button type="button" data-lang="en" aria-pressed="true" lang="en" title="English">EN</button>
-    <button type="button" data-lang="es" aria-pressed="false" lang="es" title="Español">ES</button>
+  <div class="bar-inner">
+    <a class="brand" href="#general" aria-label="FLUX">
+      <img src="img/flux-symbol.svg" alt="" width="28" height="28">
+      <span>FLUX</span>
+    </a>
+    <nav class="links" aria-label="Main navigation" data-i18n-aria="nav_label">
+      <a href="#cue">CUE</a>
+      <a href="#vj">VJ</a>
+      <a href="docs/" data-i18n="docs">Docs</a>
+    </nav>
+    <div class="lang" role="group" aria-label="Language" data-i18n-aria="lang_label">
+      <button type="button" data-lang="en" aria-pressed="true" lang="en" title="English">EN</button>
+      <button type="button" data-lang="es" aria-pressed="false" lang="es" title="Español">ES</button>
+    </div>
+    <a class="btn btn-sm" href="https://github.com/Blad3Mak3r/flux/releases/latest" data-i18n="download">Download</a>
   </div>
-  <a class="btn btn-sm" href="https://github.com/Blad3Mak3r/flux/releases/latest" data-i18n="download">Download</a>
 </header>
-
-<div class="sheet">
-<nav class="toc" aria-label="Sections" data-i18n-aria="toc_label">
-  <ol>
-    <li><a href="#general"><i>01</i><span data-i18n="toc_general">General</span></a></li>
-    <li><a href="#outputs"><i>02</i><span data-i18n="toc_outputs">Outputs</span></a></li>
-    <li><a href="#edit"><i>03</i><span data-i18n="toc_edit">Edit</span></a></li>
-    <li><a href="#live"><i>04</i><span data-i18n="toc_live">Live</span></a></li>
-    <li><a href="#video"><i>05</i><span data-i18n="toc_video">Video</span></a></li>
-    <li><a href="#setlists"><i>06</i><span data-i18n="toc_setlists">Setlists</span></a></li>
-    <li><a href="#remote"><i>07</i><span data-i18n="toc_remote">Remote control</span></a></li>
-    <li><a href="#project"><i>08</i><span data-i18n="toc_project">Project file</span></a></li>
-    <li><a href="#specs"><i>09</i><span data-i18n="toc_specs">Specifications</span></a></li>
-    <li><a href="#order"><i>10</i><span data-i18n="toc_order">Ordering</span></a></li>
-  </ol>
-</nav>
 
 <main>
 
-<!-- 01 General: first viewport -->
-<section id="general" class="hero" aria-labelledby="h1">
-  <h1 id="h1"><span class="ln" data-i18n="h1a">Build the show.</span> <span class="ln" data-i18n="h1b">Run the show.</span> <span class="ln ph" data-i18n="h1c">Trust the clock.</span></h1>
-
-  <div class="hero-copy">
-    <p class="lead" data-i18n="lead">A desktop app that turns songs, events and cues into one project with a master timecode clock: QLab's cue model on a REAPER-style timeline.</p>
-    <div class="order" id="order-strip">
-      <dl>
-        <div><dt data-i18n="o_version">Version</dt><dd class="m"><span data-version>0.2.2</span></dd></div>
-        <div><dt data-i18n="o_platforms">Platforms</dt><dd data-i18n="o_platforms_v">Windows, Linux</dd></div>
-        <div><dt data-i18n="o_format">Project file</dt><dd class="m">.flx</dd></div>
-      </dl>
+<section id="general" class="hero" aria-labelledby="h1" tabindex="-1">
+  <div class="wrap hero-inner">
+    <h1 id="h1"><span data-i18n="h1a">Show control.</span> <span class="ph" data-i18n="h1b">Live visuals.</span></h1>
+    <p class="lead" data-i18n="lead">Build timelines and run cues with timecode in CUE. Launch and mix visuals on the fly in VJ. Two modes in one desktop app for live shows.</p>
+    <div id="order-strip" class="hero-actions">
       <a class="btn" href="https://github.com/Blad3Mak3r/flux/releases/latest" data-i18n="download_flux">Download FLUX</a>
+      <a class="btn btn-2" href="#modes" data-i18n="explore">Explore the modes</a>
     </div>
-    <p class="note" data-i18n="o_note">Opens the latest GitHub Release. Early development; there is no macOS build yet.</p>
-  </div>
-
-  <figure class="fig fig1">
-    <div class="win" id="readout-win">
-      <canvas id="tc" role="img" aria-label="Demo timecode readout" data-i18n-aria="tc_label"></canvas>
-      <div class="rline">
-        <span class="state" id="state" data-state="stopped"><i></i><b id="state-word">STOPPED</b></span>
-        <span class="m" id="rate-line">29.97 DF</span>
-        <span class="m" data-i18n="start_line">START 01:00:00:00</span>
+    <p class="release">
+      <a href="https://github.com/Blad3Mak3r/flux/releases/latest">v<span data-version>0.2.2</span></a>
+      <span>Windows · Linux</span>
+    </p>
+    <figure class="hero-figure">
+      <div class="hero-frame">
+        <img src="img/edit-1440.jpg" srcset="img/edit-1440.jpg 1440w, img/edit-2880.jpg 2880w" sizes="(min-width: 1200px) 1080px, 92vw" width="2880" height="1800" fetchpriority="high" alt="FLUX Edit view with audio, video, notes, MIDI and OSC on a timeline" data-i18n-alt="hero_alt">
       </div>
-    </div>
-    <figcaption><b>Fig. 1</b> <span data-i18n="fig1">A synthetic demo clock running in this page. It is not the app, and nothing leaves your browser.</span></figcaption>
-  </figure>
+      <figcaption data-i18n="hero_caption">CUE mode · Timeline of a sample show</figcaption>
+    </figure>
+  </div>
+</section>
 
-  <div class="controls">
-    <div class="keys" role="group" aria-label="Transport" data-i18n-aria="transport_label">
-      <button type="button" class="key" id="k-stop" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/></svg><span data-i18n="k_stop">Stop</span></button>
-      <button type="button" class="key" id="k-play" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg><span data-i18n="k_play">Play</span></button>
-      <button type="button" class="key" id="k-pause" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 2.5h3.5v11H3.5zM9 2.5h3.5v11H9z" fill="currentColor"/></svg><span data-i18n="k_pause">Pause</span></button>
+<section id="modes" class="wrap" aria-labelledby="h-modes">
+  <h2 id="h-modes" data-i18n="h_modes">Three workflows. Two modes.</h2>
+  <div class="mode-index">
+    <div id="cue" class="mode-group">
+      <h3>CUE</h3>
+      <ul>
+        <li><a href="#edit" data-i18n="mode_timeline">Build a timeline</a><p data-i18n="mode_timeline_p">Arrange audio, video and cues against a single timecode clock.</p></li>
+        <li><a href="#live" data-i18n="mode_live">Run the cues</a><p data-i18n="mode_live_p">Work through a prepared setlist in Live with GO, countdowns and operator notes.</p></li>
+      </ul>
     </div>
-    <fieldset class="rates">
-      <legend data-i18n="rate_legend">Frame rate</legend>
-      <label><input type="radio" name="rate" value="24"><span class="m">24</span></label>
-      <label><input type="radio" name="rate" value="25"><span class="m">25</span></label>
-      <label><input type="radio" name="rate" value="29.97" checked><span class="m">29.97 DF</span></label>
-      <label><input type="radio" name="rate" value="30"><span class="m">30</span></label>
-    </fieldset>
-    <div class="jump">
-      <button type="button" class="btn btn-2" id="jump" data-i18n="jump">Jump to 01:00:58:00</button>
-      <p id="rate-note" aria-live="polite"></p>
+    <div class="mode-group">
+      <h3>VJ</h3>
+      <ul>
+        <li><a href="#vj" data-i18n="mode_vj">Mix visuals live</a><p data-i18n="mode_vj_p">Launch clips by hand, mix layers and send the composition to the stage.</p></li>
+      </ul>
     </div>
   </div>
 </section>
 
-<section class="who" aria-label="Who FLUX is for" data-i18n-aria="who_label">
-  <p class="why" data-i18n="why">Cue-based tools run cues without a real timeline. Timeline tools give you the timeline without show control. FLUX puts both in one place, and the timecode comes from the same project that holds the audio and the cues, so what you see on screen and what goes out to the rig cannot disagree.</p>
-  <dl class="three">
-    <div><dt data-i18n="w1">Show technicians</dt><dd data-i18n="w1d">Lighting, video and sound operators who sync equipment to timecode, in a dark booth, under pressure, reading the screen from across the room.</dd></div>
-    <div><dt data-i18n="w2">Musicians</dt><dd data-i18n="w2d">Players running backing tracks who need audio and the show's cues locked together.</dd></div>
-    <div><dt data-i18n="w3">Show designers</dt><dd data-i18n="w3d">People building the show ahead of time in the studio, with room to think.</dd></div>
+<section id="vj" class="wrap vj-section" aria-labelledby="h-vj">
+  <h2 id="h-vj" data-i18n="h_vj">Play visuals live in VJ mode</h2>
+  <div class="split">
+    <div>
+      <p class="prose" data-i18n="vj_p">Start a VJ show to busk from a clip grid. Launch one clip or a whole column, mix video, images, generators and live inputs in layers, then send the composition to your screens.</p>
+      <div class="vj-links">
+        <a class="text-link" href="docs/vj-mode" data-i18n="vj_guide">Read the VJ guide</a>
+        <a href="https://github.com/Blad3Mak3r/flux#getting-started" data-i18n="source">Run it from source</a>
+      </div>
+    </div>
+    <figure class="fig">
+      <img class="shot" src="img/vj-test-card.webp" width="1600" height="1000" loading="lazy" alt="FLUX VJ test card with two slices, numbered cabinet grids and alignment guides" data-i18n-alt="vj_alt">
+      <figcaption data-i18n="vj_caption">VJ slice test card captured from a FLUX video output.</figcaption>
+    </figure>
+  </div>
+  <dl class="specs wide">
+    <div><dt data-i18n="vj_decks_t">Decks and layers</dt><dd data-i18n="vj_decks">Organize clips in decks and keep global layers available across deck changes.</dd></div>
+    <div><dt data-i18n="vj_mix_t">Live mixing</dt><dd data-i18n="vj_mix">Stack effects, choose blend modes and mix layers assigned to either side of the A/B crossfader.</dd></div>
+    <div><dt data-i18n="vj_control_t">Control and tempo</dt><dd data-i18n="vj_control">Map MIDI, OSC, DMX or keys. Sync the beat clock with Ableton Link or MIDI clock.</dd></div>
+    <div><dt data-i18n="vj_mapping_t">Projection mapping</dt><dd data-i18n="vj_mapping">Route the mix to multiple screens with slices, edge blending, masks and per-slice test cards.</dd></div>
   </dl>
 </section>
 
-<!-- 02 Outputs -->
-<section id="outputs" aria-labelledby="h-outputs">
-  <h2 id="h-outputs"><i class="sn" aria-hidden="true">02</i><span data-i18n="h_outputs">One clock, every output</span></h2>
+<section id="edit" class="wrap" aria-labelledby="h-edit">
+  <h2 id="h-edit"><span data-i18n="h_edit">Build a show on the timeline</span></h2>
+  <p class="prose" data-i18n="edit_p">Arrange audio, video and cues together, from the opening to the last song.</p>
+  <dl class="specs wide cue-details">
+      <div><dt data-i18n="e1_t">Timelines</dt><dd data-i18n="e1">Several per project, each with its own tracks, frame rate and start offset.</dd></div>
+      <div><dt data-i18n="e2_t">Tracks</dt><dd data-i18n="e2">Audio, video, notes, MIDI and OSC.</dd></div>
+      <div><dt data-i18n="e3_t">Audio</dt><dd data-i18n="e3">Import wav, aiff, flac, mp3 and ogg, mixed on the audio device's clock, with tempo detection and a metronome click.</dd></div>
+      <div><dt data-i18n="e4_t">Operator speech</dt><dd data-i18n="e4">Write dialogue and attach generated speech (ElevenLabs, with your own API key) or imported and recorded audio. Generated speech is archived in the project, so it plays offline.</dd></div>
+      <div><dt data-i18n="e5_t">Routing</dt><dd data-i18n="e5">Send each track to a named destination or to Silent. Each computer maps destinations to its own interfaces and channels.</dd></div>
+  </dl>
+  <a class="text-link" href="docs/timeline-editing" data-i18n="timeline_guide">Read the timeline guide</a>
+</section>
+
+<section id="live" class="wrap" aria-labelledby="h-live">
+  <h2 id="h-live"><span data-i18n="h_live">Run cues from the booth</span></h2>
+  <p class="prose" data-i18n="live_p">Use Ctrl+1 for Edit and Ctrl+2 for Live. In Live, see the running cue, what is on standby and how long you have until the next cue.</p>
+  <figure class="fig fig-live">
+    <img src="img/live-1440.jpg" srcset="img/live-1440.jpg 1440w, img/live-2880.jpg 2880w" sizes="(min-width: 1100px) 1100px, 100vw" width="2880" height="1800" loading="lazy" alt="FLUX Live view: a large timecode readout and transport on top, the running cue with its countdown on the left, the cue list on the right" data-i18n-alt="live_alt">
+    <figcaption><span data-i18n="fig4">The Live view running a prepared setlist of the same show. A real screenshot of the app.</span></figcaption>
+  </figure>
+  <dl class="three cue-details">
+    <div><dt data-i18n="l1_t">Time first</dt><dd data-i18n="l1">A timecode you can read at a glance, with the transport state written beside it.</dd></div>
+    <div><dt data-i18n="l2_t">The running cue</dt><dd data-i18n="l2">The cue that is playing with its countdown, what is on standby, and the operator notes.</dd></div>
+    <div><dt data-i18n="l3_t">The whole cue list</dt><dd data-i18n="l3">Follow the full running order with the current and upcoming cues marked.</dd></div>
+  </dl>
+  <a class="text-link" href="docs/setlists" data-i18n="setlist_guide">Read the setlists guide</a>
+</section>
+
+<section id="outputs" class="wrap" aria-labelledby="h-outputs">
+  <h2 id="h-outputs"><span data-i18n="h_outputs">One clock, every output</span></h2>
   <div class="split">
     <div>
       <p class="prose" data-i18n="outputs_p">The audio device's sample clock drives everything. Playback, LTC, MTC and cues are all read from the same position, so the time you see is the time you send.</p>
@@ -128,7 +146,8 @@
         <div><dt data-i18n="s_hw_t">Hardware</dt><dd data-i18n="s_hw">A missing device is explained and fixable, and never blocks opening a project.</dd></div>
       </dl>
     </div>
-    <figure class="fig">
+    <figure class="fig signal-figure">
+      <p class="scroll-hint" data-i18n="scroll_diagram">Scroll sideways to see the full diagram.</p>
       <div class="scroll" tabindex="0" role="region" aria-label="Signal path: the project feeds the master clock, transport and cues, which feed LTC, MTC, programme audio and MIDI and OSC cues. A remote control moves the transport, shown dashed." data-i18n-aria="flow_label">
 <svg class="flowsvg" viewBox="0 0 600 330" width="600" height="330" aria-hidden="true" focusable="false">
 <defs><pattern id="g-min" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0V20M0 20H20" class="t-minor"/></pattern><pattern id="g-maj" width="100" height="100" patternUnits="userSpaceOnUse"><path d="M100 0V100M0 100H100" class="t-major"/></pattern></defs>
@@ -150,49 +169,53 @@
 <path d="M420 276H450" class="fs-trace"/><rect x="450.5" y="250.5" width="140" height="52" class="fs-box"/><rect x="462" y="262" width="10" height="10" class="fs-lamp"/><text x="482" y="272" class="fs-name" data-i18n="f_cueout">Cues</text><text x="482" y="290" class="fs-sub" data-i18n="f_cueout_s">MIDI and OSC</text>
 </svg>
 </div>
-      <figcaption><b>Fig. 2</b> <span data-i18n="fig2">Signal path. The dashed line moves the clock; it never feeds it.</span></figcaption>
+      <figcaption><span data-i18n="fig2">Signal path. The dashed line moves the clock; it never feeds it.</span></figcaption>
     </figure>
   </div>
 </section>
 
-<!-- 03 Edit -->
-<section id="edit" aria-labelledby="h-edit">
-  <h2 id="h-edit"><i class="sn" aria-hidden="true">03</i><span data-i18n="h_edit">Build it on a timeline</span></h2>
-  <figure class="fig fig-live">
-    <img src="img/edit-1440.jpg" srcset="img/edit-1440.jpg 1440w, img/edit-2880.jpg 2880w" sizes="(min-width: 1100px) 1100px, 100vw" width="2880" height="1800" loading="lazy" alt="FLUX Edit view while playing: the timecode readout and transport on top, then an audio track with its waveform, a video track with thumbnails, operator notes, MIDI Show Control cues and OSC cues under a moving playhead" data-i18n-alt="edit_alt">
-    <figcaption><b>Fig. 3</b> <span data-i18n="fig3">The Edit view playing a sample show: audio, video, notes, MIDI and OSC on one timeline. A real screenshot of the app.</span></figcaption>
-  </figure>
-  <dl class="specs wide">
-      <div><dt data-i18n="e1_t">Timelines</dt><dd data-i18n="e1">Several per project, each with its own tracks, frame rate and start offset.</dd></div>
-      <div><dt data-i18n="e2_t">Tracks</dt><dd data-i18n="e2">Audio, video, notes, MIDI and OSC.</dd></div>
-      <div><dt data-i18n="e3_t">Audio</dt><dd data-i18n="e3">Import wav, aiff, flac, mp3 and ogg, mixed on the audio device's clock, with tempo detection and a metronome click.</dd></div>
-      <div><dt data-i18n="e4_t">Operator speech</dt><dd data-i18n="e4">Write dialogue and attach generated speech (ElevenLabs, with your own API key) or imported and recorded audio. Generated speech is archived in the project, so it plays offline.</dd></div>
-      <div><dt data-i18n="e5_t">Routing</dt><dd data-i18n="e5">Send each track to a named destination or to Silent. Each computer maps destinations to its own interfaces and channels.</dd></div>
-  </dl>
+<section id="timecode-demo" class="wrap" aria-labelledby="h-timecode-demo">
+  <h2 id="h-timecode-demo" data-i18n="h_timecode_demo">Try the timecode clock</h2>
+  <div class="split">
+    <figure class="fig fig1">
+      <div class="win" id="readout-win">
+        <canvas id="tc" role="img" aria-label="Demo timecode readout" data-i18n-aria="tc_label"></canvas>
+        <div class="rline">
+          <span class="state" id="state" data-state="stopped"><i></i><b id="state-word">STOPPED</b></span>
+          <span class="m" id="rate-line">29.97 DF</span>
+          <span class="m" data-i18n="start_line">START 01:00:00:00</span>
+        </div>
+      </div>
+      <figcaption data-i18n="fig1">Timecode simulation in the browser.</figcaption>
+    </figure>
+
+    <div class="controls">
+      <div class="keys" role="group" aria-label="Transport" data-i18n-aria="transport_label">
+        <button type="button" class="key" id="k-stop" aria-pressed="true"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" fill="currentColor"/></svg><span data-i18n="k_stop">Stop</span></button>
+        <button type="button" class="key" id="k-play" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg><span data-i18n="k_play">Play</span></button>
+        <button type="button" class="key" id="k-pause" aria-pressed="false"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 2.5h3.5v11H3.5zM9 2.5h3.5v11H9z" fill="currentColor"/></svg><span data-i18n="k_pause">Pause</span></button>
+      </div>
+      <fieldset class="rates">
+        <legend data-i18n="rate_legend">Frame rate</legend>
+        <label><input type="radio" name="rate" value="24"><span class="m">24</span></label>
+        <label><input type="radio" name="rate" value="25"><span class="m">25</span></label>
+        <label><input type="radio" name="rate" value="29.97" checked><span class="m">29.97 DF</span></label>
+        <label><input type="radio" name="rate" value="30"><span class="m">30</span></label>
+      </fieldset>
+      <div class="jump">
+        <button type="button" class="btn btn-2" id="jump" data-i18n="jump">Jump to 01:00:58:00</button>
+        <p id="rate-note" aria-live="polite"></p>
+      </div>
+    </div>
+  </div>
 </section>
 
-<!-- 04 Live -->
-<section id="live" aria-labelledby="h-live">
-  <h2 id="h-live"><i class="sn" aria-hidden="true">04</i><span data-i18n="h_live">Run it from the booth</span></h2>
-  <p class="prose" data-i18n="live_p">Switch from Edit to Live with one control (Ctrl+1, Ctrl+2). Live is read-only apart from going to a cue, built to be read from across the room.</p>
-  <figure class="fig fig-live">
-    <img src="img/live-1440.jpg" srcset="img/live-1440.jpg 1440w, img/live-2880.jpg 2880w" sizes="(min-width: 1100px) 1100px, 100vw" width="2880" height="1800" loading="lazy" alt="FLUX Live view: a large timecode readout and transport on top, the running cue with its countdown on the left, the cue list on the right" data-i18n-alt="live_alt">
-    <figcaption><b>Fig. 4</b> <span data-i18n="fig4">The Live view running a prepared setlist of the same show. A real screenshot of the app.</span></figcaption>
-  </figure>
-  <dl class="three">
-    <div><dt data-i18n="l1_t">Time first</dt><dd data-i18n="l1">A timecode you can read at a glance, with the transport state printed as a word, not only a colour.</dd></div>
-    <div><dt data-i18n="l2_t">The running cue</dt><dd data-i18n="l2">The cue that is playing with its countdown, what is on standby, and the operator notes.</dd></div>
-    <div><dt data-i18n="l3_t">The whole cue list</dt><dd data-i18n="l3">The backend derives the cues and their state, so the screen only draws what the engine knows.</dd></div>
-  </dl>
-</section>
-
-<!-- 05 Video -->
-<section id="video" aria-labelledby="h-video">
-  <h2 id="h-video"><i class="sn" aria-hidden="true">05</i><span data-i18n="h_video">Put it on the screens</span></h2>
-  <p class="prose" data-i18n="video_p">Video tracks play their clips frame by frame from the same clock as the timecode, with their sound in the routing. Each screen is a window on a display of its own: cut the picture into slices, pin each slice to the surface it lands on, blend two projectors into one picture and black out what should stay dark, as on a media server.</p>
+<section id="video" class="wrap" aria-labelledby="h-video">
+  <h2 id="h-video"><span data-i18n="h_video">Put it on the screens</span></h2>
+  <p class="prose" data-i18n="video_p">Map timeline video or a VJ composition onto monitors and projectors. Cut the picture into slices, pin each slice to its surface, blend overlapping projectors and mask areas that should stay dark.</p>
   <figure class="fig fig-live">
     <img src="img/outputs-1440.jpg" srcset="img/outputs-1440.jpg 1440w, img/outputs-2880.jpg 2880w" sizes="(min-width: 1100px) 1100px, 100vw" width="2880" height="805" loading="lazy" alt="Two projector outputs side by side: each shows its half of the picture, fading to black where the two overlap, and the left one has a rectangle masked out" data-i18n-alt="outputs_alt">
-    <figcaption><b>Fig. 5</b> <span data-i18n="fig5v">Two projector outputs of the sample show. Each fades out where it overlaps the other, so the two blend into one picture, and the left one masks out a stage door. Real output windows of the app.</span></figcaption>
+    <figcaption><span data-i18n="fig5v">Two projector outputs of the sample show. Each fades out where it overlaps the other, so the two blend into one picture, and the left one masks out a stage door. Real output windows of the app.</span></figcaption>
   </figure>
   <div class="split">
     <dl class="specs">
@@ -204,14 +227,13 @@
     </dl>
     <figure class="fig">
       <img class="shot" src="img/mapping-780.jpg" srcset="img/mapping-780.jpg 780w, img/mapping-1560.jpg 1560w" sizes="(min-width: 1100px) 640px, 100vw" width="1560" height="1160" loading="lazy" alt="The mapping editor: the picture with a slice on the left, the screen with the slice's corners on the right, and fields for the slice in pixels and its soft edge" data-i18n-alt="mapping_alt">
-      <figcaption><b>Fig. 6</b> <span data-i18n="fig6">The mapping editor of one screen. Drag or type each value in pixels. A real screenshot of the app.</span></figcaption>
+      <figcaption><span data-i18n="fig6">The mapping editor of one screen. Drag or type each value in pixels. A real screenshot of the app.</span></figcaption>
     </figure>
   </div>
 </section>
 
-<!-- 06 Setlists -->
-<section id="setlists" aria-labelledby="h-setlists">
-  <h2 id="h-setlists"><i class="sn" aria-hidden="true">06</i><span data-i18n="h_setlists">Order the timelines into a show</span></h2>
+<section id="setlists" class="wrap" aria-labelledby="h-setlists">
+  <h2 id="h-setlists"><span data-i18n="h_setlists">Order the timelines into a show</span></h2>
   <div class="split">
     <p class="prose" data-i18n="setlists_p">A setlist orders timelines into a show, with repeated or omitted entries, manual or automatic transitions, waits, and loops with devamp. Audio, cues and timecode repeat together, driven by a GO action in Live.</p>
     <dl class="specs">
@@ -222,9 +244,8 @@
   </div>
 </section>
 
-<!-- 07 Remote -->
-<section id="remote" aria-labelledby="h-remote">
-  <h2 id="h-remote"><i class="sn" aria-hidden="true">07</i><span data-i18n="h_remote">Drive it from a controller</span></h2>
+<section id="remote" class="wrap" aria-labelledby="h-remote">
+  <h2 id="h-remote"><span data-i18n="h_remote">Drive it from a controller</span></h2>
   <div class="split">
     <div>
       <p class="prose" data-i18n="remote_p">Start, stop, move between cues and timelines, and switch views from a MIDI controller (pads learned by touching them) or from OSC over UDP and TCP, for example a Stream Deck. FLUX stays the master clock: remote control moves it, and it never follows another.</p>
@@ -245,26 +266,28 @@
   </div>
 </section>
 
-<!-- 08 Project file -->
-<section id="project" aria-labelledby="h-project">
-  <h2 id="h-project"><i class="sn" aria-hidden="true">08</i><span data-i18n="h_project">A show is one file</span></h2>
+<section id="project" class="wrap" aria-labelledby="h-project">
+  <h2 id="h-project"><span data-i18n="h_project">Project files and media</span></h2>
   <div class="split">
     <div>
-      <p class="prose" data-i18n="project_p">A <span class="m">.flx</span> project is a zip with <span class="m">project.json</span> and the audio and video the tracks use, so a show opens on another machine and just works. Legacy <span class="m">.fxtc</span> projects still open.</p>
-      </div>
+      <p class="prose" data-i18n="project_p">Choose CUE or VJ when you create a <span class="m">.flx</span> project. FLUX saves the show in the project and links to media on disk by default. Use File → Media to relink files or collect them when moving a show. Legacy <span class="m">.fxtc</span> projects still open.</p>
+    </div>
     <figure class="fig">
-      <pre class="tree" aria-label="Contents of a .flx file" data-i18n-aria="tree_label">show.flx
-├─ project.json   <span data-i18n="tree1">timelines, tracks, outputs</span>
-├─ audio/         <span data-i18n="tree2">the files the tracks play</span>
-└─ video/         <span data-i18n="tree3">the videos the screens show</span></pre>
-      <figcaption><b>Fig. 7</b> <span data-i18n="fig5">Layout of a project archive.</span></figcaption>
+      <div class="tree">
+        <span class="m">show.flx</span>
+        <dl aria-label="Contents of a .flx file" data-i18n-aria="tree_label">
+          <div><dt class="m">project.json</dt><dd data-i18n="tree1">show data and media links</dd></div>
+          <div><dt class="m">audio/</dt><dd data-i18n="tree2">embedded audio, if present</dd></div>
+          <div><dt class="m">video/</dt><dd data-i18n="tree3">embedded video or images, if present</dd></div>
+        </dl>
+      </div>
+      <figcaption><span data-i18n="fig5">Layout of a project archive.</span></figcaption>
     </figure>
   </div>
 </section>
 
-<!-- 09 Specifications -->
-<section id="specs" aria-labelledby="h-specs">
-  <h2 id="h-specs"><i class="sn" aria-hidden="true">09</i><span data-i18n="h_specs">Specifications and status</span></h2>
+<section id="specs" class="wrap" aria-labelledby="h-specs">
+  <h2 id="h-specs"><span data-i18n="h_specs">Specifications and status</span></h2>
   <dl class="specs wide">
     <div><dt data-i18n="sp4_t">Audio import</dt><dd class="m">wav, aiff, flac, mp3, ogg</dd></div>
     <div><dt data-i18n="sp8_t">Video import</dt><dd class="m">mp4, m4v, mov, webm</dd></div>
@@ -274,7 +297,7 @@
   </dl>
   <div class="status">
     <div>
-      <h3 data-i18n="st_on">Available today</h3>
+      <h3 data-i18n="st_on">Features</h3>
       <ul class="on">
         <li data-i18n="st1">.flx projects with several timelines</li>
         <li data-i18n="st2">Audio and notes tracks, tempo detection, metronome</li>
@@ -284,6 +307,7 @@
         <li data-i18n="st6">Spoken operator tracks</li>
         <li data-i18n="st7">MIDI and OSC remote control, with lit pads</li>
         <li data-i18n="st8">Video tracks on several screens, with slices, soft edges and masks</li>
+        <li data-i18n="st9">VJ clip launching, layered mixing and projection mapping</li>
       </ul>
     </div>
     <div>
@@ -297,9 +321,8 @@
   </div>
 </section>
 
-<!-- 10 Ordering -->
-<section id="order" class="order-sec" aria-labelledby="h-order">
-  <h2 id="h-order"><i class="sn" aria-hidden="true">10</i><span data-i18n="h_order">Get FLUX</span></h2>
+<section id="order" class="wrap order-sec" aria-labelledby="h-order">
+  <h2 id="h-order"><span data-i18n="h_order">Get FLUX</span></h2>
   <p class="prose" data-i18n="order_p">FLUX is in early development. Pick the installer for your system on the latest release page: the Windows setup, or the Linux AppImage, DEB or RPM.</p>
   <div class="order">
     <dl>
@@ -317,12 +340,11 @@
 </section>
 
 </main>
-</div>
 
 <footer class="foot">
   <img src="img/flux-symbol.svg" alt="" width="24" height="24">
   <span class="brand-t">FLUX</span>
-  <span data-i18n="foot">Build the show. Run the show. Trust the clock.</span>
+  <span class="m">v<span data-version>0.2.2</span></span>
   <span class="sp"></span>
   <span data-i18n="license">Licensed under the GNU General Public License v3.0 or later.</span>
   <a href="https://github.com/Blad3Mak3r/flux">GitHub</a>
