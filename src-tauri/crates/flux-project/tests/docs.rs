@@ -94,6 +94,15 @@ fn every_generator_should_be_documented_in_vj_generators() {
     );
 }
 
+#[test]
+fn the_random_transition_should_be_documented_in_vj_blend_modes() {
+    assert_documented(
+        "vj-blend-modes.md",
+        "transition choice(s)",
+        ["transitionRandom".to_owned()],
+    );
+}
+
 /// Every blend mode; the match has no wildcard, so a new one stops this from compiling.
 fn blends() -> Vec<Blend> {
     use Blend::*;

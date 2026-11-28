@@ -56,7 +56,7 @@ import {
   useVj,
 } from "./store";
 import type { MediaKind } from "./store";
-import type { MonitorKind } from "./api";
+import type { MonitorKind, VjOp } from "./api";
 import { Dock } from "./Dock";
 import { Monitor } from "./Monitor";
 import { GENERATORS, swatch } from "./generators";
@@ -135,6 +135,21 @@ function blendOptions(t: ReturnType<typeof useT>) {
     </>
   );
 }
+/** The transition mode options: Random, then every blend. */
+function transitionOptions(t: ReturnType<typeof useT>) {
+  return (
+    <>
+      <option value="random">{t("vj.blend.random")}</option>
+      {blendOptions(t)}
+    </>
+  );
+}
+/** The Select value and the edit for a layer's transition mode, Random being its own entry. */
+const transitionValue = (layer: VjLayer) => (layer.transitionRandom ? "random" : (layer.transitionEffect ?? "alpha"));
+const transitionEdit = (layer: VjLayer, value: string): VjOp =>
+  value === "random"
+    ? { op: "layerTransitionEffect", layer: layer.id, effect: layer.transitionEffect ?? "alpha", random: true }
+    : { op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend };
 const AUTOPILOTS: VjAutopilot[] = ["off", "next", "previous", "random"];
 const PLAYBACKS: VjPlayback[] = ["loop", "once", "pingPong"];
 const MEDIA_KINDS: MediaKind[] = ["all", "video", "image"];
@@ -418,10 +433,10 @@ function LayerHeader({ grid, layer }: { grid: VjGrid; layer: VjLayer }) {
       <div className="vj-tcol">
         <Fader letter="T" map={{ kind: "layerTransition", layer: layer.id }} label={t("vj.fader.transition")} value={(layer.transition ?? 0) / MAX_TRANSITION}
           progress={transition} {...level("layerTransition", MAX_TRANSITION)} />
-        <Select className="vj-select short" value={layer.transitionEffect ?? "alpha"} title={t("vj.layer.transitionEffect")}
+        <Select className="vj-select short" value={transitionValue(layer)} title={t("vj.layer.transitionEffect")}
           aria-label={t("vj.layer.transitionEffect")}
-          onChange={(value) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend })}>
-          {blendOptions(t)}
+          onChange={(value) => void edit(transitionEdit(layer, value))}>
+          {transitionOptions(t)}
         </Select>
       </div>
       {nameRow}
@@ -998,9 +1013,9 @@ function Inspector({ grid, tab }: { grid: VjGrid; tab: InspectorTab }) {
             </Select>
           </label>
           <label className="vj-f"><span>{t("vj.layer.transitionEffect")}</span>
-            <Select className="vj-select wide" value={layer.transitionEffect ?? "alpha"}
-              onChange={(value) => void edit({ op: "layerTransitionEffect", layer: layer.id, effect: value as VjBlend })}>
-              {blendOptions(t)}
+            <Select className="vj-select wide" value={transitionValue(layer)}
+              onChange={(value) => void edit(transitionEdit(layer, value))}>
+              {transitionOptions(t)}
             </Select>
           </label>
           <div className="vj-f" {...mappable({ kind: "layerAutopilot", layer: layer.id })}><span>{t("vj.layer.autopilot")}</span>

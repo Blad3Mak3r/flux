@@ -1133,6 +1133,7 @@ export const en = {
   "vj.fader.video": "Video",
   "vj.fader.transition": "Transition between clips",
   "vj.fader.reset": "Right-click: reset",
+  "vj.blend.random": "Random",
   "vj.blend.alpha": "Alpha",
   "vj.blend.add": "Add",
   "vj.blend.subtract": "Subtract",

@@ -162,6 +162,8 @@ export interface VjLayer {
   transition?: number;
   /** Absent is `alpha`. */
   transitionEffect?: VjBlend;
+  /** Each transition picks its own blend; absent is off. */
+  transitionRandom?: boolean;
   /** What the layer launches when its clip ends a pass; absent is `off`. */
   autopilot?: VjAutopilot;
   /** The crossfader side; absent is neither. */
